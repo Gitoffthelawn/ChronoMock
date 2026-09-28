@@ -748,7 +748,7 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
     // parent verdict as a fallback for an older core, then nothing.
     if let Some((reason_key, lived_ms)) = &r.vanished {
         out.push_str("  verdict:  DID NOT TAKE EFFECT - the target vanished right after injection\n");
-        out.push_str(&format!("            ({}; lived {lived_ms} ms)\n", vanish_detail(reason_key)));
+        out.push_str(&format!("            ({}, lived {lived_ms} ms)\n", vanish_detail(reason_key)));
     } else if let Some((verdict, reason_key, count)) = &r.session_verdict {
         out.push_str(&format!(
             "  verdict:  {}  ({units}: {count}{}{})\n",
@@ -1126,7 +1126,7 @@ mod tests {
         };
         let out = render_report(&r);
         assert!(out.contains("DID NOT TAKE EFFECT"), "got:\n{out}");
-        assert!(out.contains("(target.some_future_reason; lived 40 ms)"), "got:\n{out}");
+        assert!(out.contains("(target.some_future_reason, lived 40 ms)"), "got:\n{out}");
         assert!(!out.contains("single-instance"), "got:\n{out}");
     }
 
@@ -1144,6 +1144,8 @@ mod tests {
         for key in ["moment.needs_calendar", "moment.unsupported_kind"] {
             assert!(describe_error(key).contains("not made"), "{key}");
         }
+        // The line sent in place of an event that could not be written says what is missing.
+        assert!(describe_error("proto.serialize_failed").contains("may be missing"));
     }
 
     /// The processes the session went on for stand under the line that says the target closed, named

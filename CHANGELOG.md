@@ -153,8 +153,8 @@ Notable changes to Chrono Mock, newest first. The format follows
   (two keys that leave the session running, two that end it) and the key sent in place of a message
   the core could not write showed up as bare keys such as `moment.needs_calendar`. Each now says
   what happened and whether the session went on. A target that vanished for a reason this version does
-  not know was described as a suspected single-instance application, the only known cause, and is
-  now shown by its key alone. The key sent in place of a message the core could not write had no
+  not know was described as a suspected single-instance application, whatever the reason was, and
+  is now shown by its key alone. The key sent in place of a message the core could not write had no
   text in the application either, and has one now.
 
 ## [0.3.0] - 2026-09-22

@@ -205,11 +205,18 @@ fn gloss_bodies(report: &str) -> String {
 /// Whether `key` is a match arm pattern in `bodies`: `"key" =>`, or one alternative of `"a" | "b" =>`.
 /// What follows the key decides it - every alternative is followed by either `|` or `=>`, the last
 /// one included - so a key that only appears as an arm's VALUE is not taken for a pattern.
+///
+/// An arm whose text is empty is not a gloss either: every one of these functions treats "" as "no
+/// words for this key" and prints the key raw, so `"key" => ""` would have passed this scan while the
+/// report said exactly what it said with no arm at all.
 fn has_arm(bodies: &str, key: &str) -> bool {
     let quoted = format!("\"{key}\"");
     bodies.match_indices(&quoted).any(|(at, _)| {
         let after = bodies[at + quoted.len()..].trim_start();
-        after.starts_with("=>") || after.starts_with('|')
+        match after.strip_prefix("=>") {
+            Some(value) => !value.trim_start().starts_with("\"\""),
+            None => after.starts_with('|'),
+        }
     })
 }
 
@@ -404,9 +411,10 @@ fn the_key_scan_reads_keys_inside_raw_json_strings() {
 /// that is only an arm's value is not a pattern.
 #[test]
 fn an_arm_is_a_match_pattern_not_a_mention() {
-    let bodies = "match k {\n \"a.one\" => \"x\",\n \"a.two\" | \"a.three\" => {\n \"y\"\n }\n _ => \"a.four\",\n}\n";
+    let bodies = "match k {\n \"a.one\" => \"x\",\n \"a.two\" | \"a.three\" => {\n \"y\"\n }\n \"a.five\" => \"\",\n _ => \"a.four\",\n}\n";
     for key in ["a.one", "a.two", "a.three"] {
         assert!(has_arm(bodies, key), "{key}");
     }
     assert!(!has_arm(bodies, "a.four"), "a key in an arm's VALUE is not an arm");
+    assert!(!has_arm(bodies, "a.five"), "an arm with no words prints the key raw, so it is not a gloss");
 }
