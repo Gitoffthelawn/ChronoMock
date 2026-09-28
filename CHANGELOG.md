@@ -41,6 +41,16 @@ Notable changes to Chrono Mock, newest first. The format follows
   fail. A session with timers sped up now says so whenever the application opened a network
   connection, right under the line saying that waits on system objects stay on the real clock.
 
+### Changed
+
+- **The core checks a Chromium or Electron start the way it checks a native one.** A mistyped time
+  mode used to run as flow at real speed, a speed outside 0 to 1,000,000 was accepted or turned into
+  x1, and a speed of 0 ran at x1 where a native session froze. The same start is now refused with the
+  same key as a native one, and 0 freezes the clock in both. A protocol `start` without
+  `tz_bias_min` is refused with `time.bad_zone` instead of being read as UTC, and an absolute `jump`
+  without one is read in the session zone rather than in UTC. Chrono Mock's own window and command
+  line always send the zone, so only other clients of the protocol see this.
+
 ### Fixed
 
 - **A batch script as the target lost its arguments, or never started.** Windows starts the command
@@ -165,6 +175,16 @@ Notable changes to Chrono Mock, newest first. The format follows
   its fields (`2026-+1-05`, or `+23:59:59` in a set-time step), were read as valid and are refused
   now. A business-day step past 1,000,000 days was reported as a number too large to compute, and
   now names the limit instead (`calc.business_days_limit`).
+- **Session dates outside the supported range, and time zones outside it.** A session could start
+  past the last date the fake clock can hold, 30828-09-13 11:48:05 UTC. Once the clock stood there
+  at a high speed, the next speed change or relative jump sent the application back to 1601-01-01.
+  A jump by a fixed amount had no limit at all, so `-300000d` parked the clock on 1601 without a
+  word. A moment just inside 1601 in UTC but before it in the session zone was accepted, and the
+  application's local time then showed the real date. Each of these is now refused before it takes
+  effect, with `moment.out_of_range`, and a refused jump leaves the session running as it was. A
+  time zone outside -14:59 to +14:59 sent over the protocol reached the application unchecked and is
+  refused now (`time.bad_zone`). A Chromium or Electron session ran on past the end of the range,
+  its pages with it, and now stops there like a native one and says so (`time.fake_clock_clamped`).
 
 ## [0.3.0] - 2026-09-22
 

@@ -4,13 +4,16 @@
 //! round-trip, and shared with the shim so the two cannot drift: every context is shimmed from this
 //! clock's CURRENT origin, not from the session's initial values.
 
+use std::cell::Cell;
+
 use chrono_core::calc::{Base, EvalContext, MomentExpr};
+use chrono_core::TimeMode;
 use chrono_proto::{Clock, Event, MomentSpec, TimeSpec, PROTOCOL_VERSION};
 
 use crate::cdp_attach::ShimOrigin;
-use crate::events::jump_error_key;
+use crate::events::{jump_error_key, moment_error_key, start_time_mode};
 use crate::grammar::parse_shift;
-use crate::zone::{epoch_ms_to_wall, moment_epoch_ms, FT_UNIX_EPOCH};
+use crate::zone::{epoch_ms_to_wall, moment_epoch_ms, FT_UNIX_EPOCH, WALL_MAX_MS, WALL_MIN_MS};
 
 /// The live clock of a CDP session, computed entirely Rust-side so the panel matches the app's own
 /// `Date.now()` with no browser round-trip. The wall origin (`wall_fake0` at `wall_real0`, rate `mult`)
@@ -26,6 +29,9 @@ pub(crate) struct CdpClock {
     session_real0: i64,
     dur_fake_accum: i64,
     dur_real0: i64,
+    /// Whether the wall has been seen standing at [`WALL_MAX_MS`]. Set where the wall is read, so a
+    /// heartbeat, a query or a rate change that found it there is remembered after a jump back.
+    reached_end: Cell<bool>,
 }
 
 impl CdpClock {
@@ -38,6 +44,7 @@ impl CdpClock {
             session_real0: real0_ms,
             dur_fake_accum: 0,
             dur_real0: real0_ms,
+            reached_end: Cell::new(false),
         }
     }
 
@@ -48,7 +55,25 @@ impl CdpClock {
         // release `overflow-checks`, so an unsaturated add here panics the core mid-session (R2-W2) -
         // and a panicking CDP core never runs its shutdown, leaving a launched Chromium with an open
         // debug port and a temp profile behind. Defence in depth behind the multiplier bound.
-        self.wall_fake0.saturating_add((now - self.wall_real0).saturating_mul(self.mult))
+        //
+        // Then clamped where the native clock clamps (R4-S8). Unclamped, this clock ran on past year
+        // 30828 into instants no `state` event could name, while the hook, holding a host at the same
+        // moment, stopped - and the report said nothing, where the native session says
+        // `time.fake_clock_clamped`.
+        let wall = self
+            .wall_fake0
+            .saturating_add((now - self.wall_real0).saturating_mul(self.mult))
+            .clamp(WALL_MIN_MS, WALL_MAX_MS);
+        if wall == WALL_MAX_MS {
+            self.reached_end.set(true);
+        }
+        wall
+    }
+
+    /// Whether the wall stood at the end of its range at any point this clock was read, or stands
+    /// there at `now` - the Chromium side of `time.fake_clock_clamped`.
+    pub(crate) fn reached_range_end(&self, now: i64) -> bool {
+        self.fake_wall_ms(now) == WALL_MAX_MS || self.reached_end.get()
     }
 
     /// Fake duration elapsed (the integral of the rate): the accumulator plus the current segment. A
@@ -104,18 +129,26 @@ impl CdpClock {
     ///
     /// The zone the moment is read in is the SESSION's, carried on the moment itself, so the same
     /// wall text under two biases is two different instants (untouchable rule 2).
+    ///
+    /// Checked by the same gate as the native start, in the same order - mode, zone, moment (R4-S9).
+    /// This path used to read the mode on its own and take the zone as it came, so a mistyped mode ran
+    /// as flow, a rate out of range was taken or turned into x1, and a missing zone read as UTC.
     pub(crate) fn from_time_spec(time: &TimeSpec, real_now_ms: i64) -> Result<Self, &'static str> {
-        let bias = time.moment.tz_bias_min.unwrap_or(0);
-        let fake_start_ms = match time.moment.local.as_deref() {
-            Some(local) => moment_epoch_ms(local, time.moment.tz_bias_min).ok_or("moment.invalid")?,
-            None => real_now_ms, // no --at: the fake clock starts at real now (pure offset/acceleration)
-        };
         // flow = x1 (a plain wall offset), xN accelerates, frozen = x0 (the wall is held - the shim keeps
-        // timers real via TS = M || 1).
-        let mult = match time.mode.as_str() {
-            "multiplier" => time.multiplier.unwrap_or(1).max(1),
-            "frozen" => 0,
-            _ => 1,
+        // timers real via TS = M || 1). A multiplier of 0 is freeze, as it is natively and in flight.
+        let mult = match start_time_mode(time)? {
+            TimeMode::Flow => 1,
+            TimeMode::Frozen => 0,
+            TimeMode::Multiplier(m) => m,
+        };
+        let bias = time
+            .moment
+            .tz_bias_min
+            .filter(|&b| chrono_core::zone_bias_in_range(b))
+            .ok_or("time.bad_zone")?;
+        let fake_start_ms = match time.moment.local.as_deref() {
+            Some(local) => moment_epoch_ms(local, bias).map_err(|e| moment_error_key(&e))?,
+            None => real_now_ms, // no --at: the fake clock starts at real now (pure offset/acceleration)
         };
         Ok(CdpClock::new(fake_start_ms, real_now_ms, mult, bias))
     }
@@ -200,9 +233,15 @@ pub(crate) fn cdp_jump_expr(fake0: i64, real0: i64) -> String {
     )
 }
 
-/// Resolve a CDP jump target to a fake epoch-ms instant: an absolute moment in the session zone, or a
-/// relative delta applied to the CURRENT fake instant through the shared calc evaluator (the same
-/// grammar as `calc` and the native jump). Returns a translation key on a bad moment (rule 6).
+/// Resolve a CDP jump target to a fake epoch-ms instant: an absolute moment in the zone it names (the
+/// session zone when it names none), or a relative delta applied to the CURRENT fake instant through
+/// the shared calc evaluator (the same grammar as `calc` and the native jump). Both go through the
+/// session gate, so a jump cannot land where a start could not (R4-S7). Returns a translation key on a
+/// bad moment (rule 6).
+///
+/// An absolute target that NAMED a zone used to be read in the session zone regardless, while the
+/// native session read it in the zone it named - one command, two instants depending on the
+/// mechanism. The built-in clients always name the session zone, so neither of them saw it.
 pub(crate) fn cdp_resolve_jump(clock: &CdpClock, to: &MomentSpec, now: i64) -> Result<i64, &'static str> {
     if to.kind == "relative" {
         let delta = to.delta.as_deref().ok_or("moment.invalid")?;
@@ -215,10 +254,10 @@ pub(crate) fn cdp_resolve_jump(clock: &CdpClock, to: &MomentSpec, now: i64) -> R
             &EvalContext { now: cur_civil, zone_bias_min: 0, calendar: None },
         )
         .map_err(jump_error_key)?;
-        moment_epoch_ms(&outcome.result().to_iso(), Some(clock.bias)).ok_or("moment.invalid")
+        moment_epoch_ms(&outcome.result().to_iso(), clock.bias).map_err(|e| moment_error_key(&e))
     } else {
         let local = to.local.as_deref().ok_or("moment.invalid")?;
-        moment_epoch_ms(local, Some(clock.bias)).ok_or("moment.invalid")
+        moment_epoch_ms(local, to.tz_bias_min.unwrap_or(clock.bias)).map_err(|e| moment_error_key(&e))
     }
 }
 
@@ -263,15 +302,34 @@ mod tests {
         // R2-W2: `chrono-cli` keeps the workspace's release overflow-checks, so an unsaturated add
         // panics the core mid-session - and a panicking CDP core never runs its shutdown, leaving a
         // launched Chromium with an open debug port and a temp profile behind. The multiplier bound
-        // makes this unreachable from either surface - this is the layer behind it.
+        // makes this unreachable from either surface - this is the layer behind it. The wall then
+        // stands at the end of the session range, as the native one does (R4-S8).
         let c = CdpClock::new(i64::MAX - 1, 0, chrono_core::MULTIPLIER_MAX, 0);
-        assert_eq!(c.fake_wall_ms(i64::MAX), i64::MAX);
+        assert_eq!(c.fake_wall_ms(i64::MAX), WALL_MAX_MS);
         assert_eq!(c.elapsed_fake_ms(i64::MAX), i64::MAX);
 
         let mut m = CdpClock::new(i64::MAX - 1, 0, chrono_core::MULTIPLIER_MAX, 0);
         let (fake0, _, mult) = m.set_multiplier_at(1, i64::MAX);
-        assert_eq!(fake0, i64::MAX);
+        assert_eq!(fake0, WALL_MAX_MS);
         assert_eq!(mult, 1);
+    }
+
+    /// R4-S8: the wall stops where the native clock stops and the clock remembers it did, so the end
+    /// report can say `time.fake_clock_clamped` - also after a jump took it back into the range.
+    #[test]
+    fn the_wall_stands_at_the_end_of_the_range_and_says_so() {
+        // The last instant is the native clamp, 30828-09-13T11:48:05Z, as epoch ms.
+        assert_eq!(epoch_ms_to_wall(WALL_MAX_MS, 0), "30828-09-13T11:48:05");
+        let mut c = CdpClock::new(WALL_MAX_MS - 1_000, 0, chrono_core::MULTIPLIER_MAX, 0);
+        assert!(!c.reached_range_end(0), "one second short of the end is not the end");
+        assert_eq!(c.fake_wall_ms(1), WALL_MAX_MS, "a millisecond at x1e6 is past it");
+        assert_eq!(c.fake_wall_ms(10_000), WALL_MAX_MS, "and the wall stays there");
+        c.jump_to_at(0, 10_000);
+        assert!(c.fake_wall_ms(10_000) < WALL_MAX_MS);
+        assert!(c.reached_range_end(10_000), "a clock that stood at the end is reported after a jump back");
+        // A clock that never got there says nothing.
+        let ordinary = CdpClock::new(1_000_000, 0, 60, 0);
+        assert!(!ordinary.reached_range_end(10_000));
     }
 
     #[test]
@@ -355,20 +413,70 @@ mod tests {
     /// which is what makes `chrono run app.exe --mode x60` mean "faster, same date".
     #[test]
     fn no_moment_starts_the_fake_clock_at_real_now() {
-        let clock = CdpClock::from_time_spec(&spec(None, None, "flow", None), 1_700_000_000_000).unwrap();
+        let clock = CdpClock::from_time_spec(&spec(None, Some(0), "flow", None), 1_700_000_000_000).unwrap();
         assert_eq!(clock.fake_wall_ms(1_700_000_000_000), 1_700_000_000_000);
     }
 
-    /// The wire's mode becomes the rate the shim runs at, including the floor on an accelerated rate.
+    /// The wire's mode becomes the rate the shim runs at. A multiplier of 0 is freeze, the same as the
+    /// native session and `set_multiplier` - it used to be floored to x1 here, so one start command
+    /// froze a native application and ran a Chromium one at real speed.
     #[test]
     fn the_mode_becomes_the_rate_the_shim_runs_at() {
         let rate = |mode: &str, m: Option<i64>| {
-            CdpClock::from_time_spec(&spec(None, None, mode, m), 0).unwrap().shim_origin().mult
+            CdpClock::from_time_spec(&spec(None, Some(0), mode, m), 0).unwrap().shim_origin().mult
         };
         assert_eq!(rate("flow", None), 1);
         assert_eq!(rate("frozen", None), 0);
         assert_eq!(rate("multiplier", Some(60)), 60);
-        assert_eq!(rate("multiplier", Some(0)), 1, "an accelerated session never runs slower than real");
+        assert_eq!(rate("multiplier", None), 1);
+        assert_eq!(rate("multiplier", Some(0)), 0, "zero is freeze on every path");
+    }
+
+    /// R4-S9: the Chromium start goes through the gate the native one does, and gets the same keys.
+    #[test]
+    fn a_chromium_start_is_held_to_the_native_gate() {
+        let refusal = |s: TimeSpec| CdpClock::from_time_spec(&s, 0).err();
+        assert_eq!(refusal(spec(None, Some(0), "flwo", None)), Some("time.bad_mode"));
+        assert_eq!(refusal(spec(None, Some(0), "multiplier", Some(-1))), Some("time.bad_multiplier"));
+        assert_eq!(
+            refusal(spec(None, Some(0), "multiplier", Some(chrono_core::MULTIPLIER_MAX + 1))),
+            Some("time.bad_multiplier")
+        );
+        assert_eq!(refusal(spec(None, None, "flow", None)), Some("time.bad_zone"), "a session never guesses a zone");
+        assert_eq!(refusal(spec(None, Some(900), "flow", None)), Some("time.bad_zone"));
+        assert_eq!(refusal(spec(None, Some(i32::MIN), "flow", None)), Some("time.bad_zone"));
+        assert_eq!(refusal(spec(Some("30828-09-14T04:00:00"), Some(-120), "flow", None)), Some("moment.out_of_range"));
+        assert_eq!(refusal(spec(Some("1600-12-31T20:00:00"), Some(300), "flow", None)), Some("moment.out_of_range"));
+        assert_eq!(refusal(spec(Some("2030-06-15T12:00:00"), Some(899), "flow", None)), None);
+    }
+
+    fn jump_to(local: Option<&str>, bias: Option<i32>, delta: Option<&str>) -> MomentSpec {
+        MomentSpec {
+            kind: if delta.is_some() { "relative" } else { "absolute" }.into(),
+            local: local.map(str::to_string),
+            tz_bias_min: bias,
+            delta: delta.map(str::to_string),
+        }
+    }
+
+    /// R4-S9 and R4-S7 on the Chromium jump: no zone means the session zone, a named zone is kept,
+    /// and a target outside the session range is refused, whichever way it was written.
+    #[test]
+    fn a_chromium_jump_reads_its_zone_like_the_native_one_and_stays_in_range() {
+        let session_east2 = CdpClock::new(0, 0, 1, -120);
+        let at = |bias: i32| moment_epoch_ms("2030-06-15T12:00:00", bias).unwrap();
+        assert_eq!(cdp_resolve_jump(&session_east2, &jump_to(Some("2030-06-15T12:00:00"), None, None), 0), Ok(at(-120)));
+        assert_eq!(cdp_resolve_jump(&session_east2, &jump_to(Some("2030-06-15T12:00:00"), Some(0), None), 0), Ok(at(0)));
+        assert_eq!(
+            cdp_resolve_jump(&session_east2, &jump_to(Some("2030-06-15T12:00:00"), Some(900), None), 0),
+            Err("time.bad_zone")
+        );
+        assert_eq!(
+            cdp_resolve_jump(&session_east2, &jump_to(Some("1000-01-01T00:00:00"), None, None), 0),
+            Err("moment.out_of_range")
+        );
+        // The report's relative example: three hundred thousand days back from 1970.
+        assert_eq!(cdp_resolve_jump(&session_east2, &jump_to(None, None, Some("-300000d")), 0), Err("moment.out_of_range"));
     }
 
     /// Untouchable rule 2: the same wall text under two session zones is two different instants, and

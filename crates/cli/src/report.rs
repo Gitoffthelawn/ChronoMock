@@ -205,6 +205,13 @@ pub(crate) fn describe_error(key: &str) -> &'static str {
         }
         "target.attach_failed" => "the target could not be attached to (Chromium/Electron, CDP)",
         "moment.invalid" => "the requested moment is not a valid date and time",
+        // Both answer a start AND a jump, so neither says which of the two did not happen.
+        "moment.out_of_range" => {
+            "that date is outside the range a session can represent (years 1601 to 30828), so it was not used"
+        }
+        "time.bad_zone" => {
+            "the time zone sent to the core is missing or outside the range it accepts (-14:59 to +14:59)"
+        }
         "time.bad_mode" => "the requested time mode is not one this core knows",
         "time.bad_multiplier" => "the requested speed is outside the range this core accepts",
         "protocol.version_mismatch" => "the client and the core speak different protocol versions",

@@ -76,13 +76,14 @@ pub(crate) fn verdict_keys(verdict: &Verdict) -> (&'static str, &'static str) {
 /// What a finished CDP session has to say about itself beyond the coverage numbers.
 ///
 /// The launch is invasive by construction (our own profile, a debug port), so that one is always
-/// said. The other two are honest caveats rather than failures, and both would be invisible to the
-/// reader if they were left out (rule 6).
+/// said. The others are honest caveats rather than failures, and each would be invisible to the
+/// reader if it were left out (rule 6).
 pub(crate) fn session_warnings(
     app_closed: bool,
     audited: bool,
     rate_changed_in_flight: bool,
     context_ceiling_reached: bool,
+    clock_clamped: bool,
 ) -> Vec<String> {
     let mut warnings = vec!["chromium.launched_with_debug_port".to_string()];
     if app_closed && !audited {
@@ -99,6 +100,11 @@ pub(crate) fn session_warnings(
         // the real clock and have no row in the audit - the verdict already counts them as uncovered,
         // and this says why (rule 4).
         warnings.push("chromium.context_ceiling_reached".to_string());
+    }
+    if clock_clamped {
+        // The same key the native session uses (R4-S8): the wall reached the last instant it can hold
+        // and stood there, so later readings are not what the chosen speed would have produced.
+        warnings.push("time.fake_clock_clamped".to_string());
     }
     warnings
 }
@@ -323,19 +329,24 @@ mod tests {
     /// so, because those ran on the real clock with no row in the audit (rule 4).
     #[test]
     fn the_session_warnings_say_only_what_happened() {
-        assert_eq!(session_warnings(false, true, false, false), vec!["chromium.launched_with_debug_port"]);
+        assert_eq!(session_warnings(false, true, false, false, false), vec!["chromium.launched_with_debug_port"]);
         assert_eq!(
-            session_warnings(true, false, false, false),
+            session_warnings(true, false, false, false, false),
             vec!["chromium.launched_with_debug_port", "chromium.app_closed_before_audit"]
         );
         assert_eq!(
-            session_warnings(false, true, false, true),
+            session_warnings(false, true, false, true, false),
             vec!["chromium.launched_with_debug_port", "chromium.context_ceiling_reached"]
         );
         assert_eq!(
-            session_warnings(true, true, true, false),
+            session_warnings(true, true, true, false, false),
             vec!["chromium.launched_with_debug_port", "chromium.rate_change_affects_running_timers"],
             "an app that closed AFTER being audited has nothing to apologise for"
+        );
+        assert_eq!(
+            session_warnings(false, true, false, false, true),
+            vec!["chromium.launched_with_debug_port", "time.fake_clock_clamped"],
+            "a clock that stood at the end of its range says so, as it does natively (R4-S8)"
         );
     }
 }

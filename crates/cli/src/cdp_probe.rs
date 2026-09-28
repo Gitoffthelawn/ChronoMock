@@ -9,7 +9,7 @@
 
 
 use crate::cdp;
-use crate::zone::{moment_epoch_ms, now_epoch_ms};
+use crate::zone::{moment_epoch_ms, now_epoch_ms, WALL_MAX_MS};
 /// Hidden probe (CDP slice C1 verification): connect to a running Chromium/Electron debug port and
 /// print what CDP sees. Not a user command - it proves the WebSocket + JSON-RPC transport against a
 /// real target before the launch, shim, and report wiring are built on top.
@@ -142,7 +142,7 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
 
     // Pure acceleration for the proof: fake start = real start (the absolute wall moment is C5).
     let now = now_epoch_ms();
-    let shim = cdp::build_shim(now, now, mult, mult);
+    let shim = cdp::build_shim(now, now, mult, mult, WALL_MAX_MS);
     println!("multiplier: x{mult}, injecting shim into all contexts...");
 
     if let Err(e) = client.call(
@@ -247,8 +247,14 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
         return 1;
     }
     let real = now_epoch_ms();
-    let fake = moment_epoch_ms(iso, Some(0)).unwrap_or(real); // the probe treats the moment as UTC
-    let shim = cdp::build_shim(fake, real, 1, 1); // flow: a wall offset, no acceleration
+    // The probe treats the moment as UTC. A moment the session gate refuses is refused here too,
+    // as `__cdp-embedded` does: falling back to the real clock printed "requested moment" beside a
+    // page that read the real date, which looked like a shim that failed.
+    let Ok(fake) = moment_epoch_ms(iso, 0) else {
+        eprintln!("chrono: not a moment a session can run at: {iso}");
+        return 1;
+    };
+    let shim = cdp::build_shim(fake, real, 1, 1, WALL_MAX_MS); // flow: a wall offset, no acceleration
 
     let launched = match cdp::launch_chromium(target, &[], None, || {}) {
         Ok(l) => l,
@@ -346,6 +352,24 @@ pub(crate) fn probe_target_line(label: &str, ty: &str, url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A moment outside what a session can hold is refused before anything starts. The target is a
+    /// folder that looks like a Chromium build (the two files `is_chromium_target` asks for) with no
+    /// program in it, so the answer tells the two paths apart: 1 is the refusal, and 3 is what the
+    /// old fallback to the real clock gave once it went on and failed to launch.
+    #[test]
+    fn the_date_probe_refuses_a_moment_the_session_would_refuse() {
+        let dir = crate::testutil::unique_temp_dir("chrono-date-probe");
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        std::fs::write(dir.join("icudtl.dat"), b"").expect("a marker file");
+        std::fs::write(dir.join("snapshot_blob.bin"), b"").expect("a marker file");
+        let target = dir.join("missing.exe").display().to_string();
+        assert!(cdp::is_chromium_target(&target), "the fixture must take the Chromium path");
+
+        let code = cdp_date_probe(&[target, "1500-01-01T00:00:00".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(code, 1, "a moment before 1601 must be refused, not replaced by the real clock");
+    }
 
     /// S-20. The trim was `&url[..66]`, which panics when byte 66 lands inside a multi-byte character -
     /// and a debug URL can carry a profile path with a non-ASCII user name. Only the hidden probes print

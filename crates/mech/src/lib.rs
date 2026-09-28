@@ -83,7 +83,8 @@ pub struct Target<'a> {
 /// origin (zasady/06 section 9) - the caller maps it to a protocol error key.
 #[derive(Debug)]
 pub enum PrepareError {
-    Moment(String),
+    /// The moment or its zone cannot be a session clock (`chrono_core::session_instant`).
+    Moment(chrono_core::SessionMomentError),
     Control(String),
     Launch(String),
     Inject(String),
@@ -279,6 +280,21 @@ pub fn project_fake_ft(anchor_fake: i64, anchor_real: i64, now_real: i64, multip
     chrono_ctl::fake_wall_at(anchor_fake, anchor_real, now_real, multiplier)
 }
 
+// The session range is stated twice: in `chrono-core`, which admits a moment and depends on nothing,
+// and in `chrono-ctl`, whose clamp the hook holds the clock to. This crate sees both, so it checks
+// them when it compiles - the gate that lets a moment in and the clamp that keeps it cannot drift
+// apart without the build failing (R4-S7, R4-S9).
+const _: () = {
+    assert!(
+        chrono_core::FAKE_WALL_MAX == chrono_ctl::FAKE_WALL_MAX,
+        "the last instant a session may start at must be the instant the hook clamps to"
+    );
+    assert!(
+        (chrono_core::ZONE_BIAS_MAX_MIN as i64) * 60 * 10_000_000 <= chrono_ctl::MAX_ZONE_BIAS_TICKS,
+        "every zone the session accepts must fit the headroom the clamp leaves for the local-time channels"
+    );
+};
+
 impl SessionState {
     /// Whether the fake wall clock is standing on the last instant this build can represent. The
     /// session is then doing less than it promised - the clock has stopped while fake time is still
@@ -412,7 +428,11 @@ impl Session {
         // Bank the fake time spent at the OLD rate before the new one starts, so elapsed stays an
         // integral over the whole session instead of being rescaled by whatever the latest rate is.
         self.close_rate_segment(now, cur_m);
-        let fake_now = a_fake.wrapping_add(now.wrapping_sub(a_real).wrapping_mul(cur_m));
+        // The same clamped projection the hook serves and `state` reports (R4-S7a). A wrapping one
+        // here re-anchored a clock standing at the end of the range on a NEGATIVE instant once enough
+        // real time had passed at the maximum rate, and the projection then clamps that to 1601-01-01:
+        // the next rate change sent the target back sixteen centuries.
+        let fake_now = project_fake_ft(a_fake, a_real, now, cur_m);
         let (dur_tick_c0, dur_quit_c0, dur_q0, _) = unsafe { read_dur(self.ctl()) };
         let (frozen_tick, frozen_quit) = freeze_dur(dur_tick_c0, dur_quit_c0, dur_q0, cur_m, now);
         // Freeze the QPC axis at the OLD multiplier too, then re-anchor at the current real QPC, so a
@@ -443,6 +463,12 @@ impl Session {
         unsafe { write_anchor(self.ctl_mut(), to_ft, now, cur_m) };
     }
 
+    /// The session zone bias in minutes (UTC = local + bias) - the zone a jump that names none is
+    /// read in, like every other moment of this session (untouchable rule 2).
+    pub fn tz_bias(&self) -> i32 {
+        self.tz_bias
+    }
+
     /// Jump the wall clock by ONE shift step from its CURRENT fake value, keeping the
     /// multiplier. Fixed-length units add a tick delta (sub-second precision preserved) -
     /// calendar units (months/quarters/years) fold through the civil date in the session
@@ -455,7 +481,8 @@ impl Session {
     ) -> Result<(), chrono_core::calc::EvalError> {
         let now = quit_now();
         let (a_fake, a_real, cur_m) = unsafe { read_anchor(self.ctl()) };
-        let fake_now = a_fake.wrapping_add(now.wrapping_sub(a_real).wrapping_mul(cur_m));
+        // From the clock the target actually reads, clamp included - see `set_multiplier` (R4-S7a).
+        let fake_now = project_fake_ft(a_fake, a_real, now, cur_m);
         let target = chrono_core::calc::step_target(fake_now, self.tz_bias, step)?;
         unsafe { write_anchor(self.ctl_mut(), target, now, cur_m) };
         Ok(())
@@ -1142,8 +1169,10 @@ unsafe fn find_pid_slot(ctl: *const Ctl, pid: u32) -> Option<usize> { unsafe {
 
 /// Prepare and start a session on `target` using `spec`, injecting `hook_dll`.
 pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<Prepared, PrepareError> {
-    let a_fake = chrono_core::moment_to_filetime_utc(&spec.moment).map_err(PrepareError::Moment)?;
-    let tz_bias = spec.moment.tz_bias_min.unwrap_or(0);
+    // The session gate, not the plain conversion: a zone the hook's local channels cannot carry, or an
+    // instant outside the clock's range, is refused here as well as by the caller (R4-S7, R4-S9). The
+    // zone comes back from the same check, so there is no default left to fall back on.
+    let (a_fake, tz_bias) = chrono_core::session_instant(&spec.moment).map_err(PrepareError::Moment)?;
     let multiplier = match spec.mode {
         TimeMode::Flow => 1,
         TimeMode::Frozen => 0, // M = 0 holds the wall clock at a_fake

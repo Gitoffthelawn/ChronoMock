@@ -20,7 +20,7 @@ use serde_json::json;
 
 use crate::cdp;
 use crate::cdp_audit::context_index_for;
-use crate::zone::now_epoch_ms;
+use crate::zone::{now_epoch_ms, WALL_MAX_MS};
 
 /// One shimmed JS context of a Chromium target: the coverage unit of a CDP session (rule 4 - never
 /// summed across contexts).
@@ -275,7 +275,7 @@ impl Attacher {
             self.resume(&sid);
             return;
         }
-        let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur);
+        let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur, WALL_MAX_MS);
         let injected = if cdp::is_worker(&ty) {
             cdp::inject_worker(&mut self.client, &sid, &shim)
         } else {
