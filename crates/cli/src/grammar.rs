@@ -89,6 +89,11 @@ pub(crate) fn parse_set_time(raw: &str) -> Result<Step, String> {
     if p.len() != 3 {
         return Err(format!("set-time must be HH:MM:SS, got '{raw}'"));
     }
+    // Digits only, for the reason `chrono_core::is_ascii_digits` gives: the parse alone took `+23` as
+    // an hour (R4-N34).
+    if !p.iter().all(|f| chrono_core::is_ascii_digits(f)) {
+        return Err(format!("set-time must be HH:MM:SS in digits, got '{raw}'"));
+    }
     let hour = p[0].parse().map_err(|_| format!("bad hour in set-time '{raw}'"))?;
     let minute = p[1].parse().map_err(|_| format!("bad minute in set-time '{raw}'"))?;
     let second = p[2].parse().map_err(|_| format!("bad second in set-time '{raw}'"))?;
@@ -134,6 +139,8 @@ mod tests {
         assert_eq!(parse_set_time("23:59:59").unwrap(), Step::SetTime { hour: 23, minute: 59, second: 59 });
         assert!(parse_set_time("23:59").is_err()); // wrong shape
         assert!(parse_set_time("aa:bb:cc").is_err()); // non-numeric
+        assert!(parse_set_time("+23:59:59").is_err()); // a sign the integer parse used to accept (R4-N34)
+        assert!(parse_set_time("23:+5:00").is_err());
     }
 
     #[test]

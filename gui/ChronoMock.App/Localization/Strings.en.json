@@ -675,8 +675,9 @@
   "calc.err.overflow": "The result runs past the range this version can compute - use a smaller shift.",
   "calc.err.bad_set_time": "The set-time step has an hour, minute or second outside its range.",
   "calc.err.year_out_of_range": "The result lands on a year outside the range this version computes on (-262143 to 262143).",
+  "calc.err.business_days_limit": "That step asks for more than 1,000,000 business days - the most the calculator counts.",
   "calc.err.base_overflow": "The UTC start point names an instant outside the range this version can represent.",
-  "calc.err.base_not_a_date": "The start point is not a real date - check its month and day.",
+  "calc.err.base_not_a_date": "The start point is not a real date and time - check its month, day and time of day.",
   "calc.err.analyze_unrecognized": "This is not a date format the analyser recognises. It reads ISO (2026-01-31), numeric dates with a four-digit year (01/31/2026), and a bare number as a Unix timestamp.",
   "calc.err.preset_not_for_calculator": "This scenario describes a session to run, not a date to compute.",
   // Two failures that are not the engine's: its answer arrived and was not usable. Rare, and worth saying

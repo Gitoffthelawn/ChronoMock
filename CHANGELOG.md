@@ -148,6 +148,15 @@ Notable changes to Chrono Mock, newest first. The format follows
   waits on system objects never showed in the audit either, and a sleep taken that way was
   shortened but counted under another function's name. All of these now follow the session and
   are counted where they are called, on both 32 and 64 bit.
+- **Edge values in the date calculator and in time zones.** `chrono calc --analyze` with the largest
+  64-bit number, a common "never expires" value, crashed with exit 101 on a computer east of UTC.
+  It is now refused like any other number outside the supported years, with exit 1. A Chromium or
+  Electron session whose fake clock stood at the end of the supported range, year 30828, crashed the
+  same way east of UTC and left the application behind with its debugging port open. It no longer
+  crashes. A time zone such as `++05:00` or `+05:+30`, and a date or time with a sign inside one of
+  its fields (`2026-+1-05`, or `+23:59:59` in a set-time step), were read as valid and are refused
+  now. A business-day step past 1,000,000 days was reported as a number too large to compute, and
+  now names the limit instead (`calc.business_days_limit`).
 
 ## [0.3.0] - 2026-09-22
 
