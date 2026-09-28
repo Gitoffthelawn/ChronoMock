@@ -17,6 +17,7 @@ use chrono_proto::{
 };
 
 use crate::cdp;
+use crate::output::diag;
 use crate::zone::{epoch_ms_to_wall, now_epoch_ms};
 use crate::events::{
     command_id, emit, ended_after_launch, ended_clean, unsupported_command,
@@ -88,7 +89,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                 key: "target.launch_failed".into(),
                 origin: "mechanism".into(),
             });
-            eprintln!("chrono core: {e}");
+            diag!("chrono core: {e}");
             emit(&ended_clean());
             return 2;
         }
@@ -113,7 +114,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                 key: "target.attach_failed".into(),
                 origin: "mechanism".into(),
             });
-            eprintln!("chrono core: cannot attach over CDP: {e}");
+            diag!("chrono core: cannot attach over CDP: {e}");
             emit(&ended_after_launch(residue));
             return 2;
         }

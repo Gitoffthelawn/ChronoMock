@@ -28,6 +28,7 @@ use crate::cdp_attach::{Attacher, AttacherOutcome, Pumped, ShimOrigin};
 use crate::cdp_clock::{cdp_jump_expr, cdp_release_expr, cdp_set_multiplier_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::engine_env;
+use crate::output::diag;
 
 /// How long a quiet engine socket may block one turn of the session loop, and how long a call to an
 /// engine waits for its reply. The client's own defaults (500 ms and 10 s) suit a loop that drives
@@ -222,7 +223,7 @@ impl EmbeddedBridge {
         match Discovery::start(family, launch.qt_port) {
             Ok(d) => bridge.discovery = Some(d),
             Err(e) => {
-                eprintln!("chrono core: the engine discovery thread did not start: {e}");
+                diag!("chrono core: the engine discovery thread did not start: {e}");
                 bridge.warn(KEY_DISCOVERY_UNAVAILABLE);
             }
         }
@@ -293,7 +294,7 @@ impl EmbeddedBridge {
                 }
                 Notice::PortTaken(_) => self.warn(KEY_QT_PORT_TAKEN),
                 Notice::Unavailable(why) => {
-                    eprintln!("chrono core: engine discovery stopped: {why}");
+                    diag!("chrono core: engine discovery stopped: {why}");
                     self.warn(KEY_DISCOVERY_UNAVAILABLE);
                     self.discovery = None;
                 }
@@ -315,7 +316,7 @@ impl EmbeddedBridge {
                 self.connecting.insert(port);
             }
             Err(e) => {
-                eprintln!("chrono core: cannot start a thread to reach the engine on port {port}: {e}");
+                diag!("chrono core: cannot start a thread to reach the engine on port {port}: {e}");
                 self.warn(KEY_ENGINE_UNREACHABLE);
             }
         }
@@ -329,14 +330,14 @@ impl EmbeddedBridge {
                     // Budgets that keep the loop's cadence, and the probe that keeps a page the hook
                     // already covers from being shimmed a second time.
                     if let Err(e) = attacher.set_budgets(POLL, CALL) {
-                        eprintln!("chrono core: engine on port {}: {e}", found.port);
+                        diag!("chrono core: engine on port {}: {e}", found.port);
                     }
                     attacher.probe_clock_before_shim();
                     if self.pushed.is_none() {
                         self.pushed = Some(origin);
                     }
                     if let Err(e) = attacher.attach_existing(origin, &mut self.next_index) {
-                        eprintln!("chrono core: engine on port {}: {e}", found.port);
+                        diag!("chrono core: engine on port {}: {e}", found.port);
                     }
                     self.reached = true;
                     self.engines.push(ReachedEngine { pid: found.pid, port: found.port, browser: found.browser });
@@ -344,7 +345,7 @@ impl EmbeddedBridge {
                 }
                 Ok((found, Err(e))) => {
                     self.connecting.remove(&found.port);
-                    eprintln!("chrono core: cannot reach the engine on port {}: {e}", found.port);
+                    diag!("chrono core: cannot reach the engine on port {}: {e}", found.port);
                     self.warn(KEY_ENGINE_UNREACHABLE);
                 }
                 Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => return,
@@ -435,7 +436,7 @@ impl EmbeddedBridge {
         };
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
-                eprintln!("chrono core: {} context(s) on port {} were already on the session clock natively", a.native(), a.port());
+                diag!("chrono core: {} context(s) on port {} were already on the session clock natively", a.native(), a.port());
             }
             a.into_outcome()
         });

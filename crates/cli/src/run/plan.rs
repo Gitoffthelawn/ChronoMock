@@ -27,6 +27,7 @@ use super::args::RunArgs;
 use super::moment::TimeOrigin;
 use crate::cdp;
 use crate::cli::this_bitness;
+use crate::output::{diag, out, outln};
 use crate::report::{describe_warning, detect_runtime_warnings, mode_label};
 use crate::zone::format_bias;
 
@@ -164,22 +165,22 @@ pub(super) fn dry_run(ra: &RunArgs, spec: &TimeSpec, origin: &TimeOrigin, now_bi
     };
 
     if ra.json {
-        println!("{}", render_json(&plan));
+        outln!("{}", render_json(&plan));
     } else {
-        print!("{}", render_plan(&plan));
+        out!("{}", render_plan(&plan));
     }
 
     if plan.target == TargetPath::Missing {
         // On stderr, where the rest of the driver's diagnostics go, so the plan on stdout stays one
         // clean document even when the run it describes could not happen.
-        eprintln!(
+        diag!(
             "chrono: there is no file named '{}' here, so this command would not start anything - a target is resolved as a path, never through PATH",
             ra.target
         );
         return 2;
     }
     if let TargetPath::NotAProgram(path) = &plan.target {
-        eprintln!(
+        diag!(
             "chrono: '{}' is not a program Windows can start - its header is missing, cut short or a library's, and it is not a batch script - so a real run would fail to launch it (exit 2)",
             path.display()
         );
@@ -191,7 +192,7 @@ pub(super) fn dry_run(ra: &RunArgs, spec: &TimeSpec, origin: &TimeOrigin, now_bi
         && chrono_mech::is_batch_script(Path::new(&ra.target))
         && let Some(problem) = chrono_mech::batch_launch_problem(&ra.target, &ra.args)
     {
-        eprintln!("chrono: {problem}, so a real run would refuse to start it (exit 2)");
+        diag!("chrono: {problem}, so a real run would refuse to start it (exit 2)");
         return 2;
     }
     0
@@ -442,7 +443,9 @@ struct ParameterJson<'a> {
 struct SessionJson<'a> {
     ticks: u64,
     timeout_secs: Option<u64>,
-    set_after: Option<[i64; 2]>,
+    /// `[tick, multiplier]`, each at its own width - one array of `i64` printed a tick past
+    /// `i64::MAX` as a negative number (R4-N22).
+    set_after: Option<(u64, i64)>,
     jump_after: Option<(u64, &'a str)>,
     force: bool,
     /// Whether the session is asked to reach the web pages inside the application through its
@@ -501,7 +504,7 @@ fn render_json(p: &Plan) -> String {
         session: SessionJson {
             ticks: p.ra.ticks,
             timeout_secs: p.ra.timeout_secs,
-            set_after: p.ra.set_after.map(|(tick, m)| [tick as i64, m]),
+            set_after: p.ra.set_after,
             jump_after: p.ra.jump_after.as_ref().map(|(tick, moment)| (*tick, moment.as_str())),
             force: p.ra.force,
             embedded: p.ra.embedded && !p.chromium,
@@ -576,6 +579,18 @@ mod tests {
                 assert_eq!(json["origin"]["kind"], "at");
             },
         );
+    }
+
+    /// A heartbeat number is a `u64` on the command line and stays one in the plan: squeezed into an
+    /// array of `i64` beside the multiplier, a tick past `i64::MAX` came out negative (R4-N22).
+    #[test]
+    fn a_set_after_tick_is_printed_as_it_was_given() {
+        let tick = u64::MAX.to_string();
+        plan_for(&["app.exe", "--at", "2038-01-19T03:14:07", "--set-after", &format!("{tick}:60")], |plan| {
+            let json: serde_json::Value = serde_json::from_str(&render_json(plan)).expect("valid JSON");
+            assert_eq!(json["session"]["set_after"], serde_json::json!([u64::MAX, 60]));
+            assert!(render_plan(plan).contains(&format!("at heartbeat {tick},")), "{}", render_plan(plan));
+        });
     }
 
     /// With no moment flag at all the session starts at the real current time, and the plan says which

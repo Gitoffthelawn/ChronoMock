@@ -185,6 +185,17 @@ Notable changes to Chrono Mock, newest first. The format follows
   time zone outside -14:59 to +14:59 sent over the protocol reached the application unchecked and is
   refused now (`time.bad_zone`). A Chromium or Electron session ran on past the end of the range,
   its pages with it, and now stops there like a native one and says so (`time.fake_clock_clamped`).
+- **A closed output crashed the tool.** `chrono version`, `chrono license`, `chrono calc`,
+  `chrono run --dry-run` and `chrono run` itself ended with exit 101 when nobody read what they
+  wrote - a pipe into a program that stops reading early, such as `| head -n 3`, or a closed error
+  stream. The core writes its diagnostics to that same error stream, so it could crash too,
+  part-way through ending a session and before it set an application that outlived the session back
+  to normal speed. An output that cannot be written is now said once on standard error, where that
+  is still possible, and the exit code stays what the command found. `chrono run` goes on to the end of the session and
+  still writes `--report`. `chrono run --dry-run --json` printed a `--set-after` heartbeat above
+  9223372036854775807 as a negative number and prints it as given now, and a page in an
+  application's built-in web engine whose own clock read a value at either end of the 64-bit range
+  crashed the core and is now judged like any other reading.
 
 ## [0.3.0] - 2026-09-22
 

@@ -35,6 +35,7 @@ use crate::events::{
     state_event, state_event_from, unsupported_command,
 };
 use crate::grammar::parse_shift;
+use crate::output::diag;
 use crate::report::detect_runtime_warnings;
 use crate::wire::{read_protocol_line, spawn_command_reader};
 pub(crate) fn core_mode() -> i32 {
@@ -95,7 +96,7 @@ pub(crate) fn core_mode() -> i32 {
                 .ok()
                 .and_then(|e| e.parent().map(|d| d.display().to_string()))
                 .unwrap_or_else(|| "the folder holding chrono.exe".into());
-            eprintln!("chrono core: chrono_hook.dll not found in {looked_in} - this installation is incomplete");
+            diag!("chrono core: chrono_hook.dll not found in {looked_in} - this installation is incomplete");
             emit(&ended_clean());
             return 3;
         }
@@ -143,7 +144,7 @@ pub(crate) fn core_mode() -> i32 {
             // Surface an orphan reclaim so it is not silent (a prior core had died and left its
             // control block behind). Human diagnostic on stderr, never on the protocol stdout.
             if prepared.orphan_reclaimed {
-                eprintln!("chrono core: reclaimed an orphaned session (a previous core had died)");
+                diag!("chrono core: reclaimed an orphaned session (a previous core had died)");
             }
             let verdict = verdict_from_coverage(&prepared.coverage);
             // The parent's own coverage (its pid). Children that join later report
@@ -211,7 +212,7 @@ pub(crate) fn core_mode() -> i32 {
                 origin: origin.into(),
             });
             // Human-side detail on stderr (never on the protocol stdout).
-            eprintln!("chrono core: {detail}");
+            diag!("chrono core: {detail}");
             emit(&ended_clean());
             code
         }

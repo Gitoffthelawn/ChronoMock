@@ -12,6 +12,7 @@ use super::args::RunArgs;
 use crate::calc::{calc_error_exit_code, describe_calc_error, resolve_now_civil};
 use crate::cli::print_usage;
 use crate::grammar::parse_shift;
+use crate::output::diag;
 use crate::preset::{
     load_preset, parameter_provenance, preset_targets_substitution, read_target_creation_date,
     resolve_moment, resolve_parameters,
@@ -68,7 +69,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                 // The substitution surface honours applies_to: a calculator-only preset is not a
                 // substitution question. Refuse it rather than run a moment nobody asked to run.
                 if !preset_targets_substitution(&p.applies_to) {
-                    eprintln!(
+                    diag!(
                         "chrono: preset '{}' targets {}, not substitution (preset.not_for_substitution)",
                         p.id, p.applies_to
                     );
@@ -84,7 +85,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                 let values = match resolve_parameters(&p.parameters, &ra.params, target_date) {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("chrono: {}", e.message());
+                        diag!("chrono: {}", e.message());
                         return Err(e.exit_code());
                     }
                 };
@@ -95,7 +96,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                 let moment = match resolve_moment(p.moment, &values) {
                     Ok(m) => m,
                     Err(e) => {
-                        eprintln!("chrono: {}", e.message());
+                        diag!("chrono: {}", e.message());
                         return Err(e.exit_code());
                     }
                 };
@@ -105,7 +106,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                 let now = match resolve_now_civil(Some(now_bias)) {
                     Ok(n) => n,
                     Err(e) => {
-                        eprintln!("chrono: cannot resolve current time: {e}");
+                        diag!("chrono: cannot resolve current time: {e}");
                         return Err(3);
                     }
                 };
@@ -124,13 +125,13 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                         origin: TimeOrigin::Preset { id: p.id.clone(), parameters: provenance },
                     },
                     Err(e) => {
-                        eprintln!("chrono: preset '{}' moment: {}", p.id, describe_calc_error(&e));
+                        diag!("chrono: preset '{}' moment: {}", p.id, describe_calc_error(&e));
                         return Err(calc_error_exit_code(&e));
                     }
                 }
             }
             Err(e) => {
-                eprintln!("chrono: {}", e.message());
+                diag!("chrono: {}", e.message());
                 return Err(e.exit_code());
             }
         }
@@ -146,7 +147,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
             Some(raw) => match resolve_at(raw, Some(now_bias)) {
                 Ok(s) => Some(s),
                 Err(e) => {
-                    eprintln!("chrono: {e}");
+                    diag!("chrono: {e}");
                     print_usage();
                     return Err(1);
                 }
@@ -154,7 +155,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
             None => match resolve_now_civil(Some(now_bias)) {
                 Ok(now) => Some(now.to_iso()),
                 Err(e) => {
-                    eprintln!("chrono: {e}");
+                    diag!("chrono: {e}");
                     return Err(1);
                 }
             },

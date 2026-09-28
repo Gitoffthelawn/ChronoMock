@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use chrono_proto::PROTOCOL_VERSION;
 
+use crate::output::{diag, out, outln};
+
 pub(crate) const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The licence this build is distributed under, read from the manifest instead of retyped here.
@@ -58,7 +60,7 @@ pub(crate) fn version_line() -> String {
 /// On stdout and exit 0. Asking a question is a success rather than a usage error, and the answer
 /// has to survive a pipe, which is the whole reason someone types it in a script.
 pub(crate) fn print_version() {
-    println!("{}", version_line());
+    outln!("{}", version_line());
 }
 
 /// Where a distribution's two licence files actually are, or `None` when they are not on disk near
@@ -201,38 +203,38 @@ pub(crate) fn print_license(argv: &[String]) -> i32 {
         match arg.as_str() {
             "--components" => components = true,
             other => {
-                eprintln!("chrono: unknown argument '{other}' for license");
-                eprintln!("usage: chrono license [--components]");
+                diag!("chrono: unknown argument '{other}' for license");
+                diag!("usage: chrono license [--components]");
                 return 1;
             }
         }
     }
 
-    print!("{}", license_text(&find_license_files()));
+    out!("{}", license_text(&find_license_files()));
     if components {
-        println!();
+        outln!("");
         for line in component_lines(COMPONENT_REGISTER) {
-            println!("{line}");
+            outln!("{line}");
         }
     } else {
-        println!("\nRun `chrono license --components` for every component with its version and licence.");
+        outln!("\nRun `chrono license --components` for every component with its version and licence.");
     }
     0
 }
 
 pub(crate) fn print_usage() {
-    eprintln!("usage: chrono run <target> [--at <local-moment>] [--preset <id>] [--param id=value]... [--zone <+HH:MM>] [--mode <flow|frozen|xN>] [--scale-duration] [--scale-qpc] [--ticks N] [--timeout <s>] [--set-after T:M] [--jump-after T:moment] [--args \"...\"] [--cwd <dir>] [--report <path>] [--force] [--no-embedded] [--dry-run] [--json]");
-    eprintln!("       --dry-run prints what the session would be and starts nothing - the resolved moment and zone, what a preset filled its parameters with, and which mechanism the target would take");
-    eprintln!("       without --at (or --preset) the session clock starts at the real current time, so `--mode xN` alone just runs the target faster");
-    eprintln!("       --scale-qpc also scales the high-resolution counter, which is where Python 3.13+ monotonic, .NET Stopwatch and Java nanoTime read elapsed time");
-    eprintln!("       --force runs on even when the opening verdict says the substitution did not take effect (the target is stopped otherwise)");
-    eprintln!("       --no-embedded leaves the web pages inside the app on the real clock and opens no debugging port. Without it, an app with a built-in web engine (WebView2, Qt WebEngine) is asked to open a local debugging port for the session and its pages follow the session clock through it - while it is open, any other program on this computer can use that port to reach those pages");
-    eprintln!("       --timeout gives up after N seconds and exits 6, for a pipeline that must not hang; a core that stops answering for 15 s exits 6 on its own");
-    eprintln!("       --cwd starts the target in that directory; without it the target inherits ours, and a directory that does not exist stops the session rather than looking like a broken target");
-    eprintln!("       (--preset supplies the moment and mode from presets/<id>.json, exclusive of --at/--mode/--scale-duration; --param fills its parameters, a trial start_date defaults to the target's file date)");
+    diag!("usage: chrono run <target> [--at <local-moment>] [--preset <id>] [--param id=value]... [--zone <+HH:MM>] [--mode <flow|frozen|xN>] [--scale-duration] [--scale-qpc] [--ticks N] [--timeout <s>] [--set-after T:M] [--jump-after T:moment] [--args \"...\"] [--cwd <dir>] [--report <path>] [--force] [--no-embedded] [--dry-run] [--json]");
+    diag!("       --dry-run prints what the session would be and starts nothing - the resolved moment and zone, what a preset filled its parameters with, and which mechanism the target would take");
+    diag!("       without --at (or --preset) the session clock starts at the real current time, so `--mode xN` alone just runs the target faster");
+    diag!("       --scale-qpc also scales the high-resolution counter, which is where Python 3.13+ monotonic, .NET Stopwatch and Java nanoTime read elapsed time");
+    diag!("       --force runs on even when the opening verdict says the substitution did not take effect (the target is stopped otherwise)");
+    diag!("       --no-embedded leaves the web pages inside the app on the real clock and opens no debugging port. Without it, an app with a built-in web engine (WebView2, Qt WebEngine) is asked to open a local debugging port for the session and its pages follow the session clock through it - while it is open, any other program on this computer can use that port to reach those pages");
+    diag!("       --timeout gives up after N seconds and exits 6, for a pipeline that must not hang; a core that stops answering for 15 s exits 6 on its own");
+    diag!("       --cwd starts the target in that directory; without it the target inherits ours, and a directory that does not exist stops the session rather than looking like a broken target");
+    diag!("       (--preset supplies the moment and mode from presets/<id>.json, exclusive of --at/--mode/--scale-duration; --param fills its parameters, a trial start_date defaults to the target's file date)");
     print_calc_usage();
-    eprintln!("usage: chrono version   (also --version, -V)   the build, which core it is, and the protocol it speaks");
-    eprintln!("usage: chrono license [--components]   (also --license)   the licence, the warranty disclaimer, and every bundled component with its version");
+    diag!("usage: chrono version   (also --version, -V)   the build, which core it is, and the protocol it speaks");
+    diag!("usage: chrono license [--components]   (also --license)   the licence, the warranty disclaimer, and every bundled component with its version");
 }
 
 /// Whether a word is the help flag, which every command answers.
@@ -258,11 +260,11 @@ pub(crate) fn print_help_for(command: &str) -> i32 {
 }
 
 pub(crate) fn print_calc_usage() {
-    eprintln!("usage: chrono calc [--base <today|now|YYYY-MM-DDTHH:MM:SS>] [--base-utc <YYYY-MM-DDTHH:MM:SS[Z]>] [--shift <±N<unit>>]... [--set-time <HH:MM:SS>] [--snap <target>] [--nearest <target>] [--to-zone <+HH:MM>] [--zone <+HH:MM>] [--calendar <us-banking|us-federal|pl>] [--format <mask>] [--json]");
-    eprintln!("       or: chrono calc --preset <id> [--param id=value]...   (named moment, e.g. month-end, trial-first-day-after)");
-    eprintln!("       or: chrono calc --analyze <pasted-date>   (interpret a date, e.g. 04/08/2008; shows both readings when ambiguous)");
-    eprintln!("       --json emits machine output (chronomock.calc/1) for any of the above");
-    eprintln!("       units: s m h d w mo q y bd (minute=m, month=mo)");
+    diag!("usage: chrono calc [--base <today|now|YYYY-MM-DDTHH:MM:SS>] [--base-utc <YYYY-MM-DDTHH:MM:SS[Z]>] [--shift <±N<unit>>]... [--set-time <HH:MM:SS>] [--snap <target>] [--nearest <target>] [--to-zone <+HH:MM>] [--zone <+HH:MM>] [--calendar <us-banking|us-federal|pl>] [--format <mask>] [--json]");
+    diag!("       or: chrono calc --preset <id> [--param id=value]...   (named moment, e.g. month-end, trial-first-day-after)");
+    diag!("       or: chrono calc --analyze <pasted-date>   (interpret a date, e.g. 04/08/2008; shows both readings when ambiguous)");
+    diag!("       --json emits machine output (chronomock.calc/1) for any of the above");
+    diag!("       units: s m h d w mo q y bd (minute=m, month=mo)");
 }
 
 pub(crate) fn this_bitness() -> &'static str {

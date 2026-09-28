@@ -17,6 +17,7 @@ use crate::cdp;
 use crate::cdp_attach::{Attacher, Pumped, ShimOrigin};
 use crate::cdp_discover::{Discovery, Notice};
 use crate::embedded::engine_env;
+use crate::output::{diag, outln};
 use crate::zone::{moment_epoch_ms, now_epoch_ms};
 
 const USAGE: &str = "usage: chrono __cdp-embedded --at <YYYY-MM-DDTHH:MM:SS> [--multiplier N] [--seconds S] \
@@ -84,12 +85,12 @@ fn parse(argv: &[String]) -> Option<Args> {
 
 pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
     let Some(args) = parse(argv) else {
-        eprintln!("{USAGE}");
+        diag!("{USAGE}");
         return 1;
     };
     let real = now_epoch_ms();
     let Ok(fake) = moment_epoch_ms(&args.at, 0) else {
-        eprintln!("chrono: --at is not a moment a session can run at: {}", args.at);
+        diag!("chrono: --at is not a moment a session can run at: {}", args.at);
         return 1;
     };
     let origin = ShimOrigin { fake0: fake, real0: real, mult: args.multiplier, dur: args.multiplier };
@@ -101,24 +102,24 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
             let qt_port = match cdp::free_loopback_port() {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!("chrono: no free loopback port: {e}");
+                    diag!("chrono: no free loopback port: {e}");
                     return 2;
                 }
             };
             let env = engine_env(&chrono_mech::current_environment(), qt_port);
             for (name, value) in &env {
-                println!("env {name}={value}");
+                outln!("env {name}={value}");
             }
             let target = chrono_mech::Target { path, args: host_args, cwd: args.cwd.as_deref(), env: &env };
             match chrono_mech::launch_plain(&target) {
                 Ok(child) => {
-                    println!("launched pid {}", child.pid);
+                    outln!("launched pid {}", child.pid);
                     let pid = child.pid;
                     launched = Some(child);
                     pid
                 }
                 Err(e) => {
-                    eprintln!("chrono: {e}");
+                    diag!("chrono: {e}");
                     return 2;
                 }
             }
@@ -135,7 +136,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
     let discovery = match Discovery::start(family, None) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("chrono: discovery thread did not start: {e}");
+            diag!("chrono: discovery thread did not start: {e}");
             return 2;
         }
     };
@@ -149,7 +150,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
         if let Some(child) = &launched
             && !child.is_alive()
         {
-            println!("host exited");
+            outln!("host exited");
             break;
         }
         while let Some(notice) = discovery.try_recv() {
@@ -160,7 +161,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
                     if attachers.iter().any(|a| a.port() == found.port) {
                         continue;
                     }
-                    println!(
+                    outln!(
                         "t+{:.1}s found port {} on {} pid {} ({})",
                         started.elapsed().as_secs_f64(),
                         found.port,
@@ -171,26 +172,26 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
                     match Attacher::connect(found.host, found.port) {
                         Ok(mut attacher) => {
                             let existing = attacher.attach_existing(origin, &mut next_index).unwrap_or(0);
-                            println!("attached port {}: {existing} existing context(s) shimmed by name", found.port);
+                            outln!("attached port {}: {existing} existing context(s) shimmed by name", found.port);
                             attachers.push(attacher);
                         }
-                        Err(e) => println!("attach to port {} failed: {e}", found.port),
+                        Err(e) => outln!("attach to port {} failed: {e}", found.port),
                     }
                 }
                 Notice::Unavailable(why) => {
-                    eprintln!("chrono: discovery unavailable: {why}");
+                    diag!("chrono: discovery unavailable: {why}");
                     return 2;
                 }
-                Notice::PortTaken(port) => println!("port {port} reserved for Qt is held by something else"),
+                Notice::PortTaken(port) => outln!("port {port} reserved for Qt is held by something else"),
             }
         }
         attachers.retain_mut(|attacher| match attacher.pump(origin, &mut next_index) {
             Pumped::Closed => {
-                println!("port {} closed", attacher.port());
+                outln!("port {} closed", attacher.port());
                 false
             }
             Pumped::Attached => {
-                println!("t+{:.1}s port {} attached a context (live {})", started.elapsed().as_secs_f64(), attacher.port(), attacher.contexts().len());
+                outln!("t+{:.1}s port {} attached a context (live {})", started.elapsed().as_secs_f64(), attacher.port(), attacher.contexts().len());
                 true
             }
             Pumped::Detached | Pumped::Idle => true,
@@ -206,7 +207,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
                     attacher.contexts().iter().map(|c| (c.index, c.ty.clone())).collect();
                 for (index, ty) in live {
                     if let Some(title) = attacher.evaluate_string(index, "String(globalThis.document ? document.title : '')") {
-                        println!(
+                        outln!(
                             "t+{:.1}s port {} #{index} {ty} title={}",
                             started.elapsed().as_secs_f64(),
                             attacher.port(),
@@ -221,11 +222,11 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
     let shimmed: usize = attachers.iter().map(|a| a.seen().len()).sum();
     let failed: usize = attachers.iter().map(Attacher::failed).sum();
     let overflow: usize = attachers.iter().map(Attacher::overflow).sum();
-    println!("summary: ports {} contexts {shimmed} failed {failed} past-ceiling {overflow}", attachers.len());
+    outln!("summary: ports {} contexts {shimmed} failed {failed} past-ceiling {overflow}", attachers.len());
     if launched.is_some() {
         // Explicitly here for the printout - the drop at the end of the function would do it too.
         drop(launched);
-        println!("host terminated");
+        outln!("host terminated");
     }
     if shimmed > 0 { 0 } else { 2 }
 }
@@ -236,7 +237,7 @@ fn family_of(root: u32) -> Vec<u32> {
     match chrono_mech::family_of(root) {
         Ok(family) => family,
         Err(e) => {
-            eprintln!("chrono: process tree unreadable, searching the root alone: {e}");
+            diag!("chrono: process tree unreadable, searching the root alone: {e}");
             vec![root]
         }
     }
