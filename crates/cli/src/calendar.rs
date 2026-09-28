@@ -8,14 +8,39 @@
 //! an id names a shipped file, never a path.
 //!
 //! The consumer owns the I/O and serde - the core engine works over already-parsed rules. The JSON
-//! schema is the contract (docs/04 section 5) and this is one reader of it. Unknown fields are
-//! ignored (additive evolution is safe) - an unknown major schema version is refused.
+//! schema is the contract (docs/04 section 5) and this is one reader of it. An unknown major schema
+//! version is refused, and so is an unknown FIELD, at every level of the file (R4-N38, the owner's
+//! decision R4-D11). A calendar is the catalogue people outside this project write by hand, and a
+//! typo in an optional field - `valid_form` for `valid_from` - used to be dropped without a word, so
+//! the holiday it was meant to limit counted in every year. Presets keep ignoring fields they do not
+//! read, because a preset carries fields for the window that this reader has no use for.
 
 
 use serde::Deserialize;
+
+/// The schema field on its own, read before the rest of the file. A file written to a later version
+/// has to be refused as that - read strictly first, it would be refused over whichever of its new
+/// fields came first, and the reader would chase a typo that is not there.
 #[derive(Deserialize)]
-pub(crate) struct CalendarDto {
+struct SchemaDto {
     schema: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CalendarDto {
+    // Read by `SchemaDto` before this struct is. Named here so the field itself is not unknown.
+    #[serde(rename = "schema")]
+    _schema: String,
+    // Contract fields this reader has no use for (docs/04 section 5), named so that refusing unknown
+    // fields does not refuse the shipped calendars: `stability` marks the format as not yet frozen,
+    // `subregion` waits for states and regions, and `name` is the calendar's own title.
+    #[serde(default, rename = "stability")]
+    _stability: Option<String>,
+    #[serde(default, rename = "subregion")]
+    _subregion: Option<String>,
+    #[serde(default, rename = "name")]
+    _name: Option<NameDto>,
     id: String,
     country: String,
     weekend: Vec<String>,
@@ -24,6 +49,7 @@ pub(crate) struct CalendarDto {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct HolidayDto {
     id: String,
     name: NameDto,
@@ -36,13 +62,17 @@ pub(crate) struct HolidayDto {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct NameDto {
     en: String,
     local: String,
 }
 
+// `deny_unknown_fields` on an internally tagged enum was measured with this build's serde before it
+// was relied on: a stray field in any rule is refused, the `type` tag itself is not, and it does not
+// matter where in the object the tag stands.
 #[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum RuleDto {
     Fixed { month: u32, day: u32 },
     NthWeekday { month: u32, weekday: String, order: i32 },
@@ -116,10 +146,19 @@ pub(crate) fn rule_from(id: &str, dto: RuleDto) -> Result<chrono_core::calendar:
             HolidayRule::NthWeekday { month, weekday: weekday_index(&weekday)?, order }
         }
         RuleDto::EasterOffset { offset } => {
-            // A year either side of Easter covers every real observance (Corpus Christi is +60).
-            if !(-366..=366).contains(&offset) {
+            // Kept inside the year of its own Easter (R4-N39, the owner's decision R4-D12). Easter
+            // falls between 22 March, day 81 of a common year, and 25 April, day 115 (116 in a leap
+            // year), so -80 is 1 January at the earliest and +250 is 31 December at the latest, in
+            // every year. The bound used to be a year either side, and a holiday pushed into the
+            // neighbouring year was a day the engine described two ways at once: `holiday_on` looks
+            // for it in the date's own year and finds nothing, while the day-off cache looks a year
+            // either side and finds it, so a report called one day "not a holiday" and "a holiday
+            // shifted here from a weekend". Real observances sit well inside (Corpus Christi is +60).
+            if !EASTER_OFFSET_RANGE.contains(&offset) {
                 return Err(format!(
-                    "holiday '{id}': easter offset {offset} out of range (-366..=366 days)"
+                    "holiday '{id}': easter offset {offset} out of range ({}..={} days, which keeps the holiday in the year of its Easter)",
+                    EASTER_OFFSET_RANGE.start(),
+                    EASTER_OFFSET_RANGE.end()
                 ));
             }
 
@@ -127,6 +166,9 @@ pub(crate) fn rule_from(id: &str, dto: RuleDto) -> Result<chrono_core::calendar:
         }
     })
 }
+
+/// The Easter offsets a calendar may name - see where `rule_from` checks it.
+const EASTER_OFFSET_RANGE: std::ops::RangeInclusive<i32> = -80..=250;
 
 pub(crate) fn check_month(id: &str, month: u32) -> Result<(), String> {
     if !(1..=12).contains(&month) {
@@ -209,7 +251,29 @@ pub(crate) fn find_calendar_file(id: &str) -> Result<std::path::PathBuf, String>
 pub(crate) fn load_calendar(id: &str) -> Result<chrono_core::calendar::Calendar, String> {
     let path = find_calendar_file(id)?;
     let text = read_catalogue_file(&path)?;
-    calendar_from_text(&text).map_err(|e| format!("{e} (in {})", path.display()))
+    let calendar = calendar_from_text(&text).map_err(|e| format!("{e} (in {})", path.display()))?;
+    check_declared_id("calendar", &path, &calendar.id, id)?;
+    Ok(calendar)
+}
+
+/// Refuse a catalogue file whose `id` is not the name it was found by (R4-N37, the owner's decision
+/// R4-D14).
+///
+/// The lookup goes by file name and the report quotes the id inside, so `other.json` declaring `pl`
+/// was loaded as `--calendar other` and signed its answers "(pl)" - a business-day result attributed
+/// to a calendar nobody asked for. The window drops such a preset from its list the same way it drops
+/// any file it cannot use, so both surfaces show one catalogue. Compared without case, because that
+/// is how Windows matches the file name: `--calendar PL` finds `pl.json`, and refusing it as a mismatch
+/// would name a file name that is not on disk.
+pub(crate) fn check_declared_id(kind: &str, path: &std::path::Path, declared: &str, requested: &str) -> Result<(), String> {
+    if declared.eq_ignore_ascii_case(requested) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{} declares the {kind} id '{declared}', but it is found as '{requested}' - a {kind}'s id has to match its file name",
+        path.display()
+    ))
 }
 
 /// The largest catalogue file (calendar or preset) this build will read.
@@ -240,21 +304,32 @@ pub(crate) fn read_catalogue_file(path: &std::path::Path) -> Result<String, Stri
         ));
     }
 
-    std::fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
+    let mut bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    // A UTF-8 byte order mark is skipped (R4-N37). Windows PowerShell 5.1 writes one for
+    // `-Encoding UTF8`, and JSON parsers may ignore it (RFC 8259 section 8.1). serde does not, and read
+    // it as a stray character before the first brace: "expected value at line 1 column 1", of a file
+    // that looks perfect in any editor. The window's reader already skipped it, so the same preset
+    // worked there and was refused here.
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        bytes.drain(..3);
+    }
+
+    String::from_utf8(bytes).map_err(|e| format!("cannot read {}: it is not UTF-8 text ({e})", path.display()))
 }
 
 /// Parse and validate a calendar from its JSON text, mapping the `chronomock.calendar/1` schema to the
 /// engine's types. Separated from the on-disk lookup (symmetry with `parse_preset`) so the shipped
 /// calendars can be golden-tested against the real engine without the file-resolution step.
 pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Calendar, String> {
-    let dto: CalendarDto = serde_json::from_str(text).map_err(|e| format!("bad calendar JSON: {e}"))?;
+    let schema: SchemaDto = serde_json::from_str(text).map_err(|e| format!("bad calendar JSON: {e}"))?;
     // An unknown major schema version is refused, not half-understood (docs/04 section 3.1).
-    if dto.schema != "chronomock.calendar/1" {
+    if schema.schema != "chronomock.calendar/1" {
         return Err(format!(
             "unsupported calendar schema '{}' (this build reads chronomock.calendar/1)",
-            dto.schema
+            schema.schema
         ));
     }
+    let dto: CalendarDto = serde_json::from_str(text).map_err(|e| format!("bad calendar JSON: {e}"))?;
     let mut weekend = dto.weekend.iter().map(|w| weekday_index(w)).collect::<Result<Vec<_>, _>>()?;
     // Duplicates are harmless to the engine (membership is a contains) but they hide a typo, and
     // they make the count below meaningless - so fold them away before counting.
@@ -475,6 +550,9 @@ mod tests {
             (r#"{"type":"nth_weekday","month":1,"weekday":"monday","order":9}"#, "order 9"),
             (r#"{"type":"nth_weekday","month":0,"weekday":"monday","order":1}"#, "month 0"),
             (r#"{"type":"easter_offset","offset":5000}"#, "5000"),
+            // R4-N39: one day past either end already leaves the year of its Easter in some year.
+            (r#"{"type":"easter_offset","offset":-81}"#, "-81"),
+            (r#"{"type":"easter_offset","offset":251}"#, "251"),
         ] {
             let err = calendar_from_text(&cal(rule)).expect_err("out of range must be refused");
             assert!(err.contains("bad"), "the message must name the holiday: {err}");
@@ -491,9 +569,109 @@ mod tests {
             r#"{"type":"nth_weekday","month":12,"weekday":"monday","order":-1}"#,
             r#"{"type":"nth_weekday","month":5,"weekday":"monday","order":5}"#,
             r#"{"type":"easter_offset","offset":60}"#,
+            r#"{"type":"easter_offset","offset":-80}"#,
+            r#"{"type":"easter_offset","offset":250}"#,
         ] {
             calendar_from_text(&cal(rule)).unwrap_or_else(|e| panic!("{rule} should parse: {e}"));
         }
+    }
+
+    /// R4-N38, the owner's decision R4-D11: a field this reader does not know is refused, at every
+    /// level of the file, and the message names it. `valid_form` for `valid_from` used to load, and the
+    /// holiday meant to start in 2030 counted in every year.
+    #[test]
+    fn an_unknown_field_is_refused_at_every_level_and_named() {
+        let cal = |root: &str, holiday: &str, name: &str, rule: &str| {
+            format!(
+                r#"{{"schema":"chronomock.calendar/1","id":"x","country":"XX","weekend":["saturday","sunday"],
+                "observed":"none"{root},"holidays":[{{"id":"h","name":{{"en":"H","local":"H"{name}}},
+                "rule":{{"type":"fixed","month":7,"day":1{rule}}},"source":"t"{holiday}}}]}}"#
+            )
+        };
+        for (text, field) in [
+            (cal(r#","obsreved":"none""#, "", "", ""), "obsreved"),
+            (cal("", r#","valid_form":2030"#, "", ""), "valid_form"),
+            (cal("", "", r#","pl":"H""#, ""), "pl"),
+            (cal("", "", "", r#","dya":2"#), "dya"),
+        ] {
+            let err = calendar_from_text(&text).expect_err("an unknown field is refused");
+            assert!(err.contains("unknown field"), "the message says what is wrong: {err}");
+            assert!(err.contains(&format!("`{field}`")), "and names the field: {err}");
+        }
+        // The calendar's own title is checked too - a typo there is as much a typo as anywhere else.
+        let titled = cal(r#","name":{"en":"X","local":"X","loacl":"X"}"#, "", "", "");
+        assert!(calendar_from_text(&titled).expect_err("a typo in the title").contains("`loacl`"));
+
+        // The contract's own fields are not unknown, even though this reader does not use them.
+        let contract = cal(r#","stability":"unstable","subregion":null,"name":{"en":"X","local":"X"}"#, "", "", "");
+        calendar_from_text(&contract).expect("the contract's fields load");
+        calendar_from_text(&cal("", "", "", "")).expect("and a file without them loads as before");
+    }
+
+    /// A file written to a later schema is refused as that, not over its first new field. Read
+    /// strictly in one pass, `chronomock.calendar/2` with an added field would be reported as a typo,
+    /// and its author would go looking for one.
+    #[test]
+    fn a_later_schema_is_refused_as_a_schema_not_as_an_unknown_field() {
+        let v2 = r#"{"schema":"chronomock.calendar/2","id":"x","country":"XX","weekend":[],
+            "observed":"none","holidays":[],"range":[1990,2100]}"#;
+        let err = calendar_from_text(v2).expect_err("a later schema");
+        assert!(err.contains("unsupported calendar schema 'chronomock.calendar/2'"), "got: {err}");
+        assert!(!err.contains("unknown field"), "got: {err}");
+    }
+
+    /// R4-N37. A catalogue file saved with a UTF-8 byte order mark - Windows PowerShell 5.1 does that
+    /// for `-Encoding UTF8` - was refused with "expected value at line 1 column 1", while the window
+    /// read the same file. A file that is not UTF-8 at all is still refused, and says so.
+    #[test]
+    fn a_byte_order_mark_is_skipped_and_other_bytes_are_still_refused() {
+        let dir = crate::testutil::unique_temp_dir("chrono-bom");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("pl.json");
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice(read_data("calendars/pl.json").as_bytes());
+        std::fs::write(&path, &bytes).expect("write");
+        let text = read_catalogue_file(&path).expect("a file with a byte order mark reads");
+        assert!(text.starts_with('{'), "the mark is gone: {:?}", text.chars().next());
+        calendar_from_text(&text).expect("and the calendar in it loads");
+
+        std::fs::write(&path, [0xFF, 0xFE, b'{', 0, b'}', 0]).expect("write");
+        let err = read_catalogue_file(&path).expect_err("UTF-16 is not UTF-8");
+        assert!(err.contains("not UTF-8"), "got: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// R4-N37, the owner's decision R4-D14: a catalogue file's id is the name it is found by. The
+    /// comparison ignores case, because the lookup does: `--calendar PL` finds `pl.json`.
+    #[test]
+    fn a_declared_id_other_than_the_file_name_is_refused() {
+        let path = std::path::Path::new("calendars").join("other.json");
+        let err = check_declared_id("calendar", &path, "pl", "other").expect_err("pl is not other");
+        assert!(err.contains("'pl'") && err.contains("'other'"), "both ids are named: {err}");
+        assert!(err.contains("other.json"), "and the file: {err}");
+        check_declared_id("calendar", &path, "pl", "PL").expect("case is how Windows matches a file name");
+    }
+
+    /// Every calendar in `calendars/` loads the way `--calendar` loads it: read strictly and found by
+    /// its own id. CONTRIBUTING.md tells an author that the suite parses and validates a new calendar,
+    /// and until this test only the three files named in the golden test below were read - a fourth
+    /// was checked by nothing (rule 12).
+    #[test]
+    fn every_shipped_calendar_loads_under_its_own_name() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../calendars");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&dir).expect("the calendars folder") {
+            let path = entry.expect("an entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let stem = path.file_stem().and_then(|s| s.to_str()).expect("a file name").to_string();
+            let text = read_catalogue_file(&path).unwrap_or_else(|e| panic!("{stem}: {e}"));
+            let calendar = calendar_from_text(&text).unwrap_or_else(|e| panic!("{stem}: {e}"));
+            check_declared_id("calendar", &path, &calendar.id, &stem).unwrap_or_else(|e| panic!("{e}"));
+            seen += 1;
+        }
+        assert!(seen >= 3, "the three shipped calendars at least, found {seen}");
     }
 
     /// S-17, the whole-file checks: a repeated id makes the audit ambiguous (holiday_on names one of

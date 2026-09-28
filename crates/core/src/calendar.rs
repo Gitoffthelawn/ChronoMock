@@ -27,6 +27,10 @@ pub enum HolidayRule {
 
 /// What happens when a holiday falls on a weekend (docs/02 section 4). The names describe the
 /// BEHAVIOUR, never a country (a second country with the same behaviour reuses the value).
+///
+/// Each variant names where an observance is aimed. Where it lands is one step further when that
+/// day is already off - another holiday, or a weekend day - and so on in the same direction until a
+/// free day (R4-N40, placed by `OffDays::rebuild`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Observed {
     /// Nothing shifts - the holiday stays on its date (Poland).
@@ -224,11 +228,14 @@ struct OffDays<'a> {
     /// A flat scan, not a set: our calendars hold ~14 holidays, so this is at most a few dozen
     /// integers laid out contiguously, and hashing one of them would cost more than reading them all.
     days: Vec<i64>,
+    /// Holidays whose observance moves, as (calendar date, date the rule aims at) - only a working
+    /// list for `rebuild`, kept here so a walk across many years does not allocate it once per year.
+    moved: Vec<(i64, i64)>,
 }
 
 impl<'a> OffDays<'a> {
     fn new(cal: &'a Calendar) -> Self {
-        Self { cal, year: None, days: Vec::new() }
+        Self { cal, year: None, days: Vec::new(), moved: Vec::new() }
     }
 
     fn is_business_day(&mut self, target: i64) -> bool {
@@ -246,17 +253,58 @@ impl<'a> OffDays<'a> {
         // A holiday can be observed in an adjacent year (a Jan 1 that falls on Saturday observes on
         // Dec 31 of the previous year under some rules - a Dec 31 on Sunday observes on Jan 1 of the
         // next). Take that year and its neighbours so a shifted observance near a boundary counts.
+        //
+        // Two passes, because an observance can land on a day that is already off (R4-N40). Christmas
+        // on a Saturday and Boxing Day on a Sunday both moved to the same Monday under
+        // `weekend_to_mon`, and the two days off became one - a business-day answer a whole day early,
+        // with no message. A holiday that keeps its own date holds it first. Then the moved ones are
+        // placed in date order, and one that lands on a weekend day or a day already taken goes on to
+        // the next free day in the same direction - the substitute day of the United Kingdom, applied
+        // to every observance rule. The shipped calendars never collide, so their answers do not move.
         self.days.clear();
+        self.moved.clear();
         for y in [year - 1, year, year + 1] {
             for h in &self.cal.holidays {
                 if in_force(h, y)
                     && let Some(d) = holiday_days(&h.rule, y)
                 {
-                    self.days.push(observed_days(d, self.cal.observed));
+                    let observed = observed_days(d, self.cal.observed);
+                    if observed == d {
+                        self.days.push(d);
+                    } else {
+                        self.moved.push((d, observed));
+                    }
                 }
             }
         }
         self.year = Some(year);
+        if self.moved.is_empty() {
+            return; // nothing shifts this year - the common case, and every year of a calendar with `none`
+        }
+
+        // Sorted, so a taken day is a binary search: a long walk rebuilds this once per year it crosses,
+        // and a hash set here measured a fifth slower over a million business days.
+        self.days.sort_unstable();
+        self.days.dedup();
+        // Stable, so two holidays on one date keep the order the file lists them in.
+        self.moved.sort_by_key(|&(d, _)| d);
+        // Bounded because this engine is a library, and a caller may hand it a week with no working day,
+        // where no free day exists. With at least one working day a week, seven steps per day already
+        // taken, plus a week, always reach one - so the bound never cuts a real placement short.
+        let limit = 7 * (self.days.len() + self.moved.len() + 7);
+        for &(d, observed) in &self.moved {
+            let step = (observed - d).signum();
+            let mut day = observed;
+            for _ in 0..limit {
+                if !self.cal.weekend.contains(&weekday(day)) && self.days.binary_search(&day).is_err() {
+                    break;
+                }
+                day += step;
+            }
+            if let Err(at) = self.days.binary_search(&day) {
+                self.days.insert(at, day);
+            }
+        }
     }
 }
 
@@ -274,15 +322,30 @@ pub fn is_business_day(date: &CivilDateTime, cal: &Calendar) -> bool {
 /// loop unbounded. Signalled to the caller as `None`.
 pub const MAX_BUSINESS_DAYS: i64 = 1_000_000;
 
+/// How many days in a row a walk looks at without meeting a business day before it calls the calendar
+/// degenerate, in both walks below.
+///
+/// Longer than a year, so a calendar the walk gives up on went a whole year - every weekend, every
+/// holiday and every observance in it - without one working day. The two walks used to carry two
+/// different bounds, and neither was this. `nearest_business_day` looked a month ahead, and
+/// `add_business_days` spent one budget of seven days per business day plus 400 over the WHOLE walk,
+/// so a legal calendar with fewer than one working day a week ran it dry partway and was reported as
+/// having no business days at all: a six-day weekend with holidays on the 1st and the 15th gave
+/// `+100bd` and refused `+1000bd` (R4-N41). Counted from the last business day, the bound only
+/// catches a calendar that really has stopped having them.
+const DEGENERATE_GAP_DAYS: i64 = 400;
+
 /// The nearest business day to `from` in one direction, INCLUDING `from` itself if it is already a
 /// business day (roll semantics: "adjust to a business day"). `forward` rolls toward later dates,
-/// otherwise earlier. Time of day is kept. `None` only for a degenerate calendar with no business
-/// day within a month (e.g. every weekday marked weekend).
+/// otherwise earlier. Time of day is kept. `None` only for a degenerate calendar, one with no business
+/// day in `DEGENERATE_GAP_DAYS` days from `from` (e.g. every weekday marked weekend).
 pub fn nearest_business_day(from: &CivilDateTime, forward: bool, cal: &Calendar) -> Option<CivilDateTime> {
     let step = if forward { 1 } else { -1 };
     let mut d = days(from.year, from.month, from.day);
-    for _ in 0..31 {
-        if is_business_day_days(d, cal) {
+    // One cache for the whole roll, as in `add_business_days`: it was rebuilt for every day looked at.
+    let mut off = OffDays::new(cal);
+    for _ in 0..DEGENERATE_GAP_DAYS {
+        if off.is_business_day(d) {
             let (year, month, day) = crate::civil_from_days(d);
             return Some(CivilDateTime {
                 year,
@@ -307,7 +370,8 @@ pub fn nearest_business_day(from: &CivilDateTime, forward: bool, cal: &Calendar)
 pub enum BusinessDayLimit {
     /// `|n|` is beyond `MAX_BUSINESS_DAYS`: the request is out of range, the calendar is fine.
     TooManyDays,
-    /// The walk ran out of budget: this calendar has (almost) no business days at all.
+    /// The walk went `DEGENERATE_GAP_DAYS` days in a row without a business day: this calendar has
+    /// (almost) none at all.
     DegenerateCalendar,
 }
 
@@ -328,23 +392,24 @@ pub fn add_business_days(
     // Bound the WALK, not just the requested count. `remaining` falls only on a business day, so a
     // calendar that has none - every weekday marked weekend, which a data file can say, and calendars
     // are the one part of this tool outsiders are invited to write - spins here forever at 100% CPU
-    // with nothing to interrupt it. `nearest_business_day` has carried such a bound since it was
-    // written - this walk did not. Seven calendar days per business day plus a year of slack clears
-    // every real calendar (the worst shipped case is a long weekend wrapped around a holiday), and a
-    // file that needs more than that is degenerate: report it as the same "no result" the caller
-    // already handles, rather than hanging.
-    let mut budget = n.abs().saturating_mul(7).saturating_add(400);
+    // with nothing to interrupt it. The bound counts the days since the last business day, not the
+    // days walked in total, so it catches a calendar that has stopped having business days and never
+    // a sparse one still walking towards its next (R4-N41, see `DEGENERATE_GAP_DAYS`). It is reported
+    // as the same "no result" the caller already handles, rather than hanging.
+    let mut days_off_in_a_row = 0;
     // One cache for the whole walk: it is rebuilt when the walk crosses into another year, so the
     // holiday rules are evaluated about once per 365 steps instead of once per step.
     let mut off = OffDays::new(cal);
     while remaining > 0 {
-        if budget == 0 {
-            return Err(BusinessDayLimit::DegenerateCalendar);
-        }
-        budget -= 1;
         d += step;
         if off.is_business_day(d) {
             remaining -= 1;
+            days_off_in_a_row = 0;
+        } else {
+            days_off_in_a_row += 1;
+            if days_off_in_a_row >= DEGENERATE_GAP_DAYS {
+                return Err(BusinessDayLimit::DegenerateCalendar);
+            }
         }
     }
     let (year, month, day) = crate::civil_from_days(d);
@@ -561,6 +626,24 @@ mod tests {
         }
     }
 
+    /// The calendar loader bounds an Easter offset to -80..=250 (R4-N39) on the claim that exactly
+    /// this range keeps a holiday inside the year of its own Easter, whatever the year. The claim is
+    /// the whole reason for those two numbers, so it is checked here over every Gregorian Easter to
+    /// 4100, together with the fact that one day more at either end already breaks it somewhere.
+    #[test]
+    fn easter_offsets_from_minus_80_to_250_stay_in_the_year_of_their_easter() {
+        let year_of = |offset: i32, year: i64| {
+            let day = holiday_days(&HolidayRule::EasterOffset { offset }, year).expect("an Easter");
+            crate::civil_from_days(day).0
+        };
+        for year in 1583..=4100 {
+            assert_eq!(year_of(-80, year), year, "-80 in {year}");
+            assert_eq!(year_of(250, year), year, "+250 in {year}");
+        }
+        assert!((1583..=4100).any(|year| year_of(-81, year) != year), "-81 leaves some year");
+        assert!((1583..=4100).any(|year| year_of(251, year) != year), "+251 leaves some year");
+    }
+
     /// A minimal Poland-shaped calendar for Easter-offset engine tests.
     fn pl() -> Calendar {
         Calendar {
@@ -718,6 +801,160 @@ mod tests {
         };
         // Only Saturday works. 2026-07-06 is a Monday, so +2 business days is the second Saturday.
         assert_eq!(add_business_days(&dt(2026, 7, 6), 2, &cal).unwrap(), dt(2026, 7, 18));
+    }
+
+    /// R4-N41. A legal calendar with fewer than one working day a week: only Wednesday works, and the
+    /// 1st and the 15th of every month are holidays. The walk used to spend one budget of seven days
+    /// per business day over the whole walk, so `+100bd` worked and `+1000bd` ran the budget dry and
+    /// reported a calendar with no business days - of a calendar that has about forty-six a year.
+    #[test]
+    fn a_calendar_with_under_one_working_day_a_week_walks_as_far_as_asked() {
+        let mut holidays = Vec::new();
+        for month in 1..=12 {
+            for day in [1, 15] {
+                holidays.push(h(&format!("h{month}-{day}"), HolidayRule::Fixed { month, day }, None));
+            }
+        }
+        let cal = Calendar {
+            id: "wednesday".into(),
+            country: "XX".into(),
+            weekend: vec![0, 1, 2, 4, 5, 6],
+            observed: Observed::None,
+            holidays,
+        };
+        let start = dt(2026, 1, 7);
+        let forward = add_business_days(&start, 1000, &cal).expect("a thousand Wednesdays exist");
+        assert_eq!(weekday(days(forward.year, forward.month, forward.day)), 3, "it lands on a Wednesday");
+        assert!(![1, 15].contains(&forward.day), "and not on a holiday");
+        assert!(is_business_day(&forward, &cal));
+        // Walking back the same thousand returns to the start, so no Wednesday was skipped or counted twice.
+        assert_eq!(add_business_days(&forward, -1000, &cal).expect("and back"), start);
+    }
+
+    /// The bound behind both walks counts the days since the last business day. A calendar that goes
+    /// a whole year without one - every Saturday of 2027 a holiday where Saturday is the only working
+    /// day - still has the next one, and `nearest` used to give up after a month and call it degenerate.
+    /// Two such years in a row are past the bound, and that is the calendar the bound exists for.
+    #[test]
+    fn a_year_without_a_business_day_is_crossed_and_two_are_not() {
+        let saturdays = |to: i64| {
+            let mut holidays = Vec::new();
+            for month in 1..=12 {
+                for order in 1..=5 {
+                    let rule = HolidayRule::NthWeekday { month, weekday: 6, order };
+                    holidays.push(Holiday {
+                        valid_to: Some(to),
+                        ..h(&format!("sat{month}-{order}"), rule, Some(2027))
+                    });
+                }
+            }
+            Calendar {
+                id: "saturday".into(),
+                country: "XX".into(),
+                weekend: vec![0, 1, 2, 3, 4, 5],
+                observed: Observed::None,
+                holidays,
+            }
+        };
+        let one_year = saturdays(2027);
+        // 2027-01-01 is a Friday - the next working Saturday is 1 January 2028, 365 days on.
+        assert_eq!(nearest_business_day(&dt(2027, 1, 1), true, &one_year), Some(dt(2028, 1, 1)));
+        // 26 December 2026 is the last working Saturday before the gap.
+        assert_eq!(add_business_days(&dt(2026, 12, 26), 1, &one_year), Ok(dt(2028, 1, 1)));
+
+        let two_years = saturdays(2028);
+        assert_eq!(nearest_business_day(&dt(2027, 1, 1), true, &two_years), None);
+        assert_eq!(
+            add_business_days(&dt(2026, 12, 26), 1, &two_years),
+            Err(BusinessDayLimit::DegenerateCalendar)
+        );
+    }
+
+    /// R4-N40, the case the report names. Under `weekend_to_mon` Christmas on a Saturday and Boxing Day
+    /// on a Sunday both aimed at the Monday, and the two days off became one, so the Tuesday counted
+    /// as a business day. The second observance now moves on to the Tuesday. In 2022 Boxing Day is
+    /// itself the Monday and keeps it, so Christmas, a Sunday, moves past it to the Tuesday.
+    #[test]
+    fn an_observance_that_lands_on_a_day_already_off_moves_on() {
+        let cal = Calendar {
+            id: "uk".into(),
+            country: "XX".into(),
+            weekend: vec![0, 6],
+            observed: Observed::WeekendToMon,
+            holidays: vec![
+                h("christmas", HolidayRule::Fixed { month: 12, day: 25 }, None),
+                h("boxing_day", HolidayRule::Fixed { month: 12, day: 26 }, None),
+            ],
+        };
+        assert_eq!(weekday(days(2021, 12, 25)), 6, "guard: Christmas 2021 is a Saturday");
+        assert!(!is_business_day(&dt(2021, 12, 27), &cal));
+        assert!(!is_business_day(&dt(2021, 12, 28), &cal), "the second day off moved on to Tuesday");
+        assert!(is_business_day(&dt(2021, 12, 29), &cal));
+        assert_eq!(add_business_days(&dt(2021, 12, 24), 1, &cal), Ok(dt(2021, 12, 29)));
+
+        assert_eq!(weekday(days(2022, 12, 26)), 1, "guard: Boxing Day 2022 is a Monday");
+        assert!(!is_business_day(&dt(2022, 12, 26), &cal));
+        assert!(!is_business_day(&dt(2022, 12, 27), &cal), "Christmas moved past the Monday it found taken");
+        assert!(is_business_day(&dt(2022, 12, 28), &cal));
+    }
+
+    /// A moved observance steps over a weekend like over any other day off. Christmas 2021 is a
+    /// Saturday and every working day of the week after it is a holiday of its own, so both
+    /// observances run past that Friday, over the next weekend, to the Monday and Tuesday after it.
+    #[test]
+    fn a_moved_observance_steps_over_a_weekend_on_its_way() {
+        let mut holidays = vec![
+            h("christmas", HolidayRule::Fixed { month: 12, day: 25 }, None),
+            h("boxing_day", HolidayRule::Fixed { month: 12, day: 26 }, None),
+        ];
+        for day in 27..=31 {
+            holidays.push(h(&format!("dec{day}"), HolidayRule::Fixed { month: 12, day }, None));
+        }
+        let cal = Calendar { id: "t".into(), country: "XX".into(), weekend: vec![0, 6], observed: Observed::WeekendToMon, holidays };
+        assert_eq!(weekday(days(2022, 1, 1)), 6, "guard: 1 January 2022 is a Saturday");
+        assert!(!is_business_day(&dt(2022, 1, 3), &cal), "Christmas lands on the Monday after the weekend");
+        assert!(!is_business_day(&dt(2022, 1, 4), &cal), "and Boxing Day on the Tuesday");
+        assert!(is_business_day(&dt(2022, 1, 5), &cal));
+    }
+
+    /// R4-N40 for every rule, in both directions. A Saturday observed on Friday moves back to Thursday
+    /// when Friday is a holiday of its own, and a Sunday observed on Monday moves on to Tuesday when
+    /// Monday is one - the owner's decision was the same substitute rule for every observance, not
+    /// only `weekend_to_mon`.
+    #[test]
+    fn a_taken_day_moves_an_observance_on_in_its_own_direction_under_every_rule() {
+        // 3 and 4 July 2026 are a Friday and a Saturday.
+        let back = Calendar {
+            id: "back".into(),
+            country: "XX".into(),
+            weekend: vec![0, 6],
+            observed: Observed::SatToFriSunToMon,
+            holidays: vec![
+                h("eve", HolidayRule::Fixed { month: 7, day: 3 }, None),
+                h("day", HolidayRule::Fixed { month: 7, day: 4 }, None),
+            ],
+        };
+        assert!(!is_business_day(&dt(2026, 7, 3), &back));
+        assert!(!is_business_day(&dt(2026, 7, 2), &back), "the Saturday holiday moved back to Thursday");
+        assert!(is_business_day(&dt(2026, 7, 1), &back));
+        assert!(is_business_day(&dt(2026, 7, 6), &back), "and nothing moved forward");
+
+        // 4 July 2027 is a Sunday and 5 July a Monday. Both Sunday rules move it on to Tuesday.
+        for observed in [Observed::SatToFriSunToMon, Observed::SunToMon] {
+            let on = Calendar {
+                id: "on".into(),
+                country: "XX".into(),
+                weekend: vec![0, 6],
+                observed,
+                holidays: vec![
+                    h("day", HolidayRule::Fixed { month: 7, day: 4 }, None),
+                    h("first_monday", HolidayRule::NthWeekday { month: 7, weekday: 1, order: 1 }, None),
+                ],
+            };
+            assert!(!is_business_day(&dt(2027, 7, 5), &on), "{observed:?}");
+            assert!(!is_business_day(&dt(2027, 7, 6), &on), "{observed:?}: moved on to Tuesday");
+            assert!(is_business_day(&dt(2027, 7, 7), &on), "{observed:?}");
+        }
     }
 
     #[test]

@@ -73,6 +73,63 @@ public static class PresetUnpack
     private static readonly IReadOnlyDictionary<string, ParamValue> NoParameters =
         new Dictionary<string, ParamValue>();
 
+    private static readonly string[] BaseFields = ["absolute", "absolute_utc", "parameter"];
+
+    /// <summary>
+    /// Whether a preset's moment says two things at once (R4-N33) - the mirror of the engine's
+    /// <c>refuse_contradictions</c>: a base naming more than one of <c>absolute</c>, <c>absolute_utc</c> and
+    /// <c>parameter</c>, a parametric shift that also names an <c>amount</c> or a <c>unit</c>, and a variant
+    /// shift that also names a <c>sign</c>.
+    /// <para>
+    /// The engine refuses such a file, and this reader used to settle it by the order it looked at the
+    /// fields in - the absolute date, where the engine took the parameter - so one file gave two moments.
+    /// <see cref="PresetCatalog"/> leaves a file like this out of its list, as it leaves out any file it
+    /// cannot use, so the calculator never shows its "fill in the parameters" note over a preset whose
+    /// parameters are not what is wrong. A JSON null counts as absent, as it does for the engine.
+    /// </para>
+    /// </summary>
+    internal static bool HasContradiction(JsonElement moment, IReadOnlyList<PresetParameter> parameters)
+    {
+        ArgumentNullException.ThrowIfNull(parameters);
+        if (moment.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (moment.TryGetProperty("base", out var baseEl) && baseEl.ValueKind == JsonValueKind.Object
+            && BaseFields.Count(field => IsPresent(baseEl, field)) > 1)
+        {
+            return true;
+        }
+
+        if (!moment.TryGetProperty("steps", out var steps) || steps.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var step in steps.EnumerateArray())
+        {
+            if (step.ValueKind != JsonValueKind.Object || !step.TryGetProperty("shift", out var shift)
+                || shift.ValueKind != JsonValueKind.Object || !shift.TryGetProperty("parameter", out var pn)
+                || pn.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var id = pn.GetString();
+            if (IsPresent(shift, "amount") || IsPresent(shift, "unit")
+                || (IsPresent(shift, "sign") && parameters.Any(p => p.Id == id && p.Type == "variant")))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsPresent(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null;
+
     public static UnpackedMoment UnpackMoment(
         JsonElement moment, IReadOnlyDictionary<string, ParamValue>? parameters = null)
     {

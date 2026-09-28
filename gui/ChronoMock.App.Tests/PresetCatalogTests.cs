@@ -125,6 +125,59 @@ public class PresetCatalogTests
         }
     }
 
+    [Fact]
+    public void A_file_the_engine_refuses_is_not_offered()
+    {
+        // R4-N37 and R4-N33, the owner's decision R4-D14: the engine refuses a preset whose id is not its
+        // file name, one with a parameter id declared twice, and one whose moment says two things at once.
+        // This list used to offer all of them, and for a base naming a date parameter and an absolute date
+        // it took the absolute date where the engine took the parameter - one file, two moments. Case and
+        // a JSON null are not differences, for the engine or here.
+        var dir = Path.Combine(Path.GetTempPath(), $"chrono-presets-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            const string date = "{\"id\":\"d\",\"type\":\"date\",\"default\":\"2020-01-01\"}";
+            const string size = "{\"id\":\"n\",\"type\":\"duration\",\"default\":{\"amount\":1,\"unit\":\"days\"}}";
+            const string side = "{\"id\":\"v\",\"type\":\"variant\",\"default\":\"day_after\"}";
+            const string absolute = "\"absolute\":\"2030-01-01T00:00:00\"";
+            var files = new Dictionary<string, string>
+            {
+                ["good"] = Preset("good", "5"),
+                ["Case"] = Preset("case", "5"),
+                ["nullok"] = Shaped("nullok", date, "{\"base\":{\"absolute\":null,\"parameter\":\"d\"}}"),
+                ["renamed"] = Preset("month-end", "5"),
+                ["dupe"] = Shaped("dupe", date + "," + date, "{\"base\":{\"parameter\":\"d\"}}"),
+                ["both"] = Shaped("both", date, "{\"base\":{" + absolute + ",\"parameter\":\"d\"}}"),
+                ["utcboth"] = Shaped("utcboth", string.Empty,
+                    "{\"base\":{" + absolute + ",\"absolute_utc\":\"2030-01-01T00:00:00Z\"}}"),
+                ["sized"] = Shaped("sized", size,
+                    "{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"+\",\"amount\":100,\"parameter\":\"n\"}}]}"),
+                ["unitted"] = Shaped("unitted", size,
+                    "{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"+\",\"unit\":\"years\",\"parameter\":\"n\"}}]}"),
+                ["signed"] = Shaped("signed", side,
+                    "{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"-\",\"parameter\":\"v\"}}]}"),
+            };
+            foreach (var (name, json) in files)
+            {
+                File.WriteAllText(Path.Combine(dir, name + ".json"), json);
+            }
+
+            var offered = PresetCatalog.Load(dir).Select(p => p.Id).Order(StringComparer.Ordinal).ToList();
+
+            Assert.Equal(["case", "good", "nullok"], offered);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static string Shaped(string id, string parameters, string moment) =>
+        "{\"schema\":\"chronomock.preset/1\",\"id\":\"" + id + "\",\"applies_to\":\"calculator\"," +
+        "\"name\":{\"en\":\"" + id + "\"},\"explains\":{\"en\":\"x\"}," +
+        "\"parameters\":[" + parameters + "],\"moment\":" + moment + "}";
+
     // Built by concatenation, not an interpolated raw string: the JSON's own "}}" runs collide with the
     // interpolation delimiter.
     private static string Preset(string id, string amount) =>

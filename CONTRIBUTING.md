@@ -24,7 +24,8 @@ a bug in the data model and worth an issue on its own.
 
 ### What a calendar file looks like
 
-Drop a new file into `calendars/`, named for its identifier. Start from
+Drop a new file into `calendars/`, named for its identifier: a file whose `id` is not its file name
+is refused. Start from
 [`calendars/pl.json`](calendars/pl.json) or
 [`calendars/us-federal.json`](calendars/us-federal.json) rather than from this
 description, because they are the tested examples.
@@ -58,12 +59,18 @@ Three rule types cover everything shipped so far:
 |---|---|---|
 | `fixed` | `month`, `day` | New Year's Day |
 | `nth_weekday` | `month`, `weekday`, `order` - `order` is `-1` for the last one in the month | Memorial Day, the last Monday in May |
-| `easter_offset` | `offset` in days from Easter Sunday, positive or negative | Easter Monday is `1` |
+| `easter_offset` | `offset` in days from Easter Sunday, from `-80` to `250` - the range that keeps the holiday in its Easter's year | Easter Monday is `1` |
+
+The file has exactly the fields shown above. A field the reader does not know is refused rather than
+skipped, at every level, so a misspelt `valid_form` stops the file instead of quietly making a
+holiday count in every year.
 
 The `observed` field says what happens when a holiday lands on a weekend, and it
-applies to the whole calendar: `none`, `sun_to_mon`, or `sat_to_fri_sun_to_mon`
+applies to the whole calendar: `none`, `sun_to_mon`, `sat_to_fri_sun_to_mon`
 - the United States rule where a Saturday holiday is observed on the preceding
-Friday.
+Friday - or `weekend_to_mon`. When the day a holiday would be observed on is
+already off, because of another holiday or a weekend day, it moves on to the next
+free day in the same direction.
 
 `valid_from` and `valid_to` are years, and they matter more than they look. Poland
 restored Epiphany as a non-working day in 2011, and a calendar that ignores that
@@ -80,9 +87,9 @@ gives a wrong answer for every date before it.
 - **Bank holidays and public holidays are often different lists.** The two United
   States files exist for exactly that reason. If your country has both, two files
   is the right answer.
-- Run `cargo test --workspace` before opening the pull request. The calendar is
-  parsed and validated by the suite, so a malformed file fails there rather than
-  in somebody's test run.
+- Run `cargo test --workspace` before opening the pull request. Every file in
+  `calendars/` is parsed and validated by the suite, so a malformed file fails
+  there rather than in somebody's test run.
 
 ## Interface translations
 

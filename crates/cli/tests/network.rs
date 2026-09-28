@@ -182,7 +182,8 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "crates/cli/tests/calc_cli.rs",
         "spawn",
         "runs the built binary's calculator, which starts nothing and reads only this machine's \
-         clock, to read how it refuses an argument and which zone it counts today in",
+         clock and the catalogue files the test writes, to read how it refuses an argument, which \
+         zone it counts today in and how it loads or refuses a calendar and a preset",
     ),
     (
         "crates/cli/tests/closed_output.rs",

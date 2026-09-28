@@ -127,6 +127,14 @@ public static class PresetCatalog
                 return false;
             }
 
+            // A file is found by its name and the engine refuses one whose id says otherwise (R4-N37, the
+            // owner's decision R4-D14), so the list leaves it out too - both surfaces show one catalogue.
+            // Without case, because that is how Windows matches the name, and how the engine compares.
+            if (!string.Equals(id, Path.GetFileNameWithoutExtension(file), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
             var appliesTo = root.TryGetProperty("applies_to", out var a) ? a.GetString() ?? "both" : "both";
             string? market = root.TryGetProperty("market", out var m) && m.ValueKind == JsonValueKind.String
                 ? m.GetString()
@@ -134,9 +142,18 @@ public static class PresetCatalog
 
             // Clone the moment so it outlives the disposed JsonDocument (used by the unpack in G4-1b).
             var moment = root.TryGetProperty("moment", out var mo) ? mo.Clone() : default;
+            var parameters = ReadParameters(root);
+
+            // A preset that says two things at once is refused by the engine (R4-N33): two parameters with
+            // one id, or a moment naming the same thing twice. Left out here for the same reason.
+            if (parameters.GroupBy(p => p.Id, StringComparer.Ordinal).Any(g => g.Count() > 1)
+                || PresetUnpack.HasContradiction(moment, parameters))
+            {
+                return false;
+            }
 
             info = new PresetInfo(id, ReadLocalized(root, "name"), ReadLocalized(root, "explains"),
-                appliesTo, market, ReadParameters(root), moment);
+                appliesTo, market, parameters, moment);
             return true;
         }
         catch (Exception e) when (e is JsonException or IOException or InvalidOperationException
