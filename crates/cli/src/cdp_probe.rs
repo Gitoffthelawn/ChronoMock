@@ -252,7 +252,7 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
     // as `__cdp-embedded` does: falling back to the real clock printed "requested moment" beside a
     // page that read the real date, which looked like a shim that failed.
     let Ok(fake) = moment_epoch_ms(iso, 0) else {
-        eprintln!("chrono: not a moment a session can run at: {iso}");
+        diag!("chrono: not a moment a session can run at: {iso}");
         return 1;
     };
     let shim = cdp::build_shim(fake, real, 1, 1, WALL_MAX_MS); // flow: a wall offset, no acceleration
