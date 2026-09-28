@@ -179,6 +179,12 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          what it answers. It starts no target and reaches nothing past this machine",
     ),
     (
+        "crates/cli/tests/calc_cli.rs",
+        "spawn",
+        "runs the built binary's calculator, which starts nothing and reads only this machine's \
+         clock, to read how it refuses an argument and which zone it counts today in",
+    ),
+    (
         "crates/cli/tests/closed_output.rs",
         "spawn",
         "runs the built binary with its output or its error stream closed, to see it keep the exit \

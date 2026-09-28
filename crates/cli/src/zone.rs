@@ -80,7 +80,7 @@ pub(crate) fn parse_zone_to_bias(raw: &str) -> Result<i32, String> {
     let mins: u32 = m.parse().map_err(|_| format!("bad zone minutes in '{raw}' (digits only)"))?;
     if hours > 14 {
         return Err(format!(
-            "zone hours out of range in '{raw}' (0..=14; real zones run -12:00..=+14:00, and this tool allows the wider band on purpose)"
+            "zone hours out of range in '{raw}' (0..=14 - real zones run -12:00..=+14:00, and this tool allows the wider band on purpose)"
         ));
     }
     if mins > 59 {
