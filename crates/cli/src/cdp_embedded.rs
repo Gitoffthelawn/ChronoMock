@@ -88,8 +88,8 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
         return 1;
     };
     let real = now_epoch_ms();
-    let Some(fake) = moment_epoch_ms(&args.at, Some(0)) else {
-        eprintln!("chrono: --at is not a moment: {}", args.at);
+    let Ok(fake) = moment_epoch_ms(&args.at, 0) else {
+        eprintln!("chrono: --at is not a moment a session can run at: {}", args.at);
         return 1;
     };
     let origin = ShimOrigin { fake0: fake, real0: real, mult: args.multiplier, dur: args.multiplier };

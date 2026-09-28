@@ -233,7 +233,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     for event in coverage_events(
         &seen,
         &covered,
-        session_warnings(app_closed, audited, rate_changed_in_flight, past_ceiling > 0),
+        session_warnings(app_closed, audited, rate_changed_in_flight, past_ceiling > 0, clock.reached_range_end(now_epoch_ms())),
     ) {
         emit(&event);
     }

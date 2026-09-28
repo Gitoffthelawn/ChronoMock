@@ -289,6 +289,10 @@
   // was the only one in the interface - every other date is spelled out - and "common year" is the
   // correct term for what almost nobody calls it.
   "moment.invalid": "That date and time is not valid (a daylight-saving gap, 29 February in a year that is not a leap year, or out of range) - the session did not start.",
+  // R4-S7, R4-S9: both can answer a start AND a jump, so neither says which of the two did not happen,
+  // and neither needs an in-flight twin (SessionViewModel.InFlightKey).
+  "moment.out_of_range": "That date is outside the range a session can represent (years 1601 to 30828), so it was not used.",
+  "time.bad_zone": "The time zone sent to the core is missing or outside the range it accepts (-14:59 to +14:59).",
   // 🔴 THE SAME TWO REASONS, FOR A COMMAND REJECTED MID-SESSION. The core sends one key whether a bad
   // moment arrives with the start command or with a jump, so the panel printed "the session did not
   // start" under a status line reading "Running" - a screen contradicting itself. These say what actually

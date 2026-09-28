@@ -80,6 +80,8 @@ public class LocalizationTests
         "target.single_instance_suspected", "target.handed_off_uncovered",
         // Start/fatal error keys, surfaced as the status headline (RELEASE-001).
         "core.hook_dll_missing", "time.bad_mode", "time.bad_multiplier", "moment.invalid",
+        // The session gate (R4-S7, R4-S9): a moment the clock cannot hold, and a zone it cannot carry.
+        "moment.out_of_range", "time.bad_zone",
         // In-flight jump rejections (Event::Error answering a jump command). Both were missing from
         // this list AND from both translation files until the wire-key guard in
         // crates/cli/tests/wire_keys.rs found them: `chrono run <target> --jump-after 1:+5bd` emits

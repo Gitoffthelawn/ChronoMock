@@ -12,8 +12,8 @@ use super::CdpClient;
 use serde_json::{json, Value};
 use std::io;
 
-/// The time shim, with `__MULT__`/`__DUR__`/`__FAKE_START__`/`__REAL_START__` filled in by
-/// [`build_shim`]. A guard (`__chronomock`) makes re-injection (a page reload re-runs the add-script
+/// The time shim, with `__MULT__`/`__DUR__`/`__FAKE_START__`/`__REAL_START__`/`__WALL_MAX__` filled
+/// in by [`build_shim`]. A guard (`__chronomock`) makes re-injection (a page reload re-runs the add-script
 /// hook) a no-op, so the originals are wrapped exactly once. `fakeNow` is
 /// `fakeStart + (realNow - realStart) * M`, so M = 1 is a pure wall offset and M > 1 accelerates.
 ///
@@ -40,6 +40,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     D: __DUR__,                     /* duration rate for timers and performance.now, never below 1 */
     fakeStart: __FAKE_START__,
     realStart: __REAL_START__,
+    wallMax: __WALL_MAX__,          /* the last instant the session clock can hold - it stands there */
     perfBase: 0,                    /* accumulated scaled duration up to the last rate change */
     perfAnchorReal: _perf ? _perf() : 0,
     _realNow: _now,
@@ -47,7 +48,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     counts: { si: 0, st: 0, now: 0, perf: 0 }
   };
   globalThis.__chronomock = S;
-  function fakeNow(){ return Math.round(S.fakeStart + (_now() - S.realStart) * S.M); }
+  function fakeNow(){ return Math.round(Math.min(S.fakeStart + (_now() - S.realStart) * S.M, S.wallMax)); }
 
   /* Replace Date so new Date() (no args) and Date.now() read the session clock; every other form
      (parsing, explicit fields) is unchanged, and instanceof / the prototype are preserved. */
@@ -83,12 +84,17 @@ pub const COUNTS_EXPR: &str = "(globalThis.__chronomock && globalThis.__chronomo
 /// below 1 - a frozen wall does not stop a timer, untouchable rule 3). The browser's own `Date.now`
 /// supplies "real now" at run time, so all contexts share one clock origin as long as the driver's and
 /// the browser's wall clocks agree (same machine).
-pub fn build_shim(fake_start_ms: i64, real_start_ms: i64, mult: i64, dur: i64) -> String {
+///
+/// `wall_max_ms` is the last instant the wall may show. The page's clock stands there, as the native
+/// hook's does, instead of running on past what the session can name (R4-S8). A parameter rather than
+/// a constant of this module, because this transport client knows nothing of the session's range.
+pub fn build_shim(fake_start_ms: i64, real_start_ms: i64, mult: i64, dur: i64, wall_max_ms: i64) -> String {
     SHIM_TEMPLATE
         .replace("__MULT__", &mult.to_string())
         .replace("__DUR__", &dur.max(1).to_string())
         .replace("__FAKE_START__", &fake_start_ms.to_string())
         .replace("__REAL_START__", &real_start_ms.to_string())
+        .replace("__WALL_MAX__", &wall_max_ms.to_string())
 }
 
 /// True for a CDP target type that runs the target's own JS (and so is worth shimming). GPU, browser,
@@ -186,14 +192,18 @@ mod tests {
 
     #[test]
     fn shim_substitutes_its_parameters() {
-        let s = build_shim(1_700_000_000_000, 1_600_000_000_000, 60, 60);
+        let s = build_shim(1_700_000_000_000, 1_600_000_000_000, 60, 60, 900_000_000_000_000);
         assert!(s.contains("M: 60,"));
         assert!(s.contains("D: 60,"));
         assert!(s.contains("fakeStart: 1700000000000,"));
         assert!(s.contains("realStart: 1600000000000,"));
+        assert!(s.contains("wallMax: 900000000000000,"));
         assert!(!s.contains("__MULT__"));
         assert!(!s.contains("__DUR__"));
         assert!(!s.contains("__FAKE_START__"));
+        assert!(!s.contains("__WALL_MAX__"));
+        // The wall is read through the end of the range, never past it (R4-S8).
+        assert!(s.contains("Math.min(S.fakeStart + (_now() - S.realStart) * S.M, S.wallMax)"), "{s}");
     }
 
     /// The two rates are independent: a page inside a natively hooked application keeps its timers
@@ -201,13 +211,13 @@ mod tests {
     /// (untouchable rule 3), so the duration rate is floored at 1 whatever the caller passes.
     #[test]
     fn the_wall_rate_and_the_duration_rate_are_filled_in_separately() {
-        let s = build_shim(0, 0, 60, 1);
+        let s = build_shim(0, 0, 60, 1, 0);
         assert!(s.contains("M: 60,"), "{s}");
         assert!(s.contains("D: 1,"), "{s}");
         assert!(s.contains("(S.D || 1)"), "timers read the duration rate, not the wall rate");
         assert!(!s.contains("/ (S.M || 1)"), "no timer divides by the wall rate any more");
 
-        let frozen = build_shim(0, 0, 0, 0);
+        let frozen = build_shim(0, 0, 0, 0, 0);
         assert!(frozen.contains("M: 0,"), "{frozen}");
         assert!(frozen.contains("D: 1,"), "a frozen wall keeps timers at real speed: {frozen}");
     }

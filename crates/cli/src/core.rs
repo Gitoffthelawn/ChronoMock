@@ -14,7 +14,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use chrono_core::{
-    filetime_utc_to_wall, verdict_from_coverage, Coverage, Moment, SessionSpec, TimeMode, Verdict,
+    filetime_utc_to_wall, verdict_from_coverage, Coverage, Moment, SessionSpec, Verdict,
 };
 use chrono_mech::{FamilyMember, UncoveredChild};
 use chrono_proto::{
@@ -31,8 +31,8 @@ use crate::cli::{this_bitness, CORE_VERSION};
 use crate::embedded::{is_renderer_role, is_web_engine_subprocess, role_from_command_line};
 use crate::embedded_bridge::{reconcile_engine_warnings, EmbeddedBridge, Launch, KEY_REGISTRY_ARGUMENTS_HIDDEN};
 use crate::events::{
-    command_id, emit, emit_coverage, ended_clean, jump_error_key, state_event,
-    state_event_from, unsupported_command,
+    command_id, emit, emit_coverage, ended_clean, jump_error_key, moment_error_key, start_time_mode,
+    state_event, state_event_from, unsupported_command,
 };
 use crate::grammar::parse_shift;
 use crate::report::detect_runtime_warnings;
@@ -483,7 +483,7 @@ pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut Emb
                     None => Err("moment.invalid"),
                 }
             } else {
-                moment_from_spec(&to).map(|ft| session.jump(ft))
+                moment_from_spec(&to, session.tz_bias()).map(|ft| session.jump(ft))
             };
             match resolved {
                 Ok(()) => {
@@ -829,16 +829,21 @@ pub(crate) fn uncovered_children_warnings(children: &[UncoveredChild], total: u3
     warnings
 }
 
-/// Resolve a `MomentSpec` to a UTC FILETIME for a jump. Absolute moments only here
-/// (relative delta is a later slice).
-pub(crate) fn moment_from_spec(spec: &MomentSpec) -> Result<i64, &'static str> {
+/// Resolve an absolute jump target to a UTC FILETIME, through the same gate a start goes through.
+///
+/// A target that names no zone is read in the SESSION zone (`session_bias`), like every other moment
+/// of the session. It was read as UTC, against the documentation of `Moment`, so a client that left
+/// the field out landed the clock an offset away from the time it asked for (R4-S9) - the error the
+/// driver's own `--jump-after` had been fixed for. One that names a zone keeps it: the moment is read
+/// there and the session zone does not change.
+pub(crate) fn moment_from_spec(spec: &MomentSpec, session_bias: i32) -> Result<i64, &'static str> {
     match spec.kind.as_str() {
         "absolute" => {
             let m = Moment {
                 local: spec.local.clone().unwrap_or_default(),
-                tz_bias_min: spec.tz_bias_min,
+                tz_bias_min: Some(spec.tz_bias_min.unwrap_or(session_bias)),
             };
-            chrono_core::moment_to_filetime_utc(&m).map_err(|_| "moment.invalid")
+            chrono_core::session_instant(&m).map(|(ft, _)| ft).map_err(|e| moment_error_key(&e))
         }
         _ => Err("moment.unsupported_kind"),
     }
@@ -866,38 +871,21 @@ pub(crate) fn hook_dll_in(dir: &std::path::Path) -> Option<std::path::PathBuf> {
 }
 
 pub(crate) fn build_spec(time: &TimeSpec) -> Result<SessionSpec, (i32, &'static str)> {
-    let mode = match time.mode.as_str() {
-        "flow" => TimeMode::Flow,
-        "frozen" => TimeMode::Frozen,
-        "multiplier" => {
-            // The core reads NDJSON from whatever client is on the other end, so it validates for
-            // itself rather than trusting the friendly CLI to have done it. It did not, and the two
-            // surfaces had drifted: `--mode` required >= 1 while the protocol took any i64, so a
-            // negative rate ran the target's clock CONTINUOUSLY BACKWARD and an enormous one walked
-            // it out of the representable range - both reported as `works` (R2-K2, R2-K3).
-            let m = time.multiplier.unwrap_or(1);
-            if !chrono_core::multiplier_in_range(m) {
-                return Err((1, "time.bad_multiplier"));
-            }
-            TimeMode::Multiplier(m)
-        }
-        _ => return Err((1, "time.bad_mode")),
+    let mode = start_time_mode(time).map_err(|key| (1, key))?;
+    let moment = Moment {
+        local: time.moment.local.clone().unwrap_or_default(),
+        tz_bias_min: time.moment.tz_bias_min,
     };
-    Ok(SessionSpec {
-        moment: Moment {
-            local: time.moment.local.clone().unwrap_or_default(),
-            tz_bias_min: time.moment.tz_bias_min,
-        },
-        mode,
-        scale_duration: time.scale_duration,
-        scale_qpc: time.scale_qpc,
-    })
+    // Checked here, before anything is launched, with the key that names the fault. `prepare` checks
+    // again for itself, but by then the target's command line has been built.
+    chrono_core::session_instant(&moment).map_err(|e| (1, moment_error_key(&e)))?;
+    Ok(SessionSpec { moment, mode, scale_duration: time.scale_duration, scale_qpc: time.scale_qpc })
 }
 
 pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static str, &'static str, String) {
     use chrono_mech::PrepareError as P;
     match e {
-        P::Moment(m) => (1, "moment.invalid", "core", m),
+        P::Moment(e) => (1, moment_error_key(&e), "core", e.to_string()),
         P::Control(m) => (3, "session.control_failed", "mechanism", m),
         P::Launch(m) => (2, "target.launch_failed", "mechanism", m),
         P::Inject(m) => (2, "target.inject_failed", "mechanism", m),
@@ -964,6 +952,49 @@ mod tests {
             let err = build_spec(&spec(bad)).expect_err("out of range must be refused");
             assert_eq!(err, (1, "time.bad_multiplier"), "multiplier {bad}");
         }
+    }
+
+    fn moment_spec(local: &str, bias: Option<i32>) -> MomentSpec {
+        MomentSpec { kind: "absolute".into(), local: Some(local.into()), tz_bias_min: bias, delta: None }
+    }
+
+    /// R4-S7 and R4-S9 at the native start: the gate runs before anything launches and names the fault
+    /// - a zone the hook's local channels cannot carry, or an instant the clock cannot hold.
+    #[test]
+    fn build_spec_holds_the_moment_and_its_zone_to_the_session_gate() {
+        let spec = |local: &str, bias: Option<i32>| TimeSpec {
+            moment: moment_spec(local, bias),
+            mode: "flow".into(),
+            multiplier: None,
+            scale_duration: false,
+            scale_qpc: false,
+        };
+        assert!(build_spec(&spec("2038-01-01T00:00:00", Some(-899))).is_ok());
+        assert_eq!(build_spec(&spec("2038-01-01T00:00:00", None)).err(), Some((1, "time.bad_zone")));
+        assert_eq!(build_spec(&spec("2038-01-01T00:00:00", Some(i32::MAX))).err(), Some((1, "time.bad_zone")));
+        // The report's two examples: past the clock's end, and before 1601 in the session zone.
+        assert_eq!(build_spec(&spec("30828-09-14T02:48:05", Some(0))).err(), Some((1, "moment.out_of_range")));
+        assert_eq!(build_spec(&spec("1600-12-31T20:00:00", Some(300))).err(), Some((1, "moment.out_of_range")));
+        assert_eq!(build_spec(&spec("2038-02-30T00:00:00", Some(0))).err(), Some((1, "moment.invalid")));
+    }
+
+    /// R4-S9: an absolute jump that names no zone is read in the SESSION zone, not in UTC - and one
+    /// that names a zone keeps it. Both go through the same gate as a start.
+    #[test]
+    fn an_absolute_jump_without_a_zone_is_read_in_the_session_zone() {
+        let east2 = chrono_core::moment_to_filetime_utc(&Moment {
+            local: "2030-06-15T12:00:00".into(),
+            tz_bias_min: Some(-120),
+        })
+        .unwrap();
+        assert_eq!(moment_from_spec(&moment_spec("2030-06-15T12:00:00", None), -120), Ok(east2));
+        assert_eq!(
+            moment_from_spec(&moment_spec("2030-06-15T12:00:00", Some(0)), -120),
+            Ok(east2 + 120 * 60 * 10_000_000),
+            "a zone named on the jump is the one it is read in"
+        );
+        assert_eq!(moment_from_spec(&moment_spec("2030-06-15T12:00:00", Some(-900)), 0), Err("time.bad_zone"));
+        assert_eq!(moment_from_spec(&moment_spec("1000-01-01T00:00:00", None), 0), Err("moment.out_of_range"));
     }
 
     #[test]

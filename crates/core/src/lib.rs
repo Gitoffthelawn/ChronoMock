@@ -22,7 +22,13 @@ pub mod calendar;
 pub struct Moment {
     /// Local wall-clock text in the session zone, e.g. "2038-01-19T03:14:07".
     pub local: String,
-    /// Session zone bias in minutes (UTC = local + bias), no DST. `None` = host zone.
+    /// Session zone bias in minutes (UTC = local + bias), no DST.
+    ///
+    /// A session never runs without one: [`session_instant`] refuses `None` (untouchable rule 2, the
+    /// zone is always explicit). This used to promise "`None` = host zone" while every consumer
+    /// computed UTC instead, so a client that left the field out got a clock hours away from the one
+    /// the documentation described. The plain conversion [`moment_to_filetime_utc`] still reads `None`
+    /// as UTC, for the calculator paths that state their zone some other way.
     pub tz_bias_min: Option<i32>,
 }
 
@@ -71,6 +77,98 @@ pub const MULTIPLIER_MIN: i64 = 0;
 /// the protocol accepted anything at all).
 pub fn multiplier_in_range(m: i64) -> bool {
     (MULTIPLIER_MIN..=MULTIPLIER_MAX).contains(&m)
+}
+
+/// The widest session zone offset accepted, in minutes either side of UTC: 14:59.
+///
+/// It is the band the CLI's `--zone` parser has always had (hours 0..=14, minutes 0..=59), now stated
+/// once for every surface. The protocol took any `i32` and nothing checked it (R4-S9), which broke the
+/// assumption the clock's range is built on: [`FAKE_WALL_MAX`] stops fifteen hours short of the end of
+/// the FILETIME range precisely so that `fake - bias` still fits for every accepted zone. A bias past
+/// that can make the hook's local-time channels overflow and fall back to the REAL clock while the
+/// UTC channels stay fake - the failure R2-X7 measured at the top of the range.
+pub const ZONE_BIAS_MAX_MIN: i32 = 14 * 60 + 59;
+
+/// Whether a session-zone bias (minutes, UTC = local + bias) is one a session may run in. The single
+/// gate the start command, the absolute jump and both mechanisms use, like [`multiplier_in_range`].
+pub fn zone_bias_in_range(bias_min: i32) -> bool {
+    (-ZONE_BIAS_MAX_MIN..=ZONE_BIAS_MAX_MIN).contains(&bias_min)
+}
+
+/// The last instant a session clock may name, as a UTC FILETIME (100 ns ticks since 1601).
+///
+/// A mirror of `chrono_ctl::FAKE_WALL_MAX`, where the reasoning lives: the last whole second that
+/// leaves room for the largest zone bias, so the local-time channels can still express it. It is
+/// restated here rather than imported because this crate depends on nothing (rule 16), and
+/// `chrono-mech`, which sees both crates, asserts at compile time that the two are equal and that
+/// [`ZONE_BIAS_MAX_MIN`] fits the headroom - so they cannot drift apart without the build failing.
+pub const FAKE_WALL_MAX: i64 = {
+    // Fifteen hours: more than the widest accepted zone (14:59), as `chrono_ctl::MAX_ZONE_BIAS_TICKS`.
+    const ZONE_HEADROOM_TICKS: i64 = 15 * 3600 * 10_000_000;
+    let raw = i64::MAX - ZONE_HEADROOM_TICKS;
+    raw - (raw % 10_000_000)
+};
+
+/// Why a moment cannot become the clock of a session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionMomentError {
+    /// The zone is missing, or outside [`ZONE_BIAS_MAX_MIN`] either side of UTC.
+    BadZone,
+    /// The text is not a date and time at all. Carries the parser's reason for the human half.
+    NotAMoment(String),
+    /// A real date the session clock cannot hold: before 1601-01-01 in UTC or in the session zone, or
+    /// after [`FAKE_WALL_MAX`].
+    OutOfRange,
+}
+
+impl std::fmt::Display for SessionMomentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionMomentError::BadZone => write!(
+                f,
+                "the session zone is missing or outside -14:59..=+14:59 (bias -{ZONE_BIAS_MAX_MIN}..={ZONE_BIAS_MAX_MIN} minutes)"
+            ),
+            SessionMomentError::NotAMoment(reason) => f.write_str(reason),
+            SessionMomentError::OutOfRange => {
+                f.write_str("the moment is outside the range a session clock can hold (years 1601 to 30828)")
+            }
+        }
+    }
+}
+
+/// Whether a UTC instant can be the session clock in a zone: at or after 1601-01-01 both in UTC and
+/// as local time in that zone, and not after [`FAKE_WALL_MAX`].
+///
+/// Both floors, because the hook serves the same instant twice. The UTC channels read the FILETIME,
+/// the local ones read `FILETIME - bias`, and a FILETIME below zero is refused by the conversion every
+/// calendar channel goes through, which then answers with the REAL clock (R4-S7d). Checking UTC alone
+/// let `1600-12-31T20:00:00` at UTC-05:00 through: fine in UTC, before 1601 locally, and
+/// `GetLocalTime` in the target showed today's date. The top needs no local check, because the
+/// headroom under [`FAKE_WALL_MAX`] is there for exactly that.
+pub fn instant_in_session_range(ft_utc: i64, bias_min: i32) -> bool {
+    let local = ft_utc.checked_sub((bias_min as i64) * 60 * 10_000_000);
+    (0..=FAKE_WALL_MAX).contains(&ft_utc) && local.is_some_and(|l| l >= 0)
+}
+
+/// The UTC FILETIME a session clock starts at, or is jumped to, with the zone it was read in: the one
+/// gate every moment passes before it can become a session clock (R4-S7, R4-S9).
+///
+/// [`moment_to_filetime_utc`] answers a narrower question - does this text name an instant FILETIME
+/// can hold - and it was the only check. So a moment past [`FAKE_WALL_MAX`] started a session whose
+/// first rate change wrapped the clock to 1601, a zone far outside any real one reached the hook
+/// unchecked, and a moment before 1601 in the session zone ran the local-time channels on the real
+/// clock. This checks the zone first (a moment cannot be read without one), then the text, then the
+/// instant against both ends of the session range.
+pub fn session_instant(moment: &Moment) -> Result<(i64, i32), SessionMomentError> {
+    let bias = moment
+        .tz_bias_min
+        .filter(|&b| zone_bias_in_range(b))
+        .ok_or(SessionMomentError::BadZone)?;
+    let (y, mo, d, h, mi, s) = parse_civil(&moment.local).map_err(SessionMomentError::NotAMoment)?;
+    let ft = civil_fields_to_filetime_utc(y, mo, d, h, mi, s, bias as i64)
+        .filter(|&ft| instant_in_session_range(ft, bias))
+        .ok_or(SessionMomentError::OutOfRange)?;
+    Ok((ft, bias))
 }
 
 /// Everything needed to define a session. Pure data, no I/O.
@@ -804,5 +902,82 @@ mod tests {
         assert_eq!(Verdict::Undetermined.exit_code(), 4);
         assert_eq!(Verdict::Partial.exit_code(), 10);
         assert_eq!(Verdict::Fails.exit_code(), 11);
+    }
+
+    /// R4-S9: the zone band is the one `--zone` has always parsed, 14:59 either side, and nothing
+    /// past it - `i32` reached the hook unchecked over the protocol before.
+    #[test]
+    fn the_zone_band_is_fourteen_fifty_nine_either_side() {
+        for ok in [0, 1, -1, 899, -899, 300, -120] {
+            assert!(zone_bias_in_range(ok), "bias {ok}");
+        }
+        for bad in [900, -900, 1440, i32::MIN, i32::MAX] {
+            assert!(!zone_bias_in_range(bad), "bias {bad}");
+        }
+    }
+
+    /// The top of the session range is `FAKE_WALL_MAX` = 30828-09-13T11:48:05 UTC, a whole second, and
+    /// a moment one second later is refused rather than started and clamped (R4-S7b).
+    #[test]
+    fn a_session_moment_stops_at_the_last_instant_the_clock_can_hold() {
+        assert_eq!(session_instant(&moment("30828-09-13T11:48:05", Some(0))), Ok((FAKE_WALL_MAX, 0)));
+        assert_eq!(
+            session_instant(&moment("30828-09-13T11:48:06", Some(0))),
+            Err(SessionMomentError::OutOfRange)
+        );
+        // The widest zone east of UTC names the same last instant as local time, and fits: the
+        // headroom under the clamp is there for exactly this.
+        assert_eq!(session_instant(&moment("30828-09-14T02:47:05", Some(-899))), Ok((FAKE_WALL_MAX, -899)));
+        // The report's example: parsed fine, representable as a FILETIME, past the clock's range.
+        assert_eq!(
+            session_instant(&moment("30828-09-14T02:48:05", Some(0))),
+            Err(SessionMomentError::OutOfRange)
+        );
+    }
+
+    /// R4-S7d: the floor holds in UTC AND as local time in the session zone, because the hook serves
+    /// the instant both ways and a negative local FILETIME drops `GetLocalTime` to the real clock.
+    #[test]
+    fn a_session_moment_starts_no_earlier_than_1601_in_utc_or_in_its_zone() {
+        assert_eq!(session_instant(&moment("1601-01-01T00:00:00", Some(0))), Ok((0, 0)));
+        // UTC-05:00: local midnight on the first day is 05:00 UTC, and both are inside.
+        assert_eq!(
+            session_instant(&moment("1601-01-01T00:00:00", Some(300))),
+            Ok((5 * 3600 * 10_000_000, 300))
+        );
+        // The report's example: 01:00 UTC is inside, but the local time is before 1601.
+        assert_eq!(
+            session_instant(&moment("1600-12-31T20:00:00", Some(300))),
+            Err(SessionMomentError::OutOfRange)
+        );
+        // UTC+02:00: 01:00 local is 23:00 UTC the day before 1601 - out on the UTC side.
+        assert_eq!(
+            session_instant(&moment("1601-01-01T01:00:00", Some(-120))),
+            Err(SessionMomentError::OutOfRange)
+        );
+        assert_eq!(
+            session_instant(&moment("1000-01-01T00:00:00", Some(0))),
+            Err(SessionMomentError::OutOfRange)
+        );
+    }
+
+    /// R4-S9 and the decision on a missing zone: a session never guesses one. The zone is checked
+    /// before the text, because a moment cannot be read without it.
+    #[test]
+    fn a_session_moment_needs_a_zone_inside_the_band() {
+        assert_eq!(session_instant(&moment("2030-06-15T12:00:00", None)), Err(SessionMomentError::BadZone));
+        assert_eq!(session_instant(&moment("2030-06-15T12:00:00", Some(900))), Err(SessionMomentError::BadZone));
+        assert_eq!(
+            session_instant(&moment("2030-06-15T12:00:00", Some(i32::MIN))),
+            Err(SessionMomentError::BadZone)
+        );
+        assert_eq!(session_instant(&moment("not a moment", None)), Err(SessionMomentError::BadZone));
+        assert!(matches!(
+            session_instant(&moment("2026-02-30T00:00:00", Some(0))),
+            Err(SessionMomentError::NotAMoment(_))
+        ));
+        // An ordinary moment comes back as the same instant the plain conversion gives.
+        let m = moment("2038-01-19T03:14:07", Some(-120));
+        assert_eq!(session_instant(&m), Ok((moment_to_filetime_utc(&m).unwrap(), -120)));
     }
 }

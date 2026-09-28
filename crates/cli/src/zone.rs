@@ -5,7 +5,7 @@
 //! scattered across the driver, the calculator and the CDP path, which is how the session-zone
 //! default drifted into three different answers once (R2-S7).
 
-use chrono_core::{filetime_utc_to_wall, Moment};
+use chrono_core::{filetime_utc_to_wall, Moment, SessionMomentError};
 
 pub(crate) fn now_epoch_ms() -> i64 {
     std::time::SystemTime::now()
@@ -17,13 +17,23 @@ pub(crate) fn now_epoch_ms() -> i64 {
 /// FILETIME ticks (100 ns since 1601) at the Unix epoch (1970-01-01T00:00:00Z).
 pub(crate) const FT_UNIX_EPOCH: i64 = 116_444_736_000_000_000;
 
-/// Unix-epoch ms for a session moment (local-in-zone, internally UTC - rule 2), reusing the core's
-/// anchor math so the CDP and native paths agree on the instant. `None` if the moment is out of the
-/// representable range.
-pub(crate) fn moment_epoch_ms(local: &str, bias: Option<i32>) -> Option<i64> {
-    let m = Moment { local: local.to_string(), tz_bias_min: bias };
-    let ft = chrono_core::moment_to_filetime_utc(&m).ok()?;
-    Some((ft - FT_UNIX_EPOCH) / 10_000)
+/// The last fake instant a session clock shows, in Unix-epoch ms: the native clamp
+/// (`chrono_core::FAKE_WALL_MAX`, a whole second, so the division is exact). A Chromium session's
+/// clock and the shim in every page stop here, so the pages, the panel and a natively hooked host all
+/// stand at one moment (R4-S8).
+pub(crate) const WALL_MAX_MS: i64 = (chrono_core::FAKE_WALL_MAX - FT_UNIX_EPOCH) / 10_000;
+
+/// 1601-01-01T00:00:00Z in Unix-epoch ms: the bottom of the same range. A clock never runs backward, so
+/// this is a net under an entry that is already checked, as it is on the native side.
+pub(crate) const WALL_MIN_MS: i64 = -FT_UNIX_EPOCH / 10_000;
+
+/// Unix-epoch ms for a session moment (local-in-zone, internally UTC - rule 2), through the same gate
+/// the native session holds a moment to (`chrono_core::session_instant`), so the CDP and native paths
+/// agree on the instant AND on which moments a session may run at (R4-S7, R4-S9).
+pub(crate) fn moment_epoch_ms(local: &str, bias: i32) -> Result<i64, SessionMomentError> {
+    let m = Moment { local: local.to_string(), tz_bias_min: Some(bias) };
+    let (ft, _) = chrono_core::session_instant(&m)?;
+    Ok((ft - FT_UNIX_EPOCH) / 10_000)
 }
 
 /// Session-zone wall-clock text for a Unix-epoch ms instant, via the core formatter (one source of

@@ -11,14 +11,53 @@
 use std::io::Write;
 
 use chrono_core::calc::EvalError;
-use chrono_core::filetime_utc_to_wall;
-use chrono_proto::{Clock, Command, CoveredChannel, Event, PROTOCOL_VERSION};
+use chrono_core::{filetime_utc_to_wall, SessionMomentError, TimeMode};
+use chrono_proto::{Clock, Command, CoveredChannel, Event, TimeSpec, PROTOCOL_VERSION};
 /// Translation key for a relative-jump eval error (docs/08 section 10). Business days need a
-/// calendar (not built yet) - anything else is an invalid moment. Honest, never silent (rule 6).
+/// calendar (not built yet). A step that lands outside the range a session clock can hold is
+/// `moment.out_of_range`, the same key a start that far out gets (R4-S7c) - anything else is an
+/// invalid moment. Honest, never silent (rule 6).
 pub(crate) fn jump_error_key(e: EvalError) -> &'static str {
     match e {
         EvalError::NeedsCalendar { .. } => "moment.needs_calendar",
+        EvalError::Overflow { .. } | EvalError::YearOutOfRange { .. } => "moment.out_of_range",
         _ => "moment.invalid",
+    }
+}
+
+/// Translation key for a moment the session gate refused, on a start or on a jump.
+pub(crate) fn moment_error_key(e: &SessionMomentError) -> &'static str {
+    match e {
+        SessionMomentError::BadZone => "time.bad_zone",
+        SessionMomentError::NotAMoment(_) => "moment.invalid",
+        SessionMomentError::OutOfRange => "moment.out_of_range",
+    }
+}
+
+/// The time mode a `start` asks for, checked the same way for BOTH mechanisms (R4-S9).
+///
+/// The Chromium session used to read `mode` on its own and never went through this check: a mistyped
+/// mode ran as flow, a negative multiplier as x1, one above the limit was taken as it came, and
+/// `{mode: multiplier, multiplier: 0}` accelerated at x1 where the native session froze. Zero is the
+/// wire spelling of freeze in both now, as it is for `set_multiplier`.
+pub(crate) fn start_time_mode(time: &TimeSpec) -> Result<TimeMode, &'static str> {
+    match time.mode.as_str() {
+        "flow" => Ok(TimeMode::Flow),
+        "frozen" => Ok(TimeMode::Frozen),
+        "multiplier" => {
+            // The core reads NDJSON from whatever client is on the other end, so it validates for
+            // itself rather than trusting the friendly CLI to have done it. It did not, and the two
+            // surfaces had drifted: `--mode` required >= 1 while the protocol took any i64, so a
+            // negative rate ran the target's clock CONTINUOUSLY BACKWARD and an enormous one walked
+            // it out of the representable range - both reported as `works` (R2-K2, R2-K3).
+            let m = time.multiplier.unwrap_or(1);
+            if chrono_core::multiplier_in_range(m) {
+                Ok(TimeMode::Multiplier(m))
+            } else {
+                Err("time.bad_multiplier")
+            }
+        }
+        _ => Err("time.bad_mode"),
     }
 }
 
@@ -137,5 +176,44 @@ pub(crate) fn state_event_from(s: &chrono_mech::SessionState) -> Event {
         multiplier: s.multiplier,
         elapsed_fake_ms: s.elapsed_fake_ms,
         elapsed_real_ms: s.elapsed_real_ms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono_core::calc::{step_target, Sign, Step, Unit};
+
+    fn days(sign: Sign, amount: i64) -> Step {
+        Step::Shift { sign, amount, unit: Unit::Days }
+    }
+
+    /// R4-S7c on the native jump: `jump_step` hands `step_target`'s refusal to this mapping, so a jump
+    /// past either end of the session range reaches the tester as the range, not as a malformed date.
+    #[test]
+    fn a_jump_out_of_the_session_range_is_named_as_the_range() {
+        let now = chrono_core::moment_to_filetime_utc(&chrono_core::Moment {
+            local: "2026-01-01T00:00:00".into(),
+            tz_bias_min: Some(0),
+        })
+        .unwrap();
+        let back = step_target(now, 0, &days(Sign::Minus, 300_000)).unwrap_err();
+        assert_eq!(jump_error_key(back), "moment.out_of_range");
+        let past_top = step_target(chrono_core::FAKE_WALL_MAX, 0, &days(Sign::Plus, 1)).unwrap_err();
+        assert_eq!(jump_error_key(past_top), "moment.out_of_range");
+        let far = step_target(now, 0, &Step::Shift { sign: Sign::Plus, amount: 300_000, unit: Unit::Years }).unwrap_err();
+        assert_eq!(jump_error_key(far), "moment.out_of_range");
+        // The two that are not about the range keep their own keys.
+        let bd = step_target(now, 0, &Step::Shift { sign: Sign::Plus, amount: 5, unit: Unit::BusinessDays }).unwrap_err();
+        assert_eq!(jump_error_key(bd), "moment.needs_calendar");
+        assert_eq!(jump_error_key(EvalError::BadSetTime { index: 0 }), "moment.invalid");
+    }
+
+    /// The session gate's three refusals, each under its own key (R4-S7, R4-S9).
+    #[test]
+    fn each_session_moment_refusal_has_its_own_key() {
+        assert_eq!(moment_error_key(&SessionMomentError::BadZone), "time.bad_zone");
+        assert_eq!(moment_error_key(&SessionMomentError::OutOfRange), "moment.out_of_range");
+        assert_eq!(moment_error_key(&SessionMomentError::NotAMoment(String::new())), "moment.invalid");
     }
 }

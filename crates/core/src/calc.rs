@@ -736,11 +736,21 @@ fn shift_filetime(ft_utc: i64, tz_bias_min: i32, step: &Step) -> Result<i64, Eva
 /// single source of truth for "current fake + one step" on the substitution jump path. A
 /// fixed-length unit adds a tick delta (sub-second precision preserved) - a calendar unit
 /// folds through the civil date in the session zone. Business days are not built yet.
+///
+/// A target outside the session range is `Overflow`: rejected, never clamped (R4-S7c). Only an i64
+/// overflow was caught before, so `jump -300000d` was accepted and parked the clock on 1601-01-01 with
+/// nothing said, and in a zone west of UTC the local-time channels went back to the real clock. The
+/// range is the one [`crate::session_instant`] holds a start to, so a jump cannot reach an instant
+/// the session could not have started at.
 pub fn step_target(fake_now_ft: i64, tz_bias_min: i32, step: &Step) -> Result<i64, EvalError> {
-    if let Some(ticks) = fixed_shift_ticks(step)? {
-        return fake_now_ft.checked_add(ticks).ok_or(EvalError::Overflow { index: 0 });
+    let target = match fixed_shift_ticks(step)? {
+        Some(ticks) => fake_now_ft.checked_add(ticks).ok_or(EvalError::Overflow { index: 0 })?,
+        None => shift_filetime(fake_now_ft, tz_bias_min, step)?,
+    };
+    if !crate::instant_in_session_range(target, tz_bias_min) {
+        return Err(EvalError::Overflow { index: 0 });
     }
-    shift_filetime(fake_now_ft, tz_bias_min, step)
+    Ok(target)
 }
 
 // --- Output formats (the calculator's right column, docs/02 section 8) ---------------
@@ -1997,9 +2007,47 @@ mod tests {
     fn step_target_fixed_is_exact_and_keeps_sub_second() {
         // Fixed units add a precise tick delta - sub-second bits survive (no civil truncation),
         // exactly as the old jump_relative did.
-        let ft = 1_000_000_123; // arbitrary ticks, with a sub-second remainder
+        // A sub-second remainder on an ordinary date. The base used to be 100 s after 1601, where
+        // the two-hour step below landed BEFORE 1601 and the test asserted that as a success - the
+        // very jump R4-S7c is about.
+        let ft = ft_of("2026-01-01T00:00:00", 0) + 123;
         assert_eq!(step_target(ft, 0, &shift(Sign::Plus, 1, Unit::Seconds)).unwrap(), ft + 10_000_000);
         assert_eq!(step_target(ft, 0, &shift(Sign::Minus, 2, Unit::Hours)).unwrap(), ft - 2 * 3600 * 10_000_000);
+    }
+
+    /// R4-S7c: a jump lands inside the range a session may start at, or is refused - never parked
+    /// on 1601 or past the top, whichever kind of step took it there.
+    #[test]
+    fn step_target_stays_inside_the_session_range() {
+        let ft = ft_of("2026-01-01T00:00:00", 0);
+        // The report's example, and the same by a calendar unit.
+        assert_eq!(
+            step_target(ft, 0, &shift(Sign::Minus, 300_000, Unit::Days)),
+            Err(EvalError::Overflow { index: 0 })
+        );
+        assert_eq!(
+            step_target(ft, 0, &shift(Sign::Minus, 500, Unit::Years)),
+            Err(EvalError::Overflow { index: 0 })
+        );
+        // Past the top by one second, and exactly onto it.
+        let top = crate::FAKE_WALL_MAX;
+        assert_eq!(
+            step_target(top, 0, &shift(Sign::Plus, 1, Unit::Seconds)),
+            Err(EvalError::Overflow { index: 0 })
+        );
+        assert_eq!(step_target(top - 10_000_000, 0, &shift(Sign::Plus, 1, Unit::Seconds)), Ok(top));
+        // West of UTC the local time is the one that crosses first: 1601-01-01T01:00 UTC is fine in
+        // UTC and 20:00 the day before in UTC-05:00.
+        let first_day = ft_of("1601-01-01T05:00:00", 0);
+        assert_eq!(
+            step_target(first_day, 300, &shift(Sign::Minus, 4, Unit::Hours)),
+            Err(EvalError::Overflow { index: 0 })
+        );
+        assert_eq!(
+            step_target(first_day, 300, &shift(Sign::Minus, 5, Unit::Hours)),
+            Err(EvalError::Overflow { index: 0 })
+        );
+        assert_eq!(step_target(first_day, 0, &shift(Sign::Minus, 4, Unit::Hours)), Ok(first_day - 4 * 3600 * 10_000_000));
     }
 
     #[test]

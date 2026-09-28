@@ -283,6 +283,10 @@
   // continuously backward - which the time model has as a jump, never as a speed.
   "time.bad_multiplier": "Prędkość poza zakresem - musi mieścić się między 0 (zamrożenie) a 1,000,000. Sesja nie wystartowała.",
   "moment.invalid": "Nieprawidłowa data i godzina (luka czasu letniego, 29 lutego w roku nieprzestępnym albo poza zakresem) - sesja nie wystartowała.",
+  // R4-S7, R4-S9: both can answer a start AND a jump, so neither says which of the two did not happen,
+  // and neither needs an in-flight twin (SessionViewModel.InFlightKey).
+  "moment.out_of_range": "Ta data leży poza zakresem, który sesja potrafi przedstawić (lata 1601-30828), więc nie została użyta.",
+  "time.bad_zone": "Strefa czasowa przekazana rdzeniowi jest pusta albo leży poza przyjmowanym zakresem (od -14:59 do +14:59).",
   // 🔴 THE SAME TWO REASONS, FOR A COMMAND REJECTED MID-SESSION. The core sends one key whether a bad
   // moment arrives with the start command or with a jump, so the panel printed "the session did not
   // start" under a status line reading "Running" - a screen contradicting itself. These say what actually
