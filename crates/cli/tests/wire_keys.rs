@@ -133,19 +133,84 @@ fn emitted_keys(root: &Path) -> BTreeSet<String> {
             if line.trim_start().starts_with("//") {
                 continue;
             }
-            let mut rest = line;
-            while let Some(open) = rest.find('"') {
-                let after = &rest[open + 1..];
-                let Some(close) = after.find('"') else { break };
-                if is_key_shaped(&after[..close]) {
-                    keys.insert(after[..close].to_string());
-                }
-                rest = &after[close + 1..];
-            }
+            keys.extend(keys_in_line(line));
         }
     }
 
     keys
+}
+
+/// Every key-shaped run of characters written between two double quotes on one line.
+///
+/// Every quote is tried as an opening one, rather than pairing them left to right. Pairing is what
+/// Rust source looks like until a raw string holds quotes of its own: `to_ndjson`'s fallback is
+/// `r#"{"type":"error",...,"key":"proto.serialize_failed",...}"#`, where left-to-right pairing lands
+/// one quote out of step and the key falls BETWEEN two pairs - so the one key the protocol crate emits
+/// on its own was invisible to all three tests below. Trying every quote costs nothing in precision:
+/// the run has to be key-shaped all the way to the next quote, which text between two literals never is.
+fn keys_in_line(line: &str) -> Vec<String> {
+    let bytes = line.as_bytes();
+    let mut found = Vec::new();
+    for (open, _) in line.match_indices('"') {
+        let start = open + 1;
+        let end = start
+            + bytes[start..]
+                .iter()
+                .take_while(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_'))
+                .count();
+        if bytes.get(end) == Some(&b'"') && is_key_shaped(&line[start..end]) {
+            found.push(line[start..end].to_string());
+        }
+    }
+    found
+}
+
+/// The functions in `report.rs` that turn a key into prose for the CLI report. A key the core emits
+/// must have an arm in one of them, or the report prints it raw.
+const GLOSSING_FUNCTIONS: [&str; 5] =
+    ["describe_reason", "describe_error", "describe_warning", "describe_residue", "vanish_cause"];
+
+/// The bodies of [`GLOSSING_FUNCTIONS`], comment lines dropped so a key MENTIONED in a comment is not
+/// taken for an arm.
+///
+/// A body ends at the first closing brace in column 0, not by counting braces, because the prose in
+/// the arms is free to hold a brace of its own. The canaries are part of it: a renamed function would
+/// leave the guard checking fewer bodies than it names, and a body that ran on into the next function
+/// would count that function's arms as glosses - both look exactly like a report that explains
+/// everything.
+fn gloss_bodies(report: &str) -> String {
+    let mut out = String::new();
+    for name in GLOSSING_FUNCTIONS {
+        let start = report
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("report.rs has no `fn {name}(` - a glossing function was renamed and this guard went blind"));
+        let len = report[start..]
+            .find("\n}")
+            .unwrap_or_else(|| panic!("`fn {name}` in report.rs has no closing brace in column 0"));
+        let body = &report[start..start + len];
+        assert!(
+            !body.contains("\nfn ") && !body.contains("\npub"),
+            "the body cut for `fn {name}` ran into the next function - the cut is wrong, not the report"
+        );
+        for line in body.lines() {
+            if !line.trim_start().starts_with("//") {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+/// Whether `key` is a match arm pattern in `bodies`: `"key" =>`, or one alternative of `"a" | "b" =>`.
+/// What follows the key decides it - every alternative is followed by either `|` or `=>`, the last
+/// one included - so a key that only appears as an arm's VALUE is not taken for a pattern.
+fn has_arm(bodies: &str, key: &str) -> bool {
+    let quoted = format!("\"{key}\"");
+    bodies.match_indices(&quoted).any(|(at, _)| {
+        let after = bodies[at + quoted.len()..].trim_start();
+        after.starts_with("=>") || after.starts_with('|')
+    })
 }
 
 /// The calculator's stable keys, which the engine writes INSIDE its stderr sentences as a trailing
@@ -280,4 +345,68 @@ fn every_calculator_key_has_both_translations() {
          English sentence: {missing:?}\n\
          Add them to gui/ChronoMock.App/Localization/Strings.{{en,pl}}.json."
     );
+}
+
+/// Every key the core emits must be explained by the CLI report too, not only by the GUI.
+///
+/// The two tests above hold the GUI to it and nothing held the other client: seven keys reached the
+/// wire with both translations and a mirror entry, and `chrono run` printed each of them raw - the
+/// jump refusals, both ways a dropped command leaves the session running and both ways the command
+/// stream ends it. One more, the vanish most sessions end in, was explained only by a catch-all arm
+/// that said the same thing of every reason, known or not.
+///
+/// What this does NOT check: that the arm stands in the function the key actually travels through. An
+/// error key explained only in `describe_warning` passes here and still prints raw. Which function a
+/// key reaches depends on the event that carries it, and that is not visible from the key.
+///
+/// No exception list, on purpose. Every event that carries a key reaches the report through one of
+/// these functions, so there is no key the CLI cannot show - only keys it has not explained yet.
+#[test]
+fn every_wire_key_has_a_gloss_in_the_cli_report() {
+    let root = repo_root();
+    let emitted = emitted_keys(&root);
+    assert!(
+        emitted.len() > 20,
+        "the scanner found only {} keys - the emission shapes changed and this guard went blind",
+        emitted.len()
+    );
+    let report = production_source(&root.join("crates/cli/src/report.rs"));
+    let bodies = gloss_bodies(&report);
+
+    let missing: Vec<&String> = emitted.iter().filter(|k| !has_arm(&bodies, k)).collect();
+
+    assert!(
+        missing.is_empty(),
+        "these keys reach the wire but the CLI report has no words for them, so `chrono run` prints \
+         them raw: {missing:?}\n\
+         Add an arm for each to the report.rs function its event goes through (describe_error for an \
+         `error` event, describe_warning for warning_keys, describe_reason for a verdict reason, \
+         describe_residue for ended.residue_keys, vanish_cause for a vanish)."
+    );
+}
+
+/// The scan reads a key wherever it is quoted, including inside a raw string that holds JSON - the
+/// shape that hid `proto.serialize_failed` - and still refuses text that is not a key.
+#[test]
+fn the_key_scan_reads_keys_inside_raw_json_strings() {
+    let raw = r###"r#"{"type":"error","v":1,"key":"proto.serialize_failed","origin":"proto"}"#,"###;
+    assert!(
+        keys_in_line(raw).iter().any(|k| k == "proto.serialize_failed"),
+        "got {:?}",
+        keys_in_line(raw)
+    );
+    assert_eq!(keys_in_line(r#"key: "moment.invalid".into(),"#), ["moment.invalid"]);
+    // Between two literals there is never a key-shaped run all the way to the next quote.
+    assert!(keys_in_line(r#"f("a b", "icudtl.dat", "127.0.0.1")"#).is_empty());
+}
+
+/// The arm matcher finds a key as a whole arm and as either alternative of a joined one, and a key
+/// that is only an arm's value is not a pattern.
+#[test]
+fn an_arm_is_a_match_pattern_not_a_mention() {
+    let bodies = "match k {\n \"a.one\" => \"x\",\n \"a.two\" | \"a.three\" => {\n \"y\"\n }\n _ => \"a.four\",\n}\n";
+    for key in ["a.one", "a.two", "a.three"] {
+        assert!(has_arm(bodies, key), "{key}");
+    }
+    assert!(!has_arm(bodies, "a.four"), "a key in an arm's VALUE is not an arm");
 }

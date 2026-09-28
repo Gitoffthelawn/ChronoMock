@@ -311,6 +311,7 @@
   "protocol.line_too_long": "Komenda wysłana do rdzenia była za długa, żeby ją odczytać, więc sesja się zakończyła.",
   "protocol.stream_unreadable": "Rdzeń dostał bajty, których nie potrafi odczytać jako tekstu, więc sesja się zakończyła.",
   "protocol.unsupported_command": "Rdzeń otrzymał komendę, której w tym miejscu nie obsługuje, i ją pominął - sesja nadal trwa.",
+  "proto.serialize_failed": "Rdzeń nie zdołał zapisać jednego ze swoich komunikatów, więc w raporcie tej sesji może czegoś brakować.",
   "protocol.expected_start": "Rdzeń oczekiwał komendy start - sesja nie wystartowała.",
 
   // Handshake gate refusals (surfaced before the target is launched).
