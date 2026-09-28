@@ -207,7 +207,10 @@ impl CdpClient {
     fn queue_event(&mut self, msg: Msg) {
         if push_bounded(&mut self.queued, msg) && !self.queue_overflow_warned {
             self.queue_overflow_warned = true;
-            eprintln!(
+            // Written by hand rather than with `eprintln!`, which panics on a closed standard error
+            // (R4-S11). This module names nothing in the crate, so it does not reach for `diag!`.
+            let _ = writeln!(
+                io::stderr(),
                 "chrono core: CDP event queue hit {MAX_QUEUED_EVENTS} - dropping the oldest events"
             );
         }

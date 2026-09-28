@@ -65,12 +65,13 @@ const CLOCK_PROBE_EXPR: &str = "globalThis.__chronomock ? 'shim' : String(Date.n
 /// that is not a number, is `Real`: the absence of evidence that a context is covered is not evidence
 /// that it is, and the shim is the safe side. A reading equally far from both is `Real` as well - that
 /// only happens with the session clock within milliseconds of the real one, where a second
-/// substitution is the identity.
+/// substitution is the identity. The distances are unsigned, because the reading is whatever the
+/// page's own `Date.now` returned - a subtraction near `i64::MIN` panicked the core (R4-N23).
 pub(crate) fn classify_clock_read(reply: Option<&str>, fake_now_ms: i64, real_now_ms: i64) -> ClockRead {
     match reply {
         Some("shim") => ClockRead::Shim,
         Some(text) => match text.parse::<i64>() {
-            Ok(read) if (read - fake_now_ms).abs() < (read - real_now_ms).abs() => ClockRead::Native,
+            Ok(read) if read.abs_diff(fake_now_ms) < read.abs_diff(real_now_ms) => ClockRead::Native,
             _ => ClockRead::Real,
         },
         None => ClockRead::Real,
@@ -471,6 +472,21 @@ mod tests {
         // A reading equally far from both only happens with the session clock within milliseconds
         // of the real one, where a second substitution is the identity - so it gets the shim.
         assert_eq!(classify_clock_read(Some("1800000000000"), fake, real), ClockRead::Real);
+    }
+
+    /// The reading is the page's own `Date.now`, and a page can make that anything. At the ends of
+    /// `i64` the old subtraction overflowed and panicked the core (R4-N23). Both ends, and a session
+    /// clock before 1970, so the sign of neither distance is assumed.
+    #[test]
+    fn a_page_clock_at_the_ends_of_the_range_is_judged_rather_than_a_crash() {
+        let fake = 1_900_000_000_000;
+        let real = 1_700_000_000_000;
+        let min = i64::MIN.to_string();
+        let max = i64::MAX.to_string();
+        assert_eq!(classify_clock_read(Some(&min), fake, real), ClockRead::Real);
+        assert_eq!(classify_clock_read(Some(&max), fake, real), ClockRead::Native);
+        assert_eq!(classify_clock_read(Some(&max), -fake, real), ClockRead::Real);
+        assert_eq!(classify_clock_read(Some(&min), -fake, real), ClockRead::Native);
     }
 
     /// The ceiling is on contexts ever seen, and a re-attach of a known context never counts against

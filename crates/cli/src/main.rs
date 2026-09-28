@@ -45,6 +45,8 @@ mod embedded_bridge;
 mod events;
 /// The step grammar shared by the calculator flags and the preset reader.
 mod grammar;
+/// Writing to the caller without ever crashing on a reader that left.
+mod output;
 /// A bounded look inside the target's own executable: Go build info, a .NET runtime linked in.
 mod pe;
 /// Presets: a named moment with parameters (docs/04 section 4).
@@ -65,6 +67,7 @@ use calc::calc_run;
 use cdp_probe::{cdp_date_probe, cdp_launch_probe, cdp_probe, cdp_shim_probe};
 use cli::{asks_for_help, print_help_for, print_license, print_usage, print_version};
 use core::core_mode;
+use output::diag;
 use run::driver_run;
 
 fn main() {
@@ -89,7 +92,7 @@ fn main() {
             0
         }
         Some(other) => {
-            eprintln!("chrono: unknown command '{other}'");
+            diag!("chrono: unknown command '{other}'");
             print_usage();
             1
         }

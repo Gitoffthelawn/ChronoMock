@@ -179,6 +179,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          what it answers. It starts no target and reaches nothing past this machine",
     ),
     (
+        "crates/cli/tests/closed_output.rs",
+        "spawn",
+        "runs the built binary with its output or its error stream closed, to see it keep the exit \
+         code it would give with somebody reading. One case drives a session on the command \
+         interpreter, which pings the loopback address, and nothing reaches past this machine",
+    ),
+    (
         "crates/cli/tests/session_clock.rs",
         "spawn",
         "runs the command interpreter twice, once alone as the control and once under a session \

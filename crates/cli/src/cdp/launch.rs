@@ -3,7 +3,7 @@
 //! instance it drives: it launches with an isolated profile and a debug port, and tears both down at
 //! the end (chrono-mock 8.8 - leave nothing behind).
 
-use std::io;
+use std::io::{self, Write};
 use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -168,7 +168,9 @@ fn tie_lifetime_to_ours(child: &Child) -> Option<KillOnCloseJob> {
         let job = match CreateJobObjectW(None, None) {
             Ok(h) => KillOnCloseJob(h),
             Err(e) => {
-                eprintln!("chrono: could not create a job object for the browser: {e}");
+                // Not `eprintln!`, which panics on a closed standard error (R4-S11, tests/hygiene.rs
+                // H10). This module names nothing in the crate, so it writes the line itself.
+                let _ = writeln!(io::stderr(), "chrono: could not create a job object for the browser: {e}");
                 return None;
             }
         };
@@ -185,11 +187,11 @@ fn tie_lifetime_to_ours(child: &Child) -> Option<KillOnCloseJob> {
             std::ptr::from_ref(&info).cast(),
             size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
         ) {
-            eprintln!("chrono: could not set kill-on-close on the browser's job object: {e}");
+            let _ = writeln!(io::stderr(), "chrono: could not set kill-on-close on the browser's job object: {e}");
             return None;
         }
         if let Err(e) = AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle())) {
-            eprintln!("chrono: could not put the browser in a job object: {e}");
+            let _ = writeln!(io::stderr(), "chrono: could not put the browser in a job object: {e}");
             return None;
         }
         Some(job)

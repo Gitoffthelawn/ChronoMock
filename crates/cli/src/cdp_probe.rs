@@ -9,6 +9,7 @@
 
 
 use crate::cdp;
+use crate::output::{diag, outln};
 use crate::zone::{moment_epoch_ms, now_epoch_ms, WALL_MAX_MS};
 /// Hidden probe (CDP slice C1 verification): connect to a running Chromium/Electron debug port and
 /// print what CDP sees. Not a user command - it proves the WebSocket + JSON-RPC transport against a
@@ -17,24 +18,24 @@ pub(crate) fn cdp_probe(argv: &[String]) -> i32 {
     let port: u16 = match argv.first().and_then(|s| s.parse().ok()) {
         Some(p) => p,
         None => {
-            eprintln!("usage: chrono __cdp-probe <port>");
+            diag!("usage: chrono __cdp-probe <port>");
             return 1;
         }
     };
     let mut client = match cdp::CdpClient::connect_to_port("127.0.0.1", port) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("chrono: cannot connect to CDP on port {port}: {e}");
+            diag!("chrono: cannot connect to CDP on port {port}: {e}");
             return 3;
         }
     };
     match client.call("Browser.getVersion", serde_json::json!({}), None) {
-        Ok(v) => println!(
+        Ok(v) => outln!(
             "browser: {}",
             v.get("product").and_then(serde_json::Value::as_str).unwrap_or("?")
         ),
         Err(e) => {
-            eprintln!("chrono: Browser.getVersion: {e}");
+            diag!("chrono: Browser.getVersion: {e}");
             return 3;
         }
     }
@@ -42,15 +43,15 @@ pub(crate) fn cdp_probe(argv: &[String]) -> i32 {
         Ok(v) => {
             let empty = Vec::new();
             let infos = v.get("targetInfos").and_then(serde_json::Value::as_array).unwrap_or(&empty);
-            println!("targets: {}", infos.len());
+            outln!("targets: {}", infos.len());
             for t in infos {
                 let ty = t.get("type").and_then(serde_json::Value::as_str).unwrap_or("?");
                 let url = t.get("url").and_then(serde_json::Value::as_str).unwrap_or("");
-                println!("{}", probe_target_line("-", ty, url));
+                outln!("{}", probe_target_line("-", ty, url));
             }
         }
         Err(e) => {
-            eprintln!("chrono: Target.getTargets: {e}");
+            diag!("chrono: Target.getTargets: {e}");
             return 3;
         }
     }
@@ -62,46 +63,46 @@ pub(crate) fn cdp_probe(argv: &[String]) -> i32 {
 /// (the tool starts the app itself, unlike the C1 probe which attached to an already-running port).
 pub(crate) fn cdp_launch_probe(argv: &[String]) -> i32 {
     let Some(target) = argv.first() else {
-        eprintln!("usage: chrono __cdp-launch <target-exe>");
+        diag!("usage: chrono __cdp-launch <target-exe>");
         return 1;
     };
     if !cdp::is_chromium_target(target) {
-        println!("not a chromium target: {target}");
+        outln!("not a chromium target: {target}");
         return 1;
     }
-    println!("chromium target detected: {target}");
+    outln!("chromium target detected: {target}");
 
     let launched = match cdp::launch_chromium(target, &[], None, || {}) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("chrono: {e}");
+            diag!("chrono: {e}");
             return 3;
         }
     };
-    println!("debug port: {}", launched.port);
+    outln!("debug port: {}", launched.port);
 
     let code = match cdp::CdpClient::connect_to_port("127.0.0.1", launched.port) {
         Ok(mut c) => match c.call("Browser.getVersion", serde_json::json!({}), None) {
             Ok(v) => {
-                println!(
+                outln!(
                     "browser: {}",
                     v.get("product").and_then(serde_json::Value::as_str).unwrap_or("?")
                 );
                 0
             }
             Err(e) => {
-                eprintln!("chrono: Browser.getVersion: {e}");
+                diag!("chrono: Browser.getVersion: {e}");
                 3
             }
         },
         Err(e) => {
-            eprintln!("chrono: connect: {e}");
+            diag!("chrono: connect: {e}");
             3
         }
     };
 
     launched.shutdown();
-    println!("shut down and cleaned up");
+    outln!("shut down and cleaned up");
     code
 }
 
@@ -115,26 +116,26 @@ pub(crate) fn cdp_launch_probe(argv: &[String]) -> i32 {
 /// worker answers those messages drives this probe, and one that does not says so and stops.
 pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
     let Some(target) = argv.first() else {
-        eprintln!("usage: chrono __cdp-shim <target-exe> [multiplier]");
+        diag!("usage: chrono __cdp-shim <target-exe> [multiplier]");
         return 1;
     };
     let mult: i64 = argv.get(1).and_then(|s| s.parse().ok()).unwrap_or(60);
     if !cdp::is_chromium_target(target) {
-        println!("not a chromium target: {target}");
+        outln!("not a chromium target: {target}");
         return 1;
     }
 
     let launched = match cdp::launch_chromium(target, &[], None, || {}) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("chrono: {e}");
+            diag!("chrono: {e}");
             return 3;
         }
     };
     let mut client = match cdp::CdpClient::connect_to_port("127.0.0.1", launched.port) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("chrono: connect: {e}");
+            diag!("chrono: connect: {e}");
             launched.shutdown();
             return 3;
         }
@@ -143,14 +144,14 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
     // Pure acceleration for the proof: fake start = real start (the absolute wall moment is C5).
     let now = now_epoch_ms();
     let shim = cdp::build_shim(now, now, mult, mult, WALL_MAX_MS);
-    println!("multiplier: x{mult}, injecting shim into all contexts...");
+    outln!("multiplier: x{mult}, injecting shim into all contexts...");
 
     if let Err(e) = client.call(
         "Target.setAutoAttach",
         serde_json::json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
         None,
     ) {
-        eprintln!("chrono: setAutoAttach: {e}");
+        diag!("chrono: setAutoAttach: {e}");
         launched.shutdown();
         return 3;
     }
@@ -173,9 +174,9 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
                     cdp::inject_page(&mut client, &sid, &shim)
                 };
                 match r {
-                    Ok(()) => println!("{}", probe_target_line("shimmed", &ty, &url)),
+                    Ok(()) => outln!("{}", probe_target_line("shimmed", &ty, &url)),
                     // `e` is already folded at its source (`evaluate_shim`) - `ty` is not.
-                    Err(e) => println!("  FAILED  {}: {e}", cdp::sanitise_target_text(&ty)),
+                    Err(e) => outln!("  FAILED  {}: {e}", cdp::sanitise_target_text(&ty)),
                 }
                 if cdp::is_worker(&ty) && url.contains(".worker.js") {
                     worker_sid = Some(sid);
@@ -183,14 +184,14 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
             }
             Ok(_) => {} // another message, or a poll timeout - keep waiting
             Err(e) => {
-                eprintln!("chrono: event loop: {e}");
+                diag!("chrono: event loop: {e}");
                 break;
             }
         }
     }
 
     let Some(sid) = worker_sid else {
-        println!("no timer worker found (this proof needs a target whose timer runs in a Web Worker); shim still installed on contexts above");
+        outln!("no timer worker found (this proof needs a target whose timer runs in a Web Worker); shim still installed on contexts above");
         launched.shutdown();
         return 1;
     };
@@ -203,7 +204,7 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
     let start = std::time::Instant::now();
     let _ = client.call("Runtime.evaluate", serde_json::json!({ "expression": trigger, "returnByValue": true }), Some(&sid));
 
-    println!("measuring the app's own countdown:");
+    outln!("measuring the app's own countdown:");
     let mut last_elapsed = 0i64;
     for _ in 0..6 {
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -211,26 +212,26 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
         if let Ok(v) = read {
             last_elapsed = v.get("result").and_then(|r| r.get("value")).and_then(serde_json::Value::as_i64).unwrap_or(0);
             let real = start.elapsed().as_secs_f64();
-            println!("  real {real:.2}s -> app countdown advanced {last_elapsed}s");
+            outln!("  real {real:.2}s -> app countdown advanced {last_elapsed}s");
         }
     }
     let real = start.elapsed().as_secs_f64();
     let rate = if real > 0.0 { last_elapsed as f64 / real } else { 0.0 };
-    println!("=== app-time/real-time = ~{rate:.1}x (expected ~{mult}x) ===");
+    outln!("=== app-time/real-time = ~{rate:.1}x (expected ~{mult}x) ===");
 
     // Validate the audit read path (used by `chrono run`): the worker called setInterval, so its
     // count must be > 0.
     if let Ok(v) = client.call("Runtime.evaluate", serde_json::json!({ "expression": cdp::COUNTS_EXPR, "returnByValue": true }), Some(&sid)) {
         let counts = v.get("result").and_then(|r| r.get("value")).map(|x| x.to_string()).unwrap_or_else(|| "null".into());
-        println!("worker call counts (audit read): {counts}");
+        outln!("worker call counts (audit read): {counts}");
     }
 
     launched.shutdown();
     if rate > (mult as f64) * 0.5 {
-        println!("PROVEN: the shim accelerated the sandboxed worker countdown.");
+        outln!("PROVEN: the shim accelerated the sandboxed worker countdown.");
         0
     } else {
-        println!("NOT PROVEN: no meaningful speed-up.");
+        outln!("NOT PROVEN: no meaningful speed-up.");
         1
     }
 }
@@ -239,11 +240,11 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
 /// Date back, confirming new Date()/Date.now() see the session clock (not just setInterval scaling).
 pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
     let (Some(target), Some(iso)) = (argv.first(), argv.get(1)) else {
-        eprintln!("usage: chrono __cdp-date <target-exe> <YYYY-MM-DDTHH:MM:SS>");
+        diag!("usage: chrono __cdp-date <target-exe> <YYYY-MM-DDTHH:MM:SS>");
         return 1;
     };
     if !cdp::is_chromium_target(target) {
-        println!("not a chromium target: {target}");
+        outln!("not a chromium target: {target}");
         return 1;
     }
     let real = now_epoch_ms();
@@ -251,7 +252,7 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
     // as `__cdp-embedded` does: falling back to the real clock printed "requested moment" beside a
     // page that read the real date, which looked like a shim that failed.
     let Ok(fake) = moment_epoch_ms(iso, 0) else {
-        eprintln!("chrono: not a moment a session can run at: {iso}");
+        diag!("chrono: not a moment a session can run at: {iso}");
         return 1;
     };
     let shim = cdp::build_shim(fake, real, 1, 1, WALL_MAX_MS); // flow: a wall offset, no acceleration
@@ -259,14 +260,14 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
     let launched = match cdp::launch_chromium(target, &[], None, || {}) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("chrono: {e}");
+            diag!("chrono: {e}");
             return 3;
         }
     };
     let mut client = match cdp::CdpClient::connect_to_port("127.0.0.1", launched.port) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("chrono: connect: {e}");
+            diag!("chrono: connect: {e}");
             launched.shutdown();
             return 3;
         }
@@ -292,7 +293,7 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
             }
             Ok(_) => {}
             Err(e) => {
-                eprintln!("chrono: {e}");
+                diag!("chrono: {e}");
                 break;
             }
         }
@@ -303,22 +304,22 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
         match client.call("Runtime.evaluate", serde_json::json!({ "expression": expr, "returnByValue": true }), Some(&sid)) {
             Ok(v) => {
                 let reads = v.get("result").and_then(|r| r.get("value")).and_then(serde_json::Value::as_str).unwrap_or("?");
-                println!("requested moment: {iso}");
+                outln!("requested moment: {iso}");
                 // `reads` is a string the PAGE built and returned, so it is the target's words like
                 // any other - a newline in it would add a line to this probe's output.
-                println!(
+                outln!(
                     "page reads [new Date().toISOString(), getUTCFullYear(), Date.now()]: {}",
                     cdp::sanitise_target_text(reads)
                 );
                 0
             }
             Err(e) => {
-                eprintln!("chrono: eval: {e}");
+                diag!("chrono: eval: {e}");
                 3
             }
         }
     } else {
-        println!("no page attached");
+        outln!("no page attached");
         1
     };
 

@@ -26,6 +26,7 @@ use chrono_core::filetime_utc_to_wall;
 use crate::calendar::load_calendar;
 use crate::cli::print_calc_usage;
 use crate::grammar::{parse_base, parse_nearest, parse_set_time, parse_shift, parse_snap};
+use crate::output::{diag, out, outln};
 use crate::preset::{
     load_preset, preset_targets_calculator, resolve_moment, resolve_parameters,
 };
@@ -56,7 +57,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     let ca = match parse_calc_args(argv) {
         Ok(ca) => ca,
         Err(e) => {
-            eprintln!("chrono: {e}");
+            diag!("chrono: {e}");
             print_calc_usage();
             return 1;
         }
@@ -78,7 +79,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     let now = match resolve_now_civil(Some(zone_bias)) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("chrono: cannot resolve current time: {e}");
+            diag!("chrono: cannot resolve current time: {e}");
             return 3;
         }
     };
@@ -89,7 +90,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
         Some(id) => match load_calendar(id) {
             Ok(c) => Some(c),
             Err(e) => {
-                eprintln!("chrono: {e}");
+                diag!("chrono: {e}");
                 return 1;
             }
         },
@@ -102,14 +103,14 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
         return match chrono_core::calc::analyze_date(input, zone_bias) {
             Ok(analysis) => {
                 if ca.json {
-                    println!("{}", calc_analysis_json(&analysis, input, &now, Some(zone_bias), calendar.as_ref()));
+                    outln!("{}", calc_analysis_json(&analysis, input, &now, Some(zone_bias), calendar.as_ref()));
                 } else {
-                    print!("{}", render_analysis(&analysis, input, &now, Some(zone_bias), calendar.as_ref()));
+                    out!("{}", render_analysis(&analysis, input, &now, Some(zone_bias), calendar.as_ref()));
                 }
                 0
             }
             Err(e) => {
-                eprintln!("chrono calc: {e} (calc.analyze_unrecognized)");
+                diag!("chrono calc: {e} (calc.analyze_unrecognized)");
                 1
             }
         };
@@ -125,7 +126,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 // (e.g. year-rollover) is not a calculator question (docs/05 3.1). Refuse it
                 // instead of computing a moment nobody asked the calculator for.
                 if !preset_targets_calculator(&p.applies_to) {
-                    eprintln!(
+                    diag!(
                         "chrono calc: preset '{}' targets {}, not the calculator (calc.preset_not_for_calculator)",
                         p.id, p.applies_to
                     );
@@ -137,14 +138,14 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 let values = match resolve_parameters(&p.parameters, &ca.params, None) {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("chrono calc: {}", e.message());
+                        diag!("chrono calc: {}", e.message());
                         return e.exit_code();
                     }
                 };
                 let moment = match resolve_moment(p.moment, &values) {
                     Ok(m) => m,
                     Err(e) => {
-                        eprintln!("chrono calc: {}", e.message());
+                        diag!("chrono calc: {}", e.message());
                         return e.exit_code();
                     }
                 };
@@ -154,7 +155,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 (moment, Some(header), Some(pj))
             }
             Err(e) => {
-                eprintln!("chrono calc: {}", e.message());
+                diag!("chrono calc: {}", e.message());
                 return e.exit_code();
             }
         },
@@ -166,7 +167,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     ) {
         Ok(outcome) => {
             if ca.json {
-                println!(
+                outln!(
                     "{}",
                     calc_moment_json(&outcome, &now, calendar.as_ref(), ca.format.as_deref(), preset_meta)
                 );
@@ -188,11 +189,11 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                     ));
                 }
             }
-            print!("{text}");
+            out!("{text}");
             0
         }
         Err(e) => {
-            eprintln!("{}", describe_calc_error(&e));
+            diag!("{}", describe_calc_error(&e));
             calc_error_exit_code(&e)
         }
     }

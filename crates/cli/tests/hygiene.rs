@@ -2016,3 +2016,105 @@ fn every_optional_module_channel_can_be_installed_late() {
     );
     println!("late-load guard: {} optional-module channels, all reachable", channels.len());
 }
+
+// ---------------------------------------------------------------------------------------------
+// H10. Nothing the tool writes can crash it
+// ---------------------------------------------------------------------------------------------
+
+/// The macros that panic when their write fails - and a pipe whose reader has gone fails every write.
+const PANICKING_WRITERS: &[&str] = &["println!", "print!", "eprintln!", "eprint!", "dbg!"];
+
+/// What the shipped code writes with instead (`crates/cli/src/output.rs`), counted by the same scan.
+const SAFE_WRITERS: &[&str] = &["diag!(", "outln!(", "out!("];
+
+/// Crates the rule does not reach, each with the reason. A crate that is gone fails the test, so a
+/// stale exemption cannot outlive what it excused.
+const WRITERS_OUT_OF_SCOPE: &[(&str, &str)] = &[(
+    "site",
+    "the generator of the product website: the maintainer and CI run it to build pages, and it ships \
+     in no package",
+)];
+
+/// Every use of `names` in one line of code, where nothing before a hit could make it part of a
+/// longer name (`eprintln!` holds `println!`).
+fn macro_uses<'a>(code: &str, names: &[&'a str]) -> Vec<&'a str> {
+    let mut found = Vec::new();
+    for name in names.iter().copied() {
+        let mut from = 0;
+        while let Some(hit) = code[from..].find(name) {
+            let at = from + hit;
+            let before = code[..at].chars().next_back();
+            if !before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                found.push(name);
+            }
+            from = at + name.len();
+        }
+    }
+    found
+}
+
+/// R4-S11: `chrono version` with nobody reading its output ended in a panic and exit code 101, and so
+/// did `chrono run` when its reader left - measured, all four closed-output cases in
+/// `tests/closed_output.rs` were 101 before `output.rs` existed. The core wrote its diagnostics through the same macros, so a panel
+/// that died took the core down half-way through closing its session. That file proves the
+/// replacement holds, and this keeps the panicking macros from coming back into any shipped crate.
+#[test]
+fn nothing_the_tool_writes_can_crash_it() {
+    let crates = repo_root().join("crates");
+    for (name, _reason) in WRITERS_OUT_OF_SCOPE.iter().copied() {
+        assert!(crates.join(name).is_dir(), "crates/{name} is exempt from H10 but no longer exists");
+    }
+    let mut files = 0;
+    let mut safe = 0;
+    let mut offenders = Vec::new();
+    for entry in std::fs::read_dir(&crates).expect("a crates directory") {
+        let krate = entry.expect("directory entry").path();
+        let name = krate.file_name().unwrap_or_default().to_string_lossy().to_string();
+        if WRITERS_OUT_OF_SCOPE.iter().any(|(exempt, _)| *exempt == name) {
+            continue;
+        }
+        let mut stack = vec![krate.join("src")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue; // a crate without a src directory has no shipped code to scan
+            };
+            for entry in entries {
+                let path = entry.expect("directory entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !has_extension(&path, &["rs"]) {
+                    continue;
+                }
+                files += 1;
+                let text = std::fs::read_to_string(&path).expect("source is readable");
+                for (number, line) in production_rust(&text).lines().enumerate() {
+                    let code = code_only(line);
+                    safe += macro_uses(code, SAFE_WRITERS).len();
+                    for bad in macro_uses(code, PANICKING_WRITERS) {
+                        offenders.push(format!("{}:{} uses {bad}", rel(&path), number + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    // Canaries, with literals rather than counts derived from what they check: the shipped crates
+    // hold well over thirty source files, and the CLI called the safe macros 134 times when this
+    // guard was written. Fewer means the scan stopped reading where the writing happens.
+    assert!(files >= 30, "H10 read only {files} source files - fix the scan rather than this number");
+    assert!(
+        safe >= 100,
+        "H10 saw only {safe} uses of {SAFE_WRITERS:?} - the scan went blind or the writers were renamed, \
+         fix the scan rather than this number"
+    );
+    assert!(
+        offenders.is_empty(),
+        "these macros panic when the output they write to is closed (`| head`, a panel that died), \
+         which ends the tool with exit code 101 or the core half-way through a session. Use `diag!`, \
+         `outln!` or `out!` from crates/cli/src/output.rs, or, in a module that names nothing in the \
+         crate, a `writeln!` whose result is discarded: {offenders:?}"
+    );
+    println!("output guard: {files} source files, {safe} safe writes, no panicking writer");
+}

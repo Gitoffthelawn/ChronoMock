@@ -29,6 +29,7 @@ use collect::Collector;
 use moment::resolve_time_spec;
 use crate::cdp;
 use crate::cli::print_usage;
+use crate::output::{diag, out, outln};
 use crate::report::{mode_label, render_evidence, render_report, EvidenceParams};
 use crate::wire::read_protocol_line;
 use crate::zone::{format_bias, session_zone_default};
@@ -75,7 +76,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     let ra = match parse_run_args(argv) {
         Ok(ra) => ra,
         Err(e) => {
-            eprintln!("chrono: {e}");
+            diag!("chrono: {e}");
             print_usage();
             return 1;
         }
@@ -112,7 +113,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("chrono: cannot locate own executable: {e}");
+            diag!("chrono: cannot locate own executable: {e}");
             return 3;
         }
     };
@@ -126,7 +127,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("chrono: cannot start core process: {e}");
+            diag!("chrono: cannot start core process: {e}");
             return 3;
         }
     };
@@ -143,7 +144,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     {
         let line = serde_json::to_string(&start).expect("serialize start");
         if writeln!(stdin, "{line}").is_err() {
-            eprintln!("chrono: core closed its input before start");
+            diag!("chrono: core closed its input before start");
             let _ = child.wait();
             return 3;
         }
@@ -235,7 +236,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
                 continue;
             }
             if ra.json {
-                println!("{line}");
+                outln!("{line}");
             }
             match chrono_proto::parse_event(&line) {
                 Ok(Event::State { .. }) => {
@@ -301,12 +302,12 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
             mode: mode_label(&spec.mode, spec.multiplier),
         };
         match std::fs::write(path, render_evidence(&report, &params)) {
-            Ok(()) => eprintln!("chrono: evidence written to {path}"),
-            Err(e) => eprintln!("chrono: cannot write evidence to {path}: {e}"),
+            Ok(()) => diag!("chrono: evidence written to {path}"),
+            Err(e) => diag!("chrono: cannot write evidence to {path}: {e}"),
         }
     }
     if !ra.json {
-        print!("{}", render_report(&report));
+        out!("{}", render_report(&report));
     }
 
     // A session that timed out has no verdict to report, and must not borrow one: the core was
@@ -319,7 +320,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     // (docs/08 section 8).
     let code = driver_exit_code(status.ok().and_then(|s| s.code()));
     if code == 3 {
-        eprintln!("chrono: the core ended without a verdict - this run proves nothing about the target");
+        diag!("chrono: the core ended without a verdict - this run proves nothing about the target");
     }
     code
 }
@@ -331,11 +332,11 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
 /// (clippy.toml), which is the ceiling working rather than a nuisance.
 fn report_cut_short(which: &str, timeout_secs: Option<u64>) -> i32 {
     match which {
-        "timeout" => eprintln!(
+        "timeout" => diag!(
             "chrono: gave up after the --timeout of {}s - the core was stopped, so this run has no verdict",
             timeout_secs.unwrap_or(0)
         ),
-        _ => eprintln!(
+        _ => diag!(
             "chrono: the core sent nothing for {DRIVER_IDLE_TIMEOUT_SECS}s and was stopped - this run has no verdict"
         ),
     }
@@ -346,7 +347,7 @@ fn report_cut_short(which: &str, timeout_secs: Option<u64>) -> i32 {
     // a real run, where the application had to be closed by hand afterwards. Killing someone else's
     // application over a diagnostic ceiling is a bigger decision than this line, so this says it
     // instead of doing it (rule 6).
-    eprintln!(
+    diag!(
         "chrono: the target was started by the core and does not exit with it - it may still be running on the session clock, so close it yourself"
     );
     6
