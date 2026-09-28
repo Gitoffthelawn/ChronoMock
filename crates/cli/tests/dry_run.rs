@@ -361,3 +361,127 @@ fn a_path_that_leads_to_no_file_exits_two_without_starting_anything() {
         String::from_utf8_lossy(&on_path.stdout)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// R4/3: the plan says what the run does - presets, moments, a bare target name
+// ---------------------------------------------------------------------------------------------
+
+/// A scratch catalogue: one preset, and the shipped calendars beside it. Nothing sits beside the
+/// binary under test, so it reads both from its current directory, which is this folder.
+fn catalogue_with(id: &str, market: &str, moment: &str, multiplier: i64) -> PathBuf {
+    let dir = scratch(id);
+    let presets = dir.join("presets");
+    let calendars = dir.join("calendars");
+    std::fs::create_dir_all(&presets).expect("a presets folder");
+    std::fs::create_dir_all(&calendars).expect("a calendars folder");
+    let preset = format!(
+        r#"{{"schema":"chronomock.preset/1","stability":"unstable","id":"{id}","name":{{"en":"{id}","pl":"{id}"}},"explains":{{"en":"{id}","pl":"{id}"}},"applies_to":"substitution","market":{market},"moment":{moment},"time_mode":{{"multiplier":{multiplier},"scale_duration_clock":false}}}}"#
+    );
+    std::fs::write(presets.join(format!("{id}.json")), preset).expect("the preset");
+    let shipped = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("calendars");
+    for entry in std::fs::read_dir(shipped).expect("the shipped calendars") {
+        let path = entry.expect("a directory entry").path();
+        std::fs::copy(&path, calendars.join(path.file_name().expect("a file name"))).expect("a calendar copy");
+    }
+    dir
+}
+
+/// The plan of a session on `preset`, run from `dir`.
+fn preset_plan(dir: &std::path::Path, preset: &str) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_chrono"))
+        .current_dir(dir)
+        .args(["run", &command_interpreter(), "--preset", preset, "--zone", "+00:00", "--dry-run", "--json"])
+        .output()
+        .expect("the tool must run")
+}
+
+fn planned_moment(out: &std::process::Output) -> String {
+    let plan: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!("not a plan ({e}): {} {}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    });
+    plan["time"]["moment"].as_str().unwrap_or_default().to_string()
+}
+
+/// A preset that counts business days is counted in its market's calendar, as the panel's scenario
+/// list counts it, instead of being refused with advice to pass a `--calendar` that `run` does not
+/// have (R4-S12). 1 January 2030 is a holiday in the US banking calendar, so one business day on is
+/// the 2nd. Without a market there is still nothing to count in, and that stays exit 5 - without the
+/// advice.
+#[test]
+fn a_preset_counts_business_days_in_its_markets_calendar() {
+    let moment = r#"{"base":{"absolute":"2030-01-01T00:00:00"},"steps":[{"shift":{"sign":"+","amount":1,"unit":"bd"}}]}"#;
+
+    let us = catalogue_with("bd-us", r#""us""#, moment, 1);
+    let out = preset_plan(&us, "bd-us");
+    let _ = std::fs::remove_dir_all(&us);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(planned_moment(&out), "2030-01-02T00:00:00");
+
+    let none = catalogue_with("bd-none", "null", moment, 1);
+    let out = preset_plan(&none, "bd-none");
+    let _ = std::fs::remove_dir_all(&none);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(5), "{said}");
+    assert!(said.contains("calc.needs_calendar") && !said.contains("pass --calendar"), "{said}");
+}
+
+/// A zone step moves where a later step counts, not the instant the session starts at (R4-S12). "The
+/// start of the month in +05:45" is 2029-12-31T18:15 in UTC, and the plan used to carry 2030-01-01
+/// 00:00 - the Kathmandu wall clock, read as UTC.
+#[test]
+fn a_preset_zone_step_keeps_its_instant_in_the_session_zone() {
+    let moment = r#"{"base":{"absolute":"2030-01-15T00:00:00"},"steps":[{"zone":"+05:45"},{"snap":"start-of-month"}]}"#;
+    let dir = catalogue_with("zone-step", "null", moment, 1);
+    let out = preset_plan(&dir, "zone-step");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(planned_moment(&out), "2029-12-31T18:15:00");
+}
+
+/// A preset's speed has the ceiling `--mode xN` has, and the refusal names the preset (R4-S12): the
+/// plan used to approve it with exit 0, and the core refused the start with a message that named no
+/// file.
+#[test]
+fn a_preset_faster_than_a_session_can_run_is_refused_by_name() {
+    let moment = r#"{"base":"today","steps":[]}"#;
+    let dir = catalogue_with("too-fast", "null", moment, 1_000_001);
+    let out = preset_plan(&dir, "too-fast");
+    let _ = std::fs::remove_dir_all(&dir);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(said.contains("preset 'too-fast'") && said.contains("<= 1000000"), "{said}");
+}
+
+/// A moment the core would refuse is refused by the plan, with the core's exit code (R4-S12).
+/// Measured before: `--at 1500-01-01T00:00:00` planned with exit 0, and the run exited 1.
+#[test]
+fn a_plan_refuses_a_moment_outside_the_session_range() {
+    for at in ["1500-01-01T00:00:00", "30829-01-01T00:00:00"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_chrono"))
+            .args(["run", &command_interpreter(), "--at", at, "--zone", "+00:00", "--dry-run"])
+            .output()
+            .expect("the tool must run");
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{at}: {said}");
+        assert!(said.contains("outside the range"), "{at}: {said}");
+    }
+}
+
+/// A target named by its bare file name is fingerprinted in the current directory, where the session
+/// starts it (R4-S13). Measured before: beside a `jvm.dll` the bare name warned of nothing, and the
+/// same file by full path warned of Java.
+#[test]
+fn a_bare_target_name_is_fingerprinted_where_it_is_started() {
+    let dir = scratch("bare-name");
+    std::fs::copy(command_interpreter(), dir.join("game.exe")).expect("a target to name");
+    std::fs::write(dir.join("jvm.dll"), b"").expect("a runtime marker");
+    let out = Command::new(env!("CARGO_BIN_EXE_chrono"))
+        .current_dir(&dir)
+        .args(["run", "game.exe", "--at", "2030-01-01T00:00:00", "--zone", "+00:00", "--dry-run", "--json"])
+        .output()
+        .expect("the tool must run");
+    let _ = std::fs::remove_dir_all(&dir);
+    let plan: serde_json::Value = serde_json::from_slice(&out.stdout).expect("a plan");
+    let warnings: Vec<&str> = plan["warnings"].as_array().expect("warnings").iter().filter_map(|w| w.as_str()).collect();
+    assert!(warnings.contains(&"runtime.java_nanotime_qpc"), "{warnings:?}");
+}

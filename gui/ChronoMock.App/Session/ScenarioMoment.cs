@@ -26,20 +26,30 @@ internal static class ScenarioMoment
     /// evaluated as explicit steps (not <c>--preset</c>, which refuses substitution-only presets), and that
     /// it is computed in the SESSION zone rather than the host's - "the end of this month" is a different
     /// day on either side of midnight, and the session runs in the zone chosen in this panel (rule 2).
+    /// <para>
+    /// A preset's zone step expresses the moment in another zone, and the engine answers in the last zone
+    /// named. That answer used to go to the session as a wall clock in the PANEL's zone, an instant the
+    /// zones' difference away from the one the preset names (R4-S12). So a preset with a zone step gets
+    /// one more, back to the session zone - the same rule <c>chrono run --preset</c> follows.
+    /// </para>
     /// </summary>
     internal static IReadOnlyList<string> BuildArgs(ScenarioItem scenario, int zoneBiasMinutes)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         var unpacked = PresetUnpack.UnpackMoment(scenario.Info.Moment);
+        var sessionZone = ZoneLabel.OffsetFromBiasMinutes(zoneBiasMinutes);
+        var steps = unpacked.Steps.Any(s => s.Kind == StepKind.Zone)
+            ? unpacked.Steps.Append(new UnpackedStep(StepKind.Zone, ZoneOffset: sessionZone))
+            : unpacked.Steps;
         return
         [
             .. CalculatorViewModel.BuildCalcArgs(
                 unpacked.Base,
                 unpacked.BaseText,
-                unpacked.Steps.Select(UnpackedMoment.StepArgs),
+                steps.Select(UnpackedMoment.StepArgs),
                 PresetInfo.CalendarIdForMarket(scenario.Info.Market),
                 customFormatMask: null,
-                zoneOffset: ZoneLabel.OffsetFromBiasMinutes(zoneBiasMinutes)),
+                zoneOffset: sessionZone),
         ];
     }
 

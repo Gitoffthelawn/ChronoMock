@@ -181,4 +181,36 @@ public class RustConstantMirrorTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    /// <summary>
+    /// A preset's market picks the calendar its business days are counted in - in the panel's scenario
+    /// list here, and in <c>chrono run --preset</c> since R4-S12, where the run used to count in none. The
+    /// same preset has to land on the same day in both, so the two tables must hold the same pairs.
+    /// </summary>
+    [Fact]
+    public void A_market_picks_the_same_calendar_in_the_panel_and_in_chrono_run()
+    {
+        var source = ReadRustSource("crates", "cli", "src", "preset.rs");
+        var body = CaptureOne(
+            source,
+            @"(?s)fn calendar_for_market\(market: Option<&str>\) -> Option<&'static str> \{(.*?)\n\}",
+            "the body of calendar_for_market");
+        var rust = Regex.Matches(body, @"""([^""]+)"" => Some\(""([^""]+)""\)")
+            .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
+
+        var panel = ReadRustSource("gui", "ChronoMock.App", "Calc", "PresetCatalog.cs");
+        var switchBody = CaptureOne(
+            panel,
+            @"(?s)CalendarIdForMarket\(string\? market\) => market switch\s*\{(.*?)\};",
+            "the body of CalendarIdForMarket");
+        var markets = Regex.Matches(switchBody, @"""([^""]+)"" =>").Select(m => m.Groups[1].Value).ToList();
+
+        Assert.True(rust.Count >= 2, $"expected the market pairs in calendar_for_market, found {rust.Count}");
+        Assert.Equal(markets.Order(), rust.Keys.Order());
+        foreach (var (market, calendar) in rust)
+        {
+            Assert.Equal(calendar, PresetInfo.CalendarIdForMarket(market));
+        }
+        Assert.Null(PresetInfo.CalendarIdForMarket(null));
+    }
 }

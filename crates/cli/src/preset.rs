@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use chrono_core::calc::{Base, MomentExpr, Sign, Step, Unit};
+use chrono_core::calendar::Calendar;
 use chrono_core::filetime_utc_to_wall;
 
 use crate::calendar::{catalogue_search_places, find_catalogue_file, is_valid_catalogue_id};
@@ -39,6 +40,9 @@ pub(crate) struct Preset {
     pub(crate) parameters: Vec<Parameter>,
     pub(crate) moment: MomentDto,
     pub(crate) time_mode: PresetTimeMode,
+    /// `us` / `pl` / none (docs/04 4.2): the market whose calendar counts the preset's business days
+    /// in `chrono run`, as it does in the panel's scenario list (`calendar_for_market`).
+    pub(crate) market: Option<String>,
 }
 
 /// A preset parameter (docs/04 4.2): a typed slot filled by `--param`, a file `default`, or (in a
@@ -136,6 +140,8 @@ pub(crate) struct PresetDto {
     // calculator ignores it either way). Absent = real-time flow (PresetTimeMode::default).
     #[serde(default)]
     time_mode: Option<TimeModeDto>,
+    #[serde(default)]
+    market: Option<String>,
 }
 
 /// A preset's `time_mode` object (docs/04 4.2): `{ "multiplier": N, "scale_duration_clock": bool }`.
@@ -368,6 +374,27 @@ pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
         parameters,
         moment: dto.moment,
         time_mode,
+        market: dto.market,
+    })
+}
+
+/// The calendar a market counts business days with - the same pairs the panel's scenario list uses
+/// (`PresetInfo.CalendarIdForMarket` in the GUI, held equal by `RustConstantMirrorTests`). A market
+/// this build has no calendar for, and no market at all, give none.
+pub(crate) fn calendar_for_market(market: Option<&str>) -> Option<&'static str> {
+    match market? {
+        "us" => Some("us-banking"),
+        "pl" => Some("pl"),
+        _ => None,
+    }
+}
+
+/// The calendar of a preset's market, loaded, or `None` when its market names none. `chrono run` has
+/// no `--calendar`, and the panel counts a scenario's business days in its market's calendar, so the
+/// run does the same rather than refuse a preset the panel runs (R4-S12).
+pub(crate) fn load_market_calendar(preset_id: &str, market: Option<&str>) -> Option<Result<Calendar, String>> {
+    calendar_for_market(market).map(|id| {
+        crate::calendar::load_calendar(id).map_err(|e| format!("preset '{preset_id}' counts in the {id} calendar: {e}"))
     })
 }
 
@@ -586,12 +613,20 @@ pub(crate) fn parse_param_date(s: &str) -> Result<chrono_core::calc::CivilDateTi
 }
 
 /// Map a preset's `time_mode` to the substitution wire shape. `multiplier == 1` (or absent) is
-/// real-time `flow`, `> 1` is `xN`, and `< 1` is rejected. Presets do not express `frozen`.
+/// real-time `flow`, `> 1` is `xN`, and `< 1` is rejected. Presets do not express `frozen`. Past
+/// `MULTIPLIER_MAX` is rejected too, the bound `--mode xN` has: a plan used to approve it with exit 0
+/// and the core then refused the start (R4-S12).
 pub(crate) fn time_mode_from(dto: Option<TimeModeDto>) -> Result<PresetTimeMode, PresetError> {
     let Some(dto) = dto else { return Ok(PresetTimeMode::default()) };
     let multiplier = dto.multiplier.unwrap_or(1);
     let (mode, multiplier) = match multiplier {
         1 => ("flow".to_string(), None),
+        m if m > chrono_core::MULTIPLIER_MAX => {
+            return Err(PresetError::BadFile(format!(
+                "time_mode multiplier must be <= {}, got {m}",
+                chrono_core::MULTIPLIER_MAX
+            )));
+        }
         m if m > 1 => ("multiplier".to_string(), Some(m)),
         _ => return Err(PresetError::BadFile(format!("time_mode multiplier must be >= 1, got {multiplier}"))),
     };
@@ -650,7 +685,12 @@ pub(crate) fn load_preset(id: &str) -> Result<Preset, PresetError> {
     // Same ceiling as a calendar, for the same reason: a catalogue file is outside input, and this was
     // an unbounded read.
     let text = crate::calendar::read_catalogue_file(&path).map_err(PresetError::BadFile)?;
-    parse_preset(&text)
+    // Named here, where the id is known: "time_mode multiplier must be >= 1" said what was wrong and
+    // not in which of fourteen files (R4-S12).
+    parse_preset(&text).map_err(|e| match e {
+        PresetError::BadFile(m) => PresetError::BadFile(format!("preset '{id}': {m}")),
+        other => other,
+    })
 }
 
 #[cfg(test)]
@@ -1014,6 +1054,28 @@ mod tests {
             time_mode_from(Some(TimeModeDto { multiplier: Some(0), scale_duration_clock: false })),
             Err(PresetError::BadFile(_))
         ));
+
+        // The same ceiling as --mode xN, on both sides of it (R4-S12).
+        let max = chrono_core::MULTIPLIER_MAX;
+        let top = time_mode_from(Some(TimeModeDto { multiplier: Some(max), scale_duration_clock: false })).unwrap();
+        assert_eq!(top.multiplier, Some(max));
+        assert!(matches!(
+            time_mode_from(Some(TimeModeDto { multiplier: Some(max + 1), scale_duration_clock: false })),
+            Err(PresetError::BadFile(_))
+        ));
+    }
+
+    /// Every calendar a market names ships and parses - a pair naming a missing file would turn a preset
+    /// the panel runs into a refusal in `chrono run` (R4-S12). The pairs themselves are held equal to
+    /// the panel's by `RustConstantMirrorTests`.
+    #[test]
+    fn every_market_calendar_ships() {
+        for market in ["us", "pl"] {
+            let id = calendar_for_market(Some(market)).expect("a market with a calendar");
+            calendar_from_text(&read_data(&format!("calendars/{id}.json"))).expect("the calendar parses");
+        }
+        assert_eq!(calendar_for_market(None), None);
+        assert_eq!(calendar_for_market(Some("de")), None, "a market with no calendar names none");
     }
 
     /// A preset carrying a time_mode object surfaces it on the loaded preset.

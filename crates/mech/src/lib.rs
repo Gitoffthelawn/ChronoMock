@@ -737,10 +737,29 @@ pub fn launch_plain(target: &Target) -> Result<PlainChild, String> {
     }
 }
 
+/// A zero character ends the string `CreateProcessW` reads, so a path, an argument or a working folder
+/// holding one lost whatever followed it without a word - for a program, while the batch path already
+/// refused it (R4-N16). No command line typed in a shell can carry one, but the protocol can, so it is
+/// refused here, before anything starts, for both kinds of target.
+fn refuse_zero_character(target: &Target) -> Result<(), String> {
+    let fields = std::iter::once(("the target path", target.path))
+        .chain(target.cwd.map(|cwd| ("the working folder", cwd)))
+        .chain(target.args.iter().map(|arg| ("the argument", arg.as_str())));
+    for (what, text) in fields {
+        if text.contains('\0') {
+            return Err(format!(
+                "{what} {text:?} holds a zero character, where Windows would cut it short - remove that character"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The application and the command line `CreateProcessW` is given for a target: the target itself
 /// with its arguments quoted for the C runtime, or, for a batch script, the command interpreter with
 /// the script and its arguments quoted for it (see `batch`). One definition for both launches.
 fn launch_line(target: &Target) -> Result<(Vec<u16>, Vec<u16>), String> {
+    refuse_zero_character(target)?;
     if is_batch_script(Path::new(target.path)) {
         let (app, line) = batch::interpreter_line(target.path, target.args)?;
         return Ok((to_wide(&app), to_wide(&line)));
@@ -1572,6 +1591,29 @@ unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { 
 
 #[cfg(test)]
 mod tests {
+    /// A zero character anywhere in what `CreateProcessW` reads is refused before anything starts, for
+    /// a program as for a script (R4-N16): the program used to get the line up to it and nothing after.
+    /// Nothing is launched here - the refusal comes first, and the control proves the same target
+    /// without the character gets past it.
+    #[test]
+    fn a_zero_character_in_a_launch_is_refused_before_anything_starts() {
+        let program = r"C:\no-such-dir\app.exe";
+        let clean = ["one".to_string(), "two".to_string()];
+        let cut = ["one".to_string(), "tw\0o".to_string()];
+        let target = |path, args, cwd| super::Target { path, args, cwd, env: &[] };
+
+        for (label, t) in [
+            ("argument", target(program, &cut[..], None)),
+            ("path", target("C:\\app\0.exe", &clean[..], None)),
+            ("working folder", target(program, &clean[..], Some("C:\\work\0dir"))),
+            ("script argument", target(r"C:\no-such-dir\run.bat", &cut[..], None)),
+        ] {
+            let e = super::launch_line(&t).expect_err(label);
+            assert!(e.contains("zero character"), "{label}: {e}");
+        }
+        assert!(super::launch_line(&target(program, &clean[..], Some(r"C:\work"))).is_ok());
+    }
+
     /// The shell every Windows has, asked one question about its environment and answering with
     /// its exit code - no pipes, no output, the one oracle a plain launch offers.
     fn cmd_exit_if_defined(name: &str, env: &[(String, String)]) -> i32 {

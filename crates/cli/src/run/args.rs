@@ -30,8 +30,8 @@ pub(crate) struct RunArgs {
     /// (docs/09). On unless `--no-embedded` - the opt-out for a tester who does not want that port
     /// open in their application for the session.
     pub(super) embedded: bool,
-    /// How many `state` heartbeats to stream before ending. 0 = end right after the
-    /// verdict (one-shot).
+    /// How many `state` heartbeats to stream before ending. 0 = no cut: the session lasts until the
+    /// target, and whatever it started on the session clock, has exited (ADR-16).
     pub(super) ticks: u64,
     /// After the Nth state heartbeat, send set_multiplier M (in-flight speed change).
     pub(super) set_after: Option<(u64, i64)>,

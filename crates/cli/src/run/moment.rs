@@ -5,7 +5,8 @@
 //! sent. Resolving a preset here rather than in the core is deliberate: the core receives an
 //! absolute moment and a plain mode, and never learns that a preset existed.
 
-use chrono_core::calc::{Base, EvalContext, EvalError, MomentExpr};
+use chrono_core::calc::{Base, CivilDateTime, EvalContext, EvalError, MomentExpr, Step, Unit};
+use chrono_core::Moment;
 use chrono_proto::{MomentSpec, TimeSpec};
 
 use super::args::RunArgs;
@@ -14,8 +15,8 @@ use crate::cli::print_usage;
 use crate::grammar::parse_shift;
 use crate::output::diag;
 use crate::preset::{
-    load_preset, parameter_provenance, preset_targets_substitution, read_target_creation_date,
-    resolve_moment, resolve_parameters,
+    load_market_calendar, load_preset, parameter_provenance, preset_targets_substitution,
+    read_target_creation_date, resolve_moment, resolve_parameters,
 };
 
 /// Where the session's moment and mode came from. The wire carries only the resolved absolute
@@ -60,6 +61,10 @@ struct Decided {
 /// evidence file and a dry run describe the session by reading this same value, so none of them can
 /// describe a mode or a moment other than the one that was sent (untouchable rule 4).
 pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedTime, i32> {
+    if let Err(e) = check_schedule(ra, now_bias) {
+        diag!("chrono: {e}");
+        return Err(1);
+    }
     // The moment AND the time mode come either from a named preset (docs/04 4.3) or from the flags.
     // A preset is resolved driver-side here - the same way a relative --at is - so the core still
     // receives an absolute moment and a plain mode, and never learns that a preset existed.
@@ -93,16 +98,14 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                 // both in hand. A dry run prints it, because "which date is this trial counting
                 // from" is exactly the question a resolved absolute moment does not answer.
                 let provenance = parameter_provenance(&p.parameters, &ra.params, &values);
-                let moment = match resolve_moment(p.moment, &values) {
+                let mut moment = match resolve_moment(p.moment, &values) {
                     Ok(m) => m,
                     Err(e) => {
                         diag!("chrono: {}", e.message());
                         return Err(e.exit_code());
                     }
                 };
-                // Evaluate the preset moment against real "now" in the session zone, exactly like a
-                // relative --at, to an absolute wall moment. No calendar here - a preset that needs
-                // one is an honest error (the run surface has no --calendar yet).
+                back_in_session_zone(&mut moment, now_bias);
                 let now = match resolve_now_civil(Some(now_bias)) {
                     Ok(n) => n,
                     Err(e) => {
@@ -110,24 +113,15 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                         return Err(3);
                     }
                 };
-                match chrono_core::calc::eval(
-                    &moment,
-                    &EvalContext { now, zone_bias_min: now_bias, calendar: None },
-                ) {
-                    Ok(outcome) => Decided {
-                        at: Some(outcome.result().to_iso()),
-                        mode: p.time_mode.mode.clone(),
-                        multiplier: p.time_mode.multiplier,
-                        scale_duration: p.time_mode.scale_duration,
-                        // The zone the moment was computed in travels with it: a preset moment paired
-                        // with a bias of 0 would land an offset away from the instant it names.
-                        session_bias: Some(now_bias),
-                        origin: TimeOrigin::Preset { id: p.id.clone(), parameters: provenance },
-                    },
-                    Err(e) => {
-                        diag!("chrono: preset '{}' moment: {}", p.id, describe_calc_error(&e));
-                        return Err(calc_error_exit_code(&e));
-                    }
+                Decided {
+                    at: Some(eval_preset_moment(&p.id, p.market.as_deref(), &moment, now, now_bias)?),
+                    mode: p.time_mode.mode.clone(),
+                    multiplier: p.time_mode.multiplier,
+                    scale_duration: p.time_mode.scale_duration,
+                    // The zone the moment was computed in travels with it: a preset moment paired
+                    // with a bias of 0 would land an offset away from the instant it names.
+                    session_bias: Some(now_bias),
+                    origin: TimeOrigin::Preset { id: p.id.clone(), parameters: provenance },
                 }
             }
             Err(e) => {
@@ -183,6 +177,16 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
     };
 
     let Decided { at, mode, multiplier, scale_duration, session_bias, origin } = decided;
+    // The gate the core puts every start through (R4-S7), here as well, so a dry run refuses what the
+    // run would refuse and a run refuses before it starts anything (R4-S12). Measured before this:
+    // `--at 1500-01-01T00:00:00` was planned with exit 0 and refused by the core with exit 1, and a
+    // relative `--at` or a preset landing past 30828 went the same way. Exit 1 is the core's code.
+    if let Some(local) = &at
+        && let Err(e) = chrono_core::session_instant(&Moment { local: local.clone(), tz_bias_min: session_bias })
+    {
+        diag!("chrono: {local} cannot start a session - {e}");
+        return Err(1);
+    }
     let spec = TimeSpec {
         moment: MomentSpec {
             kind: "absolute".into(),
@@ -196,6 +200,102 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
         scale_qpc: ra.scale_qpc,
     };
     Ok(ResolvedTime { spec, origin })
+}
+
+/// A preset's moment against real "now" in the session zone, the way a relative `--at` is resolved,
+/// as the wall moment that goes on the wire. A step that counts business days gets the calendar of
+/// the preset's market - the one the panel's scenario list counts in - loaded only when a step asks
+/// for it, so a market preset that counts none does not start depending on the calendar files
+/// (R4-S12). Without a market calendar the refusal names what is missing without pointing at a
+/// `--calendar` that `chrono run` does not have. Errors are printed here, and the exit code returned.
+fn eval_preset_moment(
+    id: &str,
+    market: Option<&str>,
+    moment: &MomentExpr,
+    now: CivilDateTime,
+    now_bias: i32,
+) -> Result<String, i32> {
+    let outcome = match chrono_core::calc::eval(moment, &EvalContext { now, zone_bias_min: now_bias, calendar: None }) {
+        Err(needs @ EvalError::NeedsCalendar { .. }) => match load_market_calendar(id, market) {
+            Some(Ok(calendar)) => chrono_core::calc::eval(
+                moment,
+                &EvalContext { now, zone_bias_min: now_bias, calendar: Some(&calendar) },
+            ),
+            Some(Err(e)) => {
+                diag!("chrono: {e}");
+                return Err(1);
+            }
+            None => Err(needs),
+        },
+        first => first,
+    };
+    match outcome {
+        Ok(outcome) => Ok(outcome.result().to_iso()),
+        Err(e @ EvalError::NeedsCalendar { .. }) => {
+            diag!(
+                "chrono: preset '{id}' counts business days, and its market names no calendar to count them in - chrono run takes the calendar from the preset's market (calc.needs_calendar)"
+            );
+            Err(calc_error_exit_code(&e))
+        }
+        Err(e) => {
+            diag!("chrono: preset '{id}' moment: {}", describe_calc_error(&e));
+            Err(calc_error_exit_code(&e))
+        }
+    }
+}
+
+/// A preset's `zone` step expresses its moment in another zone, and the result used to go on the wire
+/// as that zone's wall clock paired with the SESSION's bias - an instant the zones' difference away
+/// from the one the preset names (R4-S12). The session runs in one zone, `--zone` or the host's (rule
+/// 2), so the same instant is brought back into it by one more `zone` step. A preset without a zone
+/// step is left exactly as it was. The panel's scenario list does the same (`ScenarioMoment`).
+fn back_in_session_zone(moment: &mut MomentExpr, session_bias: i32) {
+    if moment.steps.iter().any(|s| matches!(s, Step::Zone(_))) {
+        moment.steps.push(Step::Zone(session_bias));
+    }
+}
+
+/// What `--set-after` and `--jump-after` promise, checked before anything starts, so a plan never
+/// describes a change the session would not make (R4-N21, R4-S12). Heartbeats count from 1, and a
+/// session cut by `--ticks N` ends after heartbeat N, so a change scheduled at 0 or past the cut never
+/// happened - without a word, while `--dry-run` promised it "at heartbeat 0". The jump's moment gets
+/// every check the core would give it at that heartbeat that does not depend on where the session
+/// clock will stand by then: the grammar, business days (which need a calendar a session does not
+/// have), and for an absolute moment the range of the session clock.
+fn check_schedule(ra: &RunArgs, session_bias: i32) -> Result<(), String> {
+    let changes = [
+        ("--set-after", ra.set_after.map(|(tick, _)| tick)),
+        ("--jump-after", ra.jump_after.as_ref().map(|(tick, _)| *tick)),
+    ];
+    for (flag, tick) in changes {
+        match tick {
+            Some(0) => {
+                return Err(format!("{flag} counts state heartbeats from 1, so a change at heartbeat 0 would never happen"));
+            }
+            Some(t) if ra.ticks > 0 && t > ra.ticks => {
+                return Err(format!(
+                    "{flag} at heartbeat {t} would never happen - --ticks {} ends the session after heartbeat {}",
+                    ra.ticks, ra.ticks
+                ));
+            }
+            _ => {}
+        }
+    }
+    let Some((_, moment)) = &ra.jump_after else {
+        return Ok(());
+    };
+    if moment.starts_with(['+', '-']) {
+        return match parse_shift(moment) {
+            Ok(Step::Shift { unit: Unit::BusinessDays, .. }) => Err(format!(
+                "--jump-after {moment} counts business days, which need a calendar that a session does not have"
+            )),
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("--jump-after: {e}")),
+        };
+    }
+    chrono_core::session_instant(&Moment { local: moment.clone(), tz_bias_min: Some(session_bias) })
+        .map(|_| ())
+        .map_err(|e| format!("--jump-after {moment} - {e}"))
 }
 
 /// Resolve the `--at` value to an absolute wall string (the core only ever sees an
@@ -397,5 +497,95 @@ mod tests {
         assert_eq!(spec.multiplier, None);
         assert!(!spec.scale_duration);
         assert!(!spec.scale_qpc);
+    }
+
+    /// A preset's zone step changes where a later step counts, not the instant that goes on the wire
+    /// (R4-S12). "The start of the month in +05:45" is 2029-12-31T18:15 in UTC. Without the step back
+    /// into the session zone the wire carried 2030-01-01T00:00 - the Kathmandu wall clock - which the
+    /// session then read as UTC, 5 h 45 min away from the preset's moment.
+    #[test]
+    fn a_zone_step_in_a_preset_keeps_its_instant_in_the_session_zone() {
+        use chrono_core::calc::{CivilDateTime, SnapTarget};
+        let base = CivilDateTime { year: 2030, month: 1, day: 15, hour: 0, minute: 0, second: 0 };
+        let kathmandu = crate::zone::parse_zone_to_bias("+05:45").expect("a zone");
+        let mut moment = MomentExpr {
+            base: Base::Absolute(base),
+            steps: vec![Step::Zone(kathmandu), Step::Snap(SnapTarget::StartOfMonth)],
+        };
+        back_in_session_zone(&mut moment, 0);
+        let outcome = chrono_core::calc::eval(&moment, &EvalContext { now: base, zone_bias_min: 0, calendar: None })
+            .expect("the moment evaluates");
+        assert_eq!(outcome.result().to_iso(), "2029-12-31T18:15:00");
+
+        let mut plain = MomentExpr { base: Base::Absolute(base), steps: vec![Step::Snap(SnapTarget::StartOfMonth)] };
+        back_in_session_zone(&mut plain, 0);
+        assert_eq!(plain.steps.len(), 1, "a preset without a zone step is left as it was");
+    }
+
+    fn run_args(argv: &[&str]) -> RunArgs {
+        let owned: Vec<String> = argv.iter().map(|a| (*a).to_string()).collect();
+        parse_run_args(&owned).expect("the command line must parse")
+    }
+
+    /// Every moment a session starts at goes through the core's own gate before anything starts, so
+    /// a dry run and a run refuse the same moments (R4-S12): below 1601, past the last instant the
+    /// fake clock holds, and a local moment that is still 1601 while its UTC instant is not.
+    #[test]
+    fn a_moment_outside_the_session_range_is_refused_before_anything_starts() {
+        for (at, zone) in [
+            ("1500-01-01T00:00:00", "+00:00"),
+            ("30829-01-01T00:00:00", "+00:00"),
+            ("1601-01-01T00:30:00", "+01:00"),
+        ] {
+            let ra = run_args(&["app.exe", "--at", at, "--zone", zone]);
+            let bias = ra.zone_bias_min.expect("the zone was given");
+            assert_eq!(resolve_time_spec(&ra, bias).err(), Some(1), "{at} {zone}");
+        }
+        let ra = run_args(&["app.exe", "--at", "1601-01-01T00:30:00", "--zone", "+00:00"]);
+        assert!(resolve_time_spec(&ra, 0).is_ok(), "the first half hour of 1601 in UTC is a moment");
+    }
+
+    /// Heartbeats count from 1 and a session cut by --ticks never reaches the heartbeat after the cut,
+    /// so a change scheduled at 0 or past the cut is refused rather than silently skipped (R4-N21). A
+    /// change on the last heartbeat still happens, and without --ticks there is no cut to be past.
+    #[test]
+    fn a_change_the_session_would_never_make_is_refused() {
+        for argv in [
+            &["app.exe", "--set-after", "0:60"][..],
+            &["app.exe", "--jump-after", "0:+1d"][..],
+            &["app.exe", "--ticks", "3", "--set-after", "4:60"][..],
+            &["app.exe", "--ticks", "3", "--jump-after", "4:+1d"][..],
+        ] {
+            let e = check_schedule(&run_args(argv), 0).expect_err(&argv.join(" "));
+            assert!(e.contains("would never happen"), "{argv:?}: {e}");
+        }
+        for argv in [
+            &["app.exe", "--ticks", "3", "--set-after", "3:60"][..],
+            &["app.exe", "--ticks", "3", "--jump-after", "3:+1d"][..],
+            &["app.exe", "--set-after", "1000000:60"][..],
+        ] {
+            assert!(check_schedule(&run_args(argv), 0).is_ok(), "{argv:?}");
+        }
+    }
+
+    /// The jump's moment gets the checks the core would give it that do not depend on where the clock
+    /// will stand: the grammar, business days, and the range of an absolute moment in the session zone.
+    #[test]
+    fn a_jump_the_core_would_refuse_is_refused_before_anything_starts() {
+        for (moment, words) in [
+            ("+5bd", "business days"),
+            ("+1x", "--jump-after"),
+            ("tomorrow", "--jump-after tomorrow"),
+            ("1500-01-01T00:00:00", "outside the range"),
+            ("2030-02-30T00:00:00", "--jump-after 2030-02-30T00:00:00"),
+        ] {
+            let flag = format!("2:{moment}");
+            let e = check_schedule(&run_args(&["app.exe", "--jump-after", &flag]), 0).expect_err(moment);
+            assert!(e.contains(words), "{moment}: {e}");
+        }
+        for moment in ["+1d", "-3650d", "2038-01-19T03:14:07"] {
+            let flag = format!("2:{moment}");
+            assert!(check_schedule(&run_args(&["app.exe", "--jump-after", &flag]), 0).is_ok(), "{moment}");
+        }
     }
 }

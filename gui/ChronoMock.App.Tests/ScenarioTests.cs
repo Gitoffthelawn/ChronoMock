@@ -197,6 +197,34 @@ public class ScenarioTests
         Assert.DoesNotContain("--preset", args);
         Assert.Contains("--base", args);
         Assert.Contains("--snap", args);
+
+        // A preset without a zone step gets no step back into the session zone (R4-S12).
+        Assert.DoesNotContain("--to-zone", args);
+    }
+
+    [Fact]
+    public void A_zone_step_in_a_scenario_is_brought_back_into_the_session_zone()
+    {
+        // "The start of the month in +05:45": the zone step decides where the snap counts. The engine
+        // answers in the last zone named, so without a step back the session got the +05:45 wall clock
+        // read in its own zone - 5 h 45 min away from the preset's instant (R4-S12).
+        using var moment = System.Text.Json.JsonDocument.Parse(
+            """{ "base": "today", "steps": [ { "zone": "+05:45" }, { "snap": "start-of-month" } ] }""");
+        var info = new PresetInfo(
+            "zone-probe",
+            new Dictionary<string, string>(),
+            new Dictionary<string, string>(),
+            "substitution",
+            Market: null,
+            [],
+            moment.RootElement.Clone());
+        var scenario = new ScenarioItem("zone-probe", "zone-probe", "zone-probe", info);
+
+        var args = ScenarioMoment.BuildArgs(scenario, zoneBiasMinutes: 300).ToList(); // UTC-05:00
+
+        var zones = args.Select((a, i) => (a, i)).Where(p => p.a == "--to-zone").Select(p => args[p.i + 1]).ToList();
+        Assert.Equal(["+05:45", "-05:00"], zones);
+        Assert.True(args.IndexOf("--snap") < args.LastIndexOf("--to-zone"), "the step back comes after every preset step");
     }
 
     [Theory]

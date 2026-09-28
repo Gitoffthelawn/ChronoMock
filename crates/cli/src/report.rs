@@ -487,6 +487,20 @@ fn is_qpc_axis_warning(key: &str) -> bool {
     )
 }
 
+/// The folders whose files say something about the target: its own, and PyInstaller's `_internal/`
+/// inside it. A bare name has an EMPTY parent rather than none - `Path::new("game.exe").parent()` is
+/// `Some("")` - and `read_dir("")` fails, which read as "no runtime files" for the commonest way to
+/// name a target: measured, `chrono run game.exe --dry-run` beside a `jvm.dll` warned of nothing, and
+/// the same file by full path warned of Java (R4-S13). A bare name is started from the current
+/// directory (`CreateProcessW` does not search for `lpApplicationName`), so that is the folder read.
+fn dirs_beside(target_path: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Some(parent) = target_path.parent() else {
+        return Vec::new();
+    };
+    let parent = if parent.as_os_str().is_empty() { std::path::Path::new(".") } else { parent };
+    vec![parent.to_path_buf(), parent.join("_internal")]
+}
+
 /// Everything the target's files say about it, independent of the session's flags. One walk of each
 /// directory, never one per family: `read_dir` on Windows does not stat its entries (`FindNextFile`
 /// hands back the name with the attributes), which is why this costs 0,2 ms on a real target folder and
@@ -527,12 +541,7 @@ fn fingerprint_target(target_path: &std::path::Path) -> Vec<String> {
     }
 
     // Runtime DLLs and manifests shipped beside the exe, and in PyInstaller's `_internal/` folder.
-    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
-    if let Some(parent) = target_path.parent() {
-        dirs.push(parent.to_path_buf());
-        dirs.push(parent.join("_internal"));
-    }
-    for dir in dirs {
+    for dir in dirs_beside(target_path) {
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(_) => continue, // a missing _internal/ is normal, not an error
@@ -948,6 +957,20 @@ mod tests {
     use super::*;
     use crate::core::map_prepare_error;
     use crate::testutil::unique_temp_dir;
+
+    /// A bare name is looked up in the current directory, where the session starts it - its empty
+    /// parent used to make the look fail and say nothing about the runtime (R4-S13).
+    #[test]
+    fn a_bare_target_name_is_fingerprinted_in_the_current_directory() {
+        use std::path::{Path, PathBuf};
+        let here = Path::new(".");
+        assert_eq!(dirs_beside(Path::new("game.exe")), vec![here.to_path_buf(), here.join("_internal")]);
+        assert_eq!(
+            dirs_beside(Path::new(r"C:\games\game.exe")),
+            vec![PathBuf::from(r"C:\games"), PathBuf::from(r"C:\games\_internal")]
+        );
+        assert!(dirs_beside(Path::new(r"C:\")).is_empty(), "a root has no folder beside it to read");
+    }
 
     fn pid(n: u32) -> UnitId {
         UnitId { unit: Unit::Process, id: n }
