@@ -683,6 +683,10 @@
   "calc.err.business_days_limit": "That step asks for more than 1,000,000 business days - the most the calculator counts.",
   "calc.err.base_overflow": "The UTC start point names an instant outside the range this version can represent.",
   "calc.err.base_not_a_date": "The start point is not a real date and time - check its month, day and time of day.",
+  // A value the engine's argument reader refused (R4-S23). From this screen only the typed step fields
+  // can cause it - the start point is checked by its own field before anything is computed - so the text
+  // names those three and their shapes. The engine's own sentence stays underneath as the detail.
+  "calc.err.bad_argument": "A step has a value the calculator cannot read. A shift must be a whole number with no sign (the direction is picked beside it), a time must be HH:MM:SS, and a time zone must be +HH:MM or -HH:MM, from -14:59 to +14:59.",
   "calc.err.analyze_unrecognized": "This is not a date format the analyser recognises. It reads ISO (2026-01-31), numeric dates with a four-digit year (01/31/2026), and a bare number as a Unix timestamp.",
   "calc.err.preset_not_for_calculator": "This scenario describes a session to run, not a date to compute.",
   // Two failures that are not the engine's: its answer arrived and was not usable. Rare, and worth saying

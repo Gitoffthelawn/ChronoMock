@@ -62,6 +62,15 @@ Notable changes to Chrono Mock, newest first. The format follows
   and point to a `--calendar` option that `run` does not have. A preset with no market still has no
   calendar to count in and is refused with exit 5, with a message that no longer mentions
   `--calendar`.
+- **`chrono calc` refuses arguments it used to drop without a word.** A flag given twice
+  (`--zone`, `--calendar`, `--preset`, `--format`, `--analyze`, or `--param` with the same name)
+  kept the last value and forgot the first. `--analyze` answered as if a step flag or `--format`
+  beside it were not there. A flag standing where a value belongs was taken as the value, so
+  `--format --json` printed text with `--json` as the mask. Each is now refused with exit 1. A mask
+  that has to begin with two dashes quotes them, as in `'--'yyyy`.
+- **A refused `chrono calc` argument ends in a key, `calc.bad_argument`**, like the calculator's
+  other refusals, and with `--json` the usage no longer follows it. The calculator window showed
+  that whole usage under its message, and now says which step values it could not read.
 
 ### Fixed
 
@@ -224,6 +233,16 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **A zero character in a path, an argument or a working folder cut the program's command line
   short** without a word, when a client of the protocol sent one (a batch script already refused
   it). It is now refused before anything starts, with exit 2.
+- **"Days from now" was a day out after a zone step.** `chrono calc --zone -12:00 --base now
+  --to-zone +14:00` called the same instant a day away, because today was read in the session zone
+  and the result in the zone after the step. Today is now read in the result's zone, on the command
+  line and in the calculator window.
+- **`chrono calc --analyze` misread and misprinted dates.** `31-12-25` was read as the year 31 and
+  `-9-05-05` as the year -9. Both are refused now, because an ISO date starts with a four-digit year.
+  A year before 1 CE was printed as `-009` and is now printed as `-0009`, the way it is read back. A
+  number read as seconds or milliseconds since 1970 was shown without its time of day and without
+  the zone that time is in, and now shows both. `0` and `-1`, the same second in both units, were
+  listed twice as if ambiguous. The JSON analysis names its zone in a new `zone_bias_min` field.
 
 ## [0.3.0] - 2026-09-22
 

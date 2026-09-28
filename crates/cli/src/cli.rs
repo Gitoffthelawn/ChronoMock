@@ -262,7 +262,7 @@ pub(crate) fn print_help_for(command: &str) -> i32 {
 pub(crate) fn print_calc_usage() {
     diag!("usage: chrono calc [--base <today|now|YYYY-MM-DDTHH:MM:SS>] [--base-utc <YYYY-MM-DDTHH:MM:SS[Z]>] [--shift <±N<unit>>]... [--set-time <HH:MM:SS>] [--snap <target>] [--nearest <target>] [--to-zone <+HH:MM>] [--zone <+HH:MM>] [--calendar <us-banking|us-federal|pl>] [--format <mask>] [--json]");
     diag!("       or: chrono calc --preset <id> [--param id=value]...   (named moment, e.g. month-end, trial-first-day-after)");
-    diag!("       or: chrono calc --analyze <pasted-date>   (interpret a date, e.g. 04/08/2008; shows both readings when ambiguous)");
+    diag!("       or: chrono calc --analyze <pasted-date>   (interpret a date, e.g. 04/08/2008 - shows both readings when ambiguous)");
     diag!("       --json emits machine output (chronomock.calc/1) for any of the above");
     diag!("       units: s m h d w mo q y bd (minute=m, month=mo)");
 }

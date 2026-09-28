@@ -1286,6 +1286,13 @@ impl DateReading {
         }
     }
 
+    /// Whether this reading names an instant (a number of seconds or milliseconds since 1970) rather
+    /// than civil fields someone wrote down. An instant has a wall clock only in some zone, so its
+    /// reading is the one that depends on the session zone, and the one that has a time of day.
+    pub fn is_instant(&self) -> bool {
+        matches!(self, DateReading::EpochSeconds | DateReading::EpochMillis)
+    }
+
     /// English label for the CLI (a translation key when the calculator GUI arrives).
     pub fn label(&self) -> &'static str {
         match self {
@@ -1348,7 +1355,11 @@ fn epoch_readings(s: &str, zone_bias_min: i32) -> Option<Vec<(DateReading, Civil
     ] {
         let Some(secs) = secs else { continue };
         let civil = epoch_secs_to_civil(secs, zone_bias_min);
-        if crate::civil_year_in_band(civil.year) {
+        // The two units meet where N seconds and N milliseconds fall in the same second - 0 and -1.
+        // One instant is listed once, the way a month/day order that reads the same both ways is:
+        // two identical lines under "ambiguous" asked the reader to choose between nothing (R4-N36).
+        let repeat = readings.last().is_some_and(|(_, earlier)| *earlier == civil);
+        if crate::civil_year_in_band(civil.year) && !repeat {
             readings.push((reading, civil));
         }
     }
@@ -1364,9 +1375,10 @@ fn civil_date(year: i64, month: i64, day: i64) -> Option<CivilDateTime> {
     Some(CivilDateTime { year, month: month as u32, day: day as u32, hour: 0, minute: 0, second: 0 })
 }
 
-/// Recognise a pasted date and return its reading(s). ISO (dash-separated, optional time) is
-/// unambiguous - a slash- or dot-separated `N/N/YYYY` yields the US and PL readings, keeping only
-/// the ones that form a real date (so 29/02 is PL-only, 02/29 US-only, 02/30 an error, 05/05 one).
+/// Recognise a pasted date and return its reading(s). ISO (dash-separated, a four-digit year first,
+/// optional time) is unambiguous - a slash- or dot-separated `N/N/YYYY` yields the US and PL
+/// readings, keeping only the ones that form a real date (so 29/02 is PL-only, 02/29 US-only, 02/30
+/// an error, 05/05 one).
 /// A bare number is a Unix epoch, read in `zone_bias_min`, in seconds and in milliseconds - both,
 /// because a number carries no unit and choosing one would be a guess (docs/02 8.1).
 /// FILETIME, RFC 1123 and year-first numeric are honestly not recognised yet (an error, never a
@@ -1399,6 +1411,17 @@ pub fn analyze_date(input: &str, zone_bias_min: i32) -> Result<DateAnalysis, Str
     }
     // ISO: dash-separated, with or without a time (midnight if the time is absent).
     if s.contains('-') {
+        // An ISO date leads with its year written in full - four digits at least, after an optional
+        // minus for a year before 1 CE. `31-12-25` has the dashes and not the year, and read as ISO
+        // it came back as the year 31: a confident answer to a date nobody wrote (R4-N36). Refused
+        // like any other shape this analyser does not read, rather than guessed at.
+        let date = s.split(['T', ' ']).next().unwrap_or(s);
+        let year = date.strip_prefix('-').unwrap_or(date).split('-').next().unwrap_or("");
+        if year.len() < 4 || !year.chars().all(|c| c.is_ascii_digit()) {
+            return Err(format!(
+                "expected an ISO date that starts with a four-digit year (YYYY-MM-DD), got '{input}'"
+            ));
+        }
         let iso = if s.contains('T') || s.contains(' ') { s.to_string() } else { format!("{s}T00:00:00") };
         let civil = parse_civil_datetime(&iso)?;
         return Ok(DateAnalysis { readings: vec![(DateReading::Iso, civil)] });
@@ -2431,6 +2454,33 @@ mod tests {
         assert!(analyze_date("hello", 0).is_err());
         assert!(analyze_date("04/08/08", 0).is_err()); // year not four digits
         assert!(analyze_date("2008/08/04", 0).is_err()); // year-first numeric not recognised yet
+    }
+
+    /// R4-N36: the ISO branch took anything with a dash, so `31-12-25` came back as the year 31 and
+    /// `-9-05-05` as the year -9 - confident answers to dates nobody wrote in that shape.
+    #[test]
+    fn an_iso_date_needs_its_year_written_in_full() {
+        for shapeless in ["31-12-25", "-9-05-05", "26-01-31T12:00:00", "+2026-01-01", "31-12-2025"] {
+            assert!(analyze_date(shapeless, 0).is_err(), "{shapeless} must be refused");
+        }
+        // Written in full, the same years are read - before 1 CE and in the first century too.
+        assert_eq!(analyze_date("-0009-05-05", 0).unwrap().readings[0].1, dt(-9, 5, 5, 0, 0, 0));
+        assert_eq!(analyze_date("0031-12-25", 0).unwrap().readings[0].1, dt(31, 12, 25, 0, 0, 0));
+        assert_eq!(analyze_date("2026-01-31 13:45:00", 0).unwrap().readings[0].1, dt(2026, 1, 31, 13, 45, 0));
+    }
+
+    /// R4-N36: 0 and -1 are the same second in both units, and were listed twice under "ambiguous".
+    #[test]
+    fn one_instant_in_both_units_is_listed_once() {
+        for same in ["0", "-1"] {
+            let a = analyze_date(same, 0).unwrap();
+            assert_eq!(a.readings.len(), 1, "{same}: {a:?}");
+            assert!(!a.is_ambiguous(), "{same}");
+        }
+        // Where the two units part, both are still offered - including the first number past the seam.
+        for apart in ["1", "-2", "-7200", "1740607200"] {
+            assert_eq!(analyze_date(apart, 0).unwrap().readings.len(), 2, "{apart}");
+        }
     }
 
     /// `eval` is public API over a struct with public fields, so "the caller validated it" is an

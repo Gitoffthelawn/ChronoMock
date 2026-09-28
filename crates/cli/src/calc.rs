@@ -57,8 +57,16 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     let ca = match parse_calc_args(argv) {
         Ok(ca) => ca,
         Err(e) => {
-            diag!("chrono: {e}");
-            print_calc_usage();
+            // One line with a stable key, like every other refusal of this command (R4-S23). Without
+            // the key the GUI had nothing to translate, and the usage printed after the sentence
+            // became the "detail" under it: a whole command-line synopsis on a calculator panel.
+            diag!("chrono calc: {e} (calc.bad_argument)");
+            // The usage is for a person at a terminal. A caller asking for machine output (the GUI
+            // always does) gets the line alone. Read from the words themselves, because the parser
+            // that would have set `json` is the one that just failed.
+            if !argv.iter().any(|word| word == "--json") {
+                print_calc_usage();
+            }
             return 1;
         }
     };
@@ -75,8 +83,10 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     let zone_bias = session_zone_default(ca.zone_bias_min);
     let zone_from_host = ca.zone_bias_min.is_none();
 
-    // Resolve the real current time in that zone, as data for the pure core.
-    let now = match resolve_now_civil(Some(zone_bias)) {
+    // Resolve the real current time in that zone, as data for the pure core. The instant is kept, so
+    // the same "now" can be read in the result's zone below without a second look at the clock.
+    let now_utc = now_filetime_utc();
+    let now = match civil_at(now_utc, zone_bias) {
         Ok(n) => n,
         Err(e) => {
             diag!("chrono: cannot resolve current time: {e}");
@@ -105,7 +115,10 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 if ca.json {
                     outln!("{}", calc_analysis_json(&analysis, input, &now, Some(zone_bias), calendar.as_ref()));
                 } else {
-                    out!("{}", render_analysis(&analysis, input, &now, Some(zone_bias), calendar.as_ref()));
+                    out!(
+                        "{}",
+                        render_analysis(&analysis, input, &now, Some(zone_bias), zone_from_host, calendar.as_ref())
+                    );
                 }
                 0
             }
@@ -166,15 +179,27 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
         &EvalContext { now, zone_bias_min: zone_bias, calendar: calendar.as_ref() },
     ) {
         Ok(outcome) => {
+            // "Days from now" compares the result's date with today's, and a date is a date in some
+            // zone. The result is in the zone after its last `--to-zone`, so today is read there too:
+            // from -12:00 re-expressed in +14:00, the very same instant was reported as a day away
+            // (R4-N31). The same instant as `now`, because a second look at the clock can land on the
+            // far side of midnight.
+            let today = match civil_at(now_utc, outcome.result_bias) {
+                Ok(t) => t,
+                Err(e) => {
+                    diag!("chrono calc: cannot resolve current time: {e}");
+                    return 3;
+                }
+            };
             if ca.json {
                 outln!(
                     "{}",
-                    calc_moment_json(&outcome, &now, calendar.as_ref(), ca.format.as_deref(), preset_meta)
+                    calc_moment_json(&outcome, &today, calendar.as_ref(), ca.format.as_deref(), preset_meta)
                 );
                 return 0;
             }
             let mut text =
-                render_calc(&expr, &outcome, Some(zone_bias), zone_from_host, &now, calendar.as_ref(), preset_header.as_deref());
+                render_calc(&expr, &outcome, Some(zone_bias), zone_from_host, &today, calendar.as_ref(), preset_header.as_deref());
             // A custom mask (7.3) adds one more line in the target app's exact format.
             if let Some(mask) = &ca.format {
                 let rendered = chrono_core::calc::format_with_mask(&outcome.result(), mask);
@@ -294,6 +319,11 @@ pub(crate) struct PresetJson {
 pub(crate) struct AnalysisJson {
     input: String,
     ambiguous: bool,
+    /// The session zone the analysis was read in (UTC = local + bias). An epoch reading is an instant,
+    /// and its `iso` is a wall clock in this zone - without the field a client got that wall clock
+    /// with no way to say whose it was (R4-N36). `days_from_today` counts from today in it too. A
+    /// date written as fields does not move with it. Additive, so no schema version (docs/04 3).
+    zone_bias_min: i32,
     readings: Vec<ReadingJson>,
 }
 
@@ -358,7 +388,9 @@ pub(crate) fn significance_keys(
 
 pub(crate) fn calc_moment_json(
     outcome: &chrono_core::calc::EvalOutcome,
-    now: &chrono_core::calc::CivilDateTime,
+    // Now, read in the RESULT's zone (`outcome.result_bias`), which is where `days_from_today` has to
+    // count from - see `calc_run` (R4-N31).
+    today: &chrono_core::calc::CivilDateTime,
     calendar: Option<&chrono_core::calendar::Calendar>,
     format_mask: Option<&str>,
     preset: Option<PresetJson>,
@@ -372,7 +404,7 @@ pub(crate) fn calc_moment_json(
         base: outcome.base.to_iso(),
         steps: outcome.after_each.iter().map(|c| c.to_iso()).collect(),
         formats: formats_json(&result, bias),
-        metadata: metadata_json(&result, now, calendar),
+        metadata: metadata_json(&result, today, calendar),
         significance: significance_keys(&result, bias, calendar),
         custom_format: rendered_mask.as_ref().map(|r| r.text.clone()),
         custom_format_unknown: rendered_mask
@@ -417,7 +449,12 @@ pub(crate) fn calc_analysis_json(
     let doc = CalcJson {
         schema: CALC_SCHEMA,
         moment: None,
-        analysis: Some(AnalysisJson { input: input.to_string(), ambiguous: analysis.is_ambiguous(), readings }),
+        analysis: Some(AnalysisJson {
+            input: input.to_string(),
+            ambiguous: analysis.is_ambiguous(),
+            zone_bias_min: bias,
+            readings,
+        }),
     };
     serde_json::to_string(&doc).unwrap_or_else(|e| format!(r#"{{"error":"serialize: {e}"}}"#))
 }
@@ -436,6 +473,42 @@ fn reject_second_base(seen: &mut Option<&'static str>, flag: &'static str) -> Re
         }
     }
 }
+
+/// The word after a flag, which is its value - refused when it is missing or is itself a flag.
+///
+/// A flag took the next word whatever it was, so `--format --json` read `--json` as the mask, printed
+/// text where JSON was asked for, and said nothing of the flag it had swallowed (R4-N32). No value
+/// that comes through here starts with two dashes: a shift and a zone carry one sign, ids and dates
+/// none, and a mask that must open with two dashes quotes them (`'--'yyyy`). So such a word is named
+/// as the flag it is, the way `--at` names it in `chrono run`.
+///
+/// `--analyze` does not come through here. What it takes is pasted text, a typo can put two dashes
+/// in front of a real date, and the analyser's own refusal already names the text for what it is -
+/// taking it here would put a refusal about arguments on the analysis panel of the GUI.
+fn flag_value<'a>(argv: &'a [String], i: usize, flag: &str, needs: &str) -> Result<&'a str, String> {
+    match argv.get(i) {
+        None => Err(format!("{flag} needs {needs}")),
+        Some(word) if word.starts_with("--") => {
+            Err(format!("{flag} needs {needs}, but the next word is the flag '{word}'"))
+        }
+        Some(word) => Ok(word),
+    }
+}
+
+/// Keep a flag's value, refusing a second one. For these flags the last one used to win, which
+/// dropped the first in silence - two zones, two calendars or two masks are a contradiction, not a
+/// preference order (R4-N32). The step flags repeat on purpose (each is one step), and the base has
+/// its own refusal that names both of its spellings.
+fn set_once<T>(slot: &mut Option<T>, flag: &str, value: T) -> Result<(), String> {
+    if slot.is_some() {
+        return Err(format!("{flag} is given twice - pass it once"));
+    }
+    *slot = Some(value);
+    Ok(())
+}
+
+/// The flags that build a moment, as a refusal names them.
+const STEP_FLAGS: &str = "--base/--base-utc/--shift/--set-time/--snap/--nearest/--to-zone";
 
 pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
     let mut base = Base::Today;
@@ -461,7 +534,7 @@ pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
             "--base" => {
                 i += 1;
                 reject_second_base(&mut saw_base, "--base")?;
-                base = parse_base(argv.get(i).ok_or("--base needs a value")?)?;
+                base = parse_base(flag_value(argv, i, "--base", "a value like today, now or 2026-01-31T00:00:00")?)?;
                 saw_step_flag = true;
             }
             // The instant form of --base: the value is read in UTC, not in the session zone. For a
@@ -471,71 +544,77 @@ pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
             "--base-utc" => {
                 i += 1;
                 reject_second_base(&mut saw_base, "--base-utc")?;
-                let raw = argv.get(i).ok_or("--base-utc needs a value")?;
+                let raw = flag_value(argv, i, "--base-utc", "a value like 1970-01-01T00:00:00Z")?;
                 let trimmed = raw.strip_suffix('Z').unwrap_or(raw);
                 base = Base::AbsoluteUtc(chrono_core::calc::parse_civil_datetime(trimmed)?);
                 saw_step_flag = true;
             }
             "--param" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--param needs id=value like start_date=2026-01-01")?;
+                let raw = flag_value(argv, i, "--param", "id=value like start_date=2026-01-01")?;
                 let (id, value) = raw
                     .split_once('=')
                     .ok_or_else(|| format!("--param must be id=value, got '{raw}'"))?;
                 if id.is_empty() {
                     return Err(format!("--param needs a non-empty id, got '{raw}'"));
                 }
-                params.insert(id.to_string(), value.to_string());
+                if params.insert(id.to_string(), value.to_string()).is_some() {
+                    return Err(format!("--param {id} is given twice - pass each parameter once"));
+                }
             }
             "--preset" => {
                 i += 1;
-                preset = Some(argv.get(i).ok_or("--preset needs an id like month-end")?.clone());
+                set_once(&mut preset, "--preset", flag_value(argv, i, "--preset", "an id like month-end")?.to_string())?;
             }
             "--calendar" => {
                 i += 1;
-                calendar = Some(argv.get(i).ok_or("--calendar needs an id like us-banking")?.clone());
+                let id = flag_value(argv, i, "--calendar", "an id like us-banking")?;
+                set_once(&mut calendar, "--calendar", id.to_string())?;
             }
             "--analyze" => {
                 i += 1;
-                analyze = Some(argv.get(i).ok_or("--analyze needs a date like 04/08/2008")?.clone());
+                // Not through `flag_value` - see there why pasted text is taken as it comes.
+                let raw = argv.get(i).ok_or("--analyze needs a date like 04/08/2008")?;
+                set_once(&mut analyze, "--analyze", raw.clone())?;
             }
             "--format" => {
                 i += 1;
-                let m = argv.get(i).ok_or("--format needs a mask like yyyy-MM-dd")?;
+                let m = flag_value(argv, i, "--format", "a mask like yyyy-MM-dd")?;
                 if m.is_empty() {
                     return Err("--format mask is empty".into());
                 }
-                format = Some(m.clone());
+                set_once(&mut format, "--format", m.to_string())?;
             }
             "--zone" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--zone needs a value like +02:00")?;
-                zone_bias_min = Some(parse_zone_to_bias(raw)?);
+                let raw = flag_value(argv, i, "--zone", "a value like +02:00")?;
+                set_once(&mut zone_bias_min, "--zone", parse_zone_to_bias(raw)?)?;
             }
             "--to-zone" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--to-zone needs a value like +05:45")?;
+                let raw = flag_value(argv, i, "--to-zone", "a value like +05:45")?;
                 steps.push(Step::Zone(parse_zone_to_bias(raw)?));
                 saw_step_flag = true;
             }
             "--shift" => {
                 i += 1;
-                steps.push(parse_shift(argv.get(i).ok_or("--shift needs a value like +18years")?)?);
+                steps.push(parse_shift(flag_value(argv, i, "--shift", "a value like +18years")?)?);
                 saw_step_flag = true;
             }
             "--set-time" => {
                 i += 1;
-                steps.push(parse_set_time(argv.get(i).ok_or("--set-time needs a value like 23:59:59")?)?);
+                steps.push(parse_set_time(flag_value(argv, i, "--set-time", "a value like 23:59:59")?)?);
                 saw_step_flag = true;
             }
             "--snap" => {
                 i += 1;
-                steps.push(Step::Snap(parse_snap(argv.get(i).ok_or("--snap needs a target")?)?));
+                steps.push(Step::Snap(parse_snap(flag_value(argv, i, "--snap", "a target like end-of-month")?)?));
                 saw_step_flag = true;
             }
             "--nearest" => {
                 i += 1;
-                steps.push(Step::Nearest(parse_nearest(argv.get(i).ok_or("--nearest needs a target")?)?));
+                let target = flag_value(argv, i, "--nearest", "a target like next-business-day")?;
+                steps.push(Step::Nearest(parse_nearest(target)?));
                 saw_step_flag = true;
             }
             "--json" => json = true,
@@ -549,12 +628,19 @@ pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
     // sources for one moment. Reject it rather than pick one silently. `--analyze` is a different
     // mode entirely (it reads a date, builds nothing), so it cannot ride with `--preset` either.
     if preset.is_some() && saw_step_flag {
-        return Err("--preset builds the moment on its own; it cannot be combined with \
-                    --base/--shift/--set-time/--snap/--nearest/--to-zone"
-            .into());
+        return Err(format!("--preset builds the moment on its own - it cannot be combined with {STEP_FLAGS}"));
     }
     if preset.is_some() && analyze.is_some() {
-        return Err("--preset and --analyze are different modes; use one at a time".into());
+        return Err("--preset and --analyze are different modes - use one at a time".into());
+    }
+    // `--analyze` used to drop these in silence, so `--analyze 04/08/2008 --shift +1d` answered a
+    // question that was not the one asked, with nothing to say the step had gone nowhere (R4-N32).
+    // `--zone` and `--calendar` do apply to it and stay allowed.
+    if analyze.is_some() && saw_step_flag {
+        return Err(format!("--analyze reads a date and builds none, so it cannot be combined with {STEP_FLAGS}"));
+    }
+    if analyze.is_some() && format.is_some() {
+        return Err("--format shapes a computed moment - a custom format for --analyze is not built yet".into());
     }
     // --param only makes sense with --preset (it fills a preset's declared parameters).
     if !params.is_empty() && preset.is_none() {
@@ -567,8 +653,13 @@ pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
 /// Real current time in the session zone, as a civil date-time for the pure core.
 /// Reuses the tested UTC-now and wall-clock conversion, then parses back to civil.
 pub(crate) fn resolve_now_civil(zone_bias_min: Option<i32>) -> Result<chrono_core::calc::CivilDateTime, String> {
-    let wall = filetime_utc_to_wall(now_filetime_utc(), zone_bias_min.unwrap_or(0));
-    chrono_core::calc::parse_civil_datetime(&wall)
+    civil_at(now_filetime_utc(), zone_bias_min.unwrap_or(0))
+}
+
+/// One instant as a civil date-time in a zone. Apart from reading the clock, so a caller that needs
+/// the same "now" in two zones reads the clock once.
+fn civil_at(ft_utc: i64, zone_bias_min: i32) -> Result<chrono_core::calc::CivilDateTime, String> {
+    chrono_core::calc::parse_civil_datetime(&filetime_utc_to_wall(ft_utc, zone_bias_min))
 }
 
 /// Exit code for a calc error (a small table separate from the substitution verdict
@@ -652,7 +743,8 @@ pub(crate) fn render_calc(
     // True when the caller named no `--zone` and this is the host's offset. Printed, so a reader
     // never has to wonder whether a zone they did not type is one they can rely on (rule 2).
     zone_from_host: bool,
-    now: &chrono_core::calc::CivilDateTime,
+    // Now, read in the RESULT's zone, which is where "days from now" counts from (R4-N31).
+    today: &chrono_core::calc::CivilDateTime,
     calendar: Option<&chrono_core::calendar::Calendar>,
     preset_header: Option<&str>,
 ) -> String {
@@ -699,7 +791,7 @@ pub(crate) fn render_calc(
     // unchanged from before.
     let result_bias = outcome.result_bias;
     out.push_str(&render_formats(&outcome.result(), result_bias));
-    out.push_str(&render_metadata(&outcome.result(), now, calendar));
+    out.push_str(&render_metadata(&outcome.result(), today, calendar));
     out.push_str(&render_significance(&outcome.result(), result_bias, calendar));
     out
 }
@@ -751,43 +843,70 @@ pub(crate) fn render_analysis(
     input: &str,
     now: &chrono_core::calc::CivilDateTime,
     zone_bias_min: Option<i32>,
+    // True when the caller named no `--zone` and this is the host's offset, said beside it (rule 2).
+    zone_from_host: bool,
     calendar: Option<&chrono_core::calendar::Calendar>,
 ) -> String {
     let mut out = String::from("Chrono Mock - date analysis\n");
+    let instant = analysis.readings.iter().any(|(r, _)| r.is_instant());
     if analysis.is_ambiguous() {
         // Name the RIGHT ambiguity. Two readings mean either a month/day order that differs by
         // locale, or a bare number that carries no unit - and telling a reader their epoch is a
         // locale problem sends them to change a setting that has nothing to do with it.
-        let reason = if analysis.readings.iter().any(|(r, _)| {
-            matches!(
-                r,
-                chrono_core::calc::DateReading::EpochSeconds
-                    | chrono_core::calc::DateReading::EpochMillis
-            )
-        }) {
-            "a bare number carries no unit"
-        } else {
-            "month/day order differs by locale"
-        };
+        let reason = if instant { "a bare number carries no unit" } else { "month/day order differs by locale" };
         out.push_str(&format!("  input:   {input}  (ambiguous - {reason})\n"));
     } else {
         out.push_str(&format!("  input:   {input}\n"));
     }
     let bias = zone_bias_min.unwrap_or(0);
+    // A bare number is an instant, and an instant has a wall clock only in some zone. The readings
+    // showed that wall clock with no zone anywhere near it (R4-N36), so the zone is printed above
+    // them - and only for them: a date written as fields does not move with the zone.
+    if instant {
+        let from_host = if zone_from_host { ", from the host" } else { "" };
+        out.push_str(&format!(
+            "  zone:    {}{from_host}  (the number is an instant, shown in this zone)\n",
+            format_bias(bias)
+        ));
+    }
+    // Whether the input wrote a time of day, read the way `analyze_date` reads it. A time written as
+    // midnight is still a time someone wrote, and the reading repeats it rather than dropping it.
+    let time_written = input.trim().contains(['T', ' ']);
     for (reading, civil) in &analysis.readings {
         let weekday = chrono_core::calc::metadata(civil, now).weekday;
         out.push_str(&format!(
-            "  {}:  {:04}-{:02}-{:02}  ({weekday})\n",
+            "  {}:  {}  ({weekday})\n",
             reading.label(),
-            civil.year,
-            civil.month,
-            civil.day
+            reading_text(*reading, civil, time_written)
         ));
         for m in chrono_core::calc::significance(civil, bias, calendar) {
             out.push_str(&format!("      {}\n", m.label()));
         }
     }
     out
+}
+
+/// One reading as the analysis prints it.
+///
+/// The year goes through `to_iso`, which writes a year before 1 CE the way the parser reads it back:
+/// `{:04}` gave `-009` (R4-N36). The time of day is printed whenever the reading has one to show -
+/// always for an epoch reading, which names an instant down to the second and used to be cut to its
+/// date, and for an ISO input that wrote a time, midnight included (`time_written`). A date written
+/// without a time keeps the short form.
+fn reading_text(
+    reading: chrono_core::calc::DateReading,
+    civil: &chrono_core::calc::CivilDateTime,
+    time_written: bool,
+) -> String {
+    let iso = civil.to_iso();
+    let with_time = match reading {
+        chrono_core::calc::DateReading::Iso => time_written,
+        _ => reading.is_instant(),
+    };
+    if with_time {
+        return iso;
+    }
+    iso.split('T').next().unwrap_or(&iso).to_string()
 }
 
 /// Render the metadata for the result (7.3): weekday, ISO and US week numbers side by side
@@ -1185,7 +1304,7 @@ mod tests {
     fn render_analysis_shows_both_readings_for_an_ambiguous_date() {
         let analysis = chrono_core::calc::analyze_date("04/08/2008", 0).unwrap();
         let now = chrono_core::calc::CivilDateTime { year: 2026, month: 8, day: 25, hour: 0, minute: 0, second: 0 };
-        let text = render_analysis(&analysis, "04/08/2008", &now, Some(0), None);
+        let text = render_analysis(&analysis, "04/08/2008", &now, Some(0), false, None);
         assert!(text.contains("ambiguous"), "got:\n{text}");
         assert!(text.contains("US MM/DD/YYYY:  2008-04-08  (Tuesday)"), "got:\n{text}");
         assert!(text.contains("PL DD/MM/YYYY:  2008-08-04  (Monday)"), "got:\n{text}");
@@ -1258,7 +1377,7 @@ mod tests {
         let analysis = chrono_core::calc::analyze_date("07/04/2026", 0).unwrap();
         let now = chrono_core::calc::CivilDateTime { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0 };
         let cal = test_calendar();
-        let text = render_analysis(&analysis, "07/04/2026", &now, Some(0), Some(&cal));
+        let text = render_analysis(&analysis, "07/04/2026", &now, Some(0), false, Some(&cal));
         assert!(text.contains("public holiday"), "got:\n{text}");
     }
 
@@ -1289,5 +1408,138 @@ mod tests {
         assert!(parse_calc_args(&["--param".into(), "start_date=2026-01-01".into()]).is_err());
         let ok = parse_calc_args(&["--preset".into(), "trial-first-day-after".into(), "--param".into(), "start_date=2026-01-01".into()]).unwrap();
         assert_eq!(ok.params.get("start_date").map(String::as_str), Some("2026-01-01"));
+    }
+
+    fn words(list: &[&str]) -> Vec<String> {
+        list.iter().map(|w| (*w).to_string()).collect()
+    }
+
+    /// R4-N32: `--format --json` took `--json` as the mask and printed text where JSON was asked for.
+    /// A value is the word after its flag, and a word that is itself a flag is named as one.
+    #[test]
+    fn a_flag_where_a_value_should_be_is_refused_by_name() {
+        for flag in [
+            "--base", "--base-utc", "--param", "--preset", "--calendar", "--format", "--zone", "--to-zone",
+            "--shift", "--set-time", "--snap", "--nearest",
+        ] {
+            let err = parse_calc_args(&words(&[flag, "--json"]))
+                .err()
+                .unwrap_or_else(|| panic!("{flag} --json must be refused"));
+            assert!(
+                err.contains(&format!("{flag} needs")) && err.contains("the flag '--json'"),
+                "{flag}: {err}"
+            );
+        }
+        // One dash is a sign, not a flag.
+        assert_eq!(parse_calc_args(&words(&["--shift", "-1d"])).unwrap().steps.len(), 1);
+        assert_eq!(parse_calc_args(&words(&["--zone", "-05:00"])).unwrap().zone_bias_min, Some(300));
+        // A mask that has to open with two dashes quotes them, so nothing a mask can say is lost.
+        assert_eq!(
+            parse_calc_args(&words(&["--format", "'--'yyyy"])).unwrap().format.as_deref(),
+            Some("'--'yyyy")
+        );
+    }
+
+    /// `--analyze` takes pasted text as it comes: a typo with two dashes in front of a date is the
+    /// analyser's to refuse, under the key the analysis panel translates.
+    #[test]
+    fn analyze_takes_pasted_text_as_it_comes() {
+        let ca = parse_calc_args(&words(&["--analyze", "--2026-01-01"])).unwrap();
+        assert_eq!(ca.analyze.as_deref(), Some("--2026-01-01"));
+    }
+
+    /// R4-N32: for these flags the last one won and the first was dropped without a word.
+    #[test]
+    fn a_flag_given_twice_is_refused_not_overwritten() {
+        for (flag, first, second) in [
+            ("--zone", "+01:00", "+02:00"),
+            ("--calendar", "pl", "us-banking"),
+            ("--preset", "month-end", "quarter-end"),
+            ("--format", "yyyy", "dd"),
+            ("--analyze", "04/08/2008", "05/05/2008"),
+        ] {
+            let err = parse_calc_args(&words(&[flag, first, flag, second]))
+                .err()
+                .unwrap_or_else(|| panic!("{flag} twice must be refused"));
+            assert!(err.contains(&format!("{flag} is given twice")), "{err}");
+        }
+        let err = parse_calc_args(&words(&["--preset", "p", "--param", "a=1", "--param", "a=2"]))
+            .err()
+            .expect("one parameter given two values must be refused");
+        assert!(err.contains("--param a is given twice"), "{err}");
+
+        // What was never a contradiction stays allowed: two parameters, two steps of one kind.
+        assert_eq!(parse_calc_args(&words(&["--preset", "p", "--param", "a=1", "--param", "b=2"])).unwrap().params.len(), 2);
+        assert_eq!(parse_calc_args(&words(&["--shift", "+1d", "--shift", "+1d"])).unwrap().steps.len(), 2);
+    }
+
+    /// R4-N32: `--analyze` dropped the build flags and `--format` without a word, so the answer was to a
+    /// question nobody asked. What does apply to an analysis - the zone and the calendar - still does.
+    #[test]
+    fn analyze_refuses_what_it_used_to_ignore() {
+        for extra in [
+            ["--shift", "+1d"],
+            ["--base", "today"],
+            ["--base-utc", "1970-01-01T00:00:00"],
+            ["--set-time", "12:00:00"],
+            ["--snap", "eom"],
+            ["--nearest", "nbd"],
+            ["--to-zone", "+05:45"],
+            ["--format", "yyyy"],
+        ] {
+            for argv in [
+                [&["--analyze", "04/08/2008"][..], &extra[..]].concat(),
+                [&extra[..], &["--analyze", "04/08/2008"][..]].concat(),
+            ] {
+                let err = parse_calc_args(&words(&argv)).err().unwrap_or_else(|| panic!("{argv:?}"));
+                assert!(!err.contains(';'), "rule 13 holds in refusals too: {err}");
+            }
+        }
+        let ca = parse_calc_args(&words(&["--analyze", "0", "--zone", "+02:00", "--calendar", "pl", "--json"])).unwrap();
+        assert_eq!((ca.zone_bias_min, ca.calendar.as_deref(), ca.json), (Some(-120), Some("pl"), true));
+    }
+
+    /// R4-N36: a negative year printed `-009`, which the parser cannot read back, and an epoch reading
+    /// was cut to its date while the JSON beside it carried the time.
+    #[test]
+    fn an_analysis_prints_the_year_in_full_and_an_instant_with_its_time() {
+        let now = chrono_core::calc::CivilDateTime { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0 };
+        let past = chrono_core::calc::analyze_date("-0009-05-05", 0).unwrap();
+        let text = render_analysis(&past, "-0009-05-05", &now, Some(0), false, None);
+        assert!(text.contains("ISO 8601:  -0009-05-05  ("), "got:\n{text}");
+
+        let epoch = chrono_core::calc::analyze_date("1740607200", -120).unwrap();
+        let text = render_analysis(&epoch, "1740607200", &now, Some(-120), true, None);
+        assert!(text.contains("Unix epoch seconds:  2025-02-27T00:00:00  ("), "got:\n{text}");
+        assert!(text.contains("zone:    +02:00, from the host"), "the zone of the instant is named: {text}");
+
+        // A date written as fields has no time of its own and no zone to name.
+        let date = chrono_core::calc::analyze_date("04/08/2008", -120).unwrap();
+        let text = render_analysis(&date, "04/08/2008", &now, Some(-120), true, None);
+        assert!(text.contains("US MM/DD/YYYY:  2008-04-08  ("), "got:\n{text}");
+        assert!(!text.contains("zone:"), "got:\n{text}");
+
+        // An ISO input keeps the time it wrote - midnight included - and one without a time gets none.
+        for (input, shown) in [
+            ("2026-01-31T13:45:00", "2026-01-31T13:45:00"),
+            ("2026-01-31T00:00:00", "2026-01-31T00:00:00"),
+            ("2026-01-31 00:00:00", "2026-01-31T00:00:00"),
+            ("2026-01-31", "2026-01-31"),
+        ] {
+            let analysis = chrono_core::calc::analyze_date(input, 0).unwrap();
+            let text = render_analysis(&analysis, input, &now, Some(0), false, None);
+            assert!(text.contains(&format!("ISO 8601:  {shown}  (")), "{input}, got:\n{text}");
+        }
+    }
+
+    /// R4-N36: the JSON analysis carried wall clocks in the session zone and no zone at all.
+    #[test]
+    fn the_analysis_json_names_its_zone() {
+        let analysis = chrono_core::calc::analyze_date("0", -120).unwrap();
+        let now = chrono_core::calc::CivilDateTime { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0 };
+        let v: serde_json::Value =
+            serde_json::from_str(&calc_analysis_json(&analysis, "0", &now, Some(-120), None)).unwrap();
+        assert_eq!(v["analysis"]["zone_bias_min"], -120);
+        assert_eq!(v["analysis"]["readings"][0]["iso"], "1970-01-01T02:00:00");
     }
 }
