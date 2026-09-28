@@ -869,9 +869,16 @@ pub(crate) fn render_analysis(
             format_bias(bias)
         ));
     }
+    // Whether the input wrote a time of day, read the way `analyze_date` reads it. A time written as
+    // midnight is still a time someone wrote, and the reading repeats it rather than dropping it.
+    let time_written = input.trim().contains(['T', ' ']);
     for (reading, civil) in &analysis.readings {
         let weekday = chrono_core::calc::metadata(civil, now).weekday;
-        out.push_str(&format!("  {}:  {}  ({weekday})\n", reading.label(), reading_text(*reading, civil)));
+        out.push_str(&format!(
+            "  {}:  {}  ({weekday})\n",
+            reading.label(),
+            reading_text(*reading, civil, time_written)
+        ));
         for m in chrono_core::calc::significance(civil, bias, calendar) {
             out.push_str(&format!("      {}\n", m.label()));
         }
@@ -884,12 +891,19 @@ pub(crate) fn render_analysis(
 /// The year goes through `to_iso`, which writes a year before 1 CE the way the parser reads it back:
 /// `{:04}` gave `-009` (R4-N36). The time of day is printed whenever the reading has one to show -
 /// always for an epoch reading, which names an instant down to the second and used to be cut to its
-/// date, and for an ISO input that carried a time. A date written as fields is midnight by
-/// construction and keeps the short form.
-fn reading_text(reading: chrono_core::calc::DateReading, civil: &chrono_core::calc::CivilDateTime) -> String {
+/// date, and for an ISO input that wrote a time, midnight included (`time_written`). A date written
+/// without a time keeps the short form.
+fn reading_text(
+    reading: chrono_core::calc::DateReading,
+    civil: &chrono_core::calc::CivilDateTime,
+    time_written: bool,
+) -> String {
     let iso = civil.to_iso();
-    let midnight = (civil.hour, civil.minute, civil.second) == (0, 0, 0);
-    if reading.is_instant() || !midnight {
+    let with_time = match reading {
+        chrono_core::calc::DateReading::Iso => time_written,
+        _ => reading.is_instant(),
+    };
+    if with_time {
         return iso;
     }
     iso.split('T').next().unwrap_or(&iso).to_string()
@@ -1505,10 +1519,17 @@ mod tests {
         assert!(text.contains("US MM/DD/YYYY:  2008-04-08  ("), "got:\n{text}");
         assert!(!text.contains("zone:"), "got:\n{text}");
 
-        // An ISO input that carried a time keeps it.
-        let timed = chrono_core::calc::analyze_date("2026-01-31T13:45:00", 0).unwrap();
-        let text = render_analysis(&timed, "2026-01-31T13:45:00", &now, Some(0), false, None);
-        assert!(text.contains("ISO 8601:  2026-01-31T13:45:00  ("), "got:\n{text}");
+        // An ISO input keeps the time it wrote - midnight included - and one without a time gets none.
+        for (input, shown) in [
+            ("2026-01-31T13:45:00", "2026-01-31T13:45:00"),
+            ("2026-01-31T00:00:00", "2026-01-31T00:00:00"),
+            ("2026-01-31 00:00:00", "2026-01-31T00:00:00"),
+            ("2026-01-31", "2026-01-31"),
+        ] {
+            let analysis = chrono_core::calc::analyze_date(input, 0).unwrap();
+            let text = render_analysis(&analysis, input, &now, Some(0), false, None);
+            assert!(text.contains(&format!("ISO 8601:  {shown}  (")), "{input}, got:\n{text}");
+        }
     }
 
     /// R4-N36: the JSON analysis carried wall clocks in the session zone and no zone at all.
