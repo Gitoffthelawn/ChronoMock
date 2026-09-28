@@ -211,6 +211,32 @@ pub(crate) fn describe_error(key: &str) -> &'static str {
         "protocol.no_command" | "protocol.bad_command" | "protocol.expected_start" => {
             "the core did not receive a usable start command"
         }
+        // A rejected jump leaves the session running on the clock it had, so each says both halves:
+        // what was refused, and that nothing moved.
+        "moment.needs_calendar" => {
+            "that jump counts business days, and a running session has no calendar - it was not made, so jump to a date instead or work the date out with chrono calc first"
+        }
+        "moment.unsupported_kind" => {
+            "that jump named a kind of moment this core does not know, so it was not made and the clock stayed where it was"
+        }
+        // Two ways a command is dropped without ending anything, and two ways the command stream itself
+        // ends. The difference is the whole point for the reader: the first pair leaves the session
+        // running, the second pair is why it stopped.
+        "protocol.bad_command_ignored" => {
+            "the core received a line it could not read as a command and ignored it - the session went on"
+        }
+        "protocol.unsupported_command" => {
+            "the core received a command it does not act on at that point and ignored it - the session went on"
+        }
+        "protocol.line_too_long" => {
+            "a line sent to the core was longer than the protocol allows, so the core stopped reading commands and the session ended"
+        }
+        "protocol.stream_unreadable" => {
+            "what was sent to the core was not text (not UTF-8), so the core stopped reading commands and the session ended"
+        }
+        // The fallback line `Event::to_ndjson` writes in place of an event it could not serialize, so
+        // whichever event that was never arrived.
+        "proto.serialize_failed" => "the core could not write one of its messages, so part of this report may be missing",
         _ => "",
     }
 }
@@ -592,12 +618,26 @@ fn render_cut_short(stopped_early: Option<&'static str>) -> String {
 /// What a vanish is suspected to be, by its reason key. A target that started a program the hook
 /// could not enter and closed is a hand-off, not a single-instance application (ADR-16), and the
 /// line that used to say "single-instance" for every vanish said it of that one too.
+///
+/// An unknown key yields "" like every other gloss here. The fallback used to be the single-instance
+/// suspicion itself, so a reason added to a newer core would have been explained as that by an older
+/// driver - an explanation the core never sent.
 fn vanish_cause(reason_key: &str) -> &'static str {
     match reason_key {
+        "target.single_instance_suspected" => "suspected single-instance app",
         "target.handed_off_uncovered" => {
             "it started a program the session could not enter, usually one of the other bitness, which runs on the real clock"
         }
-        _ => "suspected single-instance app",
+        _ => "",
+    }
+}
+
+/// The cause and the key for the vanish line, or the key alone when this driver cannot name the cause.
+/// Its own function so the branch does not land in `render_report`, which is at the shape ceiling.
+fn vanish_detail(reason_key: &str) -> String {
+    match vanish_cause(reason_key) {
+        "" => reason_key.to_string(),
+        cause => format!("{cause}: {reason_key}"),
     }
 }
 
@@ -708,7 +748,7 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
     // parent verdict as a fallback for an older core, then nothing.
     if let Some((reason_key, lived_ms)) = &r.vanished {
         out.push_str("  verdict:  DID NOT TAKE EFFECT - the target vanished right after injection\n");
-        out.push_str(&format!("            ({}: {reason_key}; lived {lived_ms} ms)\n", vanish_cause(reason_key)));
+        out.push_str(&format!("            ({}, lived {lived_ms} ms)\n", vanish_detail(reason_key)));
     } else if let Some((verdict, reason_key, count)) = &r.session_verdict {
         out.push_str(&format!(
             "  verdict:  {}  ({units}: {count}{}{})\n",
@@ -1073,6 +1113,39 @@ mod tests {
         assert!(out.contains("DID NOT TAKE EFFECT"), "got:\n{out}");
         assert!(out.contains("could not enter"), "got:\n{out}");
         assert!(!out.contains("single-instance"), "got:\n{out}");
+    }
+
+    /// A reason this driver does not know is shown as the key alone. The fallback used to be the
+    /// single-instance suspicion, which put an explanation the core never sent over a newer core's
+    /// reason (the contract of every gloss here is "unknown key, no invented prose").
+    #[test]
+    fn an_unknown_vanish_reason_is_shown_without_an_invented_cause() {
+        let r = SessionReport {
+            vanished: Some(("target.some_future_reason".into(), 40)),
+            ..empty_report()
+        };
+        let out = render_report(&r);
+        assert!(out.contains("DID NOT TAKE EFFECT"), "got:\n{out}");
+        assert!(out.contains("(target.some_future_reason, lived 40 ms)"), "got:\n{out}");
+        assert!(!out.contains("single-instance"), "got:\n{out}");
+    }
+
+    /// Every error key a running session can send is explained rather than printed raw, and the two
+    /// halves the reader needs are there: a dropped command left the session running, a broken
+    /// command stream is why it stopped.
+    #[test]
+    fn a_refused_command_and_a_broken_command_stream_are_told_apart() {
+        for key in ["protocol.bad_command_ignored", "protocol.unsupported_command"] {
+            assert!(describe_error(key).contains("the session went on"), "{key}");
+        }
+        for key in ["protocol.line_too_long", "protocol.stream_unreadable"] {
+            assert!(describe_error(key).contains("the session ended"), "{key}");
+        }
+        for key in ["moment.needs_calendar", "moment.unsupported_kind"] {
+            assert!(describe_error(key).contains("not made"), "{key}");
+        }
+        // The line sent in place of an event that could not be written says what is missing.
+        assert!(describe_error("proto.serialize_failed").contains("may be missing"));
     }
 
     /// The processes the session went on for stand under the line that says the target closed, named
