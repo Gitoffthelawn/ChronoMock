@@ -50,6 +50,18 @@ Notable changes to Chrono Mock, newest first. The format follows
   `tz_bias_min` is refused with `time.bad_zone` instead of being read as UTC, and an absolute `jump`
   without one is read in the session zone rather than in UTC. Chrono Mock's own window and command
   line always send the zone, so only other clients of the protocol see this.
+- **`chrono run` refuses a change it would never make, and a jump the core would refuse.** A
+  `--set-after` or `--jump-after` at heartbeat 0, or past the last heartbeat `--ticks` allows, never
+  happened, while `--dry-run` promised it. Both are refused now with exit 1. The moment of a
+  `--jump-after` is checked before anything starts: a mistyped moment, a step in business days (a
+  session has no calendar) and an absolute moment outside the years 1601 to 30828 used to run the
+  session and have the jump refused part-way through. They now stop the run with exit 1, and
+  `--dry-run` says the same.
+- **`chrono run --preset` counts business days in the calendar of the preset's market**, as the
+  scenario list in the window does (`us`: US banking, `pl`: Poland). It used to refuse such a preset
+  and point to a `--calendar` option that `run` does not have. A preset with no market still has no
+  calendar to count in and is refused with exit 5, with a message that no longer mentions
+  `--calendar`.
 
 ### Fixed
 
@@ -196,6 +208,22 @@ Notable changes to Chrono Mock, newest first. The format follows
   9223372036854775807 as a negative number and prints it as given now, and a page in an
   application's built-in web engine whose own clock read a value at either end of the 64-bit range
   crashed the core and is now judged like any other reading.
+- **A preset with a zone step started the session at the wrong moment**, in `chrono run` and in
+  the scenario list in the window. The moment was computed in the step's zone and then read in the
+  session zone, off by the difference between the two. The same instant now reaches the session,
+  shown in the session zone. No preset that ships with Chrono Mock has a zone step.
+- **`--dry-run` approved dates the run refuses.** A date before 1601 or after 30828, typed, relative
+  or from a preset, was planned with exit 0 and then refused by the core with exit 1. The plan and
+  the run now refuse it the same way, before anything starts. A preset asking for a speed above
+  x1,000,000 is refused when it is read, and a message about a broken preset file now names the
+  preset.
+- **A target named without its folder missed the runtime cautions.** `chrono run game.exe` from the
+  game's folder did not look beside the program for Python, .NET, Java or Unity files, so the
+  cautions about them never appeared, in the plan or in the report. It now looks in the current
+  folder, where the session starts the program.
+- **A zero character in a path, an argument or a working folder cut the program's command line
+  short** without a word, when a client of the protocol sent one (a batch script already refused
+  it). It is now refused before anything starts, with exit 2.
 
 ## [0.3.0] - 2026-09-22
 

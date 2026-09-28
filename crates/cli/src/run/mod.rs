@@ -151,8 +151,8 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         let _ = stdin.flush();
     }
 
-    // Stream events. Send `end` after `--ticks` state heartbeats, or right after the
-    // verdict when ticks is 0 (one-shot), then read through to `ended`.
+    // Stream events. Send `end` after `--ticks` state heartbeats. With ticks 0 nothing is sent and the
+    // session ends by itself (ADR-16). Either way, read through to `ended`.
     let mut collected = Collector::default();
     let mut states_seen: u64 = 0;
     let mut end_sent = false;
