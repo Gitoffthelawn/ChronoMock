@@ -319,6 +319,7 @@
   "protocol.line_too_long": "A command sent to the core was too long to read, so the session ended.",
   "protocol.stream_unreadable": "The core received bytes it could not read as text, so the session ended.",
   "protocol.unsupported_command": "The core received a command it does not act on here and ignored it - the session is still running.",
+  "proto.serialize_failed": "Chrono Mock could not write one of its messages, so part of this session's report may be missing. Run the session again, and if it happens again, report it as a fault in Chrono Mock.",
   "protocol.expected_start": "The core expected a start command - the session did not start.",
 
   // Handshake gate refusals (surfaced before the target is launched).

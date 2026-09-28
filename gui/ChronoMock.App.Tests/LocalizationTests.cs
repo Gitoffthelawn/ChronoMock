@@ -94,6 +94,10 @@ public class LocalizationTests
         // The command stream itself failing, which ENDS the session - unlike one unreadable command.
         "protocol.line_too_long", "protocol.stream_unreadable",
         "protocol.unsupported_command", "protocol.expected_start",
+        // The line the protocol crate writes in place of an event it could not serialize. It sat in a raw
+        // JSON string that the wire-key scan could not see into, so it was missing here and from both
+        // translation files until the scan learned to read inside one.
+        "proto.serialize_failed",
     ];
 
     [Fact]

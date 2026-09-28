@@ -148,6 +148,14 @@ Notable changes to Chrono Mock, newest first. The format follows
   waits on system objects never showed in the audit either, and a sleep taken that way was
   shortened but counted under another function's name. All of these now follow the session and
   are counted where they are called, on both 32 and 64 bit.
+- **The report of `chrono run` printed seven error keys raw.** A jump the session refused (one
+  counting business days, or of a kind the core does not know), a command the core could not use
+  (two keys that leave the session running, two that end it) and the key sent in place of a message
+  the core could not write showed up as bare keys such as `moment.needs_calendar`. Each now says
+  what happened and whether the session went on. A target that vanished for a reason this version does
+  not know was described as a suspected single-instance application, whatever the reason was, and
+  is now shown by its key alone. The key sent in place of a message the core could not write had no
+  text in the application either, and has one now.
 
 ## [0.3.0] - 2026-09-22
 
