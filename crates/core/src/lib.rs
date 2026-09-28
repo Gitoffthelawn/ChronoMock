@@ -288,6 +288,17 @@ pub fn max_day_in_month(month: u32) -> u32 {
     last_day_of_month(2024, month as i64)
 }
 
+/// Whether `s` is one or more ASCII digits and nothing else - no sign, no space, no other script's
+/// digits.
+///
+/// The gate every numeric FIELD of this tool's shapes goes through before it is parsed (a moment, a
+/// time of day, a zone offset). Rust's integer parsers accept a leading `+`, so parsing alone let
+/// `+05:+30` through as a zone and `2026-+1-05` as a date (R4-N34). One function, because the three
+/// parsers had each been written to reject a sign and each had missed the same one.
+pub fn is_ascii_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
 /// Parse "YYYY-MM-DDTHH:MM:SS" (a space may replace the `T`). Strict on shape and
 /// on field ranges - deeper calendar validation comes later.
 fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
@@ -307,7 +318,13 @@ fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
     if d.len() != 3 || t.len() != 3 {
         return Err(format!("moment must be YYYY-MM-DDTHH:MM:SS, got '{local}'"));
     }
+    // Digits only, checked before the parse: `i64::from_str` also takes a leading `+`, so
+    // `2026-+1-05T+9:00:00` read as a real moment (R4-N34). A sign has one place in this shape - in
+    // front of the year, handled above - and no field of a date the tool prints ever carries one.
     let p = |s: &str, what: &str| -> Result<i64, String> {
+        if !is_ascii_digits(s) {
+            return Err(format!("bad {what} in moment '{local}' (digits only)"));
+        }
         s.parse::<i64>().map_err(|_| format!("bad {what} in moment '{local}'"))
     };
     let (year, month, day) = (p(d[0], "year")?, p(d[1], "month")?, p(d[2], "day")?);
@@ -459,10 +476,13 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 /// Format a UTC FILETIME (100 ns ticks since 1601) as a session-zone wall-clock
 /// string "YYYY-MM-DDTHH:MM:SS". Inverse of `moment_to_filetime_utc` (no DST).
 pub fn filetime_utc_to_wall(ft_utc: i64, tz_bias_min: i32) -> String {
-    // Session-local = UTC - bias (UTC = local + bias).
-    let local_ticks = ft_utc - (tz_bias_min as i64) * 60 * 10_000_000;
+    // Session-local = UTC - bias (UTC = local + bias), taken in whole SECONDS rather than ticks. The
+    // bias is a whole number of minutes, so dividing first gives exactly the same second for every
+    // input - and it cannot overflow, which subtracting the bias in ticks did: an instant at the end of
+    // the range in a zone east of UTC panicked a Chromium session core on its `state` event, leaving
+    // the browser behind with its debugging port open (R4-S8).
     const DAYS_1601_TO_1970: i64 = 134_774;
-    let secs_1601 = local_ticks.div_euclid(10_000_000);
+    let secs_1601 = ft_utc.div_euclid(10_000_000) - (tz_bias_min as i64) * 60;
     let secs_1970 = secs_1601 - DAYS_1601_TO_1970 * 86_400;
     let days = secs_1970.div_euclid(86_400);
     let tod = secs_1970.rem_euclid(86_400);
@@ -528,6 +548,47 @@ mod tests {
             let ft = moment_to_filetime_utc(&moment(s, Some(bias))).unwrap();
             assert_eq!(filetime_utc_to_wall(ft, bias), s);
         }
+    }
+
+    /// The last instant an i64 holds, in the zones at both ends of the accepted band, is written out
+    /// rather than panicking - it used to overflow subtracting the bias in ticks for every zone east
+    /// of UTC (R4-S8). The value is the known end of the FILETIME range, 30828-09-14T02:48:05 UTC.
+    #[test]
+    fn the_wall_text_of_the_last_instant_never_overflows() {
+        assert_eq!(filetime_utc_to_wall(i64::MAX, 0), "30828-09-14T02:48:05");
+        assert_eq!(filetime_utc_to_wall(i64::MAX, -120), "30828-09-14T04:48:05");
+        assert_eq!(filetime_utc_to_wall(i64::MAX, -899), "30828-09-14T17:47:05");
+        // The other end, in a zone west of UTC, overflowed the same way in the other direction.
+        assert!(filetime_utc_to_wall(i64::MIN, 899).starts_with('-'));
+        // Dividing to seconds first changes nothing below a second: a tick short of the next second
+        // still reads as this one, in a zone on either side of UTC.
+        let ft = moment_to_filetime_utc(&moment("2026-08-12T20:30:00", Some(0))).unwrap() + 9_999_999;
+        assert_eq!(filetime_utc_to_wall(ft, -120), "2026-08-12T22:30:00");
+        assert_eq!(filetime_utc_to_wall(ft, 300), "2026-08-12T15:30:00");
+        assert_eq!(filetime_utc_to_wall(-1, 0), "1600-12-31T23:59:59");
+    }
+
+    /// A sign inside a field is refused (R4-N34). The integer parse accepted a leading `+`, so
+    /// `2026-+1-05` read as 5 January. The one sign this shape has - a minus before the year - still
+    /// reads, because the calculator writes years before 1 CE that way.
+    #[test]
+    fn a_sign_inside_a_field_of_a_moment_is_refused() {
+        for bad in [
+            "+2026-01-05T00:00:00",
+            "2026-+1-05T00:00:00",
+            "2026-01-+5T00:00:00",
+            "2026-01-05T+9:00:00",
+            "2026-01-05T09:+0:00",
+            "2026-01-05T09:00:+0",
+            "2026-01-05T 9:00:00",
+        ] {
+            assert!(parse_civil(bad).is_err(), "{bad}");
+        }
+        assert!(parse_civil("-0009-05-05T00:00:00").is_ok());
+        assert!(parse_civil("2026-01-05T09:00:00").is_ok());
+        assert!(!is_ascii_digits(""));
+        assert!(!is_ascii_digits("+1"));
+        assert!(is_ascii_digits("0042"));
     }
 
     #[test]

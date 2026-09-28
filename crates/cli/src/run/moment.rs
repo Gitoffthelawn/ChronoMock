@@ -262,6 +262,12 @@ pub(crate) fn describe_at_error(e: EvalError) -> String {
         // This path builds its base from the real clock, so it cannot produce an impossible date.
         // Named anyway, because the match stays total - see the note above.
         EvalError::BaseNotACivilDate => "relative --at has an impossible base date".to_string(),
+        // Business days already need a calendar here, which this path has none of, so the limit behind
+        // them cannot be reached either. Named for the same reason as the arm above.
+        EvalError::TooManyBusinessDays { .. } => format!(
+            "relative --at asks for more than {} business days",
+            chrono_core::calendar::MAX_BUSINESS_DAYS
+        ),
     }
 }
 

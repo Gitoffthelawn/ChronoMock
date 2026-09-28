@@ -295,6 +295,10 @@ pub enum EvalError {
     /// thing. A step is the second door into the year band - it builds its year arithmetically and
     /// never goes back through the parser (R3-1).
     YearOutOfRange { index: usize },
+    /// A business-day step asked for more than [`crate::calendar::MAX_BUSINESS_DAYS`]. A limit this
+    /// build sets, not an arithmetic one: it used to travel as `Overflow`, so `+2000000bd` was answered
+    /// with a sentence about the size of numbers while the number was fine (R4-N35).
+    TooManyBusinessDays { index: usize },
 }
 
 /// Parse a civil date-time in "YYYY-MM-DDTHH:MM:SS" form (a space may replace the `T`). The core's
@@ -313,11 +317,20 @@ pub fn parse_civil_datetime(s: &str) -> Result<CivilDateTime, String> {
     })
 }
 
-/// Whether these civil fields name a day that exists: a month in 1..=12, and a day within that
-/// month's length in that year. The TIME fields are not checked here - `set_time` has its own
-/// refusal, and every other path builds them from arithmetic that cannot leave the range.
-fn is_a_civil_date(c: &CivilDateTime) -> bool {
-    (1..=12).contains(&c.month) && c.day >= 1 && c.day <= last_day_of_month(c.year, c.month as i64)
+/// Whether these civil fields name a moment that exists: a month in 1..=12, a day within that month's
+/// length in that year, and a time of day within 00:00:00..=23:59:59.
+///
+/// The time fields are checked here too, because a BASE is the one place they arrive from outside:
+/// `eval` is public API over a struct with public fields, and an hour of 99 went straight through
+/// into every rendered format (R4-N42). The steps build their time fields from arithmetic that cannot
+/// leave the range, and `set_time` has its own refusal.
+fn is_a_civil_moment(c: &CivilDateTime) -> bool {
+    (1..=12).contains(&c.month)
+        && c.day >= 1
+        && c.day <= last_day_of_month(c.year, c.month as i64)
+        && c.hour <= 23
+        && c.minute <= 59
+        && c.second <= 59
 }
 
 /// Evaluate an expression against a context. Folds each step onto the running civil
@@ -335,6 +348,12 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
             if !crate::civil_year_in_band(c.year) {
                 return Err(EvalError::BaseYearOutOfRange);
             }
+            // Before the conversion, not only after it: the conversion is arithmetic on the fields,
+            // so month 13 came out of it as January of the next year and the check below saw a real
+            // date (R4-N42).
+            if !is_a_civil_moment(c) {
+                return Err(EvalError::BaseNotACivilDate);
+            }
             convert_zone(*c, 0, ctx.zone_bias_min, 0).map_err(|_| EvalError::BaseOverflow)?
         }
     };
@@ -345,7 +364,7 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
     // struct with public fields, so "the caller already validated it" is an assumption rather than a
     // fact. Below here the month indexes month-name tables and feeds `(month - 1)` arithmetic that has
     // no answer for 0.
-    if !is_a_civil_date(&base) {
+    if !is_a_civil_moment(&base) {
         return Err(EvalError::BaseNotACivilDate);
     }
     let mut cur = base;
@@ -538,8 +557,8 @@ fn apply_shift(
             Some(cal) => crate::calendar::add_business_days(&cur, signed, cal)
                 .map(|c| (c, None))
                 .map_err(|limit| match limit {
-                    // The request is out of range - the calendar is fine.
-                    crate::calendar::BusinessDayLimit::TooManyDays => EvalError::Overflow { index },
+                    // The request is past the limit - the calendar is fine, and nothing overflowed.
+                    crate::calendar::BusinessDayLimit::TooManyDays => EvalError::TooManyBusinessDays { index },
                     // The calendar is the problem, and the message has to say so.
                     crate::calendar::BusinessDayLimit::DegenerateCalendar => {
                         EvalError::DegenerateCalendar { index }
@@ -638,8 +657,13 @@ fn filetime_to_civil(ft_utc: i64, tz_bias_min: i32) -> CivilDateTime {
 /// The civil half of the conversion, with the FILETIME epoch factored out - so it works for a
 /// moment before 1601, which has an instant but no FILETIME. Pure arithmetic, so it cannot fail.
 fn epoch_secs_to_civil(secs_utc: i64, tz_bias_min: i32) -> CivilDateTime {
-    // Session-local = UTC - bias (UTC = local + bias).
-    let local = secs_utc - (tz_bias_min as i64) * 60;
+    // Session-local = UTC - bias (UTC = local + bias). Saturating, because `--analyze` hands this any
+    // number a tester pastes: `9223372036854775807` read in a zone east of UTC ran past i64 and the
+    // calculator panicked with exit 101 (R4-W8, measured on a UTC+2 host). A saturated instant lies
+    // hundreds of billions of years out, far past the year band, so `epoch_readings` drops it exactly
+    // as it drops any other reading outside the band - the same refusal the same number already got
+    // in UTC. Every other caller hands over an instant inside the band, where nothing saturates.
+    let local = secs_utc.saturating_sub((tz_bias_min as i64) * 60);
     let days = local.div_euclid(86_400);
     let tod = local.rem_euclid(86_400);
     let (y, mo, d) = civil_from_days(days);
@@ -2390,6 +2414,61 @@ mod tests {
         // dates, not about unusual ones.
         assert!(with_base(dt(2024, 2, 29, 0, 0, 0)).is_ok());
         assert!(with_base(dt(2026, 12, 31, 0, 0, 0)).is_ok());
+    }
+
+    /// The time of day of a base is checked too, and a UTC base is checked BEFORE its conversion to
+    /// the session zone (R4-N42). The conversion is arithmetic on the fields, so month 13 came out of it
+    /// as January of the next year, and an hour of 99 went into every rendered format as it was.
+    #[test]
+    fn eval_refuses_a_base_whose_time_or_utc_fields_are_not_real() {
+        let run = |base: Base| {
+            eval(
+                &MomentExpr { base, steps: vec![] },
+                &EvalContext { now: dt(2026, 1, 1, 0, 0, 0), zone_bias_min: -120, calendar: None },
+            )
+        };
+        for bad in [dt(2026, 6, 15, 24, 0, 0), dt(2026, 6, 15, 99, 0, 0), dt(2026, 6, 15, 12, 60, 0), dt(2026, 6, 15, 12, 0, 60)] {
+            assert_eq!(run(Base::Absolute(bad)), Err(EvalError::BaseNotACivilDate), "{bad:?}");
+            assert_eq!(run(Base::AbsoluteUtc(bad)), Err(EvalError::BaseNotACivilDate), "{bad:?}");
+        }
+        assert_eq!(run(Base::AbsoluteUtc(dt(2026, 13, 15, 0, 0, 0))), Err(EvalError::BaseNotACivilDate));
+        assert_eq!(run(Base::AbsoluteUtc(dt(2026, 2, 30, 0, 0, 0))), Err(EvalError::BaseNotACivilDate));
+        // The last second of a day is a real moment on both bases.
+        assert!(run(Base::Absolute(dt(2026, 6, 15, 23, 59, 59))).is_ok());
+        assert!(run(Base::AbsoluteUtc(dt(2026, 6, 15, 23, 59, 59))).is_ok());
+    }
+
+    /// Past the business-day limit the refusal names the limit, not an overflow (R4-N35). One past it
+    /// is refused, the limit itself is not refused for being too many.
+    #[test]
+    fn a_business_day_step_past_the_limit_names_the_limit() {
+        use crate::calendar::{Calendar, Observed, MAX_BUSINESS_DAYS};
+        let cal =
+            Calendar { id: "t".into(), country: "US".into(), weekend: vec![0, 6], observed: Observed::None, holidays: vec![] };
+        let step = |amount: i64| {
+            let expr = MomentExpr {
+                base: abs(dt(2026, 7, 6, 0, 0, 0)),
+                steps: vec![Step::Shift { sign: Sign::Plus, amount, unit: Unit::BusinessDays }],
+            };
+            eval(&expr, &EvalContext { now: dt(2000, 1, 1, 0, 0, 0), zone_bias_min: 0, calendar: Some(&cal) })
+        };
+        assert_eq!(step(MAX_BUSINESS_DAYS + 1), Err(EvalError::TooManyBusinessDays { index: 0 }));
+        assert_ne!(step(MAX_BUSINESS_DAYS), Err(EvalError::TooManyBusinessDays { index: 0 }));
+    }
+
+    /// A number at either end of i64, read as an epoch in any zone, is refused as out of range - the
+    /// same answer it got in UTC - and never panics (R4-W8: `9223372036854775807` on a UTC+2 host was
+    /// "attempt to subtract with overflow", exit 101).
+    #[test]
+    fn an_epoch_at_the_ends_of_i64_is_refused_in_every_zone() {
+        for n in ["9223372036854775807", "-9223372036854775808"] {
+            for bias in [-899, -120, 0, 300, 899] {
+                assert!(epoch_readings(n, bias).is_none(), "{n} read at bias {bias}");
+            }
+        }
+        // And an ordinary epoch still reads, in both units, in a zone east of UTC.
+        let readings = epoch_readings("1000000000", -120).expect("a real epoch");
+        assert_eq!(readings.len(), 2);
     }
 
     /// A number that cannot be a date gets a refusal about its RANGE, not about its format.

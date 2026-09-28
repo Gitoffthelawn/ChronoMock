@@ -584,7 +584,8 @@ pub(crate) fn calc_error_exit_code(e: &EvalError) -> i32 {
         | EvalError::BaseYearOutOfRange
         | EvalError::BaseOverflow
         | EvalError::BaseNotACivilDate
-        | EvalError::YearOutOfRange { .. } => 1,
+        | EvalError::YearOutOfRange { .. }
+        | EvalError::TooManyBusinessDays { .. } => 1,
     }
 }
 
@@ -622,7 +623,7 @@ pub(crate) fn describe_calc_error(e: &EvalError) -> String {
         // Unreachable from any surface here (they all parse the base), and named anyway: this maps a
         // public API's refusal, and a match arm that does not exist is a compile error the day it is.
         EvalError::BaseNotACivilDate => {
-            "chrono calc: the base is not a real date - check its month and day (calc.base_not_a_date)".into()
+            "chrono calc: the base is not a real date and time - check its month, day and time of day (calc.base_not_a_date)".into()
         }
         // Deliberately not phrased as an overflow: nothing overflowed. The step produced an exact
         // year that this build does not compute calendars on, and naming it that way is the whole
@@ -632,6 +633,11 @@ pub(crate) fn describe_calc_error(e: &EvalError) -> String {
             index + 1,
             chrono_core::CIVIL_YEAR_MIN,
             chrono_core::CIVIL_YEAR_MAX
+        ),
+        EvalError::TooManyBusinessDays { index } => format!(
+            "chrono calc: step {} asks for more than {} business days - the most this counts (calc.business_days_limit)",
+            index + 1,
+            chrono_core::calendar::MAX_BUSINESS_DAYS
         ),
     }
 }
@@ -869,6 +875,14 @@ mod tests {
         assert_eq!(calc_error_exit_code(&EvalError::DegenerateCalendar { index: 0 }), 1);
         assert_eq!(calc_error_exit_code(&EvalError::Overflow { index: 0 }), 1);
         assert_eq!(calc_error_exit_code(&EvalError::BadSetTime { index: 0 }), 1);
+        // R4-N35: past the business-day limit is bad input too, and it says so by the limit's own key.
+        assert_eq!(calc_error_exit_code(&EvalError::TooManyBusinessDays { index: 0 }), 1);
+        let msg = describe_calc_error(&EvalError::TooManyBusinessDays { index: 1 });
+        assert!(
+            msg.contains("step 2") && msg.contains("1000000") && msg.contains("(calc.business_days_limit)"),
+            "got: {msg}"
+        );
+        assert!(!msg.contains("overflow"), "the number is fine - only the limit is past, got: {msg}");
     }
 
     #[test]

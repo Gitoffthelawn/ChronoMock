@@ -46,8 +46,10 @@ pub(crate) fn parse_zone_to_bias(raw: &str) -> Result<i32, String> {
     let (h, m) = rest
         .split_once(':')
         .ok_or_else(|| format!("zone must look like +HH:MM, got '{raw}'"))?;
-    // Parse as u32 so an INNER sign (e.g. `+-5:00` or `+05:-30`) is rejected, not silently taken as a
-    // negative component (M-4). Range-check hours 0..=14 and minutes 0..=59, which also keeps
+    // An INNER sign is rejected, not silently taken as a component (M-4). Parsing as u32 caught a minus
+    // and let a PLUS through, because Rust's integer parsers accept one - so `++05:00` and `+05:+30`
+    // were valid zones (R4-N34). The digits check is what refuses both. Range-check hours 0..=14 and
+    // minutes 0..=59, which also keeps
     // `hours * 60 + mins` well inside i32: the old i32 parse overflowed on a huge value and, in a
     // release build (no overflow-checks), WRAPPED to a wrong bias - a silently wrong session time,
     // exactly the "off by N hours" error untouchable rule 2 guards against.
@@ -58,6 +60,12 @@ pub(crate) fn parse_zone_to_bias(raw: &str) -> Result<i32, String> {
     // because no country uses it would drop coverage to buy nothing (untouchable rule 27). The
     // session stays internally consistent at any offset in the band. What was wrong was the MESSAGE,
     // which said "0..=14" as if that were the map - it now says which part is real.
+    if !chrono_core::is_ascii_digits(h) {
+        return Err(format!("bad zone hours in '{raw}' (digits only)"));
+    }
+    if !chrono_core::is_ascii_digits(m) {
+        return Err(format!("bad zone minutes in '{raw}' (digits only)"));
+    }
     let hours: u32 = h.parse().map_err(|_| format!("bad zone hours in '{raw}' (digits only)"))?;
     let mins: u32 = m.parse().map_err(|_| format!("bad zone minutes in '{raw}' (digits only)"))?;
     if hours > 14 {
@@ -117,6 +125,10 @@ mod tests {
         // An INNER sign is rejected (M-4), never silently taken as a negative component.
         assert!(parse_zone_to_bias("+-5:00").is_err());
         assert!(parse_zone_to_bias("+05:-30").is_err());
+        // And a PLUS, which the u32 parse alone let through (R4-N34).
+        assert!(parse_zone_to_bias("++05:00").is_err());
+        assert!(parse_zone_to_bias("+05:+30").is_err());
+        assert!(parse_zone_to_bias("+ 5:00").is_err());
         // Out of range, non-digit, missing parts - all rejected, no silent overflow/wrap.
         assert!(parse_zone_to_bias("+99:00").is_err());
         assert!(parse_zone_to_bias("+05:99").is_err());
