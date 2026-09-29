@@ -877,8 +877,22 @@ enum AnchorStore {
 /// base before its origin, because an origin moved to now under an old base is behind where the axis
 /// stood. The rate went first until R4/7, which projected the OLD bases at the NEW rate - after a
 /// slowdown, behind where the axis stood, and released there for good.
-#[allow(clippy::too_many_arguments)]
-fn full_anchor_stores(
+fn full_anchor_stores(a: &FullAnchor) -> [AnchorStore; 8] {
+    [
+        AnchorStore::AFake(a.a_fake),
+        AnchorStore::AReal(a.a_real),
+        AnchorStore::DurTickC0(a.dur_tick_c0),
+        AnchorStore::DurQuitC0(a.dur_quit_c0),
+        AnchorStore::DurQpcC0(a.dur_qpc_c0),
+        AnchorStore::DurQ0(a.dur_q0),
+        AnchorStore::DurQpcQ0(a.dur_qpc_q0),
+        AnchorStore::Multiplier(a.multiplier),
+    ]
+}
+
+/// The eight fields `write_anchor_full` stores, named, so the order above is a list of names and not
+/// a list of positions.
+struct FullAnchor {
     a_fake: i64,
     a_real: i64,
     multiplier: i64,
@@ -887,17 +901,6 @@ fn full_anchor_stores(
     dur_q0: i64,
     dur_qpc_c0: i64,
     dur_qpc_q0: i64,
-) -> [AnchorStore; 8] {
-    [
-        AnchorStore::AFake(a_fake),
-        AnchorStore::AReal(a_real),
-        AnchorStore::DurTickC0(dur_tick_c0),
-        AnchorStore::DurQuitC0(dur_quit_c0),
-        AnchorStore::DurQpcC0(dur_qpc_c0),
-        AnchorStore::DurQ0(dur_q0),
-        AnchorStore::DurQpcQ0(dur_qpc_q0),
-        AnchorStore::Multiplier(multiplier),
-    ]
 }
 
 /// Store one field of the full anchor.
@@ -940,7 +943,8 @@ pub unsafe fn write_anchor_full(
     let s = read_volatile(sp).wrapping_add(1);
     write_volatile(sp, s); // odd - write in progress
     fence(Ordering::Release);
-    for store in full_anchor_stores(a_fake, a_real, multiplier, dur_tick_c0, dur_quit_c0, dur_q0, dur_qpc_c0, dur_qpc_q0) {
+    let anchor = FullAnchor { a_fake, a_real, multiplier, dur_tick_c0, dur_quit_c0, dur_q0, dur_qpc_c0, dur_qpc_q0 };
+    for store in full_anchor_stores(&anchor) {
         store_anchor_field(p, store);
     }
     fence(Ordering::Release);
@@ -2195,7 +2199,16 @@ mod tests {
             let last = at(&before, T, QPC_T);
             let (frozen_tick, frozen_quit) = freeze_dur(tick_c0, quit_c0, Q0, old_m, T);
             let frozen_qpc = freeze_qpc(qpc_c0, QPC_Q0, old_m, QPC_T);
-            let stores = full_anchor_stores(9, T, new_m, frozen_tick, frozen_quit, T, frozen_qpc, QPC_T);
+            let stores = full_anchor_stores(&FullAnchor {
+                a_fake: 9,
+                a_real: T,
+                multiplier: new_m,
+                dur_tick_c0: frozen_tick,
+                dur_quit_c0: frozen_quit,
+                dur_q0: T,
+                dur_qpc_c0: frozen_qpc,
+                dur_qpc_q0: QPC_T,
+            });
             for k in 0..=stores.len() {
                 let mut ctl = zeroed_ctl();
                 let p = &mut *ctl as *mut Ctl;
