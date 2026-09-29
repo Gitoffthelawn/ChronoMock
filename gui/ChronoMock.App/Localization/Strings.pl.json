@@ -482,6 +482,10 @@
 
   // Where the diagnostics log was written (RELEASE-012); the path follows this prefix.
   "diagnostics.saved": "Diagnostykę zapisano do",
+  // The box for an unexpected fault, see the English file.
+  "fault.unexpected": "Coś w Chrono Mock nieoczekiwanie się nie powiodło. Okno zostaje otwarte, ale to, co wtedy robiło, mogło się nie zakończyć. Jeśli to się powtarza, uruchom Chrono Mock ponownie.",
+  "fault.saved": "Szczegóły zapisano w:",
+  "fault.detail": "Szczegół techniczny:",
   "report.unreliable_banner": "!! DOWÓD NIERZETELNY - podmiana czasu nie zadziałała w pełni. Nie cytuj tego jako dowodu zachowania.",
   "report.title": "Chrono Mock - raport sesji",
   "report.target": "cel",

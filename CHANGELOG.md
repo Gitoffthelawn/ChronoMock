@@ -125,11 +125,15 @@ Notable changes to Chrono Mock, newest first. The format follows
   recorded "works". Such a session, and a Stop the core did not close, now reads "Cut short", says there
   is no verdict for it and that the counts are a floor, and says the application is back on the real
   clock. The copied summary leads with the banner and a CUT SHORT line, the diagnostics are kept with the
-  code the core stopped with, and the history records it as undetermined. A session that failed with an
+  code the core stopped with - after a Stop too, which used to read them before the core had finished
+  shutting down - and the history records it as undetermined. A session that failed with an
   error is no longer copied without the banner either. New session now waits until the previous session
   has been closed down, which could otherwise overwrite the new form, and a failure while recording a
   session no longer leaves Start disabled for good. A background task that failed with nobody waiting on
-  it is now reported like any other unexpected fault, instead of being lost.
+  it is now reported like any other unexpected fault, instead of being lost. An unexpected fault no
+  longer shows the bare exception message: the box says in the interface's language what happened and
+  what to do, and names the file its full details were saved to, which is written even when the window
+  can no longer show the box.
 - **The window names the programs a session went on for after the application closed.** When the
   program you start hands the work to another one and closes - a launcher - the session goes on for
   the programs it started, and the CLI report names them. The window said only that the application

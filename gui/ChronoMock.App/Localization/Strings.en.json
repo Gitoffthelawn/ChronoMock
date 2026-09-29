@@ -503,6 +503,10 @@
 
   // Where the diagnostics log was written (RELEASE-012); the path follows this prefix.
   "diagnostics.saved": "Diagnostics saved to",
+  // The box for an unexpected fault (R4-N52): what happened and what to do first, then where the full details went (the path follows fault.saved), then the exception's own message (it follows fault.detail).
+  "fault.unexpected": "Something inside Chrono Mock failed unexpectedly. The window stays open, but what it was doing at that moment may not have finished. If this keeps happening, restart Chrono Mock.",
+  "fault.saved": "The details were saved to:",
+  "fault.detail": "Technical detail:",
   "report.unreliable_banner": "!! UNRELIABLE EVIDENCE - the time substitution did not fully take effect. Do not cite this as proof of behavior.",
   "report.title": "Chrono Mock - session report",
   "report.target": "target",

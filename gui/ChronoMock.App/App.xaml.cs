@@ -89,36 +89,56 @@ public partial class App : Application
     private const double CatalogueWindowWidth = 960;
     private const double CatalogueWindowHeight = 900;
 
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // A task finalized while the app shuts down must not reach a handler whose dispatcher is gone.
+        TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+        base.OnExit(e);
+    }
+
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         // Surface the failure and keep the app alive - a recoverable slip (one bad event, one bad preset)
         // should not take down the whole session. Marked handled so the dispatcher does not tear down.
         // Once per signature, not per occurrence and not per run - FaultReports has why.
-        Report(e.Exception);
+        Report(e.Exception, "dispatcher");
         e.Handled = true;
     }
 
     /// <summary>
     /// A task that failed with nobody awaiting it (R4-N52). The runtime raises this from the finalizer, long
     /// after the fault and on no thread the window owns, and without a handler the fault was simply gone -
-    /// the app went on as if the work had succeeded. Marked observed, then shown on the UI thread the same
-    /// way as a dispatcher fault.
+    /// the app went on as if the work had succeeded. Marked observed, recorded here, then shown on the UI
+    /// thread the same way as a dispatcher fault.
     /// </summary>
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
         e.SetObserved();
-        var fault = e.Exception.InnerExceptions.Count == 1 ? e.Exception.InnerExceptions[0] : e.Exception;
-        Dispatcher.BeginInvoke(() => Report(fault));
+        Report(FaultReports.Unwrap(e.Exception), "unobserved task");
     }
 
-    private void Report(Exception fault)
+    /// <summary>
+    /// Record a fault and show it, once per signature. Recorded on the thread that reported it, BEFORE any
+    /// box is queued: a fault that arrives while the dispatcher is shutting down cannot be shown, and it used
+    /// to vanish without a trace. The file keeps the whole exception, which the box does not.
+    /// </summary>
+    private void Report(Exception fault, string source)
     {
-        if (_faults.ShouldShow(fault))
+        if (!_faults.ShouldShow(fault))
         {
-            System.Windows.MessageBox.Show(
-                fault.Message, "Chrono Mock",
-                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            return;
         }
+
+        var saved = FileDiagnosticsLog.ForApp().Save(FaultReports.Record(fault, source));
+        if (Dispatcher.HasShutdownStarted)
+        {
+            return;
+        }
+
+        var text = FaultReports.DialogText(TranslationKeyConverter.Resolve, fault, saved);
+        Dispatcher.BeginInvoke(() => System.Windows.MessageBox.Show(
+            text, "Chrono Mock",
+            System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error));
     }
 
     /// <summary>Which faults were already shown this run, shared by both handlers.</summary>

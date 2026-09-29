@@ -50,6 +50,11 @@ public sealed class CoreClient : IAsyncDisposable
     /// <summary>Set once the read loop has handed on the core's <c>ended</c>, the last line a core that
     /// ended cleanly writes. Dispose waits on it before it closes the event stream.</summary>
     private readonly TaskCompletionSource _endedRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // The one shutdown every DisposeAsync caller awaits. See DisposeAsync. Declared above `_disposed` on
+    // purpose: the unused-definition scan in crates/cli/tests/hygiene.rs reads the constructor below as part
+    // of the field right above it, and that has to stay one the public guard keeps alive.
+    private readonly object _disposalLock = new();
+    private Task? _disposal;
     private int _disposed;
 
     private CoreClient(Process process)
@@ -278,13 +283,34 @@ public sealed class CoreClient : IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// End the session and the core. Every caller awaits the SAME shutdown: a second call used to return at
+    /// once while the first was still joining the readers, so the GUI's Stop - which starts one dispose in
+    /// the background and awaits another on its way out - read the core's exit code and its stderr before
+    /// either was there. The session the core did not close then had no exit code in its diagnostics, the
+    /// one case that line exists for (R4-S27).
+    /// </summary>
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        Task disposal;
+        lock (_disposalLock)
         {
-            return;
+            if (_disposal is null)
+            {
+                Volatile.Write(ref _disposed, 1);
+                // Started, not run, under the lock: the shutdown writes to the core's stdin before its first
+                // await, and a second caller must not wait on that write just to get the task.
+                _disposal = Task.Run(ShutDownAsync);
+            }
+
+            disposal = _disposal;
         }
 
+        return new ValueTask(disposal);
+    }
+
+    private async Task ShutDownAsync()
+    {
         try
         {
             if (!_process.HasExited)
@@ -321,7 +347,16 @@ public sealed class CoreClient : IAsyncDisposable
                 catch (OperationCanceledException)
                 {
                     // Did not end within the grace period: take down just the core, never the target tree.
-                    _process.Kill(entireProcessTree: false);
+                    // A kill that is refused is said in the diagnostics rather than thrown: every caller
+                    // awaits this one shutdown now, and the one that captures the diagnostics must reach it.
+                    try
+                    {
+                        _process.Kill(entireProcessTree: false);
+                    }
+                    catch (System.ComponentModel.Win32Exception ex)
+                    {
+                        _log.Add($"could not stop the core: {ex.Message}");
+                    }
                 }
             }
         }
