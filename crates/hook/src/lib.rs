@@ -65,8 +65,8 @@ use std::sync::OnceLock;
 use chrono_ctl::{
     bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at, dur_tick_at,
     header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, ReleasedAxes,
-    publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_qpc, read_scale_dur,
-    read_scale_qpc, set_created,
+    publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_ended, read_qpc,
+    read_scale_dur, read_scale_qpc, set_created,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_late_installed, wait_hit_floor, ChannelModule, Cov,
@@ -97,7 +97,8 @@ use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::System::Threading::{
     CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetExitCodeThread,
     GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
-    INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
+    INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
 use windows::Win32::System::Time::{
     FileTimeToSystemTime, SystemTimeToFileTime, DYNAMIC_TIME_ZONE_INFORMATION, TIME_ZONE_INFORMATION,
@@ -716,11 +717,17 @@ fn detached() -> bool {
 /// interleaved A/B on two hook builds over the QPC path (5 pairs, 3 M calls) came out at -0.06 ns per
 /// call, inside the ±5 ns the probe's timer can even resolve. Unreachable today, free, and the only
 /// path on which a target could be handed another session's clock - so it stays.
+///
+/// The session is named by the pid AND the creation time of its core (R4-W2): a pid is recycled once
+/// its process is gone, and a new core that reclaimed the block under the same number would otherwise
+/// pass for ours. The pid is read FIRST. The reclaiming core writes the creation time before the pid,
+/// so a reader that sees the new pid also sees the new time and tells the two apart.
 fn still_ours(p: *const Ctl) -> bool {
     let Some(&mine) = CORE_PID.get() else {
         return true; // no owner was ever recorded (pre-session install): behave as before
     };
-    if unsafe { read_core_pid(p) } == mine {
+    let created = CORE_CREATED.get().copied().unwrap_or(0);
+    if unsafe { read_core_pid(p) } == mine && unsafe { read_core_created(p) } == created {
         return true;
     }
     // One-way, like the watcher's flag: a block that stopped being ours never becomes ours again.
@@ -2515,6 +2522,73 @@ unsafe fn make_hook<T: Copy>(
     }
 }}
 
+/// Why `install` gave up, split by what `DllMain` may still do about it.
+enum InstallError {
+    /// Nothing in this process has changed yet - no detour exists and nothing of ours is held - so the
+    /// library may unload itself: `DllMain` answers FALSE, `LoadLibraryW` returns NULL, and whoever
+    /// injected sees the load fail (MS Learn, `DllMain`). A parent that injected a child then counts it
+    /// as a child that ran on the real clock, with its pid, which is the truth (R4-D18).
+    Refused(String),
+    /// Detours may exist. Unloading the library under them would leave jumps into freed code inside
+    /// somebody else's application, so the library stays loaded, as it always did on a failure.
+    Failed(String),
+}
+
+/// Why this process must not join the session the block describes, or `None` when it may (R4-D18).
+///
+/// A block is joinable only while its session is alive and is still the one that wrote it: the core
+/// has not marked it ended, it names a core, that core can be opened and is still running, and the
+/// process under that pid was created when the block says the core was. Each test is one way a block
+/// outlives its session - an ordered end, a core that died, a pid the system gave to another process -
+/// and in each the old hook joined anyway and kept the process on a clock nobody drove.
+///
+/// "Still running" is its own test because a killed core can still be OPENED: every process of its
+/// session holds a handle to it for the watcher, which keeps the process object and its pid alive, and
+/// asking that object for its creation time answers truthfully (measured, tools/probes/r4-6 case A2).
+///
+/// `created_now` is `None` when the core could not be asked (not opened, or the query failed), which
+/// cannot confirm the session and so refuses too.
+fn join_refusal(core: &CoreLook) -> Option<&'static str> {
+    if core.ended {
+        Some("the session this control block belongs to has ended")
+    } else if core.pid == 0 {
+        Some("the control block names no core")
+    } else if !core.opened {
+        Some("the core that wrote the control block is gone, or cannot be watched from this process")
+    } else if !core.running {
+        Some("the core that wrote the control block has exited")
+    } else if core.created_now != Some(core.recorded_created) {
+        Some("the process under the core's pid is not the core that wrote the control block")
+    } else {
+        None
+    }
+}
+
+/// What `install` learned about the session's core, for `join_refusal`.
+struct CoreLook {
+    /// The block's end mark.
+    ended: bool,
+    /// The core's pid as the block records it.
+    pid: u32,
+    /// The core's creation time as the block records it.
+    recorded_created: u64,
+    /// Whether a process under that pid could be opened.
+    opened: bool,
+    /// Whether that process has not exited - a zero-length wait on it timed out.
+    running: bool,
+    /// Its creation time, when it could be read.
+    created_now: Option<u64>,
+}
+
+/// What `DllMain` answers for `DLL_PROCESS_ATTACH` after `install`: TRUE unless the install refused
+/// before anything changed (see `InstallError`).
+fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
+    match installed {
+        Err(InstallError::Refused(_)) => 0,
+        Ok(()) | Err(InstallError::Failed(_)) => 1,
+    }
+}
+
 /// Install and enable every channel's detour, wiring this process to the shared anchor.
 ///
 /// INVARIANT (P6, docs/06 ADR-3): injection assumes the target is SUSPENDED - the parent is created
@@ -2524,18 +2598,25 @@ unsafe fn make_hook<T: Copy>(
 /// no other application thread exists yet. Do NOT add a path that injects into an already-running,
 /// multi-threaded process without moving hook-enabling off the loader lock (the watcher thread is
 /// created OUTSIDE DllMain, in `ensure_watcher`, for exactly this reason).
-unsafe fn install() -> Result<(), String> { unsafe {
+unsafe fn install() -> Result<(), InstallError> { unsafe {
     let hmap = OpenFileMappingW(FILE_MAP_ALL_ACCESS.0, false, PCWSTR(chrono_ctl::CTL_SECTION_NAME_W.as_ptr()))
-        .map_err(|e| format!("OpenFileMappingW: {e:?}"))?;
+        .map_err(|e| InstallError::Refused(format!("OpenFileMappingW: {e:?}")))?;
     let view = MapViewOfFile(hmap, FILE_MAP_ALL_ACCESS, 0, 0, chrono_ctl::ctl_size());
     if view.Value.is_null() {
         // Close the mapping we opened a line ago. Once the view is mapped the handle is deliberately
         // kept for the process's life (the view outlives it either way), but on this path there is no
         // view - the handle would just sit there for as long as the target runs.
         let _ = CloseHandle(hmap);
-        return Err("MapViewOfFile returned null".into());
+        return Err(InstallError::Refused("MapViewOfFile returned null".into()));
     }
     let ctl = view.Value as *mut Ctl;
+    let give_back = |core: Option<HANDLE>| {
+        if let Some(h) = core {
+            let _ = CloseHandle(h);
+        }
+        let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
+        let _ = CloseHandle(hmap);
+    };
     // Before ANY field is read as a time. The section name is fixed and creatable by any process in
     // this session, so what is mapped here is not guaranteed to be the block our mechanism wrote -
     // and every number below decides either what the target's clock says (untouchable rule 2) or
@@ -2543,21 +2624,48 @@ unsafe fn install() -> Result<(), String> { unsafe {
     // on the real clock and the driver reports the injection as failed, rather than the target
     // silently running on a stranger's anchor while the report calls the session covered.
     if !header_is_ours(ctl as *const Ctl) {
-        let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-        let _ = CloseHandle(hmap);
-        return Err("session control block is not this build's".into());
+        give_back(None);
+        return Err(InstallError::Refused("session control block is not this build's".into()));
+    }
+
+    // Whether the session this block describes is alive, and is the one that wrote it (R4-D18). The
+    // block outlives its core for as long as any process of the session keeps it mapped, so a process
+    // that session left running can start a child long after the end - and that child used to find the
+    // block, join it, and stay on a clock nobody drives, or on the NEXT session's clock once a new core
+    // had reclaimed the block (measured before the fix, tools/probes/r4-6). All of it is decided here,
+    // before a single detour exists, so a refusal leaves the process exactly as it found it.
+    //
+    // The handle asks for `QUERY_LIMITED` beside `SYNCHRONIZE`: the creation time needs it, and so does
+    // the exit code the watcher reads when a wait fails (R4-N6).
+    let core_pid = read_core_pid(ctl as *const Ctl);
+    let core_created = read_core_created(ctl as *const Ctl);
+    let ended = read_ended(ctl as *const Ctl);
+    let core = if core_pid == 0 {
+        None
+    } else {
+        OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, core_pid).ok()
+    };
+    // No detour exists in this process yet, so this is the real wait, and nothing counts it.
+    let look = CoreLook {
+        ended,
+        pid: core_pid,
+        recorded_created: core_created,
+        opened: core.is_some(),
+        running: core.is_some_and(|h| WaitForSingleObject(h, 0).0 == WAIT_TIMEOUT_CODE),
+        created_now: core.and_then(|h| process_created(h)),
+    };
+    if let Some(why) = join_refusal(&look) {
+        give_back(core);
+        return Err(InstallError::Refused(why.into()));
     }
     let _ = CTL_PTR.set(view.Value as usize);
     let _ = TZ_BIAS.set(read_tz_bias(ctl as *const Ctl));
-
-    // Watch the core process so the target reverts to real time if the core vanishes.
-    let core_pid = read_core_pid(ctl as *const Ctl);
-    let _ = CORE_PID.set(core_pid); // the session we joined, for `still_ours` (R2-S6)
-    let _ = CORE_CREATED.set(read_core_created(ctl as *const Ctl));
-    if core_pid != 0
-        && let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE, false, core_pid) {
-            let _ = CORE_HANDLE.set(h.0 as usize);
-        }
+    // The session we joined, for `still_ours` (R2-S6), and the core the watcher waits on.
+    let _ = CORE_PID.set(core_pid);
+    let _ = CORE_CREATED.set(core_created);
+    if let Some(h) = core {
+        let _ = CORE_HANDLE.set(h.0 as usize);
+    }
 
     // This process's OWN coverage slot in the shared block, so its calls are attributed to it and
     // never summed into the parent's report (rule 4). Reserved NOW, before any detour is enabled,
@@ -2602,8 +2710,10 @@ unsafe fn install() -> Result<(), String> { unsafe {
             if let Some(c) = cov {
                 set_channels_installed(c, 0);
             }
-
-            return Err(format!("GetModuleHandleA: kernel32 {k:?}, ntdll {n:?}"));
+            // `Failed`, not `Refused`, though no detour exists yet: the statics above already point at
+            // the block and the slot, and unwinding them for a failure that cannot realistically happen
+            // is more code on the loader lock than the case is worth. The library stays loaded, unhooked.
+            return Err(InstallError::Failed(format!("GetModuleHandleA: kernel32 {k:?}, ntdll {n:?}")));
         }
     };
 
@@ -2725,7 +2835,7 @@ unsafe fn install() -> Result<(), String> { unsafe {
             // our PID, so the mechanism never looks at the slot at all.
             set_channels_installed(c, 0);
         }
-        return Err(format!("enable_all_hooks: {e:?}"));
+        return Err(InstallError::Failed(format!("enable_all_hooks: {e:?}")));
     }
     if let Some(c) = cov {
         set_channels_installed(c, pending);
@@ -2756,21 +2866,60 @@ unsafe fn install() -> Result<(), String> { unsafe {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllMain(hinst: HMODULE, reason: u32, _reserved: *mut c_void) -> i32 {
-    if reason == DLL_PROCESS_ATTACH {
-        // Remember our own module so we can inject the same DLL into children (ADR-3).
-        let _ = SELF_HMOD.set(hinst.0 as usize);
-        unsafe {
-            if let Err(e) = install() {
-                log(&format!("[chrono_hook] install failed: {e}"));
-            }
-        }
+    if reason != DLL_PROCESS_ATTACH {
+        return 1; // the answer is ignored for every other reason (MS Learn, `DllMain`)
     }
-    1
+    // Remember our own module so we can inject the same DLL into children (ADR-3).
+    let _ = SELF_HMOD.set(hinst.0 as usize);
+    let installed = unsafe { install() };
+    match &installed {
+        Ok(()) => {}
+        Err(InstallError::Refused(why)) => log(&format!("[chrono_hook] not joining this session: {why}")),
+        Err(InstallError::Failed(why)) => log(&format!("[chrono_hook] install failed: {why}")),
+    }
+    attach_answer(&installed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A block is joined only while its session is alive and is the one that wrote it (R4-D18). Each
+    /// refusal is one way the block outlives its session, and the old hook joined in every one of them.
+    #[test]
+    fn a_block_is_joined_only_while_its_own_session_is_alive() {
+        const WHEN: u64 = 0x01DC_3000_0000_0000;
+        let live = || CoreLook {
+            ended: false,
+            pid: 4242,
+            recorded_created: WHEN,
+            opened: true,
+            running: true,
+            created_now: Some(WHEN),
+        };
+        assert_eq!(join_refusal(&live()), None, "a live session was refused");
+        let cases: [(&str, CoreLook); 7] = [
+            ("an ended session was joined", CoreLook { ended: true, ..live() }),
+            ("a block naming no core was joined", CoreLook { pid: 0, opened: false, running: false, created_now: None, ..live() }),
+            ("a core that cannot be opened was trusted", CoreLook { opened: false, running: false, created_now: None, ..live() }),
+            ("a killed core, still open through its session's handles, was trusted", CoreLook { running: false, ..live() }),
+            ("a recycled pid passed for the core that wrote the block", CoreLook { created_now: Some(WHEN + 1), ..live() }),
+            ("a core whose creation time could not be read was trusted", CoreLook { created_now: None, ..live() }),
+            ("a block with no recorded creation time was trusted", CoreLook { recorded_created: 0, ..live() }),
+        ];
+        for (failure, look) in cases {
+            assert!(join_refusal(&look).is_some(), "{failure}");
+        }
+    }
+
+    /// Only a refusal before anything changed unloads the library. A failure after the detours were
+    /// created keeps it loaded, because unloading would leave them jumping into freed code.
+    #[test]
+    fn only_a_refusal_before_the_detours_unloads_the_library() {
+        assert_eq!(attach_answer(&Ok(())), 1);
+        assert_eq!(attach_answer(&Err(InstallError::Refused("ended".into()))), 0);
+        assert_eq!(attach_answer(&Err(InstallError::Failed("enable_all_hooks".into()))), 1);
+    }
 
     /// A two-body channel is covered only when both bodies are detoured. Either one failing leaves a
     /// set of callers on the real tick count, so the bit must end up clear - including when the

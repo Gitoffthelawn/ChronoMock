@@ -1295,6 +1295,15 @@ pub unsafe fn mark_ended(p: *mut Ctl) { unsafe {
     write_volatile(addr_of_mut!((*p).ended), 1);
 }}
 
+/// Whether the core ended this session in order - read by a hook deciding whether to join, and by a
+/// new core deciding what to say about the block it reclaims.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn read_ended(p: *const Ctl) -> bool { unsafe {
+    read_volatile(addr_of!((*p).ended)) != 0
+}}
+
 /// Reserve this process's coverage slot (hook side). Reserves atomically - several children may
 /// start concurrently - and returns the slot index, or None if the registry is full (the process
 /// then runs uncovered in the audit, an honest partial, never a silent overwrite of a live slot).
@@ -1774,13 +1783,13 @@ mod tests {
         let p = &mut *ctl as *mut Ctl;
         let mut cov = zeroed_cov();
         unsafe {
-            assert_eq!(ctl.ended, 0, "a fresh block reads as ended");
+            assert!(!read_ended(p), "a fresh block reads as ended");
             write_core_created(p, 0x01DC_0000_1234_5678);
             write_core_pid(p, 4242);
             mark_ended(p);
             assert_eq!(read_core_created(p), 0x01DC_0000_1234_5678);
             assert_eq!(read_core_pid(p), 4242);
-            assert_eq!(ctl.ended, 1);
+            assert!(read_ended(p));
             assert_eq!(cov.created, 0, "an unrecorded slot must read as 0, the fallback mark");
             set_created(&mut cov, 0x01DC_0000_0000_0001);
             assert_eq!(cov.created, 0x01DC_0000_0000_0001);

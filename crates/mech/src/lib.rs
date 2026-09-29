@@ -1608,8 +1608,12 @@ unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { 
         )));
     }
     if !got_code || exit_code == 0 {
+        // Two causes give the same NULL since R4-D18: the library did not load, or it loaded, found a
+        // control block it could not confirm as this live session's, and unloaded itself.
         return Err(PrepareError::Inject(
-            "LoadLibraryW returned NULL in the target (the hook DLL failed to load)".into(),
+            "LoadLibraryW returned NULL in the target (the hook DLL failed to load, or would not join a \
+             session it could not confirm)"
+                .into(),
         ));
     }
     Ok(())
