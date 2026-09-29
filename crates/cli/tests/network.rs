@@ -244,6 +244,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          and nothing reaches past this machine",
     ),
     (
+        "crates/cli/tests/core_lost.rs",
+        "spawn",
+        "runs this test binary's own ignored probe under a session through the built binary, and the \
+         probe ends the core that started it, which is a process of that same session. It only writes \
+         a scratch file, and nothing reaches past this machine",
+    ),
+    (
         "crates/cli/tests/network_observer.rs",
         "socket",
         "binds a loopback listener on a port the system picks, and the probe connects to that port \

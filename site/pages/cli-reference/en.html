@@ -193,7 +193,7 @@
           <tr><td>12</td><td>the target vanished right after injection and left nothing running on the session clock, which suggests a single-instance application handing over to a copy already running, or a hand-off to a program the session could not enter, usually one of the other bitness. A target that starts the application and ends is a launcher, and the session goes on for the application</td></tr>
           <tr><td>1</td><td>usage error - a bad flag, a bad expression, or a preset this command will not accept</td></tr>
           <tr><td>2</td><td>the target could not be launched or injected</td></tr>
-          <tr><td>3</td><td>internal error - the engine could not start or hit an unexpected state</td></tr>
+          <tr><td>3</td><td>internal error - the engine could not start, hit an unexpected state, or stopped before it closed the session (whatever its own exit code). Such a run carries no verdict</td></tr>
           <tr><td>5</td><td>the operation is not built in this release - for example a preset whose moment needs a calendar, which <code>run</code> cannot load yet. Deliberately distinct from a usage error: you asked for something that does not exist yet, not for something wrong</td></tr>
           <tr><td>6</td><td>the run was cut short - <code>--timeout</code> expired, or the engine stopped answering for 15 seconds and was stopped. This is not a verdict: the session was interrupted, so it proves nothing about the target either way</td></tr>
         </tbody>

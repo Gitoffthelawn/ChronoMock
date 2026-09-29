@@ -43,6 +43,11 @@ pub(super) struct Collector {
     // not tell "the app closed itself with code 3" from "we ended the session" (rule 6).
     target_exit: Option<i32>,
     residue: Vec<String>,
+    // Whether the core closed the session with `ended`, and whether it had said anything that opens
+    // one. Together they tell a core that died mid-session from one that refused the first command,
+    // which is the only answer a core gives without an `ended` after it (`core::read_start`).
+    ended: bool,
+    opened: bool,
 }
 
 impl Collector {
@@ -52,6 +57,12 @@ impl Collector {
     /// rather than collecting, and it needs the child's stdin, which this side deliberately has no
     /// access to.
     pub(super) fn record(&mut self, event: Event) -> bool {
+        if matches!(
+            event,
+            Event::Verdict { .. } | Event::SessionVerdict { .. } | Event::Vanished { .. } | Event::Coverage { .. }
+        ) {
+            self.opened = true;
+        }
         match event {
             Event::Verdict { verdict, reason_key, .. } => {
                 self.verdict_line = Some((verdict, reason_key));
@@ -122,6 +133,7 @@ impl Collector {
                 }
                 self.target_exit = target_exit_code;
                 self.residue = residue_keys;
+                self.ended = true;
                 return true;
             }
             _ => {}
@@ -141,6 +153,23 @@ impl Collector {
                 self.warnings.push(k);
             }
         }
+    }
+
+    /// Whether the core stopped without closing the session: no `ended`, unless all it said was a refusal
+    /// of the first command. A core owes `ended` on every path but that one, which opens nothing and whose
+    /// keys are `core::REFUSALS_WITHOUT_ENDED`. Any other error is followed by `ended` (a missing hook
+    /// library, a bad moment, a launch that failed), so one without it is a core that stopped between the
+    /// two, and its own exit code is no more the session's result than after a kill (R4/12a review round).
+    ///
+    /// Without this the report stood on whatever arrived first. The parent's verdict comes inside the
+    /// guard window, so a core that died a second later left a WORKS headline over call counts from the
+    /// session's first blink, and the evidence file carried it with no banner (R4-W3, measured with the
+    /// core killed two seconds in).
+    pub(super) fn core_left_session_open(&self) -> bool {
+        let refused_to_start = !self.opened
+            && !self.errors.is_empty()
+            && self.errors.iter().all(|(key, _)| crate::core::REFUSALS_WITHOUT_ENDED.contains(&key.as_str()));
+        !self.ended && !refused_to_start
     }
 
     /// The finished report. `cdp` and `stopped_early` are the caller's, not ours: whether the target
@@ -308,11 +337,65 @@ mod tests {
             fake_end_wall: Some("2038-01-19T03:15:07".into()),
         }));
 
+        assert!(!c.core_left_session_open(), "a session closed with ended is not one the core left open");
+
         let report = c.into_report("app.exe".into(), false, None);
         assert_eq!(report.target_exit, Some(3));
         assert_eq!(report.residue, vec!["cdp.profile_locked"]);
         assert_eq!(report.timing, Some(("2038-01-19T03:15:07".to_string(), 1_000, 60_000)));
         assert_eq!(report.parent_verdict.map(|(v, _)| v), Some("works".to_string()));
         assert_eq!(report.vanished.map(|(_, ms)| ms), Some(12));
+    }
+
+    fn works() -> Event {
+        Event::Verdict { v: 1, id: None, verdict: "works".into(), refuse_start: false, reason_key: "verdict.works".into() }
+    }
+
+    fn error(key: &str) -> Event {
+        Event::Error { v: 1, id: None, code: 1, key: key.into(), origin: "core".into() }
+    }
+
+    /// R4-W3: a core that stops before `ended` has left the session open, and the report must not stand
+    /// on the verdict it sent at the start. The one answer that owes no `ended` is the refusal of the
+    /// first command, and it is told apart by giving a reason while opening nothing.
+    #[test]
+    fn a_core_that_stops_before_ended_left_the_session_open_unless_it_refused_the_first_command() {
+        // Killed after the parent's verdict: the case measured, WORKS over the guard window's counts.
+        let mut c = Collector::default();
+        c.record(works());
+        c.record(coverage(100, 7, Vec::new()));
+        assert!(c.core_left_session_open(), "killed mid-session");
+
+        // Killed before it said anything at all, during prepare.
+        assert!(Collector::default().core_left_session_open(), "killed before the first event");
+
+        // Killed after a command was refused mid-session: an error, but the session had opened.
+        let mut c = Collector::default();
+        c.record(works());
+        c.record(error("session.bad_multiplier"));
+        assert!(c.core_left_session_open(), "an error inside an open session is not a refusal to start");
+
+        // The refusal of the first command: a reason, nothing opened, no ended owed.
+        let mut c = Collector::default();
+        c.record(error("protocol.version_mismatch"));
+        assert!(!c.core_left_session_open(), "a core that refused to start owes no ended");
+
+        // An error after a valid start is followed by ended, so without it the core stopped between the two
+        // (R4/12a review round) - it is not a refusal to start, whatever it opened.
+        let mut c = Collector::default();
+        c.record(error("core.hook_dll_missing"));
+        assert!(c.core_left_session_open(), "an error that owes an ended, without one");
+
+        // A refusal key next to another error is not a refusal alone.
+        let mut c = Collector::default();
+        c.record(error("protocol.bad_command"));
+        c.record(error("target.launch_failed"));
+        assert!(c.core_left_session_open(), "not every error was a refusal to start");
+
+        // A vanish opens the session too - the core reached the target.
+        let mut c = Collector::default();
+        c.record(Event::Vanished { v: 1, pid: 100, reason_key: "target.single_instance_suspected".into(), lived_ms: 12 });
+        c.record(error("session.bad_multiplier"));
+        assert!(c.core_left_session_open(), "a vanish opens the session");
     }
 }
