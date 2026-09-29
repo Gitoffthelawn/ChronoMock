@@ -43,6 +43,24 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A calendar file with a field Chrono Mock does not know is refused instead of read around.** A
+  misspelt optional field, such as `valid_form` for `valid_from`, used to be skipped, so the holiday
+  it was meant to limit counted in every year. The file is now refused with exit 1, and the message
+  names the field and the fields that can stand there. This holds at every level of the file: the
+  calendar itself, a holiday, its name and its rule. Calendars therefore no longer follow the rule
+  that a reader ignores fields it does not know, and a field added to the calendar format later will
+  need a Chrono Mock that knows it. A file written to a later schema version is still refused as
+  that, not over its new fields. Presets keep ignoring fields they do not read.
+- **An Easter-based holiday has to fall in the year of its Easter.** A calendar's `easter_offset` is
+  accepted from -80 to 250 days, the range that keeps the holiday between 1 January and 31 December
+  of its own Easter's year in every year. The old range of a year either side let a holiday fall into
+  the year before or after, where one date was reported both as not a holiday and as a holiday moved
+  there from a weekend. The shipped calendars use 1, 49 and 60.
+- **A calendar or preset whose `id` is not its file name is refused.** `other.json` declaring the id
+  `pl` used to load as `--calendar other` and sign its answers "(pl)". `chrono calc` and
+  `chrono run` refuse such a file with exit 1 and name both, and the window leaves such a preset out
+  of its list, as it leaves out any preset file it cannot use. Case does not count, as it does not
+  for the file name on Windows.
 - **The core checks a Chromium or Electron start the way it checks a native one.** A mistyped time
   mode used to run as flow at real speed, a speed outside 0 to 1,000,000 was accepted or turned into
   x1, and a speed of 0 ran at x1 where a native session froze. The same start is now refused with the
@@ -74,6 +92,30 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **Two holidays observed on the same day are two days off.** Under `weekend_to_mon`, Christmas on a
+  Saturday and Boxing Day on a Sunday both moved to the Monday, so the Tuesday counted as a business
+  day. An observed holiday that lands on a day already off, another holiday or a weekend day, now
+  moves on to the next free day in the same direction, under every observance rule. None of the
+  shipped calendars has such a collision, and their business days are unchanged, compared day by day
+  from 1583 to 4000.
+- **A calendar with fewer than one business day a week no longer runs out of room.** A business-day
+  shift gave up after seven calendar days for each business day asked for, so a legal calendar with a
+  long weekend and many holidays answered `+100bd` and reported no business days at all for
+  `+1000bd`. It now gives up only after 400 days in a row without a business day, and the nearest
+  business day is looked for as far, where it used to stop after a month.
+- **A preset that says two things at once is refused instead of half read.** A base naming both a
+  date parameter and an absolute date took the parameter in `chrono calc` and the absolute date in
+  the window. A parametric shift dropped the `amount` and `unit` beside it, a variant shift dropped
+  its `sign`, and of two parameters with one id the second won. Each is refused with exit 1 and a
+  message naming what the file says twice, and the window leaves such a preset out of its list. So
+  is a base or a shift naming a parameter the preset does not declare: `chrono calc` used to report
+  that parameter as having no value, and then refused the value passed with `--param` as an unknown
+  parameter. The message now names the parameter and the ones the preset declares. No shipped
+  preset does any of this.
+- **A calendar or preset saved with a UTF-8 byte order mark loads.** Windows PowerShell 5.1 writes
+  one with `-Encoding UTF8`. The command line refused such a file with "expected value at line 1
+  column 1", while the window read it.
+- **A preset file that cannot be used names its path**, as a calendar's error always did.
 - **A batch script as the target lost its arguments, or never started.** Windows starts the command
   interpreter for a `.bat` or `.cmd` itself and strips quotes from the line it hands over. So an
   argument with a space, or a script in a folder with `&` in its name, kept the script from starting,

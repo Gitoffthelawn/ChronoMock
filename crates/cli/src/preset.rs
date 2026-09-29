@@ -11,7 +11,9 @@
 //! 🔴 SECURITY (docs/04 4.1): a preset describes TIME, never a TARGET. The schema has no path field,
 //! so a shared preset cannot smuggle an executable path - enforced structurally, because there is no
 //! field to put it in, which `preset_ignores_a_path_field` pins. Unknown fields are ignored (additive
-//! evolution, docs/04 section 3) - an unknown major schema version is refused (section 3.1).
+//! evolution, docs/04 section 3) - an unknown major schema version is refused (section 3.1). A
+//! calendar refuses unknown fields since R4-D11, and a preset deliberately does not: it carries fields
+//! only the window reads (the Polish texts), and none of them can move the moment.
 
 
 use std::collections::HashMap;
@@ -22,7 +24,7 @@ use chrono_core::calc::{Base, MomentExpr, Sign, Step, Unit};
 use chrono_core::calendar::Calendar;
 use chrono_core::filetime_utc_to_wall;
 
-use crate::calendar::{catalogue_search_places, find_catalogue_file, is_valid_catalogue_id};
+use crate::calendar::{catalogue_search_places, check_declared_id, find_catalogue_file, is_valid_catalogue_id};
 use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit};
 use crate::zone::parse_zone_to_bias;
 /// A parsed preset: its declared parameters and its RAW moment (docs/04 4.3), not yet resolved to a
@@ -254,8 +256,11 @@ pub(crate) fn base_from(dto: BaseDto, values: &HashMap<String, ParamValue>) -> R
                 "unknown preset base '{other}' (use today, now, or an absolute/absolute_utc/parameter object)"
             ))),
         },
-        // A parametric base takes its date from a `date` parameter (docs/04 4.2).
-        BaseDto::Object { parameter: Some(id), .. } => match values.get(&id) {
+        // A parametric base takes its date from a `date` parameter (docs/04 4.2). Matched with the
+        // other two fields absent, like every arm here: this arm used to match `parameter: Some(id), ..`
+        // first, so a base naming a parameter AND an absolute date took the parameter and dropped the
+        // date without a word (R4-N33).
+        BaseDto::Object { absolute: None, absolute_utc: None, parameter: Some(id) } => match values.get(&id) {
             Some(ParamValue::Date(civil)) => Ok(Base::Absolute(*civil)),
             Some(ParamValue::Duration { .. }) => {
                 Err(PresetError::BadFile(format!("base parameter '{id}' must be a date, not a duration")))
@@ -265,14 +270,6 @@ pub(crate) fn base_from(dto: BaseDto, values: &HashMap<String, ParamValue>) -> R
             }
             None => Err(PresetError::BadFile(format!("base parameter '{id}' has no value"))),
         },
-        // Both at once is a contradiction, not a preference order: the file says the moment is both
-        // local wall-clock and a fixed instant, and picking one silently would make the preset land
-        // somewhere the author did not write.
-        BaseDto::Object { absolute: Some(_), absolute_utc: Some(_), parameter: None } => {
-            Err(PresetError::BadFile(
-                "preset base has both 'absolute' and 'absolute_utc' - a moment is either session-zone wall-clock or a UTC instant, not both".into(),
-            ))
-        }
         BaseDto::Object { absolute: Some(s), absolute_utc: None, parameter: None } => {
             let civil = chrono_core::calc::parse_civil_datetime(&s).map_err(PresetError::BadFile)?;
             Ok(Base::Absolute(civil))
@@ -297,7 +294,96 @@ pub(crate) fn base_from(dto: BaseDto, values: &HashMap<String, ParamValue>) -> R
         BaseDto::Object { absolute: None, absolute_utc: None, parameter: None } => Err(PresetError::BadFile(
             "preset base object needs 'absolute', 'absolute_utc' or 'parameter'".into(),
         )),
+        // More than one: `parse_preset` refuses the file before a base like this is resolved, and
+        // this arm keeps the match honest for any caller that did not come through it.
+        base @ BaseDto::Object { .. } => Err(base_contradiction(&base_fields(&base))),
     }
+}
+
+/// The base fields an object base names, in the order docs/04 lists them.
+fn base_fields(dto: &BaseDto) -> Vec<&'static str> {
+    match dto {
+        BaseDto::Keyword(_) => Vec::new(),
+        BaseDto::Object { absolute, absolute_utc, parameter } => [
+            ("absolute", absolute.is_some()),
+            ("absolute_utc", absolute_utc.is_some()),
+            ("parameter", parameter.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(name, set)| set.then_some(name))
+        .collect(),
+    }
+}
+
+/// A base naming more than one field is a contradiction, not a preference order (R4-N33). Session-zone
+/// wall-clock, a UTC instant and a date parameter are three different moments, and picking one of
+/// them would put the preset somewhere its author did not write.
+fn base_contradiction(fields: &[&str]) -> PresetError {
+    let named = fields.iter().map(|f| format!("'{f}'")).collect::<Vec<_>>().join(" and ");
+    PresetError::BadFile(format!(
+        "preset base names {named} at once - a base is exactly one of 'absolute', 'absolute_utc' or 'parameter'"
+    ))
+}
+
+/// Refuse a preset that says two things at once, before any value fills it (R4-N33).
+///
+/// Each of these used to be settled by the order of the reader's code, and so settled differently by
+/// the two readers: a base with a date parameter and an absolute date took the parameter here and the
+/// absolute date in the window, a parametric shift dropped the `amount` and `unit` beside it, a variant
+/// shift dropped its `sign` (a variant carries its own direction), and a parameter id declared twice
+/// was filled by whichever came last. A base or shift naming a parameter the file does not declare
+/// was refused only when the preset was used, as having no value, and passing that value was then
+/// refused as an unknown parameter. None of the shipped presets does any of it. The window skips a
+/// file like this from its list, so the two surfaces refuse the same catalogue entries.
+fn refuse_contradictions(parameters: &[Parameter], moment: &MomentDto) -> Result<(), PresetError> {
+    for (i, p) in parameters.iter().enumerate() {
+        if parameters[..i].iter().any(|earlier| earlier.id == p.id) {
+            return Err(PresetError::BadFile(format!(
+                "parameter '{}' is declared twice - a value can fill only one of them",
+                p.id
+            )));
+        }
+    }
+    let fields = base_fields(&moment.base);
+    if fields.len() > 1 {
+        return Err(base_contradiction(&fields));
+    }
+    if let BaseDto::Object { parameter: Some(id), .. } = &moment.base {
+        refuse_undeclared(parameters, "the base", id)?;
+    }
+    for step in &moment.steps {
+        let StepDto::Shift(shift) = step else { continue };
+        let Some(id) = &shift.parameter else { continue };
+        refuse_undeclared(parameters, "a shift", id)?;
+        if shift.amount.is_some() || shift.unit.is_some() {
+            return Err(PresetError::BadFile(format!(
+                "a shift with parameter '{id}' also names an amount or a unit - the parameter gives the size, so write one or the other"
+            )));
+        }
+        let variant = parameters.iter().any(|p| &p.id == id && p.kind == ParamKind::Variant);
+        if variant && shift.sign.is_some() {
+            return Err(PresetError::BadFile(format!(
+                "a shift with variant parameter '{id}' also names a sign - a variant carries its own direction, so the sign would be ignored"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A moment naming a parameter the file does not declare. Ids compare with case, as `--param` does.
+fn refuse_undeclared(parameters: &[Parameter], place: &str, id: &str) -> Result<(), PresetError> {
+    if parameters.iter().any(|p| p.id == id) {
+        return Ok(());
+    }
+    let declared = if parameters.is_empty() {
+        "it declares none".to_string()
+    } else {
+        let ids = parameters.iter().map(|p| format!("'{}'", p.id)).collect::<Vec<_>>().join(", ");
+        format!("it declares {ids}")
+    };
+    Err(PresetError::BadFile(format!(
+        "{place} names parameter '{id}', which the preset does not declare in 'parameters' - {declared}"
+    )))
 }
 
 /// Map a preset step to a core `Step`, reusing the CLI parsers so a preset speaks the same step
@@ -365,6 +451,7 @@ pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
         )));
     }
     let parameters = dto.parameters.into_iter().map(parse_parameter).collect::<Result<Vec<_>, _>>()?;
+    refuse_contradictions(&parameters, &dto.moment)?;
     let time_mode = time_mode_from(dto.time_mode)?;
     Ok(Preset {
         id: dto.id,
@@ -685,12 +772,17 @@ pub(crate) fn load_preset(id: &str) -> Result<Preset, PresetError> {
     // Same ceiling as a calendar, for the same reason: a catalogue file is outside input, and this was
     // an unbounded read.
     let text = crate::calendar::read_catalogue_file(&path).map_err(PresetError::BadFile)?;
-    // Named here, where the id is known: "time_mode multiplier must be >= 1" said what was wrong and
-    // not in which of fourteen files (R4-S12).
-    parse_preset(&text).map_err(|e| match e {
-        PresetError::BadFile(m) => PresetError::BadFile(format!("preset '{id}': {m}")),
+    // Named here, where the id and the file are known: "time_mode multiplier must be >= 1" said what
+    // was wrong and not in which of fourteen files (R4-S12), and then not where that file was - a
+    // calendar's error always said so, a preset's never did (R4-N37).
+    let in_file = |m: String| format!("preset '{id}': {m} (in {})", path.display());
+    let preset = parse_preset(&text).map_err(|e| match e {
+        PresetError::BadFile(m) => PresetError::BadFile(in_file(m)),
+        PresetError::NotBuilt(m) => PresetError::NotBuilt(in_file(m)),
         other => other,
-    })
+    })?;
+    check_declared_id("preset", &path, &preset.id, id).map_err(PresetError::BadFile)?;
+    Ok(preset)
 }
 
 #[cfg(test)]
@@ -1019,6 +1111,103 @@ mod tests {
         let m = resolve_no_params(parse_preset(json).unwrap()).unwrap();
         assert_eq!(m.base, Base::Today);
         assert!(m.steps.is_empty());
+    }
+
+    /// R4-N33. Every one of these used to load and be settled by the order of the reader's code: the
+    /// parameter beat the absolute date, the parameter's size beat the `amount` and `unit` beside it,
+    /// the variant's direction beat the written sign, and the second of two parameters with one id beat
+    /// the first. Now each is a bad file naming what it says twice.
+    #[test]
+    fn a_preset_that_says_two_things_at_once_is_refused() {
+        let preset = |parameters: &str, moment: &str| {
+            format!(
+                r#"{{"schema":"chronomock.preset/1","id":"x","name":{{"en":"n"}},"explains":{{"en":"e"}},
+                "applies_to":"calculator","parameters":[{parameters}],"moment":{moment}}}"#
+            )
+        };
+        let date = r#"{"id":"d","type":"date","default":"2020-01-01"}"#;
+        let size = r#"{"id":"n","type":"duration","default":{"amount":1,"unit":"days"}}"#;
+        let side = r#"{"id":"v","type":"variant","default":"day_after"}"#;
+        for (text, needle) in [
+            (preset(date, r#"{"base":{"absolute":"2030-01-01T00:00:00","parameter":"d"}}"#), "'absolute' and 'parameter'"),
+            (preset(date, r#"{"base":{"absolute_utc":"2030-01-01T00:00:00Z","parameter":"d"}}"#), "'absolute_utc' and 'parameter'"),
+            (
+                preset("", r#"{"base":{"absolute":"2030-01-01T00:00:00","absolute_utc":"2030-01-01T00:00:00Z"}}"#),
+                "'absolute' and 'absolute_utc'",
+            ),
+            (
+                preset(size, r#"{"base":"today","steps":[{"shift":{"sign":"+","amount":100,"unit":"years","parameter":"n"}}]}"#),
+                "an amount or a unit",
+            ),
+            (preset(size, r#"{"base":"today","steps":[{"shift":{"sign":"+","unit":"years","parameter":"n"}}]}"#), "an amount or a unit"),
+            (preset(side, r#"{"base":"today","steps":[{"shift":{"sign":"-","parameter":"v"}}]}"#), "its own direction"),
+            (preset(&format!("{date},{date}"), r#"{"base":{"parameter":"d"}}"#), "declared twice"),
+        ] {
+            let err = parse_preset(&text).expect_err("a contradiction is refused");
+            assert!(matches!(err, PresetError::BadFile(_)), "{}", err.message());
+            assert!(err.message().contains(needle), "{needle}: {}", err.message());
+        }
+
+        // The shapes the shipped presets use say one thing each: a duration shift with its sign, a
+        // variant shift without one, and a base naming one field.
+        for text in [
+            preset(size, r#"{"base":"today","steps":[{"shift":{"sign":"+","parameter":"n"}}]}"#),
+            preset(side, r#"{"base":"today","steps":[{"shift":{"parameter":"v"}}]}"#),
+            preset(date, r#"{"base":{"parameter":"d"}}"#),
+        ] {
+            parse_preset(&text).unwrap_or_else(|e| panic!("{}", e.message()));
+        }
+    }
+
+    /// A base or shift naming a parameter the file does not declare used to load, and was refused only
+    /// when used, as "has no value" - and `--param` with that id was then refused as unknown, so the
+    /// two messages sent the user in a circle. Now the file is refused, naming the id and what it does
+    /// declare. Ids compare with case, as `--param` compares them.
+    #[test]
+    fn a_moment_naming_an_undeclared_parameter_is_refused() {
+        let preset = |parameters: &str, moment: &str| {
+            format!(
+                r#"{{"schema":"chronomock.preset/1","id":"x","name":{{"en":"n"}},"explains":{{"en":"e"}},
+                "applies_to":"calculator","parameters":[{parameters}],"moment":{moment}}}"#
+            )
+        };
+        let date = r#"{"id":"d","type":"date","default":"2020-01-01"}"#;
+        let size = r#"{"id":"n","type":"duration","default":{"amount":1,"unit":"days"}}"#;
+        for (text, needle) in [
+            (preset(size, r#"{"base":"today","steps":[{"shift":{"sign":"+","parameter":"m"}}]}"#), "a shift names parameter 'm'"),
+            (preset("", r#"{"base":"today","steps":[{"shift":{"parameter":"v"}}]}"#), "a shift names parameter 'v'"),
+            (preset(date, r#"{"base":{"parameter":"e"}}"#), "the base names parameter 'e'"),
+            (preset(date, r#"{"base":{"parameter":"D"}}"#), "the base names parameter 'D'"),
+        ] {
+            let err = parse_preset(&text).expect_err("an undeclared parameter is refused");
+            assert!(matches!(err, PresetError::BadFile(_)), "{}", err.message());
+            assert!(err.message().contains(needle), "{needle}: {}", err.message());
+            assert!(err.message().contains("does not declare"), "{}", err.message());
+        }
+        let err = parse_preset(&preset(&format!("{date},{size}"), r#"{"base":{"parameter":"e"}}"#)).unwrap_err();
+        assert!(err.message().contains("it declares 'd', 'n'"), "{}", err.message());
+        let err = parse_preset(&preset("", r#"{"base":{"parameter":"e"}}"#)).unwrap_err();
+        assert!(err.message().contains("it declares none"), "{}", err.message());
+    }
+
+    /// Every preset in `presets/` loads the way `--preset` loads it, found by its own id (R4-D14).
+    /// The golden test above names fourteen files, so a fifteenth was read by nothing.
+    #[test]
+    fn every_shipped_preset_loads_under_its_own_name() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../presets");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&dir).expect("the presets folder") {
+            let path = entry.expect("an entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let stem = path.file_stem().and_then(|s| s.to_str()).expect("a file name").to_string();
+            let text = crate::calendar::read_catalogue_file(&path).unwrap_or_else(|e| panic!("{stem}: {e}"));
+            let preset = parse_preset(&text).unwrap_or_else(|e| panic!("{stem}: {}", e.message()));
+            check_declared_id("preset", &path, &preset.id, &stem).unwrap_or_else(|e| panic!("{e}"));
+            seen += 1;
+        }
+        assert!(seen >= 14, "the fourteen shipped presets at least, found {seen}");
     }
 
     /// The calculator honours `applies_to`: substitution-only presets are not calculator questions.

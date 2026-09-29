@@ -78,3 +78,99 @@ fn days_from_now_counts_from_today_in_the_result_zone() {
         assert!(text.contains("days from now today"), "{session} -> {result}:\n{text}");
     }
 }
+
+/// A scratch catalogue: `calendars/` and `presets/` holding the given files, byte for byte. Nothing
+/// sits beside the binary under test, so it reads both from its working directory, which is this.
+fn catalogue(name: &str, files: &[(&str, Vec<u8>)]) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("chrono-calc-cli-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (path, bytes) in files {
+        let path = dir.join(path);
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("the catalogue folder");
+        std::fs::write(&path, bytes).expect("a catalogue file");
+    }
+    dir
+}
+
+fn calc_in(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_chrono"))
+        .current_dir(dir)
+        .arg("calc")
+        .args(args)
+        .args(["--zone", "+00:00"])
+        .output()
+        .expect("the tool must run")
+}
+
+/// R4-N37 and R4-N33 as a user meets them, through `--calendar` and `--preset`. A file saved with a
+/// byte order mark loads (it used to be "expected value at line 1 column 1"), a file whose id is not
+/// its name is refused naming both (it used to be loaded and quoted under the id inside it), a broken
+/// preset names its file (a calendar's error always did), a preset that says two things at once is
+/// refused instead of settled by whichever field the reader looked at first, and so is one whose moment
+/// names a parameter it does not declare.
+#[test]
+fn a_catalogue_file_loads_as_saved_and_is_named_when_refused() {
+    let calendar = |id: &str| {
+        format!(
+            r#"{{"schema":"chronomock.calendar/1","id":"{id}","country":"XX","weekend":["saturday","sunday"],"observed":"none","holidays":[]}}"#
+        )
+        .into_bytes()
+    };
+    let preset = |id: &str, base: &str| {
+        format!(
+            r#"{{"schema":"chronomock.preset/1","id":"{id}","name":{{"en":"n","pl":"n"}},"explains":{{"en":"e","pl":"e"}},"applies_to":"calculator","parameters":[{{"id":"d","type":"date","default":"2020-01-01"}}],"moment":{{"base":{base}}}}}"#
+        )
+        .into_bytes()
+    };
+    let with_bom = |bytes: Vec<u8>| [vec![0xEF, 0xBB, 0xBF], bytes].concat();
+    let dir = catalogue(
+        "load",
+        &[
+            ("calendars/bom.json", with_bom(calendar("bom"))),
+            ("calendars/other.json", calendar("pl")),
+            ("presets/bom.json", with_bom(preset("bom", r#"{"parameter":"d"}"#))),
+            ("presets/renamed.json", preset("month-end", r#"{"parameter":"d"}"#)),
+            ("presets/broken.json", br#"{"schema":"chronomock.preset/1","id":"broken""#.to_vec()),
+            ("presets/both.json", preset("both", r#"{"absolute":"2030-01-01T00:00:00","parameter":"d"}"#)),
+            ("presets/undeclared.json", preset("undeclared", r#"{"parameter":"e"}"#)),
+        ],
+    );
+
+    let out = calc_in(&dir, &["--calendar", "bom", "--base", "2026-07-01T12:00:00", "--shift", "+1bd"]);
+    assert_eq!(out.status.code(), Some(0), "a calendar with a byte order mark: {}", stderr(&out));
+    let out = calc_in(&dir, &["--preset", "bom"]);
+    assert_eq!(out.status.code(), Some(0), "a preset with a byte order mark: {}", stderr(&out));
+
+    let out = calc_in(&dir, &["--calendar", "other", "--base", "2026-07-01T12:00:00"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("'pl'") && err.contains("'other'") && err.contains("other.json"), "{err}");
+    let out = calc_in(&dir, &["--preset", "renamed"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("'month-end'") && err.contains("'renamed'"), "{err}");
+
+    let out = calc_in(&dir, &["--preset", "broken"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("broken.json"), "a broken preset names its file: {err}");
+
+    let out = calc_in(&dir, &["--preset", "both"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(err.contains("'absolute' and 'parameter'"), "the contradiction is named: {err}");
+
+    // A base naming a parameter the file does not declare used to say "has no value", and passing the
+    // value was then refused as an unknown parameter. With or without it, the file is what is refused.
+    for args in [&["--preset", "undeclared"][..], &["--preset", "undeclared", "--param", "e=2030-01-01"]] {
+        let out = calc_in(&dir, args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(1), "{err}");
+        assert!(
+            err.contains("parameter 'e'") && err.contains("does not declare") && err.contains("undeclared.json"),
+            "the undeclared parameter and its file are named: {err}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
