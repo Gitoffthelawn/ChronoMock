@@ -732,9 +732,9 @@ fn ensure_watcher() {
 
 /// The rest of `ensure_watcher`, out of line: it runs once per process (or a few times after a failed
 /// start), and keeping it apart keeps the check above small enough to stay inside every detour. The
-/// retry grew this part, and a hooked clock read measured about 1.5 ns dearer than on main with it in
-/// the same function (tools/probes/r4-6/hotpath.ps1, pairs against main) - the split is the suspected
-/// remedy, and the pairs after it are still to be run on a quiet machine.
+/// retry grew this part, and with it in the same function a hooked clock read measured about 1.5 ns
+/// dearer than on main - after the split, 0.25 ns (median of six pairs of 200 million reads,
+/// tools/probes/r4-6/hotpath.ps1, alternating builds).
 #[cold]
 #[inline(never)]
 fn start_watcher() {

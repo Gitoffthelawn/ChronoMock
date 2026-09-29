@@ -109,6 +109,28 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **An application its session let go starts its children on the real clock.** A session often ends
+  with the application still running - `--ticks`, Stop, a core that stopped - and the application
+  then goes back to the real clock. Its later children did not: each one was followed into the
+  session, found the session's control data that the application still held, and stayed on the
+  session's date for good, after an ordered end and after a stopped core alike. Once a second session
+  had started, such a child joined that one instead, read its date and was counted in its audit as if
+  the second session's application had started it. Measured on an application of our own, x64 and
+  x86: a child started five seconds after the end read 2030, the session's year, and with a second
+  session running it read that session's 2040. Such a child is now started as it would be without
+  Chrono Mock and reads the real date, and a hook that finds a session it cannot confirm as alive and
+  its own refuses to join it rather than joining whatever is there. The next session's first line
+  also said "a previous core had died" after every ordered end - it now says the previous session
+  ended while its application kept running, and that application is on the real clock.
+- **A session keeps a process it follows whoever the system names as its parent.** A session lasts
+  while any process on its clock runs, and it recognised such a process by the parent the system lists
+  for it. A process started with a parent chosen for it was not recognised, so the session could end
+  under it. It is now recognised by when it was created, and the parent is asked only when that
+  cannot be read.
+- **The process that lets an application go when the session ends gives up less easily.** One failed
+  attempt to start it left the application on the session's clock after the end, and one failed wait
+  on the session let the application go while the session was still running. Both are now tried
+  again.
 - **A console application no longer reads or writes the session's own channel.** `chrono run` and
   the window talk to the session over the standard input and output of the process that runs it,
   and a console application the session started was handed both. Measured on a console application
