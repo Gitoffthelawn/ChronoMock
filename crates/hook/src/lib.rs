@@ -646,7 +646,7 @@ unsafe fn late_scan() { unsafe {
         log(&format!("[chrono_hook] late: enable_all_hooks: {e:?}"));
         return;
     }
-    if let Some(c) = cov_ptr() {
+    if let Some(c) = joined_cov() {
         // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
         // intersection, so this order cannot produce a warning about a channel the report does not
         // list - and the other order could not either. Stated rather than left to luck.
@@ -851,8 +851,43 @@ fn ft_to_i64(ft: FILETIME) -> i64 {
     (((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64) as i64
 }
 
+/// This process's coverage slot, while the session it joined still holds it (R4-W2).
+///
+/// After the core is gone the slot is nobody's evidence any more - and once a new core has reclaimed the
+/// block, the same slot belongs to the NEXT session, whose report would count this application's calls
+/// as its own target's (read from the code before the fix, `tools/probes/r4-6`). One relaxed load, on
+/// the hottest path the product has: the flag is one-way and publishes nothing, the reasoning
+/// `ensure_watcher` gives for the same load.
+fn live_cov() -> Option<*mut Cov> {
+    if DETACHED.load(Ordering::Relaxed) {
+        return None;
+    }
+    cov_ptr()
+}
+
+/// The slot for the writes that are rare enough to afford a look at the block itself: a child that was
+/// not followed, a late channel. Past `live_cov` it asks whether the block still names the session this
+/// process joined, which closes the window between a reclaim and the watcher noticing its core is gone.
+fn joined_cov() -> Option<*mut Cov> {
+    let c = live_cov()?;
+    still_ours(ctl_ptr()? as *const Ctl).then_some(c)
+}
+
+/// Whether the session this process joined is over, as far as it can tell right now: the watcher saw its
+/// core go, or the block names another session. Asked before a child is followed, so a process the
+/// session left running starts its children as it would without us (R4-W2).
+fn session_over() -> bool {
+    if detached() {
+        return true;
+    }
+    match ctl_ptr() {
+        Some(p) => !still_ours(p as *const Ctl),
+        None => true,
+    }
+}
+
 fn bump(idx: usize) {
-    if let Some(p) = cov_ptr() {
+    if let Some(p) = live_cov() {
         unsafe { bump_calls(p, idx) }
     }
 }
@@ -1424,7 +1459,7 @@ impl Drop for WaitGuard {
 /// exactly a partial: the wait is still shortened, just not by M. Counting it here, in the process
 /// that made the call, keeps it attributable like every other piece of per-process evidence.
 fn note_wait_at_floor() {
-    if let Some(p) = cov_ptr() {
+    if let Some(p) = live_cov() {
         unsafe { bump_waits_at_floor(p) }
     }
 }
@@ -2065,7 +2100,7 @@ unsafe extern "system" fn h_ntcup(
     if direct && status >= 0 && !process_handle.is_null() {
         let child = HANDLE(*(process_handle as *const *mut c_void));
         let pid = GetProcessId(child);
-        if let Some(c) = cov_ptr() {
+        if let Some(c) = joined_cov() {
             record_uncovered_child(c, pid);
         }
     }
@@ -2203,7 +2238,9 @@ unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspende
             // process simply would not appear anywhere in the audit (R2-S2). The mechanism turns a
             // non-zero count into `inheritance.child_not_injected`, and the pid lets it NAME the
             // process that ran on the real clock (the 32-bit child of a 64-bit parent, typically).
-            if let Some(c) = cov_ptr() {
+            // Asked again rather than trusted from the caller's check: the injection can take seconds,
+            // and a session that ended meanwhile must not have a child written into its slot.
+            if let Some(c) = joined_cov() {
                 bump_uninjected_children(c);
                 record_uncovered_child(c, info.dwProcessId);
             }
@@ -2233,6 +2270,12 @@ unsafe extern "system" fn h_cpw(
         Some(o) => o,
         None => return 0,
     };
+    if session_over() {
+        // The session let this process go, so its children are the application's business: started
+        // with the caller's own flags and nothing injected (R4-W2). Following them used to put a child
+        // started after the end on the session's date for good, or on the next session's.
+        return o(app, cmd, pa, ta, inherit, flags, env, cwd, si, pi);
+    }
     let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     // SPAWNING held across the original: the NtCreateUserProcess it funnels into is not counted as a
     // direct spawn (this child is already being inherited below). Cleared before inherit_into_child.
@@ -2264,6 +2307,9 @@ unsafe extern "system" fn h_cpa(
         Some(o) => o,
         None => return 0,
     };
+    if session_over() {
+        return o(app, cmd, pa, ta, inherit, flags, env, cwd, si, pi); // as in h_cpw (R4-W2)
+    }
     let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     let r = {
         let _g = enter_spawning();
