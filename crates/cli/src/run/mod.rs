@@ -157,13 +157,14 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
 
     // Stream events. Send `end` after `--ticks` state heartbeats. With ticks 0 nothing is sent and the
     // session ends by itself (ADR-16). Either way, read through to `ended`.
-    let Streamed { collected, timed_out, skipped } = stream_session(&mut child, &mut stdin, &ra, now_bias);
+    let Streamed { collected, timed_out, skipped, first_skipped } = stream_session(&mut child, &mut stdin, &ra, now_bias);
     drop(stdin);
-    if skipped > 0 {
+    if let Some(first) = first_skipped {
         // Nothing but the core writes on that stream (R4-W1), so a line that is not an event is a
         // fault somewhere, and one skipped in silence would be the fault hidden (rule 6).
-        let (noun, verb) = if skipped == 1 { ("line", "was") } else { ("lines", "were") };
-        diag!("chrono: skipped {skipped} {noun} on the core's output that {verb} not protocol events");
+        for line in skipped_notice(skipped, &first) {
+            diag!("{line}");
+        }
     }
 
     let status = child.wait();
@@ -215,11 +216,65 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
 }
 
 /// What reading the session produced: the events gathered, which limit cut the read short when one
-/// did, and how many lines on the core's output were not events.
+/// did, how many lines on the core's output were not events, and what the first of those looked like.
 struct Streamed {
     collected: Collector,
     timed_out: Option<&'static str>,
     skipped: u64,
+    first_skipped: Option<String>,
+}
+
+impl Streamed {
+    /// Count one skipped line, keeping what the first one looked like. The first is the one closest to
+    /// whatever started writing there, and a count alone gives a tester nothing to report.
+    fn skip(&mut self, what: String) {
+        self.skipped += 1;
+        if self.first_skipped.is_none() {
+            self.first_skipped = Some(what);
+        }
+    }
+}
+
+/// One line of the core's output as the read loop takes it: the line without its ending, and what it
+/// is - `None` for an empty line, the event, or a line that is not one, described for the notice.
+fn read_event(raw: &str) -> (&str, Option<Result<Event, String>>) {
+    let line = raw.strip_suffix('\n').unwrap_or(raw);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    if line.is_empty() {
+        return (line, None);
+    }
+    (line, Some(chrono_proto::parse_event(line).map_err(|_| skipped_sample(line))))
+}
+
+/// How many characters of a skipped line the driver shows. The window keeps the same start of such a
+/// line in its diagnostics block (`CoreClient.NoiseSampleChars`), because the start is what says what
+/// wrote it, and a line can run to `MAX_PROTOCOL_LINE`.
+const SKIPPED_SAMPLE_CHARS: usize = 200;
+
+/// The start of a skipped line as the driver prints it: without its line ending, cut at
+/// `SKIPPED_SAMPLE_CHARS` characters, and escaped, so a control character in it reaches the terminal as
+/// text rather than as an instruction to the terminal.
+fn skipped_sample(text: &str) -> String {
+    let text = text.trim_end_matches(['\r', '\n']);
+    let cut: String = text.chars().take(SKIPPED_SAMPLE_CHARS).collect();
+    let more = if cut.len() < text.len() { "..." } else { "" };
+    format!("{cut:?}{more}")
+}
+
+/// What the driver says about the lines it skipped, one sentence to a line: what it means for the
+/// report, and what to report. The count alone said neither (R4/5 review round).
+fn skipped_notice(skipped: u64, first: &str) -> [String; 2] {
+    let (what, pronoun, which) = if skipped == 1 {
+        ("a line on the core's output that was not a protocol event".to_string(), "it", "The line")
+    } else {
+        (format!("{skipped} lines on the core's output that were not protocol events"), "they", "The first of them")
+    };
+    [
+        format!("chrono: skipped {what}, so the report may be missing what {pronoun} said"),
+        format!(
+            "chrono: only the core writes there, so this is a fault in Chrono Mock rather than in the application. {which}: {first}"
+        ),
+    ]
 }
 
 /// Read the core's events until `ended`, the end of the stream, or a limit, acting on each heartbeat
@@ -233,7 +288,7 @@ fn stream_session(
     ra: &RunArgs,
     now_bias: i32,
 ) -> Streamed {
-    let mut streamed = Streamed { collected: Collector::default(), timed_out: None, skipped: 0 };
+    let mut streamed = Streamed { collected: Collector::default(), timed_out: None, skipped: 0, first_skipped: None };
     let mut beats = Heartbeats::default();
     // Why the read runs on its own thread rather than in this loop: the driver has to be able to
     // give up. Reading straight from the pipe here had no time limit and no liveness check, so a
@@ -263,8 +318,8 @@ fn stream_session(
         let core_gone = clock.note_core(matches!(child.try_wait(), Ok(Some(_))));
         let raw = match line_rx.recv_timeout(clock.budget()) {
             Ok(Incoming::Line(line)) => line,
-            Ok(Incoming::Unreadable) => {
-                streamed.skipped += 1;
+            Ok(Incoming::Unreadable(what)) => {
+                streamed.skip(what);
                 continue;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -278,16 +333,16 @@ fn stream_session(
                 break;
             }
         };
-        let line = raw.strip_suffix('\n').unwrap_or(&raw);
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        if line.is_empty() {
-            continue;
-        }
         // Only an event goes on: to `--json`, which is a stream of events and nothing else, and to
         // the idle clock, which a line that says nothing must not keep alive.
-        let Ok(event) = chrono_proto::parse_event(line) else {
-            streamed.skipped += 1;
-            continue;
+        let (line, read) = read_event(&raw);
+        let event = match read {
+            None => continue,
+            Some(Ok(event)) => event,
+            Some(Err(what)) => {
+                streamed.skip(what);
+                continue;
+            }
         };
         clock.event_seen();
         if ra.json {
@@ -312,27 +367,49 @@ fn stream_session(
 }
 
 /// What the reading thread hands on: a line of text, or word that a line was skipped because it was
-/// not text or ran past the cap.
+/// not text or ran past the cap, with what it looked like.
 enum Incoming {
     Line(String),
-    Unreadable,
+    Unreadable(String),
 }
+
+/// How many lines the reading thread holds for the loop before it waits for the loop to take one.
+///
+/// Every other input channel in this tool is bounded, the window's copy of this one included
+/// (`CoreClient.MaxQueuedEvents`), and this one was not: a loop held up behind a slow reader of `--json`
+/// let the queue grow for as long as the session ran (R4/5 review round). The core writes about one
+/// event a second, so the bound is over an hour of heartbeats. Waiting is the right full-behaviour for
+/// the same reason as in the window: dropping a line could lose a verdict or an `ended`, while a core
+/// kept waiting on its own output only pauses until the loop catches up.
+const MAX_QUEUED_LINES: usize = 4096;
 
 /// The thread that reads the core's stdout line by line and hands each line on, until the stream
 /// ends or cannot be read. A line that is not UTF-8, or runs past the cap, is reported and skipped
 /// rather than ending the read (R4-W1): one bad line used to cost the whole session its verdict.
+///
+/// Nobody joins this thread, on purpose. Its read ends at EOF, which comes only when every holder of
+/// the pipe's write end has let go, and that is not the driver's to decide. Today it comes as the core
+/// exits, because the Chromium mode's browser dies with the core's job and a native target never gets
+/// the handle (R4-W1), but a join would put the driver's own exit behind whatever holds it next. The
+/// loop gives up by dropping the receiver instead, and the thread then ends at the next line it tries
+/// to hand on, or with the process.
 fn spawn_line_reader<R: std::io::Read + Send + 'static>(stdout: R) -> mpsc::Receiver<Incoming> {
-    let (line_tx, line_rx) = mpsc::channel::<Incoming>();
+    let (line_tx, line_rx) = mpsc::sync_channel::<Incoming>(MAX_QUEUED_LINES);
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
         let mut raw = Vec::new();
         loop {
             let incoming = match read_line_bytes(&mut reader, &mut raw) {
                 Ok(LineRead::Eof) | Err(_) => break,
-                Ok(LineRead::TooLong) => Incoming::Unreadable,
+                Ok(LineRead::TooLong) => {
+                    Incoming::Unreadable(format!("a line of {} bytes or more", crate::wire::MAX_PROTOCOL_LINE))
+                }
                 Ok(LineRead::Line) => match String::from_utf8(std::mem::take(&mut raw)) {
                     Ok(line) => Incoming::Line(line),
-                    Err(_) => Incoming::Unreadable,
+                    Err(e) => Incoming::Unreadable(format!(
+                        "{} (not UTF-8)",
+                        skipped_sample(&String::from_utf8_lossy(e.as_bytes()))
+                    )),
                 },
             };
             if line_tx.send(incoming).is_err() {
@@ -480,17 +557,123 @@ mod tests {
         input.extend(vec![b'x'; crate::wire::MAX_PROTOCOL_LINE + 1]);
         input.extend_from_slice(b"\n{\"type\":\"ended\"}\n");
         let rx = spawn_line_reader(std::io::Cursor::new(input));
-        let got: Vec<Option<String>> = rx
+        let got: Vec<Result<String, String>> = rx
             .iter()
             .map(|incoming| match incoming {
-                Incoming::Line(line) => Some(line),
-                Incoming::Unreadable => None,
+                Incoming::Line(line) => Ok(line),
+                Incoming::Unreadable(what) => Err(what),
             })
             .collect();
-        assert_eq!(
-            got,
-            vec![None, Some("{\"type\":\"state\"}\n".to_string()), None, Some("{\"type\":\"ended\"}\n".to_string())]
-        );
+        assert_eq!(got.len(), 4, "{got:?}");
+        assert_eq!(got[1], Ok("{\"type\":\"state\"}\n".to_string()));
+        assert_eq!(got[3], Ok("{\"type\":\"ended\"}\n".to_string()));
+
+        // What a skipped line looked like travels with it, because the driver shows the first one: the
+        // text read leniently when it was not UTF-8, and only its length when it ran past the cap.
+        let not_text = got[0].as_ref().expect_err("the CP852 line is skipped");
+        assert!(not_text.contains(char::REPLACEMENT_CHARACTER) && not_text.contains(" z 127.0.0.1"), "{not_text}");
+        assert!(not_text.ends_with("\" (not UTF-8)"), "the line ending is not part of the sample: {not_text}");
+        let too_long = got[2].as_ref().expect_err("the long line is skipped");
+        assert_eq!(too_long, &format!("a line of {} bytes or more", crate::wire::MAX_PROTOCOL_LINE));
+    }
+
+    /// A skipped line is printed as its start, escaped (R4/5 review round). The line came from a stream
+    /// that has stopped making sense, so a control character in it must reach the terminal as text.
+    #[test]
+    fn a_skipped_line_is_shown_cut_and_escaped() {
+        let escape = char::from(27u8);
+        let shown = skipped_sample(&format!("{escape}[2J wiped\r\n"));
+        assert!(!shown.contains(escape), "a control character reached the output: {shown}");
+        assert_eq!(shown, format!("{:?}", format!("{escape}[2J wiped")));
+
+        let long = "\u{17C}".repeat(SKIPPED_SAMPLE_CHARS + 50);
+        let cut = skipped_sample(&long);
+        assert_eq!(cut, format!("{:?}...", "\u{17C}".repeat(SKIPPED_SAMPLE_CHARS)), "cut at characters, not bytes");
+        assert_eq!(skipped_sample("short"), "\"short\"", "a line under the limit is not marked as cut");
+    }
+
+    /// A line that does not parse is skipped with its start kept, the FIRST one is what the notice
+    /// shows, and every one is counted (R4/5 review round).
+    #[test]
+    fn a_line_that_is_not_an_event_is_counted_and_the_first_one_kept() {
+        let event = r#"{"type":"session_verdict","v":1,"verdict":"works","reason_key":"session.family_covered","process_count":1}"#;
+        let raw = format!("{event}\r\n");
+        let (line, read) = read_event(&raw);
+        assert_eq!(line, event, "the line ending is not part of the line --json passes on");
+        assert!(matches!(read, Some(Ok(Event::SessionVerdict { .. }))));
+        assert!(read_event("\r\n").1.is_none(), "an empty line is neither an event nor skipped");
+
+        let mut streamed = Streamed { collected: Collector::default(), timed_out: None, skipped: 0, first_skipped: None };
+        for raw in ["Reply from 127.0.0.1\r\n", "Progress 40%\n"] {
+            match read_event(raw).1 {
+                Some(Err(what)) => streamed.skip(what),
+                other => panic!("{raw:?} read as {other:?}"),
+            }
+        }
+        assert_eq!(streamed.skipped, 2);
+        assert_eq!(streamed.first_skipped.as_deref(), Some("\"Reply from 127.0.0.1\""));
+    }
+
+    /// The notice says what a skipped line means for the report and gives the tester something to
+    /// report. It used to be a count and nothing else (R4/5 review round).
+    #[test]
+    fn the_notice_about_skipped_lines_says_what_they_cost_and_shows_the_first() {
+        let [one_cost, one_what] = skipped_notice(1, "\"x\"");
+        assert!(one_cost.contains("skipped a line on the core's output that was not a protocol event"), "{one_cost}");
+        assert!(one_cost.ends_with("the report may be missing what it said"), "{one_cost}");
+        assert!(one_what.contains("a fault in Chrono Mock rather than in the application"), "{one_what}");
+        assert!(one_what.ends_with("The line: \"x\""), "{one_what}");
+
+        let [many_cost, many_what] = skipped_notice(3, "\"x\"");
+        assert!(many_cost.contains("skipped 3 lines on the core's output that were not protocol events"), "{many_cost}");
+        assert!(many_cost.ends_with("what they said"), "{many_cost}");
+        assert!(many_what.ends_with("The first of them: \"x\""), "{many_what}");
+    }
+
+    /// The reading thread stops taking lines from the core once the loop has `MAX_QUEUED_LINES`
+    /// waiting (R4/5 review round). Unbounded, a loop held up behind a slow reader of `--json` let the
+    /// queue grow for as long as the session ran.
+    #[test]
+    fn the_reader_waits_when_the_loop_falls_behind() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        /// A core that has far more to say than the bound, counting what the reader took.
+        struct Talkative {
+            left: usize,
+            taken: Arc<AtomicUsize>,
+        }
+        impl std::io::Read for Talkative {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let lines = (buf.len() / 3).min(self.left);
+                for slot in buf[..lines * 3].chunks_mut(3) {
+                    slot.copy_from_slice(b"{}\n");
+                }
+                self.left -= lines;
+                self.taken.fetch_add(lines, Ordering::SeqCst);
+                Ok(lines * 3)
+            }
+        }
+
+        let total = MAX_QUEUED_LINES * 100;
+        let taken = Arc::new(AtomicUsize::new(0));
+        let rx = spawn_line_reader(Talkative { left: total, taken: Arc::clone(&taken) });
+        // Nothing is received here, so a bounded reader settles at its bound and an unbounded one at
+        // everything. Settled means three looks in a row with no change, after the reader has started.
+        let (mut last, mut same) = (0, 0);
+        for _ in 0..100 {
+            std::thread::sleep(Duration::from_millis(50));
+            let now = taken.load(Ordering::SeqCst);
+            same = if now == last && now > 0 { same + 1 } else { 0 };
+            last = now;
+            if same == 3 {
+                break;
+            }
+        }
+        assert_eq!(same, 3, "the reader never settled, at {last} lines taken");
+        assert!(last >= MAX_QUEUED_LINES, "the reader stopped before the queue was full: {last}");
+        assert!(last < total / 2, "the reader took {last} of {total} lines with nobody receiving them");
+        drop(rx);
     }
 
     /// The idle limit counts from the last EVENT and the drain window from the core's death, so

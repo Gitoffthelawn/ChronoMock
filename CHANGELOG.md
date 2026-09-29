@@ -108,22 +108,23 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 - **A console application no longer reads or writes the session's own channel.** `chrono run` and
   the window talk to the session over the standard input and output of the process that runs it,
-  and a console application the session started was handed both. Measured on a console program of
-  our own: a line written in a Polish console code page ended the reading, so the run printed no
+  and a console application the session started was handed both. Measured on a console application
+  of our own: a line written in a Polish console code page ended the reading, so the run printed no
   verdict and exited 0, and `--json` carried no events at all. A progress bar written without a line
-  break glued the heartbeat after it to its text, and every heartbeat was lost. A program reading
-  its input took the command `--ticks 3` sends, and the run took 8.4 seconds instead of 3. With the
-  core stopped two seconds in, `--timeout 5` still waited 20 seconds, for as long as the application
-  kept writing. And once the session was over, the application's writes failed. The application
-  never gets those handles now, and the same runs give the verdict, every heartbeat, 3.4 seconds,
-  2.5 seconds and writes that succeed. Where its output goes instead is under Changed.
+  break glued the heartbeat after it to its text, and every heartbeat was lost. An application
+  reading its input took the command `--ticks 3` sends, and the run took 8.4 seconds instead of 3.
+  With the core stopped two seconds in, `--timeout 5` still waited 20 seconds, for as long as the
+  application kept writing. And once the session was over, the application's writes failed. The
+  application never gets those handles now, and the same runs give the verdict, every heartbeat, 3.4
+  seconds, 2.5 seconds and writes that succeed. Where its output goes instead is under Changed.
 - **`chrono run` reads past a line it cannot use.** One byte that was not UTF-8, or one line over
   the 1 MiB protocol limit, ended the read and took the rest of the session with it, verdict
-  included. Such a line is now skipped, the run says at the end how many it skipped, and the idle
-  limit counts from the last event rather than from the last line of any kind. The window reads the
-  session the same way. It splits lines only at a line feed, skips a line that is not UTF-8 or too
-  long instead of patching or growing it, ignores an event of another protocol version, and keeps
-  such lines apart in its diagnostics, where they used to push out the session's own messages.
+  included. Such a line is now skipped, and the run says at the end how many it skipped, that the
+  report may be missing what they said, and how the first one began. The idle limit counts from the
+  last event rather than from the last line of any kind. The window reads the session the same way.
+  It splits lines only at a line feed, skips a line that is not UTF-8 or too long instead of
+  patching or growing it, ignores an event of another protocol version, and keeps such lines apart
+  in its diagnostics, where they used to push out the session's own messages.
 - **Two holidays observed on the same day are two days off.** Under `weekend_to_mon`, Christmas on a
   Saturday and Boxing Day on a Sunday both moved to the Monday, so the Tuesday counted as a business
   day. An observed holiday that lands on a day already off, another holiday or a weekend day, now
