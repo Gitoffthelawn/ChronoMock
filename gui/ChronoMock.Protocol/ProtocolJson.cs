@@ -14,6 +14,14 @@ public static class ProtocolJson
     public const int ProtocolVersion = 1;
 
     /// <summary>
+    /// The longest protocol line a reader takes (mirrors <c>MAX_PROTOCOL_LINE</c> in <c>crates/cli/src/wire.rs</c>,
+    /// checked by <c>RustConstantMirrorTests</c>). A line of this many bytes or more, its newline not counted,
+    /// is read to its end and skipped whole rather than handed on cut, because the rest of it would arrive as
+    /// the next line (R4-N52).
+    /// </summary>
+    public const int MaxProtocolLine = 1024 * 1024;
+
+    /// <summary>
     /// Shared options: omit null fields on write (the core omits <c>None</c> via serde
     /// <c>skip_serializing_if</c>), and ignore unknown fields on read (additive evolution, docs/08 section 2).
     /// </summary>

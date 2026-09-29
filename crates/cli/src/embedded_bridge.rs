@@ -455,7 +455,7 @@ mod tests {
     use super::*;
 
     fn target(embedded: bool) -> TargetSpec {
-        TargetSpec { path: "C:/apps/host.exe".into(), args: Vec::new(), cwd: None, embedded }
+        TargetSpec { path: "C:/apps/host.exe".into(), args: Vec::new(), cwd: None, embedded, console: Default::default() }
     }
 
     /// The opt-out means no variable in the environment and nothing to look for. On, the machine is

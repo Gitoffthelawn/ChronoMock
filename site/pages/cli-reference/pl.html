@@ -162,7 +162,10 @@
           <tr>
             <td><code>--json</code></td>
             <td>Wypisuje sesję jako rekordy maszynowe zamiast raportu - ten sam strumień, który
-              konsumuje okno aplikacji.</td>
+              konsumuje okno aplikacji. Wyjście samej aplikacji konsolowej trafia na standardowe
+              wyjście błędów, więc na standardowym wyjściu są tylko rekordy. Aplikacja, która
+              działa jeszcze po końcu sesji, pisze tam dalej, więc to, co czyta wyjście błędów do
+              końca, czeka na nią, i przebieg mówi o tym wprost.</td>
           </tr>
         </tbody>
       </table>

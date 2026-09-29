@@ -47,6 +47,53 @@ pub(crate) fn read_protocol_line<R: BufRead>(reader: &mut R, line: &mut String) 
 }
 
 
+/// What one bounded read of a line found (see [`read_line_bytes`]).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LineRead {
+    /// The stream ended.
+    Eof,
+    /// A line, in the buffer, with its newline when it had one.
+    Line,
+    /// A line past [`MAX_PROTOCOL_LINE`], read to its end and dropped.
+    TooLong,
+}
+
+/// Read one line as bytes, bounded like [`read_protocol_line`], for a reader that skips what it
+/// cannot use rather than stopping.
+///
+/// The driver reading the core is that reader (R4-W1). It used to read text and stop at the first
+/// byte that was not UTF-8 or the first line past the cap, and a target that shared the core's stdout
+/// wrote exactly such bytes: a program writing in a Polish console's code page was enough (measured
+/// with a probe writing CP852, `tools/probes/r4-5`). The target is kept off the protocol
+/// now, but a reader that ends a session over one bad line hands the next such writer the same power.
+/// So the bytes come back as they are, the caller decides whether they are text, and a line over the
+/// cap is consumed to its newline so the next read starts on the next line.
+pub(crate) fn read_line_bytes<R: BufRead>(reader: &mut R, line: &mut Vec<u8>) -> std::io::Result<LineRead> {
+    line.clear();
+    // UFCS for the same reason as in `read_protocol_line`.
+    let n = std::io::Read::take(&mut *reader, MAX_PROTOCOL_LINE as u64).read_until(b'\n', line)?;
+    if n == 0 {
+        return Ok(LineRead::Eof);
+    }
+    if n < MAX_PROTOCOL_LINE || line.last() == Some(&b'\n') {
+        return Ok(LineRead::Line);
+    }
+    loop {
+        let buffered = reader.fill_buf()?;
+        if buffered.is_empty() {
+            break;
+        }
+        if let Some(at) = buffered.iter().position(|&b| b == b'\n') {
+            reader.consume(at + 1);
+            break;
+        }
+        let len = buffered.len();
+        reader.consume(len);
+    }
+    line.clear();
+    Ok(LineRead::TooLong)
+}
+
 /// Which of the two transport failures ended the stream.
 ///
 /// They are separate keys because they are separate mistakes on the client's side and have separate
@@ -146,6 +193,42 @@ mod tests {
 
     /// The protocol line was the only input channel in this tool without a bound, so a writer that
     /// never sent a newline grew the reader's buffer as long as it liked.
+    /// The skipping reader: a line with bytes that are not UTF-8 comes back as bytes, a line past the
+    /// cap is dropped whole, and in both cases the NEXT line is read intact - the property the driver
+    /// needs to keep reading the core past a bad line (R4-W1).
+    #[test]
+    fn a_bad_or_endless_line_is_skipped_and_the_next_one_is_read_whole() {
+        let mut input = b"Odpowied\xAB z 127.0.0.1\r\n".to_vec();
+        input.extend(vec![b'x'; MAX_PROTOCOL_LINE + 10]);
+        input.extend_from_slice(b"\n{\"type\":\"ended\"}\nlast line without a newline");
+        let mut reader = std::io::BufReader::new(std::io::Cursor::new(input));
+        let mut line = Vec::new();
+
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::Line);
+        assert!(String::from_utf8(line.clone()).is_err(), "the bytes come back as they are");
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::TooLong);
+        assert!(line.is_empty());
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::Line);
+        assert_eq!(line, b"{\"type\":\"ended\"}\n");
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::Line);
+        assert_eq!(line, b"last line without a newline");
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::Eof);
+    }
+
+    /// A line of exactly the cap that ends in its newline is a line, not an over-long one.
+    #[test]
+    fn a_line_exactly_at_the_cap_is_still_a_line() {
+        let mut input = vec![b'x'; MAX_PROTOCOL_LINE - 1];
+        input.push(b'\n');
+        input.extend_from_slice(b"next\n");
+        let mut reader = std::io::BufReader::new(std::io::Cursor::new(input));
+        let mut line = Vec::new();
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::Line);
+        assert_eq!(line.len(), MAX_PROTOCOL_LINE);
+        assert_eq!(read_line_bytes(&mut reader, &mut line).unwrap(), LineRead::Line);
+        assert_eq!(line, b"next\n");
+    }
+
     #[test]
     fn a_protocol_line_that_never_ends_is_refused() {
         let endless = vec![b'x'; MAX_PROTOCOL_LINE + 10];

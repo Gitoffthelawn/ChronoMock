@@ -64,9 +64,14 @@ pub(crate) fn start_time_mode(time: &TimeSpec) -> Result<TimeMode, &'static str>
 /// Emit one event line and flush immediately - a piped stdout is block-buffered,
 /// so without the flush the driver would hang waiting for `ready`.
 pub(crate) fn emit(ev: &Event) {
+    // The line and its newline as one buffer handed over at once: `writeln!` gave stdout's line
+    // writer the event and the newline in pieces, and a line past its buffer went out in two writes,
+    // leaving room for anyone else on the pipe to land between them (R4-W1).
+    let mut line = ev.to_ndjson();
+    line.push('\n');
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
-    let _ = writeln!(lock, "{}", ev.to_ndjson());
+    let _ = lock.write_all(line.as_bytes());
     let _ = lock.flush();
 }
 

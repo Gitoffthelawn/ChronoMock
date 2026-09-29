@@ -13,6 +13,16 @@ public sealed record TargetSpec
     /// port (docs/09). On by default, the opt-out is the panel's checkbox. Ignored for a target that IS
     /// Chromium, which the core drives over its own port either way.</summary>
     [JsonPropertyName("embedded")] public bool Embedded { get; init; } = true;
+
+    /// <summary>Where a console program's console is (mirrors <c>chrono_proto::TargetConsole</c>, docs/08,
+    /// ADR-17): <see cref="SharedConsole"/> gives it the core's console and stderr, <see cref="NewConsole"/>
+    /// a console window of its own. Neither hands it the core's stdin or stdout, which carry this protocol.
+    /// Written out rather than left to the core's default, like <see cref="Embedded"/>, so the wire says
+    /// what the client decided. A value the core does not know makes it refuse the whole start.</summary>
+    [JsonPropertyName("console")] public string Console { get; init; } = SharedConsole;
+
+    public const string SharedConsole = "shared";
+    public const string NewConsole = "new";
 }
 
 /// <summary>A DevTools endpoint the session reached inside the application: the pid that holds it,

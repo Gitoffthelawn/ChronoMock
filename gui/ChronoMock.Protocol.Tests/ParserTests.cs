@@ -128,6 +128,9 @@ public class ParserTests
         // Reaching the web pages inside the application is the default, and it is written out rather
         // than left to the core's default, so the wire says what the panel decided (docs/09).
         Assert.Contains("\"embedded\":true", json, StringComparison.Ordinal);
+        // The same for the target's console: a client that says nothing gets the core's default, and it is
+        // written out as that default (ADR-17).
+        Assert.Contains("\"console\":\"shared\"", json, StringComparison.Ordinal);
         Assert.Contains("\"tz_bias_min\":0", json, StringComparison.Ordinal);
         Assert.DoesNotContain("\"cwd\"", json, StringComparison.Ordinal); // null is omitted on write
         Assert.DoesNotContain("\"multiplier\"", json, StringComparison.Ordinal); // null is omitted on write

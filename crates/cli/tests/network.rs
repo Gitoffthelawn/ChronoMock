@@ -193,6 +193,14 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          interpreter, which pings the loopback address, and nothing reaches past this machine",
     ),
     (
+        "crates/cli/tests/target_console.rs",
+        "spawn",
+        "runs the built binary on the command interpreter, which prints a line, reads its input and \
+         pings the loopback address, to see the target stay off the protocol: its line on stderr, \
+         none of it among the events, and the end of the session reaching the core. Nothing reaches \
+         past this machine",
+    ),
+    (
         "crates/cli/tests/session_clock.rs",
         "spawn",
         "runs the command interpreter twice, once alone as the control and once under a session \

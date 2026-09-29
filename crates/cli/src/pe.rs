@@ -271,6 +271,36 @@ pub(crate) fn is_pe_image(target_path: &Path) -> Option<bool> {
     Some(names_a_program(&header, pe, length))
 }
 
+/// Where the subsystem field sits in the optional header - the same offset for PE32 and PE32+ - and
+/// the value that marks a program with a window, `IMAGE_SUBSYSTEM_WINDOWS_GUI` in the PE format.
+const SUBSYSTEM_AT: usize = OPTIONAL_AT + 68;
+const SUBSYSTEM_WINDOWS_GUI: u16 = 2;
+
+/// Whether the target is a program with a window (the GUI subsystem) rather than a console program,
+/// read from its PE header. `None` when the file is not one this can read.
+///
+/// Asked before a native start, because the two are started differently (R4-D17): a console program
+/// gets its standard handles explicitly, so it never shares the protocol, and a program with a window
+/// gets none, as a terminal starts it. The doubt leans to "console": explicit handles are safe for
+/// any program, while a console program taken for a windowed one would get the core's own handles.
+pub(crate) fn is_windowed_program(target_path: &Path) -> Option<bool> {
+    let mut file = File::open(target_path).ok()?;
+    let pe = pe_pointer(&read_bytes(&mut file, 0, DOS_HEADER)?)?;
+    let header = read_bytes(&mut file, pe, SUBSYSTEM_AT as u64 + 2)?;
+    windowed_subsystem(&header)
+}
+
+/// The subsystem answer from a PE header read at the signature: `None` unless the signature is there,
+/// the magic is PE32 or PE32+ and the optional header is long enough to hold the field.
+fn windowed_subsystem(header: &[u8]) -> Option<bool> {
+    let optional_size = usize::from(u16_at(header, 20)?);
+    let magic = u16_at(header, OPTIONAL_AT)?;
+    if header.get(..4)? != PE_SIGNATURE || !matches!(magic, 0x10B | 0x20B) || optional_size < SUBSYSTEM_AT - OPTIONAL_AT + 2 {
+        return None;
+    }
+    Some(u16_at(header, SUBSYSTEM_AT)? == SUBSYSTEM_WINDOWS_GUI)
+}
+
 /// Whether `header`, read at file offset `pe`, starts the PE header of a program: see `is_pe_image`
 /// for what each condition is and that Windows refuses a file failing it. A header shorter than
 /// `PROGRAM_HEADER` is a file ending inside it, which is a "no".
@@ -823,6 +853,46 @@ mod tests {
         says("optional-size-zero", &no_optional, Some(false));
 
         assert_eq!(is_pe_image(Path::new("no such file anywhere.exe")), None);
+        for p in probes {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    /// The subsystem field, in both PE flavours and wherever the header sits, tells a program with a
+    /// window from a console program (R4-D17). Anything this cannot read is "do not know", which a
+    /// start treats as a console program - the direction that can never hand over the protocol.
+    #[test]
+    fn a_program_with_a_window_is_told_from_a_console_program_by_its_subsystem() {
+        let with = |magic: u16, subsystem: u16| {
+            let mut pe = program(magic);
+            pe[0x80 + SUBSYSTEM_AT..0x80 + SUBSYSTEM_AT + 2].copy_from_slice(&subsystem.to_le_bytes());
+            pe
+        };
+        let mut probes = Vec::new();
+        let mut says = |name: &str, bytes: &[u8], expected: Option<bool>| {
+            let path = write_probe(name, bytes);
+            assert_eq!(is_windowed_program(&path), expected, "{name}");
+            probes.push(path);
+        };
+        says("windowed-pe32", &with(0x10B, SUBSYSTEM_WINDOWS_GUI), Some(true));
+        says("windowed-pe32plus", &with(0x20B, SUBSYSTEM_WINDOWS_GUI), Some(true));
+        says("console-pe32", &with(0x10B, 3), Some(false));
+        says("console-pe32plus", &with(0x20B, 3), Some(false));
+        says("windowed-header-at-4k", &header_moved(&with(0x20B, SUBSYSTEM_WINDOWS_GUI), 0x1100), Some(true));
+
+        says("script", b"@echo off\r\necho hello\r\n", None);
+        says("rom-magic", &{
+            let mut rom = with(0x20B, SUBSYSTEM_WINDOWS_GUI);
+            rom[0x80 + 24..0x80 + 26].copy_from_slice(&0x107u16.to_le_bytes());
+            rom
+        }, None);
+        says("optional-too-short", &{
+            let mut short = with(0x20B, SUBSYSTEM_WINDOWS_GUI);
+            short[0x80 + 20..0x80 + 22].copy_from_slice(&60u16.to_le_bytes());
+            short
+        }, None);
+        says("cut-before-subsystem", &with(0x20B, SUBSYSTEM_WINDOWS_GUI)[..0x80 + SUBSYSTEM_AT], None);
+        assert_eq!(is_windowed_program(Path::new("no such file anywhere.exe")), None);
         for p in probes {
             let _ = std::fs::remove_file(p);
         }
