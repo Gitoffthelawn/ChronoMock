@@ -302,8 +302,6 @@ static CORE_HANDLE: OnceLock<usize> = OnceLock::new();
 /// The pid of the core that owned the control block when this process joined its session. Kept so
 /// every anchor read can confirm the block is still that session's (R2-S6, `still_ours`).
 static CORE_PID: OnceLock<u32> = OnceLock::new();
-/// When that core was created, read with its pid - the other half of the session's identity (R4-W2).
-static CORE_CREATED: OnceLock<u64> = OnceLock::new();
 static DETACHED: AtomicBool = AtomicBool::new(false);
 static WATCHER_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -729,6 +727,17 @@ fn ensure_watcher() {
     if WATCHER_STARTED.load(Ordering::Relaxed) {
         return;
     }
+    start_watcher();
+}
+
+/// The rest of `ensure_watcher`, out of line: it runs once per process (or a few times after a failed
+/// start), and keeping it apart keeps the check above small enough to stay inside every detour. The
+/// retry grew this part, and a hooked clock read measured about 1.5 ns dearer than on main with it in
+/// the same function (tools/probes/r4-6/hotpath.ps1, pairs against main) - the split is the suspected
+/// remedy, and the pairs after it are still to be run on a quiet machine.
+#[cold]
+#[inline(never)]
+fn start_watcher() {
     if CORE_HANDLE.get().is_some()
         && WATCHER_STARTED
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -800,16 +809,17 @@ fn detached() -> bool {
 /// call, inside the ±5 ns the probe's timer can even resolve. Unreachable today, free, and the only
 /// path on which a target could be handed another session's clock - so it stays.
 ///
-/// The session is named by the pid AND the creation time of its core (R4-W2): a pid is recycled once
-/// its process is gone, and a new core that reclaimed the block under the same number would otherwise
-/// pass for ours. The pid is read FIRST. The reclaiming core writes the creation time before the pid,
-/// so a reader that sees the new pid also sees the new time and tells the two apart.
+/// The pid alone is enough HERE, though joining asks for the core's creation time as well (R4-W2).
+/// A pid is recycled only once no handle to its process is left, and this process holds one to its core
+/// for as long as it lives (`CORE_HANDLE`, opened when it joined, never closed) - so no new core can ever
+/// appear under our core's number while we watch. The creation time matters where no handle is held
+/// yet, in `install`. Comparing it here as well was measured to cost about 0.8 ns on every clock read
+/// (tools/probes/r4-6/hotpath.ps1, pairs against main) for a case that cannot happen.
 fn still_ours(p: *const Ctl) -> bool {
     let Some(&mine) = CORE_PID.get() else {
         return true; // no owner was ever recorded (pre-session install): behave as before
     };
-    let created = CORE_CREATED.get().copied().unwrap_or(0);
-    if unsafe { read_core_pid(p) } == mine && unsafe { read_core_created(p) } == created {
+    if unsafe { read_core_pid(p) } == mine {
         return true;
     }
     // One-way, like the watcher's flag: a block that stopped being ours never becomes ours again.
@@ -2790,7 +2800,6 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
     let _ = TZ_BIAS.set(read_tz_bias(ctl as *const Ctl));
     // The session we joined, for `still_ours` (R2-S6), and the core the watcher waits on.
     let _ = CORE_PID.set(core_pid);
-    let _ = CORE_CREATED.set(core_created);
     if let Some(h) = core {
         let _ = CORE_HANDLE.set(h.0 as usize);
     }
