@@ -10,16 +10,53 @@
 //!
 //! A member is watched through a handle opened the first time its sign-in slot is seen, so a pid the
 //! system recycles later cannot keep the session alive. The one gap left is a member that ended and
-//! had its pid recycled before that first look - a child poll is 100 ms apart - and it is closed by
-//! asking the process snapshot who started the process behind the handle: a recycled pid belongs to a
-//! process started by somebody outside the family.
+//! had its pid recycled before that first look - a child poll is 100 ms apart. It is closed by the
+//! creation time the member's hook wrote into its slot: the process behind the handle either was
+//! created then, or is somebody else under the same number (R4-N12). Where that cannot be asked, the
+//! process snapshot answers instead, by who started the process: a recycled pid belongs to a process
+//! started by somebody outside the family. The snapshot alone used to decide, and it turned away a
+//! real member whose parent it did not know - a child started with a parent chosen for it
+//! (`PROC_THREAD_ATTRIBUTE_PARENT_PROCESS`), which the session then ended under.
 
 use std::collections::HashSet;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT};
-use windows::Win32::System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE};
+use windows::Win32::System::Threading::{
+    OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+};
 
+use crate::process_created;
 use crate::tree::{process_entries, ProcessEntry};
+
+/// One process that signed in to the session: its registry slot, its pid, and the creation time its hook
+/// recorded (0 when it recorded none).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SignedIn {
+    pub(crate) slot: usize,
+    pub(crate) pid: u32,
+    pub(crate) created: u64,
+}
+
+/// What the creation time says about the process behind a handle opened by a member's pid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Identity {
+    /// Created when its slot says: the member itself.
+    Same,
+    /// Created at another time: somebody else got the pid.
+    Other,
+    /// Not known - the slot holds no time, or the handle does not allow the question.
+    Unknown,
+}
+
+/// Compare the time a member's hook recorded with the time the process behind the handle was created.
+fn identity(recorded: u64, now: Option<u64>) -> Identity {
+    match now {
+        _ if recorded == 0 => Identity::Unknown,
+        None => Identity::Unknown,
+        Some(t) if t == recorded => Identity::Same,
+        Some(_) => Identity::Other,
+    }
+}
 
 /// A process of the family that was still running when the session last looked, named by the file
 /// of its executable when the snapshot had it.
@@ -53,31 +90,28 @@ impl Family {
     }
 
     /// Start watching every process that signed in since the last call, and stop watching the ones
-    /// that ended. `published` is every `(slot, pid)` signed in so far, the launched one included.
-    pub(crate) fn refresh(&mut self, root_pid: u32, published: &[(usize, u32)]) {
-        let mut opened: Vec<(usize, u32, HANDLE)> = Vec::new();
-        for &(slot, pid) in published {
+    /// that ended. `published` is every process signed in so far, the launched one included.
+    pub(crate) fn refresh(&mut self, root_pid: u32, published: &[SignedIn]) {
+        let mut opened: Vec<(usize, u32, HANDLE, Identity)> = Vec::new();
+        for member in published {
+            let slot = member.slot;
             let Some(Watch::Unseen) = self.watch.get(slot) else {
                 continue;
             };
             if Some(slot) == self.root_slot {
                 continue;
             }
-            // Waiting is all the handle is for, so waiting is all it asks: a process that grants that and
-            // denies more stays watchable. One that denies even this cannot be told from one that ended
-            // (both fail to open), so it counts as ended - the session then ends as it did before ADR-16,
-            // rather than holding on to a process it can never see close.
-            // SAFETY: a plain open by pid. The handle is closed below once the process ends, or in `Drop`.
-            match unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) } {
-                Ok(handle) => opened.push((slot, pid, handle)),
-                Err(_) => self.watch[slot] = Watch::Done,
+            // SAFETY: plain opens by pid. The handle is closed below once the process ends, or in `Drop`.
+            match unsafe { open_member(member.pid, member.created) } {
+                Some((handle, id)) => opened.push((slot, member.pid, handle, id)),
+                None => self.watch[slot] = Watch::Done,
             }
         }
         if !opened.is_empty() {
-            let known: HashSet<u32> = std::iter::once(root_pid).chain(published.iter().map(|&(_, pid)| pid)).collect();
+            let known: HashSet<u32> = std::iter::once(root_pid).chain(published.iter().map(|m| m.pid)).collect();
             let entries = process_entries().ok();
-            for (slot, pid, handle) in opened {
-                self.watch[slot] = match member_of_family(pid, &known, entries.as_deref()) {
+            for (slot, pid, handle, id) in opened {
+                self.watch[slot] = match membership(id, pid, &known, entries.as_deref()) {
                     Some(image) => Watch::Living { pid, handle, image },
                     None => {
                         // SAFETY: opened above and owned by nobody else.
@@ -125,6 +159,35 @@ impl Drop for Family {
                 }
             }
         }
+    }
+}
+
+/// Open a member by pid for waiting, with what its creation time says about it, or `None` when it
+/// cannot be opened at all.
+///
+/// Waiting is what the handle is for, and the creation time is asked for beside it. A process that
+/// grants waiting and denies the question stays watchable, just without the time. One that denies even
+/// waiting cannot be told from one that ended (both fail to open), so it counts as ended - the session
+/// then ends as it did before ADR-16, rather than holding on to a process it can never see close.
+///
+/// # Safety
+/// A plain open by pid. The caller owns the handle it gets back.
+unsafe fn open_member(pid: u32, created: u64) -> Option<(HANDLE, Identity)> { unsafe {
+    if let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
+        return Some((handle, identity(created, process_created(handle))));
+    }
+    OpenProcess(PROCESS_SYNCHRONIZE, false, pid).ok().map(|handle| (handle, Identity::Unknown))
+}}
+
+/// Whether the process behind a freshly opened handle is the one that signed in, and its image name when
+/// it is. The creation time decides when it can (R4-N12): the same time is the member whatever the
+/// snapshot says about its parent, another time is a stranger. Without a time, `member_of_family` asks
+/// the snapshot as it always did.
+fn membership(id: Identity, pid: u32, known: &HashSet<u32>, entries: Option<&[ProcessEntry]>) -> Option<Option<String>> {
+    match id {
+        Identity::Same => Some(entries.and_then(|list| list.iter().find(|e| e.pid == pid)).map(|e| e.image.clone())),
+        Identity::Other => None,
+        Identity::Unknown => member_of_family(pid, known, entries),
     }
 }
 
@@ -178,6 +241,33 @@ mod tests {
         assert_eq!(member_of_family(30, &known, None), Some(None));
     }
 
+    /// The creation time decides whenever the slot holds one (R4-N12): the same time is the member even
+    /// when the snapshot names a parent outside the family, another time is a stranger even when the
+    /// parent is known. Only a slot without a time falls back to the parent test.
+    #[test]
+    fn the_creation_time_decides_membership_before_the_parent_does() {
+        let known = HashSet::from([10, 20]);
+        let list = [entry(30, 99, "app.exe")];
+        assert_eq!(membership(Identity::Same, 30, &known, Some(&list)), Some(Some("app.exe".to_string())));
+        assert_eq!(membership(Identity::Same, 30, &known, None), Some(None));
+        let adopted = [entry(30, 20, "app.exe")];
+        assert_eq!(membership(Identity::Other, 30, &known, Some(&adopted)), None);
+        assert_eq!(membership(Identity::Unknown, 30, &known, Some(&list)), None);
+        assert_eq!(membership(Identity::Unknown, 30, &known, Some(&adopted)), Some(Some("app.exe".to_string())));
+    }
+
+    #[test]
+    fn a_creation_time_names_the_process_only_when_both_sides_have_one() {
+        assert_eq!(identity(5, Some(5)), Identity::Same);
+        assert_eq!(identity(5, Some(6)), Identity::Other);
+        assert_eq!(identity(5, None), Identity::Unknown);
+        assert_eq!(identity(0, Some(5)), Identity::Unknown, "a slot without a time proved something");
+    }
+
+    fn signed(slot: usize, pid: u32, created: u64) -> SignedIn {
+        SignedIn { slot, pid, created }
+    }
+
     #[test]
     fn the_launched_process_and_a_slot_seen_before_are_left_alone() {
         // The launched process is the session's own to watch, and a slot is looked at once: neither
@@ -185,7 +275,7 @@ mod tests {
         let me = std::process::id();
         let mut family = Family::new(4, Some(0));
         family.watch[1] = Watch::Done;
-        family.refresh(me, &[(0, me), (1, me)]);
+        family.refresh(me, &[signed(0, me, 0), signed(1, me, 0)]);
         assert!(family.living().is_empty());
         assert!(matches!(family.watch[0], Watch::Unseen));
         assert!(matches!(family.watch[1], Watch::Done));
@@ -199,15 +289,39 @@ mod tests {
         let entries = process_entries().expect("the snapshot is readable");
         let parent = entries.iter().find(|e| e.pid == me).expect("this process is listed").parent;
         let mut family = Family::new(4, Some(0));
-        family.refresh(parent, &[(0, parent), (2, me)]);
+        family.refresh(parent, &[signed(0, parent, 0), signed(2, me, 0)]);
         let living = family.living();
         assert_eq!(living.len(), 1, "{living:?}");
         assert_eq!(living[0].pid, me);
         assert!(living[0].image.as_deref().is_some_and(|i| !i.is_empty()), "{living:?}");
-        // Signed in by a parent outside the family: not a member, and no handle kept.
+        // Signed in by a parent outside the family, with no time to vouch for it: not a member, and no
+        // handle kept.
         let mut stranger = Family::new(4, Some(0));
-        stranger.refresh(u32::MAX - 1, &[(0, u32::MAX - 1), (2, me)]);
+        stranger.refresh(u32::MAX - 1, &[signed(0, u32::MAX - 1, 0), signed(2, me, 0)]);
         assert!(stranger.living().is_empty());
         assert!(matches!(stranger.watch[2], Watch::Done));
+    }
+
+    /// A member whose parent the family never saw - started with a parent chosen for it - is still a
+    /// member when its slot's creation time matches (R4-N12), and a time that does not match turns
+    /// away even a process whose parent is known.
+    #[test]
+    fn a_member_with_an_unknown_parent_is_kept_by_its_creation_time() {
+        let me = std::process::id();
+        // SAFETY: the pseudo-handle of this process.
+        let created = unsafe { process_created(windows::Win32::System::Threading::GetCurrentProcess()) }
+            .expect("this process can read its own creation time");
+        let mut adopted = Family::new(4, Some(0));
+        adopted.refresh(u32::MAX - 1, &[signed(0, u32::MAX - 1, 0), signed(2, me, created)]);
+        let living = adopted.living();
+        assert_eq!(living.len(), 1, "a member vouched for by its creation time was turned away: {living:?}");
+        assert!(living[0].image.as_deref().is_some_and(|i| !i.is_empty()), "{living:?}");
+
+        let entries = process_entries().expect("the snapshot is readable");
+        let parent = entries.iter().find(|e| e.pid == me).expect("this process is listed").parent;
+        let mut recycled = Family::new(4, Some(0));
+        recycled.refresh(parent, &[signed(0, parent, 0), signed(2, me, created + 1)]);
+        assert!(recycled.living().is_empty(), "a process created at another time passed for the member");
+        assert!(matches!(recycled.watch[2], Watch::Done));
     }
 }

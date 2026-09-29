@@ -59,13 +59,14 @@
 
 use std::cell::Cell;
 use std::ffi::{c_void, CString};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use chrono_ctl::{
     bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at, dur_tick_at,
     header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, ReleasedAxes,
-    publish_pid, read_anchor, read_core_pid, read_dur, read_qpc, read_scale_dur, read_scale_qpc,
+    publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_ended, read_qpc,
+    read_scale_dur, read_scale_qpc, set_created,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_late_installed, wait_hit_floor, ChannelModule, Cov,
@@ -94,9 +95,10 @@ use windows::Win32::System::Memory::{
 };
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, CreateThread, GetCurrentProcessId, GetExitCodeThread, GetProcessId, OpenProcess,
-    ResumeThread, WaitForSingleObject, CREATE_SUSPENDED, INFINITE, LPTHREAD_START_ROUTINE,
-    PROCESS_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
+    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
+    GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
+    INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
 use windows::Win32::System::Time::{
     FileTimeToSystemTime, SystemTimeToFileTime, DYNAMIC_TIME_ZONE_INFORMATION, TIME_ZONE_INFORMATION,
@@ -402,21 +404,31 @@ unsafe extern "system" fn watcher_proc(_p: *mut c_void) -> u32 { unsafe {
     if let Some(&h) = CORE_HANDLE.get() {
         let handle = HANDLE(h as *mut c_void);
         let mut tries: u32 = 0;
+        let mut said = false;
         loop {
             // Look FIRST, wait second. The watcher is spawned from the first detour, which for most
             // targets fires before `main` - so by the time the loop is running the modules a target
             // pulls in early may already be there, and sleeping before the first look would hand
             // back a whole interval for nothing.
             late_scan();
-            if !late_pending() {
-                wait_raw(handle, INFINITE);
-                break;
-            }
-            let interval =
-                if tries < LATE_FAST_TRIES { LATE_POLL_FAST_MS } else { LATE_POLL_SLOW_MS };
+            let interval = if !late_pending() {
+                INFINITE
+            } else if tries < LATE_FAST_TRIES {
+                LATE_POLL_FAST_MS
+            } else {
+                LATE_POLL_SLOW_MS
+            };
             tries = tries.saturating_add(1);
-            if wait_raw(handle, interval) != WAIT_TIMEOUT_CODE {
-                break; // the core is gone (or the wait failed) - detach, do not install anything
+            match read_core_wait(wait_raw(handle, interval), || core_exit_code(handle)) {
+                CoreWait::Running => {}
+                CoreWait::Gone => break, // detach, and install nothing more
+                CoreWait::Failed => {
+                    if !said {
+                        log("[chrono_hook] a wait on the core failed while the core runs - watching on");
+                        said = true;
+                    }
+                    pause_watcher(WATCH_RETRY_MS);
+                }
             }
         }
     }
@@ -424,6 +436,52 @@ unsafe extern "system" fn watcher_proc(_p: *mut c_void) -> u32 { unsafe {
     DETACHED.store(true, Ordering::SeqCst);
     0
 }}
+
+/// `WAIT_OBJECT_0` as the raw value the trampoline returns: the core's handle was signalled.
+const WAIT_OBJECT_0_CODE: u32 = 0;
+
+/// How long the watcher pauses after a wait that failed while the core was still running, before it
+/// waits again. Long enough not to spin on a handle that keeps failing, short against a session.
+const WATCH_RETRY_MS: u32 = 100;
+
+/// What one wait on the core's handle says about the core (R4-N6).
+#[derive(Debug, PartialEq, Eq)]
+enum CoreWait {
+    /// The interval ran out and the core is still there.
+    Running,
+    /// The core is gone: its handle was signalled, or the wait failed and nothing shows it running.
+    Gone,
+    /// The wait failed, yet the core's exit code says it is still running.
+    Failed,
+}
+
+/// Read one wait on the core. Every result but a timeout used to count as the core's death, a FAILED
+/// wait included, so a single failure let the target go back to the real clock under a session that
+/// was still running. A failure now asks the core's exit code through the same handle, and only a core
+/// that has one - or that cannot be asked - is gone.
+fn read_core_wait(result: u32, exit_code: impl FnOnce() -> Option<u32>) -> CoreWait {
+    match result {
+        WAIT_TIMEOUT_CODE => CoreWait::Running,
+        WAIT_OBJECT_0_CODE => CoreWait::Gone,
+        _ if exit_code() == Some(STILL_ACTIVE_CODE) => CoreWait::Failed,
+        _ => CoreWait::Gone,
+    }
+}
+
+/// The core's exit code, or `None` when the handle cannot say. `STILL_ACTIVE_CODE` while it runs.
+fn core_exit_code(handle: HANDLE) -> Option<u32> {
+    let mut code: u32 = 0;
+    unsafe { GetExitCodeProcess(handle, &mut code) }.ok().map(|()| code)
+}
+
+/// Pause the watcher for `ms` without a `Sleep`, which the hook counts and scales as the application's
+/// own under `--scale-duration`. A wait on this thread's own handle cannot be signalled while the thread
+/// runs, so it times out after `ms`, and `wait_raw` keeps it out of the audit.
+fn pause_watcher(ms: u32) {
+    unsafe {
+        let _ = wait_raw(GetCurrentThread(), ms);
+    }
+}
 
 /// Where the duration axes stood when the core went away, set once by the watcher. `None` for as long
 /// as the session holds, and for good when the block had already been reclaimed by the time the watcher
@@ -642,7 +700,7 @@ unsafe fn late_scan() { unsafe {
         log(&format!("[chrono_hook] late: enable_all_hooks: {e:?}"));
         return;
     }
-    if let Some(c) = cov_ptr() {
+    if let Some(c) = live_cov() {
         // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
         // intersection, so this order cannot produce a warning about a channel the report does not
         // list - and the other order could not either. Stated rather than left to luck.
@@ -656,31 +714,77 @@ unsafe fn late_scan() { unsafe {
 
 /// Spawn the watcher once, lazily - NOT from DllMain, to stay clear of the loader lock.
 fn ensure_watcher() {
-    // Relaxed load first, and it is the hot path that pays for it. `detached()` calls this on EVERY
-    // detour - every clock read, every wait, every timer arm - and `compare_exchange` emits a LOCKED
+    // Relaxed load first, and it is the hot path that pays for it. `detached()` calls this on nearly
+    // every detour - every clock read, every scaled wait, every timer arm, though not the waits that are
+    // only counted (`enter_observed_wait`) - and `compare_exchange` emits a LOCKED
     // read-modify-write whether or not it succeeds. So the one-time setup below was charging a bus
     // lock to the hottest path this product has, forever, to re-learn a fact settled once.
     //
-    // A relaxed read is enough because the flag is one-way: set once, never cleared, and nothing is
-    // published alongside it (the watcher's own result travels through DETACHED). Both ways of racing
-    // are harmless - a stale `false` falls through to the CAS, which then fails exactly as it does
-    // today, and a `true` means some thread already won and there is nothing left to do.
+    // A relaxed read is enough because nothing is published alongside the flag (the watcher's own
+    // result travels through DETACHED), and it only goes back down after a failed start, below. Both
+    // ways of racing are harmless - a stale `false` falls through to the CAS, which then fails exactly
+    // as it does today, and a `true` means some thread already won, or is trying and will put the flag
+    // down for a later call if it fails.
     if WATCHER_STARTED.load(Ordering::Relaxed) {
         return;
     }
-    if CORE_HANDLE.get().is_some()
+    start_watcher();
+}
+
+/// The rest of `ensure_watcher`, out of line: it runs once per process (or a few times after a failed
+/// start), and keeping it apart keeps the check above small enough to stay inside every detour. The
+/// retry grew this part, and with it in the same function a hooked clock read measured about 1.5 ns
+/// dearer than on main - after the split, 0.25 ns (median of six pairs of 200 million reads,
+/// tools/probes/r4-6/hotpath.ps1, alternating builds).
+#[cold]
+#[inline(never)]
+fn start_watcher() {
+    if let Some(&core) = CORE_HANDLE.get()
         && WATCHER_STARTED
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
     {
+        if over_at_first_look(HANDLE(core as *mut c_void)) {
+            // What the watcher would do the moment it woke, done before this call returns, because the
+            // caller reads `DETACHED` next. No thread: there is no core left to wait on, and a session
+            // that is over installs nothing more (`watcher_proc`).
+            release_duration_axes();
+            DETACHED.store(true, Ordering::SeqCst);
+            return;
+        }
         unsafe {
-            if let Ok(h) =
-                CreateThread(None, 0, Some(watcher_proc), None, THREAD_CREATION_FLAGS(0), None)
-            {
-                let _ = CloseHandle(h);
+            match CreateThread(None, 0, Some(watcher_proc), None, THREAD_CREATION_FLAGS(0), None) {
+                Ok(h) => {
+                    let _ = CloseHandle(h);
+                }
+                Err(_) => {
+                    // The flag used to stay up after a failed start, so a process whose watcher never
+                    // ran was never let go - it stayed on the session's clock after the session, and
+                    // counted into the next one's slot (R4-N6). A later detour tries again, a bounded
+                    // number of times, so a process that cannot start threads does not pay for the
+                    // attempt on every clock read. A literal message: this runs on a detour's path.
+                    log("[chrono_hook] could not start the watcher on the core - a later call tries again");
+                    let failures = WATCHER_FAILURES.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+                    if watcher_start_again(failures) {
+                        WATCHER_STARTED.store(false, Ordering::SeqCst);
+                    }
+                }
             }
         }
     }
+}
+
+/// How many times a watcher that failed to start is tried again. Each try is one `CreateThread` on some
+/// detour's path, and a process that cannot create one thread rarely can a few calls later - but a
+/// transient failure deserves more than the single chance it used to get.
+const WATCHER_START_TRIES: u32 = 16;
+
+/// Failed starts of the watcher so far.
+static WATCHER_FAILURES: AtomicU32 = AtomicU32::new(0);
+
+/// Whether a watcher that has failed to start `failures` times gets another try.
+fn watcher_start_again(failures: u32) -> bool {
+    failures < WATCHER_START_TRIES
 }
 
 /// Has the core vanished? Also lazily starts the watcher on the first call.
@@ -713,6 +817,13 @@ fn detached() -> bool {
 /// interleaved A/B on two hook builds over the QPC path (5 pairs, 3 M calls) came out at -0.06 ns per
 /// call, inside the ±5 ns the probe's timer can even resolve. Unreachable today, free, and the only
 /// path on which a target could be handed another session's clock - so it stays.
+///
+/// The pid alone is enough HERE, though joining asks for the core's creation time as well (R4-W2).
+/// A pid is recycled only once no handle to its process is left, and this process holds one to its core
+/// for as long as it lives (`CORE_HANDLE`, opened when it joined, never closed) - so no new core can ever
+/// appear under our core's number while we watch. The creation time matters where no handle is held
+/// yet, in `install`. Comparing it here as well was measured to cost about 0.8 ns on every clock read
+/// (tools/probes/r4-6/hotpath.ps1, pairs against main) for a case that cannot happen.
 fn still_ours(p: *const Ctl) -> bool {
     let Some(&mine) = CORE_PID.get() else {
         return true; // no owner was ever recorded (pre-session install): behave as before
@@ -724,6 +835,20 @@ fn still_ours(p: *const Ctl) -> bool {
     DETACHED.store(true, Ordering::SeqCst);
     false
 }
+
+/// When the process behind `handle` was created, as one FILETIME number, or `None` when the handle does
+/// not allow the question (it needs `PROCESS_QUERY_LIMITED_INFORMATION`). The kernel's record of the
+/// system time at creation, which no hook touches and a later change of the system clock does not move
+/// (MS Learn, `GetProcessTimes`) - the same number the mechanism reads for the same process.
+///
+/// # Safety
+/// `handle` must be a process handle, or the pseudo-handle of this process.
+unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
+    let (mut created, mut exited, mut kernel, mut user) =
+        (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user).ok()?;
+    Some(ft_to_i64(created) as u64)
+}}
 
 /// Real (unbiased) monotonic anchor base - ADR-5. QUIT may be hooked for the duration
 /// axis, so prefer the trampoline (the real value) to keep our scaled output from
@@ -827,8 +952,75 @@ fn ft_to_i64(ft: FILETIME) -> i64 {
     (((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64) as i64
 }
 
+/// This process's coverage slot, while the session it joined still holds it (R4-W2).
+///
+/// After the core is gone the slot is nobody's evidence any more - and once a new core has reclaimed the
+/// block, the same slot belongs to the NEXT session, whose report would count this application's calls
+/// as its own target's (read from the code before the fix, `tools/probes/r4-6`). The flag alone left
+/// that window open until the watcher woke, and for good in a process whose watcher never started: a
+/// detour that only counts - a connection, an observed wait, a direct process creation - never calls
+/// `detached()`. So every write asks the block as well, the same pid comparison each clock read already
+/// makes after its read.
+///
+/// No measurement reached that window - a probe that kept waiting or connecting through the next
+/// session added nothing to it, with or without this check - and the check's cost could not be told
+/// from nothing: `tools/probes/r4-6/hotpath.ps1` puts two copies of the same build 0.40 ns apart (ten
+/// pairs of 200 million), and this check 0.45 ns from the same build without it. Unreachable in
+/// measurement, and free as far as it can be measured, like the check after each read (R2-S6).
+///
+/// The end mark is not asked here: the core reads every slot's final counts BEFORE it marks the end, so
+/// a count written after the mark lands in a slot nobody reads again, until a reclaim zeroes it - and
+/// after a reclaim the pid no longer matches.
+fn live_cov() -> Option<*mut Cov> {
+    if DETACHED.load(Ordering::Relaxed) {
+        return None;
+    }
+    let c = cov_ptr()?;
+    still_ours(ctl_ptr()? as *const Ctl).then_some(c)
+}
+
+/// Whether the block says the session this process joined is over: it carries the end mark, or it names
+/// another session. The mark comes first, because after an ordered end the block keeps naming this
+/// session until a new core takes it over, so `still_ours` alone reads "running" for as long as the
+/// watcher has not woken.
+fn block_says_over(ended: bool, ours: impl FnOnce() -> bool) -> bool {
+    ended || !ours()
+}
+
+/// Whether the session this process joined is over, as far as it can tell right now: the watcher saw its
+/// core go, or the block says so. Asked before a child is followed, so a process the session left running
+/// starts its children as it would without us (R4-W2).
+fn session_over() -> bool {
+    if detached() {
+        return true;
+    }
+    match ctl_ptr() {
+        Some(p) => {
+            let p = p as *const Ctl;
+            block_says_over(unsafe { read_ended(p) }, || still_ours(p))
+        }
+        None => true,
+    }
+}
+
+/// Whether the session is over at the moment this process first reaches for its watcher, which it does
+/// from its first detour, not when it joins (`ensure_watcher`). A process that touches no detour while
+/// its session runs therefore starts the watcher only after the end - and until that new thread had run,
+/// every read came back on the session's clock: measured on a probe that read no clock while its session
+/// ran, five reads in a row after the end at the session's date (`tools/probes/r4-6`, case M1).
+fn over_at_first_look(core: HANDLE) -> bool {
+    let block_over = match ctl_ptr() {
+        Some(p) => {
+            let p = p as *const Ctl;
+            block_says_over(unsafe { read_ended(p) }, || still_ours(p))
+        }
+        None => true,
+    };
+    block_over || read_core_wait(unsafe { wait_raw(core, 0) }, || core_exit_code(core)) == CoreWait::Gone
+}
+
 fn bump(idx: usize) {
-    if let Some(p) = cov_ptr() {
+    if let Some(p) = live_cov() {
         unsafe { bump_calls(p, idx) }
     }
 }
@@ -1400,7 +1592,7 @@ impl Drop for WaitGuard {
 /// exactly a partial: the wait is still shortened, just not by M. Counting it here, in the process
 /// that made the call, keeps it attributable like every other piece of per-process evidence.
 fn note_wait_at_floor() {
-    if let Some(p) = cov_ptr() {
+    if let Some(p) = live_cov() {
         unsafe { bump_waits_at_floor(p) }
     }
 }
@@ -2041,7 +2233,7 @@ unsafe extern "system" fn h_ntcup(
     if direct && status >= 0 && !process_handle.is_null() {
         let child = HANDLE(*(process_handle as *const *mut c_void));
         let pid = GetProcessId(child);
-        if let Some(c) = cov_ptr() {
+        if let Some(c) = live_cov() {
             record_uncovered_child(c, pid);
         }
     }
@@ -2179,7 +2371,9 @@ unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspende
             // process simply would not appear anywhere in the audit (R2-S2). The mechanism turns a
             // non-zero count into `inheritance.child_not_injected`, and the pid lets it NAME the
             // process that ran on the real clock (the 32-bit child of a 64-bit parent, typically).
-            if let Some(c) = cov_ptr() {
+            // Asked again rather than trusted from the caller's check: the injection can take seconds,
+            // and a session that ended meanwhile must not have a child written into its slot.
+            if let Some(c) = live_cov() {
                 bump_uninjected_children(c);
                 record_uncovered_child(c, info.dwProcessId);
             }
@@ -2209,6 +2403,12 @@ unsafe extern "system" fn h_cpw(
         Some(o) => o,
         None => return 0,
     };
+    if session_over() {
+        // The session let this process go, so its children are the application's business: started
+        // with the caller's own flags and nothing injected (R4-W2). Following them used to put a child
+        // started after the end on the session's date for good, or on the next session's.
+        return o(app, cmd, pa, ta, inherit, flags, env, cwd, si, pi);
+    }
     let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     // SPAWNING held across the original: the NtCreateUserProcess it funnels into is not counted as a
     // direct spawn (this child is already being inherited below). Cleared before inherit_into_child.
@@ -2240,6 +2440,9 @@ unsafe extern "system" fn h_cpa(
         Some(o) => o,
         None => return 0,
     };
+    if session_over() {
+        return o(app, cmd, pa, ta, inherit, flags, env, cwd, si, pi); // as in h_cpw (R4-W2)
+    }
     let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     let r = {
         let _g = enter_spawning();
@@ -2498,6 +2701,73 @@ unsafe fn make_hook<T: Copy>(
     }
 }}
 
+/// Why `install` gave up, split by what `DllMain` may still do about it.
+enum InstallError {
+    /// Nothing in this process has changed yet - no detour exists and nothing of ours is held - so the
+    /// library may unload itself: `DllMain` answers FALSE, `LoadLibraryW` returns NULL, and whoever
+    /// injected sees the load fail (MS Learn, `DllMain`). A parent that injected a child then counts it
+    /// as a child that ran on the real clock, with its pid, which is the truth (R4-D18).
+    Refused(String),
+    /// Detours may exist. Unloading the library under them would leave jumps into freed code inside
+    /// somebody else's application, so the library stays loaded, as it always did on a failure.
+    Failed(String),
+}
+
+/// Why this process must not join the session the block describes, or `None` when it may (R4-D18).
+///
+/// A block is joinable only while its session is alive and is still the one that wrote it: the core
+/// has not marked it ended, it names a core, that core can be opened and is still running, and the
+/// process under that pid was created when the block says the core was. Each test is one way a block
+/// outlives its session - an ordered end, a core that died, a pid the system gave to another process -
+/// and in each the old hook joined anyway and kept the process on a clock nobody drove.
+///
+/// "Still running" is its own test because a killed core can still be OPENED: every process of its
+/// session holds a handle to it for the watcher, which keeps the process object and its pid alive, and
+/// asking that object for its creation time answers truthfully (measured, tools/probes/r4-6 case A2).
+///
+/// `created_now` is `None` when the core could not be asked (not opened, or the query failed), which
+/// cannot confirm the session and so refuses too.
+fn join_refusal(core: &CoreLook) -> Option<&'static str> {
+    if core.ended {
+        Some("the session this control block belongs to has ended")
+    } else if core.pid == 0 {
+        Some("the control block names no core")
+    } else if !core.opened {
+        Some("the core that wrote the control block is gone, or cannot be watched from this process")
+    } else if !core.running {
+        Some("the core that wrote the control block has exited")
+    } else if core.created_now != Some(core.recorded_created) {
+        Some("the process under the core's pid is not the core that wrote the control block")
+    } else {
+        None
+    }
+}
+
+/// What `install` learned about the session's core, for `join_refusal`.
+struct CoreLook {
+    /// The block's end mark.
+    ended: bool,
+    /// The core's pid as the block records it.
+    pid: u32,
+    /// The core's creation time as the block records it.
+    recorded_created: u64,
+    /// Whether a process under that pid could be opened.
+    opened: bool,
+    /// Whether that process has not exited - a zero-length wait on it timed out.
+    running: bool,
+    /// Its creation time, when it could be read.
+    created_now: Option<u64>,
+}
+
+/// What `DllMain` answers for `DLL_PROCESS_ATTACH` after `install`: TRUE unless the install refused
+/// before anything changed (see `InstallError`).
+fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
+    match installed {
+        Err(InstallError::Refused(_)) => 0,
+        Ok(()) | Err(InstallError::Failed(_)) => 1,
+    }
+}
+
 /// Install and enable every channel's detour, wiring this process to the shared anchor.
 ///
 /// INVARIANT (P6, docs/06 ADR-3): injection assumes the target is SUSPENDED - the parent is created
@@ -2507,18 +2777,25 @@ unsafe fn make_hook<T: Copy>(
 /// no other application thread exists yet. Do NOT add a path that injects into an already-running,
 /// multi-threaded process without moving hook-enabling off the loader lock (the watcher thread is
 /// created OUTSIDE DllMain, in `ensure_watcher`, for exactly this reason).
-unsafe fn install() -> Result<(), String> { unsafe {
+unsafe fn install() -> Result<(), InstallError> { unsafe {
     let hmap = OpenFileMappingW(FILE_MAP_ALL_ACCESS.0, false, PCWSTR(chrono_ctl::CTL_SECTION_NAME_W.as_ptr()))
-        .map_err(|e| format!("OpenFileMappingW: {e:?}"))?;
+        .map_err(|e| InstallError::Refused(format!("OpenFileMappingW: {e:?}")))?;
     let view = MapViewOfFile(hmap, FILE_MAP_ALL_ACCESS, 0, 0, chrono_ctl::ctl_size());
     if view.Value.is_null() {
         // Close the mapping we opened a line ago. Once the view is mapped the handle is deliberately
         // kept for the process's life (the view outlives it either way), but on this path there is no
         // view - the handle would just sit there for as long as the target runs.
         let _ = CloseHandle(hmap);
-        return Err("MapViewOfFile returned null".into());
+        return Err(InstallError::Refused("MapViewOfFile returned null".into()));
     }
     let ctl = view.Value as *mut Ctl;
+    let give_back = |core: Option<HANDLE>| {
+        if let Some(h) = core {
+            let _ = CloseHandle(h);
+        }
+        let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
+        let _ = CloseHandle(hmap);
+    };
     // Before ANY field is read as a time. The section name is fixed and creatable by any process in
     // this session, so what is mapped here is not guaranteed to be the block our mechanism wrote -
     // and every number below decides either what the target's clock says (untouchable rule 2) or
@@ -2526,20 +2803,47 @@ unsafe fn install() -> Result<(), String> { unsafe {
     // on the real clock and the driver reports the injection as failed, rather than the target
     // silently running on a stranger's anchor while the report calls the session covered.
     if !header_is_ours(ctl as *const Ctl) {
-        let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-        let _ = CloseHandle(hmap);
-        return Err("session control block is not this build's".into());
+        give_back(None);
+        return Err(InstallError::Refused("session control block is not this build's".into()));
+    }
+
+    // Whether the session this block describes is alive, and is the one that wrote it (R4-D18). The
+    // block outlives its core for as long as any process of the session keeps it mapped, so a process
+    // that session left running can start a child long after the end - and that child used to find the
+    // block, join it, and stay on a clock nobody drives, or on the NEXT session's clock once a new core
+    // had reclaimed the block (measured before the fix, tools/probes/r4-6). All of it is decided here,
+    // before a single detour exists, so a refusal leaves the process exactly as it found it.
+    //
+    // The handle asks for `QUERY_LIMITED` beside `SYNCHRONIZE`: the creation time needs it, and so does
+    // the exit code the watcher reads when a wait fails (R4-N6).
+    let core_pid = read_core_pid(ctl as *const Ctl);
+    let core_created = read_core_created(ctl as *const Ctl);
+    let ended = read_ended(ctl as *const Ctl);
+    let core = if core_pid == 0 {
+        None
+    } else {
+        OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, core_pid).ok()
+    };
+    // No detour exists in this process yet, so this is the real wait, and nothing counts it.
+    let look = CoreLook {
+        ended,
+        pid: core_pid,
+        recorded_created: core_created,
+        opened: core.is_some(),
+        running: core.is_some_and(|h| WaitForSingleObject(h, 0).0 == WAIT_TIMEOUT_CODE),
+        created_now: core.and_then(|h| process_created(h)),
+    };
+    if let Some(why) = join_refusal(&look) {
+        give_back(core);
+        return Err(InstallError::Refused(why.into()));
     }
     let _ = CTL_PTR.set(view.Value as usize);
     let _ = TZ_BIAS.set(read_tz_bias(ctl as *const Ctl));
-
-    // Watch the core process so the target reverts to real time if the core vanishes.
-    let core_pid = read_core_pid(ctl as *const Ctl);
-    let _ = CORE_PID.set(core_pid); // the session we joined, for `still_ours` (R2-S6)
-    if core_pid != 0
-        && let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE, false, core_pid) {
-            let _ = CORE_HANDLE.set(h.0 as usize);
-        }
+    // The session we joined, for `still_ours` (R2-S6), and the core the watcher waits on.
+    let _ = CORE_PID.set(core_pid);
+    if let Some(h) = core {
+        let _ = CORE_HANDLE.set(h.0 as usize);
+    }
 
     // This process's OWN coverage slot in the shared block, so its calls are attributed to it and
     // never summed into the parent's report (rule 4). Reserved NOW, before any detour is enabled,
@@ -2560,6 +2864,9 @@ unsafe fn install() -> Result<(), String> { unsafe {
     let cov: Option<*mut Cov> = match cov_slot {
         Some(slot) => {
             let cptr = cov_at_mut(ctl, slot);
+            // Which process this slot is, beyond a pid the system will hand out again once we are gone
+            // (R4-N12). Before the pid is published, so the mechanism never reads one without the other.
+            set_created(cptr, process_created(GetCurrentProcess()).unwrap_or(0));
             let _ = COV_PTR.set(cptr as usize);
             Some(cptr)
         }
@@ -2581,8 +2888,10 @@ unsafe fn install() -> Result<(), String> { unsafe {
             if let Some(c) = cov {
                 set_channels_installed(c, 0);
             }
-
-            return Err(format!("GetModuleHandleA: kernel32 {k:?}, ntdll {n:?}"));
+            // `Failed`, not `Refused`, though no detour exists yet: the statics above already point at
+            // the block and the slot, and unwinding them for a failure that cannot realistically happen
+            // is more code on the loader lock than the case is worth. The library stays loaded, unhooked.
+            return Err(InstallError::Failed(format!("GetModuleHandleA: kernel32 {k:?}, ntdll {n:?}")));
         }
     };
 
@@ -2704,7 +3013,7 @@ unsafe fn install() -> Result<(), String> { unsafe {
             // our PID, so the mechanism never looks at the slot at all.
             set_channels_installed(c, 0);
         }
-        return Err(format!("enable_all_hooks: {e:?}"));
+        return Err(InstallError::Failed(format!("enable_all_hooks: {e:?}")));
     }
     if let Some(c) = cov {
         set_channels_installed(c, pending);
@@ -2735,21 +3044,99 @@ unsafe fn install() -> Result<(), String> { unsafe {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllMain(hinst: HMODULE, reason: u32, _reserved: *mut c_void) -> i32 {
-    if reason == DLL_PROCESS_ATTACH {
-        // Remember our own module so we can inject the same DLL into children (ADR-3).
-        let _ = SELF_HMOD.set(hinst.0 as usize);
-        unsafe {
-            if let Err(e) = install() {
-                log(&format!("[chrono_hook] install failed: {e}"));
-            }
-        }
+    if reason != DLL_PROCESS_ATTACH {
+        return 1; // the answer is ignored for every other reason (MS Learn, `DllMain`)
     }
-    1
+    // Remember our own module so we can inject the same DLL into children (ADR-3).
+    let _ = SELF_HMOD.set(hinst.0 as usize);
+    let installed = unsafe { install() };
+    match &installed {
+        Ok(()) => {}
+        Err(InstallError::Refused(why)) => log(&format!("[chrono_hook] not joining this session: {why}")),
+        Err(InstallError::Failed(why)) => log(&format!("[chrono_hook] install failed: {why}")),
+    }
+    attach_answer(&installed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A block is joined only while its session is alive and is the one that wrote it (R4-D18). Each
+    /// refusal is one way the block outlives its session, and the old hook joined in every one of them.
+    #[test]
+    fn a_block_is_joined_only_while_its_own_session_is_alive() {
+        const WHEN: u64 = 0x01DC_3000_0000_0000;
+        let live = || CoreLook {
+            ended: false,
+            pid: 4242,
+            recorded_created: WHEN,
+            opened: true,
+            running: true,
+            created_now: Some(WHEN),
+        };
+        assert_eq!(join_refusal(&live()), None, "a live session was refused");
+        let cases: [(&str, CoreLook); 7] = [
+            ("an ended session was joined", CoreLook { ended: true, ..live() }),
+            ("a block naming no core was joined", CoreLook { pid: 0, opened: false, running: false, created_now: None, ..live() }),
+            ("a core that cannot be opened was trusted", CoreLook { opened: false, running: false, created_now: None, ..live() }),
+            ("a killed core, still open through its session's handles, was trusted", CoreLook { running: false, ..live() }),
+            ("a recycled pid passed for the core that wrote the block", CoreLook { created_now: Some(WHEN + 1), ..live() }),
+            ("a core whose creation time could not be read was trusted", CoreLook { created_now: None, ..live() }),
+            ("a block with no recorded creation time was trusted", CoreLook { recorded_created: 0, ..live() }),
+        ];
+        for (failure, look) in cases {
+            assert!(join_refusal(&look).is_some(), "{failure}");
+        }
+    }
+
+    /// A failed wait is not the core's death while the core's exit code says it runs (R4-N6). Only a
+    /// signalled handle, or a failure the exit code cannot explain, lets the process go.
+    #[test]
+    fn only_a_signalled_core_or_one_that_cannot_be_asked_is_gone() {
+        let no_question = || -> Option<u32> { panic!("a wait that answered needs no exit code") };
+        assert_eq!(read_core_wait(WAIT_TIMEOUT_CODE, no_question), CoreWait::Running);
+        assert_eq!(read_core_wait(WAIT_OBJECT_0_CODE, no_question), CoreWait::Gone);
+        assert_eq!(read_core_wait(WAIT_FAILED.0, || Some(STILL_ACTIVE_CODE)), CoreWait::Failed);
+        assert_eq!(read_core_wait(WAIT_FAILED.0, || Some(0)), CoreWait::Gone);
+        assert_eq!(read_core_wait(WAIT_FAILED.0, || None), CoreWait::Gone);
+    }
+
+    /// A block is over when it carries the end mark or names another session. The mark answers alone,
+    /// because after an ordered end the block still names this session until a new core takes it over.
+    #[test]
+    fn a_block_with_the_end_mark_or_another_sessions_name_is_over() {
+        assert!(!block_says_over(false, || true), "a live block of this session read as over");
+        assert!(block_says_over(true, || true), "an ended block still naming this session read as running");
+        assert!(block_says_over(false, || false), "a block naming another session read as running");
+    }
+
+    /// A watcher that failed to start gets more chances than the one it had, and not endless ones.
+    #[test]
+    fn a_watcher_that_failed_to_start_is_tried_again_a_bounded_number_of_times() {
+        assert!(watcher_start_again(1), "one failure ended the attempts, as before R4-N6");
+        assert!(watcher_start_again(WATCHER_START_TRIES - 1));
+        assert!(!watcher_start_again(WATCHER_START_TRIES), "the attempts never end");
+    }
+
+    /// The watcher's pause is a wait on its own thread's handle, which nothing signals while the thread
+    /// runs - so it lasts the full interval rather than returning at once and spinning.
+    #[test]
+    fn the_watcher_pause_lasts_its_interval() {
+        let started = std::time::Instant::now();
+        pause_watcher(40);
+        let waited = started.elapsed();
+        assert!(waited >= std::time::Duration::from_millis(30), "the pause returned after {waited:?}");
+    }
+
+    /// Only a refusal before anything changed unloads the library. A failure after the detours were
+    /// created keeps it loaded, because unloading would leave them jumping into freed code.
+    #[test]
+    fn only_a_refusal_before_the_detours_unloads_the_library() {
+        assert_eq!(attach_answer(&Ok(())), 1);
+        assert_eq!(attach_answer(&Err(InstallError::Refused("ended".into()))), 0);
+        assert_eq!(attach_answer(&Err(InstallError::Failed("enable_all_hooks".into()))), 1);
+    }
 
     /// A two-body channel is covered only when both bodies are detoured. Either one failing leaves a
     /// set of callers on the real tick count, so the bit must end up clear - including when the

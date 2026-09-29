@@ -35,15 +35,16 @@ use std::time::Instant;
 use chrono_core::{ChannelCoverage, Coverage, SessionSpec, TimeMode};
 use chrono_ctl::{
     cov_at, ctl_size, freeze_dur, freeze_qpc, header_is_ours, read_anchor, read_calls,
-    read_core_pid, read_dur, read_installed, read_late_installed, read_pid, read_pid_count, read_qpc,
+    read_core_pid, read_created, read_dur, read_ended, read_installed, read_late_installed, read_pid,
+    read_pid_count, read_qpc,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
-    write_anchor, write_anchor_full, write_header,
+    mark_ended, write_anchor, write_anchor_full, write_core_created, write_header,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory, ChannelModule,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, IDX_TIMEGETTIME, MAX_COV_PIDS,
 };
 use windows::core::{s, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
+    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, FILETIME, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
     WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
@@ -60,7 +61,8 @@ use windows::Win32::System::SystemInformation::{
 use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 use windows::Win32::System::Threading::{
     CreateMutexW, CreateProcessW, CreateRemoteThread, GetCurrentProcess, GetCurrentProcessId,
-    GetExitCodeProcess, GetExitCodeThread, IsWow64Process2, OpenProcess, QueryFullProcessImageNameW,
+    GetExitCodeProcess, GetExitCodeThread, GetProcessTimes, IsWow64Process2, OpenProcess,
+    QueryFullProcessImageNameW,
     ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
     LPTHREAD_START_ROUTINE,
     PROCESS_INFORMATION, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
@@ -112,9 +114,25 @@ pub struct Prepared {
     /// Set when the target exited within the guard window right after injection - a
     /// suspected single-instance vanish (ADR-4). Carries how long it lived, in ms.
     pub vanished_lived_ms: Option<u64>,
-    /// An orphaned control block from a dead core was found at startup and reclaimed (its target
-    /// had self-detached to real time). The caller surfaces this so the reclaim is not silent.
-    pub orphan_reclaimed: bool,
+    /// Whether a previous session's control block was still there and was taken over, and how that
+    /// session had ended. The caller surfaces this so the takeover is not silent.
+    pub reclaimed: Reclaimed,
+}
+
+/// What `prepare` found under the control block's name before it started.
+///
+/// A block survives its core for as long as any process of the session keeps it mapped. It used to be
+/// reported as "a previous core had died" whatever had happened, which was false after every session
+/// that ended in order with its application still running (R4-W2, measured in `tools/probes/r4-6`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reclaimed {
+    /// Nothing survived: this session made a fresh block.
+    Nothing,
+    /// The previous session had ended in order, and a process of it still held the block - an
+    /// application that session left running, on the real clock since its end (ADR-14).
+    EndedSession,
+    /// The previous core died without ending its session.
+    DeadCore,
 }
 
 /// A live, running session. Keeps the control memory mapped and the target handle
@@ -379,9 +397,11 @@ impl Session {
     /// the ones that ended. Cheap enough for the child poll: a new member costs one open and one
     /// process snapshot, a known one a zero-length wait.
     pub fn refresh_family(&mut self) {
-        let published: Vec<(usize, u32)> = (0..MAX_COV_PIDS)
+        // The creation time rides along with the pid (R4-N12), read after `read_pid` saw the pid.
+        let published: Vec<family::SignedIn> = (0..MAX_COV_PIDS)
             .map(|slot| (slot, unsafe { read_pid(self.ctl(), slot) }))
             .filter(|&(_, pid)| pid != 0)
+            .map(|(slot, pid)| family::SignedIn { slot, pid, created: unsafe { read_created(cov_at(self.ctl(), slot)) } })
             .collect();
         self.family.refresh(self.pid, &published);
     }
@@ -638,6 +658,11 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         unsafe {
+            // Every ordered way out of a session passes here, so this is where the block learns the
+            // session is over (R4-W2): a process of it that starts a child later does not hand that
+            // child a clock nobody drives, and the next core can say what it took over. A core that is
+            // killed never gets here, which the session's identity in the block covers instead.
+            mark_ended(self.ctl_addr as *mut Ctl);
             let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
                 Value: self.ctl_addr as *mut c_void,
             });
@@ -1177,6 +1202,21 @@ fn uncovered_from_attempts(attempts: u32) -> u32 {
     attempts.saturating_sub(MAX_COV_PIDS as u32)
 }
 
+/// When the process behind `handle` was created, as one FILETIME number, or `None` when the handle
+/// does not allow the question (it needs `PROCESS_QUERY_LIMITED_INFORMATION`). The system time at
+/// creation, unaffected by later changes to the system clock (MS Learn, `GetProcessTimes` and
+/// `PsGetProcessCreateTimeQuadPart`), which is what makes it a process's identity next to a pid that
+/// the system recycles.
+///
+/// # Safety
+/// `handle` must be a process handle, or the pseudo-handle of this process.
+pub(crate) unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
+    let (mut created, mut exited, mut kernel, mut user) =
+        (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user).ok()?;
+    Some(((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64)
+}}
+
 /// Find the registry slot a process published its pid into, so its coverage can be read out of the
 /// control block. Returns None if the process never registered (its hook failed, or the registry was
 /// full) - the honest answer then is no coverage, never a guess.
@@ -1237,7 +1277,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // block so no stale PID registry or anchor leaks into the new session. The refusal for a real
         // second session happened at the lock, not here - reading `core_pid` to decide would race
         // with a core that has not written it yet.
-        let mut orphan_reclaimed = false;
+        let mut reclaimed = Reclaimed::Nothing;
         if already_existed {
             // ...but "surviving" is not the same as "ours". The name is fixed and any process in
             // this session can create it, so a section already sitting on it was zeroed and used as
@@ -1255,8 +1295,9 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
                         .into(),
                 ));
             }
+            // Read BEFORE the zeroing, which is what makes it the previous session's answer.
+            reclaimed = if read_ended(ctl) { Reclaimed::EndedSession } else { Reclaimed::DeadCore };
             std::ptr::write_bytes(ctl as *mut u8, 0, ctl_size());
-            orphan_reclaimed = true;
         }
         // Stamped before the anchor, so anything that outlives this core is recognisable as ours.
         write_header(ctl);
@@ -1275,6 +1316,10 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         write_tz_bias(ctl, tz_bias);
         write_scale_dur(ctl, spec.scale_duration);
         write_scale_qpc(ctl, spec.scale_qpc);
+        // The pair that names this session (R4-W2), the pid LAST. Reading our own creation time cannot
+        // realistically fail, and if it did the 0 would make every hook refuse to join rather than join
+        // a session it cannot tell from another - the target's injection then fails, loudly.
+        write_core_created(ctl, process_created(GetCurrentProcess()).unwrap_or(0));
         write_core_pid(ctl, GetCurrentProcessId());
 
         // 2. Launch SUSPENDED so the hook lands before the first instruction.
@@ -1398,7 +1443,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             family: family::Family::new(MAX_COV_PIDS, parent_slot),
             _lock: lock,
         };
-        Ok(Prepared { coverage, session, vanished_lived_ms, orphan_reclaimed })
+        Ok(Prepared { coverage, session, vanished_lived_ms, reclaimed })
     }
 }
 
@@ -1583,8 +1628,12 @@ unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { 
         )));
     }
     if !got_code || exit_code == 0 {
+        // Two causes give the same NULL since R4-D18: the library did not load, or it loaded, found a
+        // control block it could not confirm as this live session's, and unloaded itself.
         return Err(PrepareError::Inject(
-            "LoadLibraryW returned NULL in the target (the hook DLL failed to load)".into(),
+            "LoadLibraryW returned NULL in the target (the hook DLL failed to load, or would not join a \
+             session it could not confirm)"
+                .into(),
         ));
     }
     Ok(())

@@ -8,8 +8,8 @@
 //!   `dur_quit_c0` / `dur_q0`) are written by the mechanism under a seqlock and read by every hook
 //!   (parent and children share ONE fake clock - ADR-3). The duration anchor rides the same seqlock
 //!   as the wall anchor, so a hook reads the multiplier and the duration base as one snapshot. The
-//!   stable config fields (`tz_bias`, `scale_dur`, `core_pid`) are written once before the target
-//!   exists.
+//!   stable config fields (`tz_bias`, `scale_dur`, `core_created`, `core_pid`) are written once before
+//!   the target exists. `ended` is the one written later, once, when the core ends the session.
 //!
 //! - The PID REGISTRY (`pid_count`, `pids`) lets each hooked process claim a slot and publish its
 //!   own PID, so the mechanism knows which processes joined the session.
@@ -607,7 +607,12 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 /// 6: `Cov` gained the `uncovered_children` ring and its counter (`UNCOVERED_CHILDREN_MAX` pids plus
 /// two u32), appended AFTER `calls` so no existing offset inside a slot moves - but the slot stride
 /// does, which is the same hazard as version 3.
-pub const CTL_LAYOUT_VERSION: u32 = 6;
+///
+/// 7: the block says WHICH session it belongs to and WHETHER it is over (R4-W2). `Ctl` gained
+/// `core_created` (inserted before `scale_dur`, so every field after it moves) and `ended` (in the
+/// old padding), and `Cov` gained `created`, which widens every slot. A pid alone could not tell a
+/// live session from one whose core had died, nor a recycled pid from the core that wrote it.
+pub const CTL_LAYOUT_VERSION: u32 = 7;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -656,6 +661,13 @@ pub struct Ctl {
     /// Real QPC base (raw ticks) the QPC elapsed is measured from - QPC is a system-wide counter, so the
     /// core reads the same value the target's hook does.
     pub dur_qpc_q0: i64,
+    /// When the core process was created, as the FILETIME `GetProcessTimes` reports for it. Together
+    /// with `core_pid` it names the session: a pid alone is recycled once its process is gone, so a
+    /// hook that found a live process under the recorded pid could be looking at a stranger - or at a
+    /// NEW core that reclaimed this block under the same number (R4-W2). The system time at creation
+    /// cannot be shared by two processes that held one pid, and changing the system clock later does
+    /// not change it. Written once, BEFORE `core_pid`, so a reader that sees a pid also sees its time.
+    pub core_created: u64,
     /// 1 = also scale the duration axis by the multiplier (the scale_duration opt-in).
     /// Stable per session: written once by the mechanism, read once by the hook.
     pub scale_dur: u32,
@@ -669,6 +681,19 @@ pub struct Ctl {
     /// PID registry slot counter, reserved atomically by `register_pid`. Only ever
     /// increases. The mechanism does not read it - it scans `pids` for nonzero entries.
     pub pid_count: u32,
+    /// 1 once the core has ended this session in order (R4-W2). The block outlives the core for as
+    /// long as any process of the session keeps it mapped, and before this flag nothing in it said the
+    /// session was over: a child started later by such a process joined a clock nobody drove, and a new
+    /// core reclaiming the block could not tell a session that ended from one whose core had died.
+    ///
+    /// A flag of its own rather than a zeroed `core_pid`: the watcher lets a process go only while the
+    /// block still names its core (`still_ours` in the hook), so clearing the pid would send every
+    /// process of the session back to the REAL value of its duration axes - a step back (ADR-14,
+    /// untouchable rule 3). A core that is killed never writes it, which the pid and `core_created`
+    /// cover: a process that can no longer be opened, or one created at another time, is not the core.
+    pub ended: u32,
+    /// Keeps `pids` ending on an 8-byte boundary, where `covs` starts. Explicit for the reason the one in
+    /// `Cov` is: `#[repr(C)]` would add it silently and the layout doc would lie.
     pub _pad: u32,
     /// Registered PIDs (parent + children), indexed by reserved slot. A hook publishes its own PID
     /// here LAST, once its coverage slot carries the truth, so the mechanism never reads a pid whose
@@ -746,6 +771,13 @@ pub struct Cov {
     /// Keeps the slot 8-byte aligned so `calls` of the NEXT slot stays aligned. Explicit rather than
     /// left to the compiler because `#[repr(C)]` would add it silently and the layout doc would lie.
     pub uncovered_children_pad: u32,
+    /// When the process that took this slot was created (the FILETIME `GetProcessTimes` reports), written
+    /// by its hook before it publishes its pid. The mechanism watches the family by pid, and a pid read
+    /// out of this block names a process only for as long as that process lives: comparing this with
+    /// the creation time of the process it opened is what tells the member from a stranger that got the
+    /// number (R4-N12). 0 = not recorded, and the mechanism then falls back to asking the process
+    /// snapshot who started it. Appended after every other field, so no offset inside a slot moves.
+    pub created: u64,
 }
 
 impl Cov {
@@ -760,6 +792,7 @@ impl Cov {
         uncovered_children: [0; UNCOVERED_CHILDREN_MAX],
         uncovered_children_count: 0,
         uncovered_children_pad: 0,
+        created: 0,
     };
 }
 
@@ -1235,6 +1268,42 @@ pub unsafe fn read_core_pid(p: *const Ctl) -> u32 { unsafe {
     read_volatile(addr_of!((*p).core_pid))
 }}
 
+/// Write when the core process was created (stable field, outside the seqlock). Mechanism side, BEFORE
+/// `write_core_pid`: the pid is the last word of the session's identity to land, so a reader that sees
+/// it sees this too.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn write_core_created(p: *mut Ctl, created: u64) { unsafe {
+    write_volatile(addr_of_mut!((*p).core_created), created);
+}}
+
+/// Read when the core process was created (hook side).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn read_core_created(p: *const Ctl) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).core_created))
+}}
+
+/// Mark the session as ended in order (mechanism side, R4-W2). One-way: nothing clears it but the
+/// zeroing a new core does when it reclaims the block for the next session.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn mark_ended(p: *mut Ctl) { unsafe {
+    write_volatile(addr_of_mut!((*p).ended), 1);
+}}
+
+/// Whether the core ended this session in order - read by a hook deciding whether to join, and by a
+/// new core deciding what to say about the block it reclaims.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn read_ended(p: *const Ctl) -> bool { unsafe {
+    read_volatile(addr_of!((*p).ended)) != 0
+}}
+
 /// Reserve this process's coverage slot (hook side). Reserves atomically - several children may
 /// start concurrently - and returns the slot index, or None if the registry is full (the process
 /// then runs uncovered in the audit, an honest partial, never a silent overwrite of a live slot).
@@ -1275,12 +1344,6 @@ pub unsafe fn publish_pid(p: *mut Ctl, slot: usize, pid: u32) { unsafe {
     write_volatile(slotp, pid);
 }}
 
-/// Read one PID registry slot (mechanism side). `i` must be < MAX_COV_PIDS. A zero
-/// means "empty or not yet published" - the mechanism scans all slots and skips zeros,
-/// so a slot reserved but not yet published is simply picked up on the next refresh.
-///
-/// # Safety
-/// `p` must point to a live, correctly aligned `Ctl`, and `i < MAX_COV_PIDS`.
 /// How many processes have tried to claim a coverage slot this session (mechanism side). Counts
 /// ATTEMPTS, not occupied slots: `reserve_cov_slot` increments unconditionally, so anything above
 /// `MAX_COV_PIDS` is the number of processes that ran with no slot to report into.
@@ -1342,6 +1405,24 @@ pub unsafe fn cov_at(p: *const Ctl, i: usize) -> *const Cov { unsafe {
 /// `p` must point to a live, correctly aligned `Cov`.
 pub unsafe fn set_channels_installed(p: *mut Cov, mask: u64) { unsafe {
     write_volatile(addr_of_mut!((*p).installed_channels), mask);
+}}
+
+/// Record when the process that owns this slot was created (hook side, its own `Cov`). Written before
+/// the pid is published, so the release in `publish_pid` carries it to the mechanism with the rest.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn set_created(p: *mut Cov, created: u64) { unsafe {
+    write_volatile(addr_of_mut!((*p).created), created);
+}}
+
+/// When the process that owns this slot was created, or 0 when its hook did not record it (mechanism
+/// side, per-process `Cov`). Read after `read_pid` returned the slot's pid, whose acquire makes it visible.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_created(p: *const Cov) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).created))
 }}
 
 /// Read the installed-channels bitmask (mechanism side, per-process `Cov`).
@@ -1673,14 +1754,55 @@ mod tests {
             dur_q0: 0,
             dur_qpc_c0: 0,
             dur_qpc_q0: 0,
+            core_created: 0,
             scale_dur: 0,
             scale_qpc: 0,
             core_pid: 0,
             pid_count: 0,
+            ended: 0,
             _pad: 0,
             pids: [0; MAX_COV_PIDS],
             covs: [Cov::ZEROED; MAX_COV_PIDS],
         })
+    }
+
+    /// The layout is shared by two binaries through a mapped section, so where each field lands is part
+    /// of the contract. The 64-bit fields added in version 7 must sit on 8-byte boundaries (a hook of
+    /// either bitness reads them with one load), every slot must keep the next one's counters aligned,
+    /// and `covs` must start right where `pids` ends - padding the compiler inserted there would be a
+    /// layout nobody wrote down.
+    #[test]
+    fn the_identity_fields_are_aligned_and_no_padding_hides_before_the_slots() {
+        use core::mem::{offset_of, size_of};
+        assert_eq!(offset_of!(Ctl, core_created) % 8, 0, "core_created is not 8-byte aligned");
+        assert_eq!(offset_of!(Cov, created) % 8, 0, "Cov.created is not 8-byte aligned");
+        assert_eq!(size_of::<Cov>() % 8, 0, "a slot would misalign the next one");
+        assert_eq!(
+            offset_of!(Ctl, covs),
+            offset_of!(Ctl, pids) + size_of::<[u32; MAX_COV_PIDS]>(),
+            "padding the layout does not name sits between pids and covs"
+        );
+        assert_eq!(offset_of!(Ctl, ended) + 4, offset_of!(Ctl, _pad), "ended moved out of the header's tail");
+    }
+
+    /// The identity fields round-trip, and the end mark is one-way until a reclaim zeroes the block.
+    #[test]
+    fn the_session_identity_and_its_end_round_trip() {
+        let mut ctl = zeroed_ctl();
+        let p = &mut *ctl as *mut Ctl;
+        let mut cov = zeroed_cov();
+        unsafe {
+            assert!(!read_ended(p), "a fresh block reads as ended");
+            write_core_created(p, 0x01DC_0000_1234_5678);
+            write_core_pid(p, 4242);
+            mark_ended(p);
+            assert_eq!(read_core_created(p), 0x01DC_0000_1234_5678);
+            assert_eq!(read_core_pid(p), 4242);
+            assert!(read_ended(p));
+            assert_eq!(read_created(&cov), 0, "an unrecorded slot must read as 0, the fallback mark");
+            set_created(&mut cov, 0x01DC_0000_0000_0001);
+            assert_eq!(read_created(&cov), 0x01DC_0000_0000_0001);
+        }
     }
 
     fn zeroed_cov() -> Cov {
