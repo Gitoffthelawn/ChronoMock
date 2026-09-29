@@ -155,16 +155,21 @@ impl Collector {
         }
     }
 
-    /// Whether the core stopped without closing the session: no `ended`, and either the session had
-    /// opened or the core gave no reason at all. A core owes `ended` on every path but one, the refusal
-    /// of the first command, which says why in an error and opens nothing (`core::read_start`).
+    /// Whether the core stopped without closing the session: no `ended`, unless all it said was a refusal
+    /// of the first command. A core owes `ended` on every path but that one, which opens nothing and whose
+    /// keys are `core::REFUSALS_WITHOUT_ENDED`. Any other error is followed by `ended` (a missing hook
+    /// library, a bad moment, a launch that failed), so one without it is a core that stopped between the
+    /// two, and its own exit code is no more the session's result than after a kill (R4/12a review round).
     ///
     /// Without this the report stood on whatever arrived first. The parent's verdict comes inside the
     /// guard window, so a core that died a second later left a WORKS headline over call counts from the
     /// session's first blink, and the evidence file carried it with no banner (R4-W3, measured with the
     /// core killed two seconds in).
     pub(super) fn core_left_session_open(&self) -> bool {
-        !self.ended && (self.opened || self.errors.is_empty())
+        let refused_to_start = !self.opened
+            && !self.errors.is_empty()
+            && self.errors.iter().all(|(key, _)| crate::core::REFUSALS_WITHOUT_ENDED.contains(&key.as_str()));
+        !self.ended && !refused_to_start
     }
 
     /// The finished report. `cdp` and `stopped_early` are the caller's, not ours: whether the target
@@ -374,6 +379,18 @@ mod tests {
         let mut c = Collector::default();
         c.record(error("protocol.version_mismatch"));
         assert!(!c.core_left_session_open(), "a core that refused to start owes no ended");
+
+        // An error after a valid start is followed by ended, so without it the core stopped between the two
+        // (R4/12a review round) - it is not a refusal to start, whatever it opened.
+        let mut c = Collector::default();
+        c.record(error("core.hook_dll_missing"));
+        assert!(c.core_left_session_open(), "an error that owes an ended, without one");
+
+        // A refusal key next to another error is not a refusal alone.
+        let mut c = Collector::default();
+        c.record(error("protocol.bad_command"));
+        c.record(error("target.launch_failed"));
+        assert!(c.core_left_session_open(), "not every error was a refusal to start");
 
         // A vanish opens the session too - the core reached the target.
         let mut c = Collector::default();

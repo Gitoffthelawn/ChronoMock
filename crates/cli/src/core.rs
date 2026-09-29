@@ -224,6 +224,13 @@ pub(crate) fn core_mode() -> i32 {
     }
 }
 
+/// The keys of the refusals that owe no `ended`, because no session was begun - the only answers a core
+/// gives without an `ended` after them. The driver reads a missing `ended` after any other error as a
+/// session the core left open (`run::collect`), so this list is what tells the two apart, and
+/// `the_refusals_that_owe_no_ended_are_exactly_the_listed_ones` holds it to `read_start` both ways.
+pub(crate) const REFUSALS_WITHOUT_ENDED: [&str; 4] =
+    ["protocol.no_command", "protocol.bad_command", "protocol.version_mismatch", "protocol.expected_start"];
+
 /// Why an opening `start` was refused.
 ///
 /// Every one of these is exit code 1 and an error event. What differs is the key, the id it answers
@@ -1147,6 +1154,43 @@ mod tests {
         assert_eq!(refused.key, "target.cwd_missing");
         assert_eq!(refused.id, Some(1), "it answers the start it refused");
         assert!(refused.needs_ended, "a session that got this far owes an ended");
+    }
+
+    /// `REFUSALS_WITHOUT_ENDED` is exactly the refusals that owe no `ended`: every refusal `read_start` can
+    /// give is in it if and only if it owes none, and every key in it is one of those. The driver treats a
+    /// missing `ended` after any error outside the list as a session the core left open (R4-W3), so a new
+    /// refusal that drifted from the list would be misread in one direction or the other.
+    #[test]
+    fn the_refusals_that_owe_no_ended_are_exactly_the_listed_ones() {
+        let past_the_cap = "x".repeat(crate::wire::MAX_PROTOCOL_LINE + 10) + "\n";
+        let end = serde_json::to_string(&Command::End { v: PROTOCOL_VERSION, id: 1 }).unwrap() + "\n";
+        let inputs = [
+            String::new(),
+            past_the_cap,
+            "not a command\n".to_string(),
+            end,
+            start_line(PROTOCOL_VERSION + 1, None),
+            start_line(PROTOCOL_VERSION, Some("C:/no-such-folder-chrono-mock-test")),
+        ];
+        let mut without_ended = std::collections::BTreeSet::new();
+        for input in &inputs {
+            let refused = read(input).expect_err("every input here is refused");
+            assert_eq!(
+                REFUSALS_WITHOUT_ENDED.contains(&refused.key),
+                !refused.needs_ended,
+                "{} owes an ended: {}, and the list says the opposite",
+                refused.key,
+                refused.needs_ended
+            );
+            if !refused.needs_ended {
+                without_ended.insert(refused.key);
+            }
+        }
+        assert_eq!(
+            without_ended,
+            REFUSALS_WITHOUT_ENDED.into_iter().collect(),
+            "a key in the list that no refusal gives, or the reverse"
+        );
     }
 
     /// The happy path carries the target and the time through untouched, and nothing else opens a
