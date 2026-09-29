@@ -59,7 +59,7 @@
 
 use std::cell::Cell;
 use std::ffi::{c_void, CString};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use chrono_ctl::{
@@ -95,8 +95,8 @@ use windows::Win32::System::Memory::{
 };
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetExitCodeThread,
-    GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
+    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
+    GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
     INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
@@ -406,21 +406,31 @@ unsafe extern "system" fn watcher_proc(_p: *mut c_void) -> u32 { unsafe {
     if let Some(&h) = CORE_HANDLE.get() {
         let handle = HANDLE(h as *mut c_void);
         let mut tries: u32 = 0;
+        let mut said = false;
         loop {
             // Look FIRST, wait second. The watcher is spawned from the first detour, which for most
             // targets fires before `main` - so by the time the loop is running the modules a target
             // pulls in early may already be there, and sleeping before the first look would hand
             // back a whole interval for nothing.
             late_scan();
-            if !late_pending() {
-                wait_raw(handle, INFINITE);
-                break;
-            }
-            let interval =
-                if tries < LATE_FAST_TRIES { LATE_POLL_FAST_MS } else { LATE_POLL_SLOW_MS };
+            let interval = if !late_pending() {
+                INFINITE
+            } else if tries < LATE_FAST_TRIES {
+                LATE_POLL_FAST_MS
+            } else {
+                LATE_POLL_SLOW_MS
+            };
             tries = tries.saturating_add(1);
-            if wait_raw(handle, interval) != WAIT_TIMEOUT_CODE {
-                break; // the core is gone (or the wait failed) - detach, do not install anything
+            match read_core_wait(wait_raw(handle, interval), || core_exit_code(handle)) {
+                CoreWait::Running => {}
+                CoreWait::Gone => break, // detach, and install nothing more
+                CoreWait::Failed => {
+                    if !said {
+                        log("[chrono_hook] a wait on the core failed while the core runs - watching on");
+                        said = true;
+                    }
+                    pause_watcher(WATCH_RETRY_MS);
+                }
             }
         }
     }
@@ -428,6 +438,52 @@ unsafe extern "system" fn watcher_proc(_p: *mut c_void) -> u32 { unsafe {
     DETACHED.store(true, Ordering::SeqCst);
     0
 }}
+
+/// `WAIT_OBJECT_0` as the raw value the trampoline returns: the core's handle was signalled.
+const WAIT_OBJECT_0_CODE: u32 = 0;
+
+/// How long the watcher pauses after a wait that failed while the core was still running, before it
+/// waits again. Long enough not to spin on a handle that keeps failing, short against a session.
+const WATCH_RETRY_MS: u32 = 100;
+
+/// What one wait on the core's handle says about the core (R4-N6).
+#[derive(Debug, PartialEq, Eq)]
+enum CoreWait {
+    /// The interval ran out and the core is still there.
+    Running,
+    /// The core is gone: its handle was signalled, or the wait failed and nothing shows it running.
+    Gone,
+    /// The wait failed, yet the core's exit code says it is still running.
+    Failed,
+}
+
+/// Read one wait on the core. Every result but a timeout used to count as the core's death, a FAILED
+/// wait included, so a single failure let the target go back to the real clock under a session that
+/// was still running. A failure now asks the core's exit code through the same handle, and only a core
+/// that has one - or that cannot be asked - is gone.
+fn read_core_wait(result: u32, exit_code: impl FnOnce() -> Option<u32>) -> CoreWait {
+    match result {
+        WAIT_TIMEOUT_CODE => CoreWait::Running,
+        WAIT_OBJECT_0_CODE => CoreWait::Gone,
+        _ if exit_code() == Some(STILL_ACTIVE_CODE) => CoreWait::Failed,
+        _ => CoreWait::Gone,
+    }
+}
+
+/// The core's exit code, or `None` when the handle cannot say. `STILL_ACTIVE_CODE` while it runs.
+fn core_exit_code(handle: HANDLE) -> Option<u32> {
+    let mut code: u32 = 0;
+    unsafe { GetExitCodeProcess(handle, &mut code) }.ok().map(|()| code)
+}
+
+/// Pause the watcher for `ms` without a `Sleep`, which the hook counts and scales as the application's
+/// own under `--scale-duration`. A wait on this thread's own handle cannot be signalled while the thread
+/// runs, so it times out after `ms`, and `wait_raw` keeps it out of the audit.
+fn pause_watcher(ms: u32) {
+    unsafe {
+        let _ = wait_raw(GetCurrentThread(), ms);
+    }
+}
 
 /// Where the duration axes stood when the core went away, set once by the watcher. `None` for as long
 /// as the session holds, and for good when the block had already been reclaimed by the time the watcher
@@ -665,10 +721,11 @@ fn ensure_watcher() {
     // read-modify-write whether or not it succeeds. So the one-time setup below was charging a bus
     // lock to the hottest path this product has, forever, to re-learn a fact settled once.
     //
-    // A relaxed read is enough because the flag is one-way: set once, never cleared, and nothing is
-    // published alongside it (the watcher's own result travels through DETACHED). Both ways of racing
-    // are harmless - a stale `false` falls through to the CAS, which then fails exactly as it does
-    // today, and a `true` means some thread already won and there is nothing left to do.
+    // A relaxed read is enough because nothing is published alongside the flag (the watcher's own
+    // result travels through DETACHED), and it only goes back down after a failed start, below. Both
+    // ways of racing are harmless - a stale `false` falls through to the CAS, which then fails exactly
+    // as it does today, and a `true` means some thread already won, or is trying and will put the flag
+    // down for a later call if it fails.
     if WATCHER_STARTED.load(Ordering::Relaxed) {
         return;
     }
@@ -678,13 +735,38 @@ fn ensure_watcher() {
             .is_ok()
     {
         unsafe {
-            if let Ok(h) =
-                CreateThread(None, 0, Some(watcher_proc), None, THREAD_CREATION_FLAGS(0), None)
-            {
-                let _ = CloseHandle(h);
+            match CreateThread(None, 0, Some(watcher_proc), None, THREAD_CREATION_FLAGS(0), None) {
+                Ok(h) => {
+                    let _ = CloseHandle(h);
+                }
+                Err(_) => {
+                    // The flag used to stay up after a failed start, so a process whose watcher never
+                    // ran was never let go - it stayed on the session's clock after the session, and
+                    // counted into the next one's slot (R4-N6). A later detour tries again, a bounded
+                    // number of times, so a process that cannot start threads does not pay for the
+                    // attempt on every clock read. A literal message: this runs on a detour's path.
+                    log("[chrono_hook] could not start the watcher on the core - a later call tries again");
+                    let failures = WATCHER_FAILURES.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+                    if watcher_start_again(failures) {
+                        WATCHER_STARTED.store(false, Ordering::SeqCst);
+                    }
+                }
             }
         }
     }
+}
+
+/// How many times a watcher that failed to start is tried again. Each try is one `CreateThread` on some
+/// detour's path, and a process that cannot create one thread rarely can a few calls later - but a
+/// transient failure deserves more than the single chance it used to get.
+const WATCHER_START_TRIES: u32 = 16;
+
+/// Failed starts of the watcher so far.
+static WATCHER_FAILURES: AtomicU32 = AtomicU32::new(0);
+
+/// Whether a watcher that has failed to start `failures` times gets another try.
+fn watcher_start_again(failures: u32) -> bool {
+    failures < WATCHER_START_TRIES
 }
 
 /// Has the core vanished? Also lazily starts the watcher on the first call.
@@ -2956,6 +3038,36 @@ mod tests {
         for (failure, look) in cases {
             assert!(join_refusal(&look).is_some(), "{failure}");
         }
+    }
+
+    /// A failed wait is not the core's death while the core's exit code says it runs (R4-N6). Only a
+    /// signalled handle, or a failure the exit code cannot explain, lets the process go.
+    #[test]
+    fn only_a_signalled_core_or_one_that_cannot_be_asked_is_gone() {
+        let no_question = || -> Option<u32> { panic!("a wait that answered needs no exit code") };
+        assert_eq!(read_core_wait(WAIT_TIMEOUT_CODE, no_question), CoreWait::Running);
+        assert_eq!(read_core_wait(WAIT_OBJECT_0_CODE, no_question), CoreWait::Gone);
+        assert_eq!(read_core_wait(WAIT_FAILED.0, || Some(STILL_ACTIVE_CODE)), CoreWait::Failed);
+        assert_eq!(read_core_wait(WAIT_FAILED.0, || Some(0)), CoreWait::Gone);
+        assert_eq!(read_core_wait(WAIT_FAILED.0, || None), CoreWait::Gone);
+    }
+
+    /// A watcher that failed to start gets more chances than the one it had, and not endless ones.
+    #[test]
+    fn a_watcher_that_failed_to_start_is_tried_again_a_bounded_number_of_times() {
+        assert!(watcher_start_again(1), "one failure ended the attempts, as before R4-N6");
+        assert!(watcher_start_again(WATCHER_START_TRIES - 1));
+        assert!(!watcher_start_again(WATCHER_START_TRIES), "the attempts never end");
+    }
+
+    /// The watcher's pause is a wait on its own thread's handle, which nothing signals while the thread
+    /// runs - so it lasts the full interval rather than returning at once and spinning.
+    #[test]
+    fn the_watcher_pause_lasts_its_interval() {
+        let started = std::time::Instant::now();
+        pause_watcher(40);
+        let waited = started.elapsed();
+        assert!(waited >= std::time::Duration::from_millis(30), "the pause returned after {waited:?}");
     }
 
     /// Only a refusal before anything changed unloads the library. A failure after the detours were
