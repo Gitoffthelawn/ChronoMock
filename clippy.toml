@@ -30,8 +30,9 @@
 # A ceiling standing one above the truth grants headroom nobody decided to grant and the next
 # arrival slips in under it in silence - a one-sided ratchet cannot see that, because it only ever
 # asks whether the code is under the number. The tightened copy is the missing half: CI runs clippy
-# a second time with every threshold one lower and REQUIRES that run to fail. If it passes, the
-# ceiling had room in it.
+# a second time with every threshold one lower and REQUIRES each of these lints to fire in that run,
+# by name. One that stays silent there had room in it. (Until 2026-09-29 the run only had to fail,
+# and one lint failing in chrono-core kept the other two from being checked in the crates above it.)
 
 # `crates/cli/src/cdp_session.rs::cdp_session` at 225. The runner-up is `run::driver_run` at 169,
 # then `run::args::parse_run_args` at 165 and `mech::prepare` at 144.

@@ -10,8 +10,9 @@
 //!
 //! * that the lints are still switched on, for every crate,
 //! * that the tightened copy is exactly one below the real one on every key, which is what makes
-//!   the CI inversion run a proof that each ceiling IS the measurement rather than headroom,
-//! * that CI still runs that inversion at all,
+//!   the CI run one below a proof that each ceiling IS the measurement rather than headroom,
+//! * that CI still runs that check at all, and in the form that can see every ceiling: each lint
+//!   asked by name, with warnings left as warnings,
 //! * and that the escape hatches out of the argument-count lint only ever get rarer.
 //!
 //! 🔴 The reason the third one is here and not left to common sense: a threshold configured but
@@ -182,7 +183,7 @@ fn the_tightened_configuration_is_exactly_one_below_every_ceiling() {
 }
 
 #[test]
-fn ci_still_runs_the_inversion_that_pins_the_ceilings() {
+fn ci_still_asks_every_ceiling_by_name_one_below() {
     // A threshold that is configured but never run is a gate nobody runs. Without this, deleting
     // the CI step would leave `clippy.toml` looking exactly as guarded as it does today, and the
     // ceilings could drift above the measurement again with every test in this file still green.
@@ -198,12 +199,60 @@ fn ci_still_runs_the_inversion_that_pins_the_ceilings() {
     // would be satisfied by the comment that explains the step, and by the error message the step
     // prints when it fails - an assertion that can be satisfied by prose about itself is not an
     // assertion. Aim at the construction.
+    const MAPPING: &str = "CLIPPY_CONF_DIR: .github/clippy-tight";
     assert!(
-        workflow.contains("CLIPPY_CONF_DIR: .github/clippy-tight"),
+        workflow.contains(MAPPING),
         "no CI step points clippy at the tightened configuration any more, so nothing checks that \
          the shape ceilings are still the measurement rather than headroom. The ceilings in \
          clippy.toml would keep passing while standing above the code"
     );
+
+    // 🔴 And the form of the check, because the step was once blind while every line above held.
+    // It asked only whether the tightened run failed under -D warnings, and nesting failing in
+    // chrono-core stopped the crates above it from being checked, so their length and complexity
+    // ceilings had room (measured 2026-09-29) behind a red that looked right. The step has to leave
+    // warnings as warnings, take lint codes from the machine-readable output, and take the lints to
+    // ask from the tightened file. Comment lines are dropped first, so prose about the old form does
+    // not count.
+    let step = step_code_around(&workflow, MAPPING);
+    assert!(
+        !step.contains("-D warnings") && !step.contains("-Dwarnings") && !step.contains("--deny"),
+        "the tightened clippy run denies warnings again, so the first crate that fails hides every \
+         ceiling in the crates that depend on it:\n{step}"
+    );
+    assert!(
+        step.contains("--message-format=json"),
+        "the tightened clippy run no longer reads lint codes from JSON:\n{step}"
+    );
+    assert!(
+        step.contains("Get-Content .github/clippy-tight/clippy.toml"),
+        "the step no longer takes the lints to ask from the tightened file, so a ceiling added \
+         there would not be asked about:\n{step}"
+    );
+}
+
+/// The code of the workflow step holding `needle`: from its `- name:` line to the next step, with
+/// every comment line dropped.
+fn step_code_around(workflow: &str, needle: &str) -> String {
+    let lines: Vec<&str> = workflow.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.contains(needle))
+        .expect("the needle is in the workflow");
+    let start = lines[..at]
+        .iter()
+        .rposition(|l| l.trim_start().starts_with("- name:"))
+        .expect("the needle sits inside a named step");
+    let end = lines[at..]
+        .iter()
+        .position(|l| l.trim_start().starts_with("- name:") || l.trim_start().starts_with("- uses:"))
+        .map_or(lines.len(), |i| at + i);
+    lines[start..end]
+        .iter()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Every `.rs` file under `crates/`, with build output skipped.
