@@ -126,6 +126,7 @@ internal static class PhaseStates
             ReasonKey = "session.family_covered",
             ProcessCount = 2,
             WarningKeys = ["session.followed_family"],
+            Followed = [new FollowedProcess { Pid = 5150, Image = "app.exe" }, new FollowedProcess { Pid = 5151 }],
         });
         model.Apply(Ended());
         return model;

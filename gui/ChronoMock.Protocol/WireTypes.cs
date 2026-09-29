@@ -82,6 +82,17 @@ public sealed record UncoveredChild
     [JsonPropertyName("role")] public string? Role { get; init; }
 }
 
+/// <summary>
+/// A process on the session clock that was still running when the target closed, so the session went on
+/// for it (ADR-16, mirrors <c>chrono_proto::FollowedProcess</c>). <c>Image</c> is the executable's file name
+/// when the process list had it, null otherwise.
+/// </summary>
+public sealed record FollowedProcess
+{
+    [JsonPropertyName("pid")] public uint Pid { get; init; }
+    [JsonPropertyName("image")] public string? Image { get; init; }
+}
+
 /// <summary>One channel's coverage and how many times the target has called it so far.</summary>
 public sealed record CoveredChannel
 {

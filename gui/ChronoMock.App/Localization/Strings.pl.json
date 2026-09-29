@@ -498,6 +498,8 @@
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "cel zakończył się kodem",
   "report.cleanup": "nie sprzątnięto do końca",
+  // The processes the session went on for after the target closed, see the English file.
+  "report.followed": "cel uruchomił te programy, a sesja trwała dalej dla nich",
   // The processes the hook never got into, see the English file.
   "report.processes_uncovered": "procesy, które działały na prawdziwym zegarze",
   "report.process_line": "pid {0}: {1}, uruchomiony przez pid {2}",
@@ -528,6 +530,8 @@
   "result.cut_short": "Sesja nie została zamknięta, więc nie ma dla niej werdyktu. Niżej jest to, co Chrono Mock zgłosił do tej chwili - liczby są dolną granicą, nie sumą.",
   // The target's own exit code, in the reader's words (the summary keeps report.target_exit). The number follows this prefix.
   "result.exit_code": "Aplikacja zakończyła się sama, z kodem wyjścia",
+  // The heading over the processes the session went on for, see the English file.
+  "result.followed": "Sesja trwała dalej dla programów uruchomionych przez aplikację",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."
   "result.lived_before": "Aplikacja działała przez",
   "result.lived_after": "i zniknęła.",

@@ -168,6 +168,13 @@
                        Visibility="{Binding HasTargetExit, Converter={StaticResource BoolToVis}}">
               <Run Text="{DynamicResource result.exit_code}" /><Run Text="{Binding TargetExitCode, StringFormat=' {0}.', Mode=OneWay}" />
             </TextBlock>
+            <!-- What the session went on for after the application closed (ADR-16), right under the line
+                 that says it closed: for a launcher that line alone reads as the end of the session, and the
+                 warning that explains it sits folded in the audit below. Data rows, so the fact list. -->
+            <controls:TextNamedList x:Name="FollowedList" Style="{StaticResource PartFactList}"
+                                    Header="{DynamicResource result.followed}"
+                                    ItemsSource="{Binding FollowedRows}"
+                                    Visibility="{Binding HasFollowed, Converter={StaticResource BoolToVis}}" />
             <!-- The raw failure detail, verbatim, so a failure is never silent - in the error ink, at the size
                  of prose, because it is a sentence somebody has to act on. -->
             <TextBlock x:Name="LastErrorNote" Style="{StaticResource PartErrorNote}"

@@ -261,6 +261,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     // sessions where the app exited on its own - null for Stop/end and for CDP) and any cleanup residue it
     // could not remove (today only a CDP temp profile). Surfaced honestly, never dropped (rule 6).
     private int? _targetExitCode;
+    private IReadOnlyList<string> _followedRows = [];
     private IReadOnlyList<string> _residueKeys = [];
     // Diagnostics captured when a session ends in anything but a clean success (RELEASE-012): the core's
     // stderr and parse errors, composed into a block the user can copy and that is also written to a log
@@ -1515,6 +1516,19 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
     public bool HasTargetExit => _targetExitCode.HasValue;
 
+    /// <summary>The processes the session went on for after the application closed (ADR-16), one line each
+    /// in the CLI report's own spelling: "app.exe (pid 5150)", or "pid 5151" for one the process list could
+    /// not name. Lines rather than wire records because the screen and the copied summary print the same
+    /// text, and one formatter cannot disagree with itself. Under the exit code, because "exited on its own"
+    /// alone reads as the end of the session, and for a launcher it was not.</summary>
+    public IReadOnlyList<string> FollowedRows
+    {
+        get => _followedRows;
+        private set { if (Set(ref _followedRows, value)) { RaisePropertyChanged(nameof(HasFollowed)); } }
+    }
+
+    public bool HasFollowed => _followedRows.Count > 0;
+
     /// <summary>Cleanup residue translation keys from <c>ended.residue_keys</c> - what a teardown could not
     /// remove (today only a CDP temp profile that stayed locked). Empty on a clean end - rendered as
     /// warnings so a session reports the mess it left rather than hiding it (rule 6).</summary>
@@ -1664,6 +1678,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
                 // red build. Everything the rows need deciding - a nameless engine, an endpoint seen
                 // twice - is decided in the converter, which is where presentation belongs anyway.
                 Engines = sv.Engines;
+                FollowedRows = FollowedLines(sv.Followed);
                 // Session-level warnings join the per-process ones (R2-S9). They are about the family,
                 // not about any one process, so the panel shows them in the same list - a warning the
                 // reader has to attribute to an event type is a warning they will not read.
@@ -2008,6 +2023,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         _vanishReasonKey = string.Empty;
         _livedMs = 0;
         TargetExitCode = null;
+        FollowedRows = [];
         ResidueKeys = [];
         DiagnosticsText = string.Empty;
         DiagnosticsSavedPath = string.Empty;
@@ -2146,6 +2162,10 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             sb.Append("  ").Append(translate("report.target_exit")).Append(' ')
               .Append(code.ToString(CultureInfo.InvariantCulture)).Append('\n');
         }
+
+        // What the session went on for after the application closed, under the line that says it closed -
+        // where the CLI report puts it, for the reason FollowedRows gives.
+        AppendList(sb, translate, "report.followed", _followedRows, translateItems: false);
 
         // Channel names are raw API identifiers (not translated) - warnings are keys the core raised.
         AppendList(sb, translate, "coverage.covered", _covered.Select(ch => FormatReadRow(ch, translate)).ToList(), translateItems: false);
@@ -2376,6 +2396,16 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
         return true;
     }
+
+    /// <summary>The followed processes as the CLI report spells them (report.rs render_followed): the name and
+    /// the pid, or the pid alone for one the process list could not name - the pid is what a reader looks
+    /// for in the task manager to close a program that keeps the session open.</summary>
+    // Concatenation rather than an interpolated string: the interpolation handler is one more type on a class
+    // that stands on its coupling ceiling (measured: 83 with it, for a line this plain).
+    private static IReadOnlyList<string> FollowedLines(IReadOnlyList<FollowedProcess> followed)
+        => [.. followed.Select(p => string.IsNullOrEmpty(p.Image)
+            ? "pid " + p.Pid.ToString(CultureInfo.InvariantCulture)
+            : p.Image + " (pid " + p.Pid.ToString(CultureInfo.InvariantCulture) + ")")];
 
     private static void AppendList(
         StringBuilder sb, Func<string, string> translate, string headerKey,

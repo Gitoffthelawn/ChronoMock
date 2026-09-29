@@ -230,6 +230,26 @@ public class ParserTests
         Assert.Equal(8072u, engine.Pid);
         Assert.Equal(51234, engine.Port);
         Assert.Equal("Engine/1.0", engine.Browser);
+        // The field the family session added (ADR-16): absent is empty, never a parse failure.
+        Assert.Empty(ev.Followed);
+    }
+
+    /// <summary>A session that outlived its application names the programs it went on for, an unnamed one
+    /// without an image key at all - the line the core wrote in crates/proto (session_verdict test).</summary>
+    [Fact]
+    public void Session_verdict_names_the_programs_the_session_went_on_for()
+    {
+        const string line = "{\"type\":\"session_verdict\",\"v\":1,\"verdict\":\"works\"," +
+            "\"reason_key\":\"session.family_covered\",\"process_count\":3," +
+            "\"warning_keys\":[\"session.followed_family\"]," +
+            "\"followed\":[{\"pid\":5150,\"image\":\"app.exe\"},{\"pid\":5151}]}";
+
+        var ev = Assert.IsType<SessionVerdictEvent>(EventParser.Parse(line));
+        Assert.Equal(2, ev.Followed.Count);
+        Assert.Equal(5150u, ev.Followed[0].Pid);
+        Assert.Equal("app.exe", ev.Followed[0].Image);
+        Assert.Equal(5151u, ev.Followed[1].Pid);
+        Assert.Null(ev.Followed[1].Image);
     }
 
     /// <summary>`kind` says which namespace `pid` lives in. A coverage line from a core built before the

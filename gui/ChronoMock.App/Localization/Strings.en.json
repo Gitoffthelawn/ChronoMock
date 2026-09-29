@@ -519,6 +519,8 @@
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "target exited with code",
   "report.cleanup": "not fully cleaned up",
+  // The processes the session went on for after the target closed (ADR-16), under the exit line, in the CLI report's words. "Went on for", never "until they closed": a Stop can end the session while one still runs.
+  "report.followed": "the target had started these, and the session went on for them",
   // The processes the hook never got into, one line per pid the way the CLI report prints them (the screen
   // groups them - the clipboard keeps the pids). The role line is its own template so a translator never
   // assembles a sentence around an optional word.
@@ -553,6 +555,8 @@
   "result.cut_short": "The session was never closed, so there is no verdict for it. Below is what Chrono Mock reported until then - the counts are a floor, not a total.",
   // The target's own exit code, in the reader's words (the summary keeps report.target_exit). The number follows this prefix.
   "result.exit_code": "The application exited on its own with exit code",
+  // The heading over the processes the session went on for after the application closed (ADR-16). The list composes the count after it: "... had started (2)". Same "went on for" rule as report.followed.
+  "result.followed": "The session went on for the programs the application had started",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."
   "result.lived_before": "The application ran for",
   "result.lived_after": "and then vanished.",

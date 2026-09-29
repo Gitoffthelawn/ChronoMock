@@ -793,6 +793,39 @@ public class LayoutGuardTests
         Assert.Equal(TranslationKeyConverter.Resolve("history.load_zone_missing"), text);
     }
 
+    /// <summary>
+    /// The programs a session went on for stand on the result, under the line that says the application closed
+    /// and above the actions on the answer (R4-N53) - measured on the arrange pass, not read off the markup.
+    /// </summary>
+    /// <remarks>
+    /// "The application exited on its own with exit code 0" on its own reads as the end of the session, and for
+    /// a launcher it was not: the session went on for the program it started. The sentence that said so was a
+    /// warning in the folded audit. The row is looked for by its text inside the list's bounds, because a list
+    /// that is visible and empty would pass a check on the list alone.
+    /// </remarks>
+    [Fact]
+    public void The_programs_the_session_went_on_for_stand_under_the_exit_code()
+    {
+        var (exit, list, copy, rowInside) = WpfTestHost.InvokeSettled(() =>
+        {
+            var view = new ResultPhaseView { DataContext = PhaseStates.ResultWorksAfterHandOff() };
+            LayoutProbe.Settle(view);
+            var elements = LayoutProbe.Walk(view);
+            var followed = elements.Single(e => e.Name == "FollowedList");
+            var row = elements.Any(e => e.IsVisible
+                && e.Text == "app.exe (pid 5150)"
+                && e.Bounds.Top >= followed.Bounds.Top
+                && e.Bounds.Bottom <= followed.Bounds.Bottom);
+            return (elements.Single(e => e.Name == "ExitCode"), followed, elements.Single(e => e.Name == "CopyRow"), row);
+        });
+
+        Assert.True(exit.IsVisible, "the exit code line the list explains is not on the result");
+        Assert.True(list.IsVisible, "the programs the session went on for are not on the result");
+        Assert.True(exit.Bounds.Bottom <= list.Bounds.Top, $"the list starts at {list.Bounds.Top:F0}, above the exit code's end at {exit.Bounds.Bottom:F0}");
+        Assert.True(list.Bounds.Bottom <= copy.Bounds.Top, $"the list ends at {list.Bounds.Bottom:F0}, below the copy row's top at {copy.Bounds.Top:F0}");
+        Assert.True(rowInside, "the list is on the result without the program it names");
+    }
+
     /// <summary>The rebuilt phases in every state the sheet draws, with the section that holds the state opened.</summary>
     /// <remarks>Lazy on purpose: every view is created inside the caller's dispatcher call.</remarks>
     private static IEnumerable<(string Name, FrameworkElement View)> PhaseStatesOnCanvas()
@@ -813,6 +846,7 @@ public class LayoutGuardTests
         yield return ("result refused", ResultView(PhaseStates.ResultRefused()));
         yield return ("result that did not take effect", ResultView(PhaseStates.ResultVanished()));
         yield return ("result that did not start", ResultView(PhaseStates.ResultNotStarted()));
+        yield return ("result that went on for the programs the application started", ResultView(PhaseStates.ResultWorksAfterHandOff()));
         yield return ("result with the history open", ResultView(PhaseStates.ResultWithHistoryChosen(), "HistorySection"));
     }
 

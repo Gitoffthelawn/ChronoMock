@@ -71,7 +71,19 @@
 # a carve-out: the two seams already taken out (CoreSession, ScenarioMoment) each moved a responsibility,
 # and there was none left to move for the sake of one list. What is NOT being granted is headroom - 81 is
 # the measurement again (tools/margin.ps1), and the tightened copy at 80 still has to fail.
-CA1506: 81
+#
+# 81 to 82 on 2026-09-29, the up door a third time, on the owner's decision, and for the same kind of
+# reason. A session that outlived its application (ADR-16: a launcher that started the real program and
+# closed) ended on a screen that said "The application exited on its own with exit code 0" and nothing
+# else, while the CLI report named the programs the session went on for. The explanation was a warning
+# folded into the audit, below the fold. The one type is the wire record of those programs: the screen
+# and the copied summary print the same lines, so they are made once, here, from the record - a
+# converter in the view would have left the summary unable to name them, which is the summary saying
+# less than the screen and less than the CLI (untouchable rule 4). Measured with the build itself: 82,
+# and 83 in the first draft, whose interpolated string brought its handler type along - so the line is
+# a plain concatenation. What is NOT being granted is headroom - 82 is the measurement, and the
+# tightened copy at 81 still has to fail.
+CA1506: 82
 
 # `PresetCatalog.ReadParameters`, a JSON reader that validates each field as it goes. Next are
 # `SessionViewModel.Apply` at 15 and `SessionViewModel`'s event router at 13. The analyzer's default

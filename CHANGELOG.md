@@ -130,6 +130,12 @@ Notable changes to Chrono Mock, newest first. The format follows
   has been closed down, which could otherwise overwrite the new form, and a failure while recording a
   session no longer leaves Start disabled for good. A background task that failed with nobody waiting on
   it is now reported like any other unexpected fault, instead of being lost.
+- **The window names the programs a session went on for after the application closed.** When the
+  program you start hands the work to another one and closes - a launcher - the session goes on for
+  the programs it started, and the CLI report names them. The window said only that the application
+  had exited on its own, with its exit code, and the one sentence explaining why the session lasted
+  longer sat among the warnings, below the fold. The result now lists those programs under the exit
+  code, by name and pid, and the copied summary lists them in the same place.
 - **After a run cut short, `chrono run` no longer says the application may still run on the session
   clock.** Once the core is gone, what the application runs natively goes back to the real clock, and
   only pages inside a web engine it embeds stay on the session clock, so the line now says only that
