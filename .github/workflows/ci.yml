@@ -112,31 +112,57 @@ jobs:
 
       # The other half of the shape ceilings, and the half a one-sided ratchet can never give. The
       # step above asks "is the code under the numbers". This one asks "do the numbers still cost
-      # anything": same lints, every threshold one lower, and the run must FAIL. A pass here would
-      # mean nothing in the workspace actually reaches any ceiling - that they stand ABOVE the
-      # measurement, granting headroom nobody decided to grant, with the next arrival slipping in
-      # under them in silence. That is not hypothetical, it is the failure this pattern was written
-      # for in another project: a ceiling stayed twelve lines above its file for a week after a
-      # carve-out and was found only because somebody printed the numbers.
+      # anything": same lints, every threshold one lower, and EACH of them must fire somewhere. A
+      # ceiling nothing reaches one below stands ABOVE the measurement, granting headroom nobody
+      # decided to grant, with the next arrival slipping in under it in silence. That is not
+      # hypothetical, it is the failure this pattern was written for in another project: a ceiling
+      # stayed twelve lines above its file for a week after a carve-out and was found only because
+      # somebody printed the numbers.
+      #
+      # 🔴 EACH LINT BY NAME, AND WARNINGS LEFT AS WARNINGS. This step used to ask only whether the
+      # tightened run failed under -D warnings, and one lint reaching its ceiling answered for all
+      # three: the first crate that fails stops every crate that depends on it from being checked, so
+      # nesting in chrono-core hid the length and complexity ceilings of chrono-mech and chrono-cli
+      # behind a red that looked right. Measured 2026-09-29: after a refactor moved code out, both of
+      # those had room (4 and 2) and the step stayed green. Left as warnings, every crate is checked,
+      # and the lint codes come from the machine-readable output rather than from message wording a
+      # newer clippy may change. The lints asked are the thresholds the tightened file sets, so a
+      # ceiling added there is asked here with no second list to keep in step. The same repair the C#
+      # step above got on 2026-09-14.
       #
       # Cheap because clippy re-reads its configuration without rebuilding the crates - measured
       # 2026-09-06 on the maintainer's machine, 2.9 s for the run above and 1.7 s for this one.
       #
       # `$PSNativeCommandUseErrorActionPreference` is turned off deliberately. GitHub's pwsh shell
       # sets `$ErrorActionPreference = 'stop'`, and on the PowerShell versions where that variable
-      # defaults to true, a failing native command throws before the exit code can be read - which
-      # would turn the expected failure into a step failure and invert the meaning of this gate.
+      # defaults to true, a failing native command throws before the exit code can be read, and the
+      # compile failure this step names would become an unexplained step failure instead.
       - name: Clippy shape ceilings are the measurement, not headroom
         env:
           CLIPPY_CONF_DIR: .github/clippy-tight
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
-          cargo clippy --workspace --all-targets -- -D warnings
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "::error::Every shape ceiling in clippy.toml has room in it: clippy is clean one below all of them. Lower the ceilings to the real maxima, and .github/clippy-tight/clippy.toml with them."
+          $lints = @(Get-Content .github/clippy-tight/clippy.toml | ForEach-Object { if ($_ -match '^\s*([a-z-]+)-threshold\s*=') { $Matches[1] -replace '-', '_' } })
+          if ($lints.Count -eq 0) {
+            Write-Host "::error::No threshold was read from .github/clippy-tight/clippy.toml, so there is nothing to measure."
             exit 1
           }
-          Write-Host "The failures above are the point: each shape ceiling is a real measurement."
+          $lines = @(cargo clippy --workspace --all-targets --message-format=json 2>&1 | ForEach-Object { "$_" })
+          $code = $LASTEXITCODE
+          $messages = @($lines | Where-Object { $_.StartsWith('{') } | ForEach-Object { $_ | ConvertFrom-Json } | Where-Object { $_.reason -eq 'compiler-message' } | ForEach-Object { $_.message })
+          if ($code -ne 0) {
+            $lines | Where-Object { -not $_.StartsWith('{') } | ForEach-Object { Write-Host $_ }
+            $messages | Where-Object { $_.level -eq 'error' } | ForEach-Object { Write-Host $_.rendered }
+            Write-Host "::error::The tightened clippy run did not compile, so the ceilings could not be measured."
+            exit 1
+          }
+          $reached = @($messages | ForEach-Object { $_.code.code } | Where-Object { $_ } | Sort-Object -Unique)
+          $slack = @($lints | Where-Object { $reached -notcontains "clippy::$_" })
+          foreach ($lint in $slack) {
+            Write-Host "::error::The $lint ceiling in clippy.toml has room in it: nothing reaches it one below. Lower it to the real maximum, and .github/clippy-tight/clippy.toml with it."
+          }
+          if ($slack.Count -gt 0) { exit 1 }
+          Write-Host "Each shape ceiling is reached one below ($($lints -join ', ')): each is a real measurement."
           exit 0
 
       # 🔴 BEFORE the tests, and not as a convenience. `cargo test` never emits the library this

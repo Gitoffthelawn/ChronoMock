@@ -7,8 +7,14 @@
 # Asking "does the number STILL cost something" can.
 #
 # So CI runs clippy twice. The first run uses the real ceilings and must pass. The second run uses
-# this file and must FAIL - if it passes, then nothing in the workspace actually reaches any of the
-# ceilings, they have room in them, and the real file has to come down to the measurement.
+# this file, leaves its findings as warnings, and requires EACH lint set here to fire somewhere, by
+# name - a lint that stays silent one below its ceiling means nothing in the workspace reaches that
+# ceiling, it has room in it, and the real file has to come down to the measurement. Each lint by
+# name, because a run that only had to fail could fail on one lint alone: under -D warnings the
+# first crate that fails stops the crates that depend on it from being checked at all.
+#
+# The lints CI asks about are read from the keys of this file, so a threshold added here is asked
+# about there without a second list.
 #
 # 🔴 Keep this in step with ../../clippy.toml. `crates/cli/tests/shape.rs` compares the two files
 # key by key and fails unless every value here is exactly one below its counterpart, so the two
