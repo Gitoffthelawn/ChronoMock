@@ -107,8 +107,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   date parameter and an absolute date took the parameter in `chrono calc` and the absolute date in
   the window. A parametric shift dropped the `amount` and `unit` beside it, a variant shift dropped
   its `sign`, and of two parameters with one id the second won. Each is refused with exit 1 and a
-  message naming what the file says twice, and the window leaves such a preset out of its list. No
-  shipped preset does any of this.
+  message naming what the file says twice, and the window leaves such a preset out of its list. So
+  is a base or a shift naming a parameter the preset does not declare: `chrono calc` used to report
+  that parameter as having no value, and then refused the value passed with `--param` as an unknown
+  parameter. The message now names the parameter and the ones the preset declares. No shipped
+  preset does any of this.
 - **A calendar or preset saved with a UTF-8 byte order mark loads.** Windows PowerShell 5.1 writes
   one with `-Encoding UTF8`. The command line refused such a file with "expected value at line 1
   column 1", while the window read it.

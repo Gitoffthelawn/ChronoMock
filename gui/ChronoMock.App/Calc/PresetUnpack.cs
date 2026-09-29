@@ -78,8 +78,9 @@ public static class PresetUnpack
     /// <summary>
     /// Whether a preset's moment says two things at once (R4-N33) - the mirror of the engine's
     /// <c>refuse_contradictions</c>: a base naming more than one of <c>absolute</c>, <c>absolute_utc</c> and
-    /// <c>parameter</c>, a parametric shift that also names an <c>amount</c> or a <c>unit</c>, and a variant
-    /// shift that also names a <c>sign</c>.
+    /// <c>parameter</c>, a parametric shift that also names an <c>amount</c> or a <c>unit</c>, a variant
+    /// shift that also names a <c>sign</c>, and a base or shift naming a parameter the preset does not
+    /// declare.
     /// <para>
     /// The engine refuses such a file, and this reader used to settle it by the order it looked at the
     /// fields in - the absolute date, where the engine took the parameter - so one file gave two moments.
@@ -97,7 +98,7 @@ public static class PresetUnpack
         }
 
         if (moment.TryGetProperty("base", out var baseEl) && baseEl.ValueKind == JsonValueKind.Object
-            && BaseFields.Count(field => IsPresent(baseEl, field)) > 1)
+            && (BaseFields.Count(field => IsPresent(baseEl, field)) > 1 || NamesUndeclared(baseEl, parameters)))
         {
             return true;
         }
@@ -109,22 +110,42 @@ public static class PresetUnpack
 
         foreach (var step in steps.EnumerateArray())
         {
-            if (step.ValueKind != JsonValueKind.Object || !step.TryGetProperty("shift", out var shift)
-                || shift.ValueKind != JsonValueKind.Object || !shift.TryGetProperty("parameter", out var pn)
-                || pn.ValueKind != JsonValueKind.String)
-            {
-                continue;
-            }
-
-            var id = pn.GetString();
-            if (IsPresent(shift, "amount") || IsPresent(shift, "unit")
-                || (IsPresent(shift, "sign") && parameters.Any(p => p.Id == id && p.Type == "variant")))
+            if (step.ValueKind == JsonValueKind.Object && step.TryGetProperty("shift", out var shift)
+                && shift.ValueKind == JsonValueKind.Object && ShiftContradicts(shift, parameters))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    // A parametric shift that also names its size, a variant shift that also names a sign, or a shift
+    // naming a parameter the preset does not declare. A shift without a parameter says one thing.
+    private static bool ShiftContradicts(JsonElement shift, IReadOnlyList<PresetParameter> parameters)
+    {
+        if (!shift.TryGetProperty("parameter", out var pn) || pn.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var id = pn.GetString();
+        return NamesUndeclared(shift, parameters) || IsPresent(shift, "amount") || IsPresent(shift, "unit")
+            || (IsPresent(shift, "sign") && parameters.Any(p => p.Id == id && p.Type == "variant"));
+    }
+
+    // A base or shift naming a parameter the preset does not declare. The engine refuses the file, where
+    // it used to say the parameter "has no value" and then refuse that value as an unknown parameter.
+    // Ids compare with case, as the engine compares them.
+    private static bool NamesUndeclared(JsonElement holder, IReadOnlyList<PresetParameter> parameters)
+    {
+        if (!holder.TryGetProperty("parameter", out var pn) || pn.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        var id = pn.GetString();
+        return !parameters.Any(p => p.Id == id);
     }
 
     private static bool IsPresent(JsonElement element, string name)

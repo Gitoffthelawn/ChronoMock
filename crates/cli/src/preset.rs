@@ -331,7 +331,9 @@ fn base_contradiction(fields: &[&str]) -> PresetError {
 /// the two readers: a base with a date parameter and an absolute date took the parameter here and the
 /// absolute date in the window, a parametric shift dropped the `amount` and `unit` beside it, a variant
 /// shift dropped its `sign` (a variant carries its own direction), and a parameter id declared twice
-/// was filled by whichever came last. None of the shipped presets does any of it. The window skips a
+/// was filled by whichever came last. A base or shift naming a parameter the file does not declare
+/// was refused only when the preset was used, as having no value, and passing that value was then
+/// refused as an unknown parameter. None of the shipped presets does any of it. The window skips a
 /// file like this from its list, so the two surfaces refuse the same catalogue entries.
 fn refuse_contradictions(parameters: &[Parameter], moment: &MomentDto) -> Result<(), PresetError> {
     for (i, p) in parameters.iter().enumerate() {
@@ -346,9 +348,13 @@ fn refuse_contradictions(parameters: &[Parameter], moment: &MomentDto) -> Result
     if fields.len() > 1 {
         return Err(base_contradiction(&fields));
     }
+    if let BaseDto::Object { parameter: Some(id), .. } = &moment.base {
+        refuse_undeclared(parameters, "the base", id)?;
+    }
     for step in &moment.steps {
         let StepDto::Shift(shift) = step else { continue };
         let Some(id) = &shift.parameter else { continue };
+        refuse_undeclared(parameters, "a shift", id)?;
         if shift.amount.is_some() || shift.unit.is_some() {
             return Err(PresetError::BadFile(format!(
                 "a shift with parameter '{id}' also names an amount or a unit - the parameter gives the size, so write one or the other"
@@ -362,6 +368,22 @@ fn refuse_contradictions(parameters: &[Parameter], moment: &MomentDto) -> Result
         }
     }
     Ok(())
+}
+
+/// A moment naming a parameter the file does not declare. Ids compare with case, as `--param` does.
+fn refuse_undeclared(parameters: &[Parameter], place: &str, id: &str) -> Result<(), PresetError> {
+    if parameters.iter().any(|p| p.id == id) {
+        return Ok(());
+    }
+    let declared = if parameters.is_empty() {
+        "it declares none".to_string()
+    } else {
+        let ids = parameters.iter().map(|p| format!("'{}'", p.id)).collect::<Vec<_>>().join(", ");
+        format!("it declares {ids}")
+    };
+    Err(PresetError::BadFile(format!(
+        "{place} names parameter '{id}', which the preset does not declare in 'parameters' - {declared}"
+    )))
 }
 
 /// Map a preset step to a core `Step`, reusing the CLI parsers so a preset speaks the same step
@@ -1135,6 +1157,37 @@ mod tests {
         ] {
             parse_preset(&text).unwrap_or_else(|e| panic!("{}", e.message()));
         }
+    }
+
+    /// A base or shift naming a parameter the file does not declare used to load, and was refused only
+    /// when used, as "has no value" - and `--param` with that id was then refused as unknown, so the
+    /// two messages sent the user in a circle. Now the file is refused, naming the id and what it does
+    /// declare. Ids compare with case, as `--param` compares them.
+    #[test]
+    fn a_moment_naming_an_undeclared_parameter_is_refused() {
+        let preset = |parameters: &str, moment: &str| {
+            format!(
+                r#"{{"schema":"chronomock.preset/1","id":"x","name":{{"en":"n"}},"explains":{{"en":"e"}},
+                "applies_to":"calculator","parameters":[{parameters}],"moment":{moment}}}"#
+            )
+        };
+        let date = r#"{"id":"d","type":"date","default":"2020-01-01"}"#;
+        let size = r#"{"id":"n","type":"duration","default":{"amount":1,"unit":"days"}}"#;
+        for (text, needle) in [
+            (preset(size, r#"{"base":"today","steps":[{"shift":{"sign":"+","parameter":"m"}}]}"#), "a shift names parameter 'm'"),
+            (preset("", r#"{"base":"today","steps":[{"shift":{"parameter":"v"}}]}"#), "a shift names parameter 'v'"),
+            (preset(date, r#"{"base":{"parameter":"e"}}"#), "the base names parameter 'e'"),
+            (preset(date, r#"{"base":{"parameter":"D"}}"#), "the base names parameter 'D'"),
+        ] {
+            let err = parse_preset(&text).expect_err("an undeclared parameter is refused");
+            assert!(matches!(err, PresetError::BadFile(_)), "{}", err.message());
+            assert!(err.message().contains(needle), "{needle}: {}", err.message());
+            assert!(err.message().contains("does not declare"), "{}", err.message());
+        }
+        let err = parse_preset(&preset(&format!("{date},{size}"), r#"{"base":{"parameter":"e"}}"#)).unwrap_err();
+        assert!(err.message().contains("it declares 'd', 'n'"), "{}", err.message());
+        let err = parse_preset(&preset("", r#"{"base":{"parameter":"e"}}"#)).unwrap_err();
+        assert!(err.message().contains("it declares none"), "{}", err.message());
     }
 
     /// Every preset in `presets/` loads the way `--preset` loads it, found by its own id (R4-D14).

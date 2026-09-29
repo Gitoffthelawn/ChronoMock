@@ -129,10 +129,11 @@ public class PresetCatalogTests
     public void A_file_the_engine_refuses_is_not_offered()
     {
         // R4-N37 and R4-N33, the owner's decision R4-D14: the engine refuses a preset whose id is not its
-        // file name, one with a parameter id declared twice, and one whose moment says two things at once.
-        // This list used to offer all of them, and for a base naming a date parameter and an absolute date
-        // it took the absolute date where the engine took the parameter - one file, two moments. Case and
-        // a JSON null are not differences, for the engine or here.
+        // file name, one with a parameter id declared twice, one whose moment says two things at once, and
+        // one whose moment names a parameter it does not declare. This list used to offer all of them, and
+        // for a base naming a date parameter and an absolute date it took the absolute date where the
+        // engine took the parameter - one file, two moments. Case in a file name and a JSON null are not
+        // differences, for the engine or here. Case in a parameter id is.
         var dir = Path.Combine(Path.GetTempPath(), $"chrono-presets-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
         try
@@ -157,6 +158,10 @@ public class PresetCatalogTests
                     "{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"+\",\"unit\":\"years\",\"parameter\":\"n\"}}]}"),
                 ["signed"] = Shaped("signed", side,
                     "{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"-\",\"parameter\":\"v\"}}]}"),
+                ["shiftless"] = Shaped("shiftless", size,
+                    "{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"+\",\"parameter\":\"m\"}}]}"),
+                ["baseless"] = Shaped("baseless", string.Empty, "{\"base\":{\"parameter\":\"d\"}}"),
+                ["cased"] = Shaped("cased", date, "{\"base\":{\"parameter\":\"D\"}}"),
             };
             foreach (var (name, json) in files)
             {

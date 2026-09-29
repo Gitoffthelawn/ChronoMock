@@ -105,8 +105,9 @@ fn calc_in(dir: &std::path::Path, args: &[&str]) -> Output {
 /// R4-N37 and R4-N33 as a user meets them, through `--calendar` and `--preset`. A file saved with a
 /// byte order mark loads (it used to be "expected value at line 1 column 1"), a file whose id is not
 /// its name is refused naming both (it used to be loaded and quoted under the id inside it), a broken
-/// preset names its file (a calendar's error always did), and a preset that says two things at once is
-/// refused instead of settled by whichever field the reader looked at first.
+/// preset names its file (a calendar's error always did), a preset that says two things at once is
+/// refused instead of settled by whichever field the reader looked at first, and so is one whose moment
+/// names a parameter it does not declare.
 #[test]
 fn a_catalogue_file_loads_as_saved_and_is_named_when_refused() {
     let calendar = |id: &str| {
@@ -131,6 +132,7 @@ fn a_catalogue_file_loads_as_saved_and_is_named_when_refused() {
             ("presets/renamed.json", preset("month-end", r#"{"parameter":"d"}"#)),
             ("presets/broken.json", br#"{"schema":"chronomock.preset/1","id":"broken""#.to_vec()),
             ("presets/both.json", preset("both", r#"{"absolute":"2030-01-01T00:00:00","parameter":"d"}"#)),
+            ("presets/undeclared.json", preset("undeclared", r#"{"parameter":"e"}"#)),
         ],
     );
 
@@ -157,6 +159,18 @@ fn a_catalogue_file_loads_as_saved_and_is_named_when_refused() {
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(1), "{err}");
     assert!(err.contains("'absolute' and 'parameter'"), "the contradiction is named: {err}");
+
+    // A base naming a parameter the file does not declare used to say "has no value", and passing the
+    // value was then refused as an unknown parameter. With or without it, the file is what is refused.
+    for args in [&["--preset", "undeclared"][..], &["--preset", "undeclared", "--param", "e=2030-01-01"]] {
+        let out = calc_in(&dir, args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(1), "{err}");
+        assert!(
+            err.contains("parameter 'e'") && err.contains("does not declare") && err.contains("undeclared.json"),
+            "the undeclared parameter and its file are named: {err}"
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&dir);
 }
