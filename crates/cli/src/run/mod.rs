@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use chrono_proto::{Command, Event, MomentSpec, PROTOCOL_VERSION};
 
-use args::{parse_run_args, target_spec_for};
+use args::{parse_run_args, target_spec_for, RunArgs};
 use collect::Collector;
 use moment::resolve_time_spec;
 use crate::cdp;
@@ -153,128 +153,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
 
     // Stream events. Send `end` after `--ticks` state heartbeats. With ticks 0 nothing is sent and the
     // session ends by itself (ADR-16). Either way, read through to `ended`.
-    let mut collected = Collector::default();
-    let mut states_seen: u64 = 0;
-    let mut end_sent = false;
-    // Why the read runs on its own thread rather than in this loop: the driver has to be able to
-    // give up. Reading straight from the pipe here had no time limit and no liveness check, so a
-    // core that stopped answering hung `chrono run` with nothing in the log to say why - on the
-    // surface the README points at CI, where the only thing that eventually notices is the runner's
-    // own job timeout (R3-5). The GUI has had an idle watchdog since M-10 - this is the same idea on
-    // the other client, and the two now use the same 15 s.
-    //
-    // The second reason is measured, not assumed: EOF on the core's stdout does NOT arrive when the
-    // core dies, because the TARGET inherits the write end of that pipe and holds it open. "Read
-    // until EOF" is really "read until the tested application exits", which is no liveness signal
-    // for the core at all.
-    let mut timed_out: Option<&'static str> = None;
-    if let Some(stdout) = child.stdout.take() {
-        let (line_tx, line_rx) = mpsc::channel::<String>();
-        std::thread::spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            // Not `reader.lines()`: that grows one line without limit, and this is the driver reading
-            // a core it launched. A line past the cap ends the stream like a read error would.
-            let mut raw = String::new();
-            loop {
-                match read_protocol_line(&mut reader, &mut raw) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => {}
-                }
-                if line_tx.send(std::mem::take(&mut raw)).is_err() {
-                    break;
-                }
-            }
-        });
-
-        let started = Instant::now();
-        loop {
-            // Whether the CORE is still alive, asked before every wait - because a line arriving on
-            // this pipe does NOT mean it is. The target inherits the write end of the core's stdout
-            // and writes its own output there: measured with `ping` as the target, whose once-a-
-            // second reply line is 49 bytes, the idle timer was reset for as long as the target ran,
-            // so a core killed 45 s earlier still looked alive. EOF is no signal either, for the
-            // same reason - the pipe stays open while the target holds it (R3-5).
-            //
-            // Once the core is gone the only thing left to do is drain what it already said, so the
-            // wait shrinks to a moment: anything queued still arrives (a queued line returns
-            // immediately), and the loop then ends as a normal end-of-session, not a timeout.
-            let core_gone = matches!(child.try_wait(), Ok(Some(_)));
-            // The idle limit, or whatever is left of `--timeout` when that is the nearer of the two,
-            // so a ceiling is honoured to the second rather than to the end of the next idle window.
-            let idle_budget = Duration::from_secs(DRIVER_IDLE_TIMEOUT_SECS);
-            let budget = if core_gone {
-                Duration::from_millis(200)
-            } else {
-                match ra.timeout_secs {
-                    Some(secs) => Duration::from_secs(secs)
-                        .checked_sub(started.elapsed())
-                        .map_or(Duration::ZERO, |left| left.min(idle_budget)),
-                    None => idle_budget,
-                }
-            };
-            let raw = match line_rx.recv_timeout(budget) {
-                Ok(line) => line,
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) if core_gone => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Which limit ran out decides only what we SAY. Both end the same way - the core
-                    // is killed and the exit code is 6 - because a driver that printed a verdict it
-                    // never received would be the tool inventing evidence (untouchable rule 4).
-                    timed_out = Some(match ra.timeout_secs {
-                        Some(secs) if started.elapsed() >= Duration::from_secs(secs) => "timeout",
-                        _ => "idle",
-                    });
-                    let _ = child.kill();
-                    break;
-                }
-            };
-            // `lines()` strips the terminator and this stands in its place, so every reader below
-            // sees exactly what it saw before.
-            let line = raw.strip_suffix('\n').unwrap_or(&raw);
-            let line = line.strip_suffix('\r').unwrap_or(line).to_string();
-            if line.is_empty() {
-                continue;
-            }
-            if ra.json {
-                outln!("{line}");
-            }
-            match chrono_proto::parse_event(&line) {
-                Ok(Event::State { .. }) => {
-                    states_seen += 1;
-                    if let Some((t, m)) = ra.set_after
-                        && states_seen == t {
-                            send_set_multiplier(&mut stdin, m);
-                        }
-                    if let Some((t, ref mom)) = ra.jump_after
-                        && states_seen == t {
-                            // The SESSION's zone, not the raw flag: a jump names a wall-clock moment on
-                            // the clock the target is already showing. Reading it as UTC while the
-                            // session ran on the host's zone landed the jump an offset away - measured
-                            // at exactly that: `--jump-after 2:2038-01-19T03:14:07` reached 05:14 on a
-                            // UTC+2 host. That predates R2-S7 (it came in with "no --at follows the
-                            // host"), and it is the same rule-2 failure in a second place.
-                            send_jump(&mut stdin, mom, Some(now_bias));
-                        }
-                    if ra.ticks > 0 && states_seen >= ra.ticks && !end_sent {
-                        send_end(&mut stdin);
-                        end_sent = true;
-                    }
-                }
-                // Everything else is evidence rather than a cue to act, so the collector owns
-                // it. Nothing happens on a verdict on purpose: with ticks == 0 the run stays
-                // attached until the session ends by itself, when the target and everything it
-                // started on the session clock have exited (ADR-16), because detaching early would
-                // revert them to real time (self-detach). With ticks > 0 the state arm above ends the session
-                // after that many heartbeats. `ended` is the one event that stops the read.
-                Ok(event) => {
-                    if collected.record(event) {
-                        break;
-                    }
-                }
-                Err(_) => {}
-            }
-        }
-    }
+    let (collected, timed_out) = stream_session(&mut child, &mut stdin, &ra, now_bias);
     drop(stdin);
 
     let status = child.wait();
@@ -323,6 +202,165 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         diag!("chrono: the core ended without a verdict - this run proves nothing about the target");
     }
     code
+}
+
+/// Read the core's events until `ended`, the end of the stream, or a limit, acting on each heartbeat
+/// as it comes. Returns what was gathered and which limit, if one did, cut the read short.
+///
+/// Lifted out of `driver_run` whole, so the pinned length and complexity ceilings (clippy.toml) stay
+/// with the code that set them rather than with the function that happened to hold it.
+fn stream_session(
+    child: &mut std::process::Child,
+    stdin: &mut std::process::ChildStdin,
+    ra: &RunArgs,
+    now_bias: i32,
+) -> (Collector, Option<&'static str>) {
+    let mut collected = Collector::default();
+    let mut beats = Heartbeats::default();
+    // Why the read runs on its own thread rather than in this loop: the driver has to be able to
+    // give up. Reading straight from the pipe here had no time limit and no liveness check, so a
+    // core that stopped answering hung `chrono run` with nothing in the log to say why - on the
+    // surface the README points at CI, where the only thing that eventually notices is the runner's
+    // own job timeout (R3-5). The GUI has had an idle watchdog since M-10 - this is the same idea on
+    // the other client, and the two now use the same 15 s.
+    //
+    // The second reason is measured, not assumed: EOF on the core's stdout does NOT arrive when the
+    // core dies, because the TARGET inherits the write end of that pipe and holds it open. "Read
+    // until EOF" is really "read until the tested application exits", which is no liveness signal
+    // for the core at all.
+    let mut timed_out: Option<&'static str> = None;
+    let Some(stdout) = child.stdout.take() else {
+        return (collected, timed_out);
+    };
+    let line_rx = spawn_line_reader(stdout);
+
+    let started = Instant::now();
+    loop {
+        // Whether the CORE is still alive, asked before every wait - because a line arriving on
+        // this pipe does NOT mean it is. The target inherits the write end of the core's stdout
+        // and writes its own output there: measured with `ping` as the target, whose once-a-
+        // second reply line is 49 bytes, the idle timer was reset for as long as the target ran,
+        // so a core killed 45 s earlier still looked alive. EOF is no signal either, for the
+        // same reason - the pipe stays open while the target holds it (R3-5).
+        //
+        // Once the core is gone the only thing left to do is drain what it already said, so the
+        // wait shrinks to a moment: anything queued still arrives (a queued line returns
+        // immediately), and the loop then ends as a normal end-of-session, not a timeout.
+        let core_gone = matches!(child.try_wait(), Ok(Some(_)));
+        let raw = match line_rx.recv_timeout(read_budget(core_gone, ra.timeout_secs, started)) {
+            Ok(line) => line,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) if core_gone => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Which limit ran out decides only what we SAY. Both end the same way - the core
+                // is killed and the exit code is 6 - because a driver that printed a verdict it
+                // never received would be the tool inventing evidence (untouchable rule 4).
+                timed_out = Some(match ra.timeout_secs {
+                    Some(secs) if started.elapsed() >= Duration::from_secs(secs) => "timeout",
+                    _ => "idle",
+                });
+                let _ = child.kill();
+                break;
+            }
+        };
+        // `lines()` strips the terminator and this stands in its place, so every reader below
+        // sees exactly what it saw before.
+        let line = raw.strip_suffix('\n').unwrap_or(&raw);
+        let line = line.strip_suffix('\r').unwrap_or(line).to_string();
+        if line.is_empty() {
+            continue;
+        }
+        if ra.json {
+            outln!("{line}");
+        }
+        match chrono_proto::parse_event(&line) {
+            Ok(Event::State { .. }) => beats.on_state(ra, stdin, now_bias),
+            // Everything else is evidence rather than a cue to act, so the collector owns
+            // it. Nothing happens on a verdict on purpose: with ticks == 0 the run stays
+            // attached until the session ends by itself, when the target and everything it
+            // started on the session clock have exited (ADR-16), because detaching early would
+            // revert them to real time (self-detach). With ticks > 0 the state arm above ends the session
+            // after that many heartbeats. `ended` is the one event that stops the read.
+            Ok(event) => {
+                if collected.record(event) {
+                    break;
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    (collected, timed_out)
+}
+
+/// The thread that reads the core's stdout line by line and hands each line on, until the stream
+/// ends or cannot be read.
+fn spawn_line_reader(stdout: std::process::ChildStdout) -> mpsc::Receiver<String> {
+    let (line_tx, line_rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        // Not `reader.lines()`: that grows one line without limit, and this is the driver reading
+        // a core it launched. A line past the cap ends the stream like a read error would.
+        let mut raw = String::new();
+        loop {
+            match read_protocol_line(&mut reader, &mut raw) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            if line_tx.send(std::mem::take(&mut raw)).is_err() {
+                break;
+            }
+        }
+    });
+    line_rx
+}
+
+/// How long the next wait for a line may take: the idle limit, or whatever is left of `--timeout`
+/// when that is the nearer of the two, so a ceiling is honoured to the second rather than to the end
+/// of the next idle window - and only a moment once the core is gone.
+fn read_budget(core_gone: bool, timeout_secs: Option<u64>, started: Instant) -> Duration {
+    let idle_budget = Duration::from_secs(DRIVER_IDLE_TIMEOUT_SECS);
+    if core_gone {
+        Duration::from_millis(200)
+    } else {
+        match timeout_secs {
+            Some(secs) => Duration::from_secs(secs)
+                .checked_sub(started.elapsed())
+                .map_or(Duration::ZERO, |left| left.min(idle_budget)),
+            None => idle_budget,
+        }
+    }
+}
+
+/// The heartbeats seen so far, and what the driver sends on them: `--set-after`, `--jump-after` and
+/// the `end` that `--ticks` asks for.
+#[derive(Default)]
+struct Heartbeats {
+    seen: u64,
+    end_sent: bool,
+}
+
+impl Heartbeats {
+    fn on_state(&mut self, ra: &RunArgs, stdin: &mut std::process::ChildStdin, now_bias: i32) {
+        self.seen += 1;
+        if let Some((t, m)) = ra.set_after
+            && self.seen == t {
+                send_set_multiplier(stdin, m);
+            }
+        if let Some((t, ref mom)) = ra.jump_after
+            && self.seen == t {
+                // The SESSION's zone, not the raw flag: a jump names a wall-clock moment on
+                // the clock the target is already showing. Reading it as UTC while the
+                // session ran on the host's zone landed the jump an offset away - measured
+                // at exactly that: `--jump-after 2:2038-01-19T03:14:07` reached 05:14 on a
+                // UTC+2 host. That predates R2-S7 (it came in with "no --at follows the
+                // host"), and it is the same rule-2 failure in a second place.
+                send_jump(stdin, mom, Some(now_bias));
+            }
+        if ra.ticks > 0 && self.seen >= ra.ticks && !self.end_sent {
+            send_end(stdin);
+            self.end_sent = true;
+        }
+    }
 }
 
 /// What the driver says when it cut the run short, and the code it exits with.
