@@ -165,6 +165,10 @@ Every command speaks `--json` as well, and exits with a code your pipeline can b
 and every exit code of both commands is listed in the
 [CLI reference](https://chronomock.donislawdev.com/cli-reference/).
 
+A console application's own output appears on `chrono run`'s standard error while it runs, so
+standard output holds the report, or with `--json` the events, and nothing else. Started from the
+window, a console application opens in a console window of its own.
+
 <details>
 <summary><strong>Table of contents</strong></summary>
 

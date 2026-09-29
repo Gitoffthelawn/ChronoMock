@@ -43,6 +43,20 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A console application's output goes to `chrono run`'s standard error.** The application writes
+  its output and errors there, and reads the terminal's input when `chrono run` runs in a terminal
+  with a window, or empty input otherwise, as in CI. Standard output carries the report and nothing
+  else, and with `--json` it is a clean stream of protocol events. The application's output used to
+  go into the channel between `chrono run` and the session, where the report lost it and `--json`
+  mixed it in with the events (see Fixed). An application with a window of its own still starts
+  without standard handles, as it does from a terminal.
+- **Started from the window, a console application opens in a console window of its own**, with
+  its output and its input there, as when it is started by hand. A short-lived one closes the
+  window as it exits. An application with a window of its own is not affected. The machine
+  protocol's `start` carries this as `target.console`: `new` for a console of its own, or `shared`,
+  the default, for the console and standard error of the process running the session.
+- **An idle `chrono run` now says the core "sent no event" for 15 seconds**, where it said "sent
+  nothing", because a line that is not an event no longer counts as a sign of life.
 - **A calendar file with a field Chrono Mock does not know is refused instead of read around.** A
   misspelt optional field, such as `valid_form` for `valid_from`, used to be skipped, so the holiday
   it was meant to limit counted in every year. The file is now refused with exit 1, and the message
@@ -92,6 +106,24 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A console application no longer reads or writes the session's own channel.** `chrono run` and
+  the window talk to the session over the standard input and output of the process that runs it,
+  and a console application the session started was handed both. Measured on a console program of
+  our own: a line written in a Polish console code page ended the reading, so the run printed no
+  verdict and exited 0, and `--json` carried no events at all. A progress bar written without a line
+  break glued the heartbeat after it to its text, and every heartbeat was lost. A program reading
+  its input took the command `--ticks 3` sends, and the run took 8.4 seconds instead of 3. With the
+  core stopped two seconds in, `--timeout 5` still waited 20 seconds, for as long as the application
+  kept writing. And once the session was over, the application's writes failed. The application
+  never gets those handles now, and the same runs give the verdict, every heartbeat, 3.4 seconds,
+  2.5 seconds and writes that succeed. Where its output goes instead is under Changed.
+- **`chrono run` reads past a line it cannot use.** One byte that was not UTF-8, or one line over
+  the 1 MiB protocol limit, ended the read and took the rest of the session with it, verdict
+  included. Such a line is now skipped, the run says at the end how many it skipped, and the idle
+  limit counts from the last event rather than from the last line of any kind. The window reads the
+  session the same way. It splits lines only at a line feed, skips a line that is not UTF-8 or too
+  long instead of patching or growing it, ignores an event of another protocol version, and keeps
+  such lines apart in its diagnostics, where they used to push out the session's own messages.
 - **Two holidays observed on the same day are two days off.** Under `weekend_to_mon`, Christmas on a
   Saturday and Boxing Day on a Sunday both moved to the Monday, so the Tuesday counted as a business
   day. An observed holiday that lands on a day already off, another holiday or a weekend day, now
