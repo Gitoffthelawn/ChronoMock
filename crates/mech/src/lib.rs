@@ -35,7 +35,8 @@ use std::time::Instant;
 use chrono_core::{ChannelCoverage, Coverage, SessionSpec, TimeMode};
 use chrono_ctl::{
     cov_at, ctl_size, freeze_dur, freeze_qpc, header_is_ours, read_anchor, read_calls,
-    read_core_pid, read_dur, read_installed, read_late_installed, read_pid, read_pid_count, read_qpc,
+    read_core_pid, read_created, read_dur, read_ended, read_installed, read_late_installed, read_pid,
+    read_pid_count, read_qpc,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory, ChannelModule,
@@ -113,9 +114,25 @@ pub struct Prepared {
     /// Set when the target exited within the guard window right after injection - a
     /// suspected single-instance vanish (ADR-4). Carries how long it lived, in ms.
     pub vanished_lived_ms: Option<u64>,
-    /// An orphaned control block from a dead core was found at startup and reclaimed (its target
-    /// had self-detached to real time). The caller surfaces this so the reclaim is not silent.
-    pub orphan_reclaimed: bool,
+    /// Whether a previous session's control block was still there and was taken over, and how that
+    /// session had ended. The caller surfaces this so the takeover is not silent.
+    pub reclaimed: Reclaimed,
+}
+
+/// What `prepare` found under the control block's name before it started.
+///
+/// A block survives its core for as long as any process of the session keeps it mapped. It used to be
+/// reported as "a previous core had died" whatever had happened, which was false after every session
+/// that ended in order with its application still running (R4-W2, measured in `tools/probes/r4-6`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reclaimed {
+    /// Nothing survived: this session made a fresh block.
+    Nothing,
+    /// The previous session had ended in order, and a process of it still held the block - an
+    /// application that session left running, on the real clock since its end (ADR-14).
+    EndedSession,
+    /// The previous core died without ending its session.
+    DeadCore,
 }
 
 /// A live, running session. Keeps the control memory mapped and the target handle
@@ -380,9 +397,11 @@ impl Session {
     /// the ones that ended. Cheap enough for the child poll: a new member costs one open and one
     /// process snapshot, a known one a zero-length wait.
     pub fn refresh_family(&mut self) {
-        let published: Vec<(usize, u32)> = (0..MAX_COV_PIDS)
+        // The creation time rides along with the pid (R4-N12), read after `read_pid` saw the pid.
+        let published: Vec<family::SignedIn> = (0..MAX_COV_PIDS)
             .map(|slot| (slot, unsafe { read_pid(self.ctl(), slot) }))
             .filter(|&(_, pid)| pid != 0)
+            .map(|(slot, pid)| family::SignedIn { slot, pid, created: unsafe { read_created(cov_at(self.ctl(), slot)) } })
             .collect();
         self.family.refresh(self.pid, &published);
     }
@@ -1258,7 +1277,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // block so no stale PID registry or anchor leaks into the new session. The refusal for a real
         // second session happened at the lock, not here - reading `core_pid` to decide would race
         // with a core that has not written it yet.
-        let mut orphan_reclaimed = false;
+        let mut reclaimed = Reclaimed::Nothing;
         if already_existed {
             // ...but "surviving" is not the same as "ours". The name is fixed and any process in
             // this session can create it, so a section already sitting on it was zeroed and used as
@@ -1276,8 +1295,9 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
                         .into(),
                 ));
             }
+            // Read BEFORE the zeroing, which is what makes it the previous session's answer.
+            reclaimed = if read_ended(ctl) { Reclaimed::EndedSession } else { Reclaimed::DeadCore };
             std::ptr::write_bytes(ctl as *mut u8, 0, ctl_size());
-            orphan_reclaimed = true;
         }
         // Stamped before the anchor, so anything that outlives this core is recognisable as ours.
         write_header(ctl);
@@ -1423,7 +1443,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             family: family::Family::new(MAX_COV_PIDS, parent_slot),
             _lock: lock,
         };
-        Ok(Prepared { coverage, session, vanished_lived_ms, orphan_reclaimed })
+        Ok(Prepared { coverage, session, vanished_lived_ms, reclaimed })
     }
 }
 

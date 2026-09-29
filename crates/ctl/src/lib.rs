@@ -1416,6 +1416,15 @@ pub unsafe fn set_created(p: *mut Cov, created: u64) { unsafe {
     write_volatile(addr_of_mut!((*p).created), created);
 }}
 
+/// When the process that owns this slot was created, or 0 when its hook did not record it (mechanism
+/// side, per-process `Cov`). Read after `read_pid` returned the slot's pid, whose acquire makes it visible.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_created(p: *const Cov) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).created))
+}}
+
 /// Read the installed-channels bitmask (mechanism side, per-process `Cov`).
 ///
 /// # Safety
@@ -1790,9 +1799,9 @@ mod tests {
             assert_eq!(read_core_created(p), 0x01DC_0000_1234_5678);
             assert_eq!(read_core_pid(p), 4242);
             assert!(read_ended(p));
-            assert_eq!(cov.created, 0, "an unrecorded slot must read as 0, the fallback mark");
+            assert_eq!(read_created(&cov), 0, "an unrecorded slot must read as 0, the fallback mark");
             set_created(&mut cov, 0x01DC_0000_0000_0001);
-            assert_eq!(cov.created, 0x01DC_0000_0000_0001);
+            assert_eq!(read_created(&cov), 0x01DC_0000_0000_0001);
         }
     }
 

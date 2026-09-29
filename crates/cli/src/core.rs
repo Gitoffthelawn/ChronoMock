@@ -146,10 +146,10 @@ pub(crate) fn core_mode() -> i32 {
 
     match chrono_mech::prepare(&spec, &m_target, &hook) {
         Ok(mut prepared) => {
-            // Surface an orphan reclaim so it is not silent (a prior core had died and left its
-            // control block behind). Human diagnostic on stderr, never on the protocol stdout.
-            if prepared.orphan_reclaimed {
-                diag!("chrono core: reclaimed an orphaned session (a previous core had died)");
+            // Surface a takeover of a previous session's control block so it is not silent, saying how
+            // that session had ended (R4-D19). Human diagnostic on stderr, never on the protocol stdout.
+            if let Some(notice) = reclaim_notice(prepared.reclaimed) {
+                diag!("{notice}");
             }
             let verdict = verdict_from_coverage(&prepared.coverage);
             // The parent's own coverage (its pid). Children that join later report
@@ -888,6 +888,22 @@ pub(crate) fn build_spec(time: &TimeSpec) -> Result<SessionSpec, (i32, &'static 
     Ok(SessionSpec { moment, mode, scale_duration: time.scale_duration, scale_qpc: time.scale_qpc })
 }
 
+/// What the core says when it took over a previous session's control block, or `None` when there was
+/// none to take over. The wording follows how that session had ended (R4-D19): after an ordered end the
+/// block survives only because the application kept running, and it is on the real clock since that end
+/// - "a previous core had died", said there before R4-W2, was false.
+pub(crate) fn reclaim_notice(reclaimed: chrono_mech::Reclaimed) -> Option<&'static str> {
+    use chrono_mech::Reclaimed as R;
+    match reclaimed {
+        R::Nothing => None,
+        R::EndedSession => Some(
+            "chrono core: took over the control block of a session that ended while its application \
+             kept running - that application is on the real clock",
+        ),
+        R::DeadCore => Some("chrono core: reclaimed an orphaned session (a previous core had died)"),
+    }
+}
+
 pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static str, &'static str, String) {
     use chrono_mech::PrepareError as P;
     match e {
@@ -929,6 +945,19 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
 mod tests {
     use super::*;
     use crate::testutil::unique_temp_dir;
+
+    /// A takeover is always said, and said the way the previous session ended (R4-D19). The ordered end
+    /// used to be reported as a dead core, which it was not.
+    #[test]
+    fn a_takeover_says_how_the_previous_session_ended() {
+        use chrono_mech::Reclaimed;
+        assert_eq!(reclaim_notice(Reclaimed::Nothing), None);
+        let ended = reclaim_notice(Reclaimed::EndedSession).expect("an ordered end's takeover is said");
+        assert!(ended.contains("ended while its application kept running"), "{ended}");
+        assert!(!ended.contains("died"), "an ordered end was reported as a dead core: {ended}");
+        let died = reclaim_notice(Reclaimed::DeadCore).expect("a dead core's takeover is said");
+        assert!(died.contains("a previous core had died"), "{died}");
+    }
 
     #[test]
     fn build_spec_rejects_a_multiplier_the_clock_cannot_survive() {

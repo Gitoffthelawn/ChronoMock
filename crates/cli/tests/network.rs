@@ -239,8 +239,9 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "crates/cli/tests/session_identity.rs",
         "spawn",
         "runs this test binary's own ignored probe under a session through the built binary, and the \
-         probe starts itself once more as its child after the session has ended. Both only write a \
-         scratch file, and nothing reaches past this machine",
+         probe starts itself once more as its child after the session has ended - in one test while a \
+         second session runs the same probe, which only waits. All of them only write a scratch file, \
+         and nothing reaches past this machine",
     ),
     (
         "crates/cli/tests/network_observer.rs",
