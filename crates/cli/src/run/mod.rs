@@ -168,16 +168,19 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     }
 
     let status = child.wait();
+    // A core that stopped before `ended` left the session open, and nothing it sent before that is the
+    // session's result (R4-W3). A run the driver cut short itself is said as that instead.
+    let core_lost = timed_out.is_none() && collected.core_left_session_open();
 
     let report = collected.into_report(
         ra.target.clone(),
         // The core auto-detects a Chromium target and runs it over CDP - label the report's coverage
         // unit accordingly. Same pure function, same path string the core sees, so the two never drift.
         cdp::is_chromium_target(&ra.target),
-        // Whether the loop above cut the run short. It has to travel INTO the report rather than be
+        // Whether the run was cut short, and by what. It has to travel INTO the report rather than be
         // printed beside it, because the report is also written to the evidence file, and that file is
         // the one a tester cites (untouchable rule 4).
-        timed_out,
+        timed_out.or(core_lost.then_some("core_lost")),
     );
     if let Some(path) = &ra.report {
         let params = EvidenceParams {
@@ -212,6 +215,9 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     // killed mid-flight, so its exit code says how it died, not what it found (untouchable rule 4).
     if let Some(which) = timed_out {
         return report_cut_short(which, ra.timeout_secs, caller_waits_on_target);
+    }
+    if core_lost {
+        return report_core_lost(status.as_ref().ok().and_then(|s| s.code()), caller_waits_on_target);
     }
     if caller_waits_on_target && ended_with_the_target_running(report.target_exit, &report.warnings) {
         diag!("{STDERR_HELD_BY_TARGET}");
@@ -536,17 +542,54 @@ fn cut_short_notice(which: &str, timeout_secs: Option<u64>, caller_waits_on_targ
             "chrono: the core sent no event for {DRIVER_IDLE_TIMEOUT_SECS}s and was stopped - this run has no verdict"
         ),
     }];
+    lines.extend(target_outlives_core_notice(caller_waits_on_target));
+    lines
+}
+
+/// What the driver says when the core stopped before it closed the session, and the code it exits
+/// with: 3, whatever code the core itself died with (R4-W3).
+///
+/// The core's own code is the verdict only once the session is closed. Passed through here, it said
+/// whatever the killer chose: `taskkill /F` ends a process with 1, so a killed core made `chrono run`
+/// exit with the usage-error code and print nothing at all, measured - and a kill with 0 would have
+/// read as WORKS to any pipeline. docs/08 section 8 has said "killed from outside is 3" since R3-5.
+fn report_core_lost(core_code: Option<i32>, caller_waits_on_target: bool) -> i32 {
+    for line in core_lost_notice(core_code, caller_waits_on_target) {
+        diag!("{line}");
+    }
+    3
+}
+
+/// The lines `report_core_lost` prints. The core's own code is named, because it is what tells a
+/// crash from a kill, and it is the one fact about the core's end this side has.
+fn core_lost_notice(core_code: Option<i32>, caller_waits_on_target: bool) -> Vec<String> {
+    let code = core_code.map_or_else(|| "unknown".to_string(), crate::report::exit_code_label);
+    let mut lines = vec![format!(
+        "chrono: the core stopped before it closed the session (exit code {code}), so this run proves nothing about the target"
+    )];
+    lines.extend(target_outlives_core_notice(caller_waits_on_target));
+    lines
+}
+
+/// What the driver says about the application whenever the core ends before the session does, by the
+/// driver's hand or not.
+fn target_outlives_core_notice(caller_waits_on_target: bool) -> Vec<String> {
     // The target is NOT killed with the core, and that is the normal arrangement rather than an
     // oversight: a session ordinarily stays attached until the application exits, because detaching
-    // early would hand it back the real clock. Stopping the core does not change that, so the app
-    // carries on with the session's hooks still installed and nothing tells the tester - measured on
-    // a real run, where the application had to be closed by hand afterwards. Killing someone else's
-    // application over a diagnostic ceiling is a bigger decision than this line, so this says it
-    // instead of doing it (rule 6).
-    lines.push(
-        "chrono: the target was started by the core and does not exit with it - it may still be running on the session clock, so close it yourself"
+    // early would hand it back the real clock. Stopping the core does not change that, and nothing
+    // else tells the tester the app is still up - measured on a real run, where the application had to
+    // be closed by hand afterwards. Killing someone else's application over a diagnostic ceiling is a
+    // bigger decision than this line, so this says it instead of doing it (rule 6).
+    //
+    // Which clock it runs on is not said, because it is not one answer. This line used to say "on the
+    // session clock", and since ADR-14 and ADR-18 that is false for the native half: with the core gone
+    // the hook lets go and the app reads the real date again (measured in R4/6, a core killed two
+    // seconds in). Only pages inside an embedded web engine stay on the session clock after a core that
+    // died, and the driver cannot tell here whether there were any.
+    let mut lines = vec![
+        "chrono: the target was started by the core and does not exit with it - it may still be running, so close it yourself"
             .to_string(),
-    );
+    ];
     // Whether it runs is not known here, the core that knew is gone - hence "if it is".
     if caller_waits_on_target {
         lines.push(
@@ -780,13 +823,43 @@ mod tests {
     fn a_run_cut_short_says_a_reader_of_stderr_may_wait_for_the_target() {
         let held = cut_short_notice("timeout", Some(5), true);
         assert!(held[0].contains("--timeout of 5s"), "{held:?}");
-        assert!(held[1].contains("may still be running on the session clock"), "{held:?}");
+        assert!(held[1].contains("may still be running, so close it yourself"), "{held:?}");
         assert!(held[2].starts_with("chrono: if it is, it still writes to this command's standard error"), "{held:?}");
         assert_eq!(held.len(), 3);
 
         let not_held = cut_short_notice("idle", None, false);
         assert!(not_held[0].contains("sent no event for"), "{not_held:?}");
         assert_eq!(not_held.len(), 2, "no word about stderr when the target was not given it: {not_held:?}");
+    }
+
+    /// With the core gone the native half of the app reads the real date again (ADR-14, ADR-18, measured
+    /// in R4/6 with the core killed), so the line about the app outliving the core must not claim the
+    /// session clock for it - it did, and it was false.
+    #[test]
+    fn the_app_that_outlives_the_core_is_not_said_to_run_on_the_session_clock() {
+        for line in cut_short_notice("idle", None, true).iter().chain(core_lost_notice(Some(1), true).iter()) {
+            assert!(!line.contains("session clock"), "{line}");
+        }
+    }
+
+    /// R4-W3: a core that stopped before it closed the session is named as that, with the code it died
+    /// with, because that code is what tells a crash from a kill. The exit code of the run is held by
+    /// `tests/core_lost.rs` on a real session, where the core is ended with the code that was measured.
+    #[test]
+    fn a_core_that_stopped_before_it_closed_the_session_is_said_with_the_code_it_died_with() {
+        let killed = core_lost_notice(Some(1), false);
+        assert_eq!(
+            killed[0],
+            "chrono: the core stopped before it closed the session (exit code 1), so this run proves nothing about the target"
+        );
+        assert!(killed[1].contains("may still be running, so close it yourself"), "{killed:?}");
+        assert_eq!(killed.len(), 2, "no word about stderr when the target was not given it: {killed:?}");
+
+        let crashed = core_lost_notice(Some(-1073741819), true);
+        assert!(crashed[0].contains("(exit code -1073741819 (0xC0000005))"), "{crashed:?}");
+        assert_eq!(crashed.len(), 3, "{crashed:?}");
+
+        assert!(core_lost_notice(None, false)[0].contains("(exit code unknown)"));
     }
 
     /// A core killed from outside carries no verdict, and the number it does carry is in no table

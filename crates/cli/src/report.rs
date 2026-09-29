@@ -618,10 +618,12 @@ fn render_cut_short(stopped_early: Option<&'static str>) -> String {
     let Some(which) = stopped_early else {
         return String::new();
     };
-    let why = if which == "timeout" {
-        "the --timeout ceiling was reached"
-    } else {
-        "the core went quiet and was stopped"
+    let why = match which {
+        "timeout" => "the --timeout ceiling was reached",
+        // The core died or was killed before it sent `ended` (R4-W3). The driver did not stop it, so
+        // this is said apart from the two limits the driver enforces itself.
+        "core_lost" => "the core stopped before it closed the session",
+        _ => "the core went quiet and was stopped",
     };
     format!(
         "  stopped:  CUT SHORT - {why}\n\
@@ -1459,6 +1461,29 @@ mod tests {
             "a cut run is not proof of anything, whatever verdict arrived first, got:\n{out}"
         );
         assert!(!session_is_reliable(&r));
+    }
+
+    /// R4-W3, the fixture shaped like the measured run: the core was killed two seconds in, so the only
+    /// verdict is the parent's from the guard window and the counts are from that window too. The report
+    /// said WORKS over them and the evidence file carried it with no banner.
+    #[test]
+    fn a_run_whose_core_stopped_before_it_closed_the_session_says_so_and_is_never_cited_as_proof() {
+        let r = SessionReport {
+            parent_verdict: Some(("works".into(), "coverage.time_channels_covered".into())),
+            covered: vec![(pid(1), "GetSystemTimeAsFileTime".into(), 7)],
+            stopped_early: Some("core_lost"),
+            ..empty_report()
+        };
+
+        let text = render_report(&r);
+        assert!(text.contains("CUT SHORT - the core stopped before it closed the session"), "got:\n{text}");
+        let caveat = text.find("CUT SHORT").expect("caveat");
+        let verdict = text.find("WORKS").expect("verdict");
+        assert!(caveat < verdict, "the caveat must come before the verdict it qualifies, got:\n{text}");
+
+        let p = EvidenceParams { moment: "2030-06-15T12:00:00".into(), zone: "+00:00".into(), mode: "flow".into() };
+        let out = render_evidence(&r, &p);
+        assert!(out.starts_with("!! UNRELIABLE EVIDENCE"), "a session the core never closed is not proof, got:\n{out}");
     }
 
     #[test]

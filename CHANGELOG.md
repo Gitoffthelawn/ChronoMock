@@ -109,6 +109,19 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A session whose core stopped before it closed it is no longer reported as working.** The core
+  sends a first verdict a fraction of a second into the session and closes the session at its end.
+  When it stopped in between - a crash, or a kill from outside - `chrono run` reported that first
+  verdict as the result, over the call counts of the session's first moment, and the `--report`
+  evidence file carried it without the unreliable banner. The exit code was the one the core died
+  with: measured with the core ended by `taskkill /F`, `chrono run` printed WORKS, said nothing, and
+  exited 1, the code for a usage error. Such a run now says CUT SHORT above its numbers, the evidence
+  file leads with the unreliable banner, a line names the code the core stopped with, and the exit
+  code is 3 whatever that code was.
+- **After a run cut short, `chrono run` no longer says the application may still run on the session
+  clock.** Once the core is gone, what the application runs natively goes back to the real clock, and
+  only pages inside a web engine it embeds stay on the session clock, so the line now says only that
+  the application may still be running.
 - **An application its session let go starts its children on the real clock.** A session often ends
   with the application still running - `--ticks`, Stop, a core that stopped - and the application
   then goes back to the real clock. Its later children did not: each one was followed into the
