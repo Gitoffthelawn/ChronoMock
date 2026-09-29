@@ -357,8 +357,25 @@ public sealed class CoreClient : IAsyncDisposable
         // the stream underneath it either way.
         await AwaitQuietly(_readLoop, JoinTimeout).ConfigureAwait(false);
         await AwaitQuietly(_stderrDrain, JoinTimeout).ConfigureAwait(false);
+        try
+        {
+            if (_process.HasExited)
+            {
+                ExitCode = _process.ExitCode;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // No process was ever associated, or it is gone from under us - there is no code to keep.
+        }
+
         _process.Dispose();
     }
+
+    /// <summary>The core's exit code, once dispose has seen the process exit, or null. It tells a crash from a
+    /// kill in a diagnostics block, which the stream alone cannot: a core that died sent nothing about it
+    /// (R4-S27).</summary>
+    public int? ExitCode { get; private set; }
 
     /// <summary>How many diagnostic lines were dropped to stay under the cap, so a caller can say the
     /// block is a tail rather than the whole of it. Zero means nothing was lost.</summary>

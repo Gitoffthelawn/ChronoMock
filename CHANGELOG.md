@@ -118,6 +118,18 @@ Notable changes to Chrono Mock, newest first. The format follows
   exited 1, the code for a usage error. Such a run now says CUT SHORT above its numbers, the evidence
   file leads with the unreliable banner, a line names the code the core stopped with, and the exit
   code is 3 whatever that code was.
+- **The window no longer shows a session whose core stopped as working.** The result led with the first
+  verdict in green - "Works" - over the counts of the session's first moment, beside "the application's
+  clock is frozen", which has not been true since the application goes back to the real clock when the
+  core is gone. The summary it copied had no unreliable banner, no diagnostics were kept, and the history
+  recorded "works". Such a session, and a Stop the core did not close, now reads "Cut short", says there
+  is no verdict for it and that the counts are a floor, and says the application is back on the real
+  clock. The copied summary leads with the banner and a CUT SHORT line, the diagnostics are kept with the
+  code the core stopped with, and the history records it as undetermined. A session that failed with an
+  error is no longer copied without the banner either. New session now waits until the previous session
+  has been closed down, which could otherwise overwrite the new form, and a failure while recording a
+  session no longer leaves Start disabled for good. A background task that failed with nobody waiting on
+  it is now reported like any other unexpected fault, instead of being lost.
 - **After a run cut short, `chrono run` no longer says the application may still run on the session
   clock.** Once the core is gone, what the application runs natively goes back to the real clock, and
   only pages inside a web engine it embeds stay on the session clock, so the line now says only that

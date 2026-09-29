@@ -205,6 +205,7 @@ public class StateSheetTests
             total += Shows(RenderResult("result-vanished-handoff", PhaseStates.ResultVanishedHandedOff()), "target.handed_off_uncovered");
             total += Shows(RenderResult("result-followed", PhaseStates.ResultWorksAfterHandOff(), "AuditSection"), "session.followed_family");
             total += RenderResult("result-not-started", PhaseStates.ResultNotStarted()).Count;
+            total += Shows(RenderResult("result-cut-short", PhaseStates.ResultCutShort()), "result.cut_short");
             total += RenderResult("result-history", PhaseStates.ResultWithHistoryChosen(), "HistorySection").Count;
 
             total += RenderedFloor(

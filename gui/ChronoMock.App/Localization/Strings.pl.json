@@ -263,7 +263,7 @@
   "status.running": "Działa",
   "status.ended": "Sesja zakończona",
   "status.did_not_take_effect": "Nie zadziałało - aplikacja zniknęła",
-  "status.core_stopped": "Zatrzymano - zegar aplikacji zamrożony",
+  "status.core_stopped": "Chrono Mock nieoczekiwanie się zatrzymał - aplikacja wróciła do realnego zegara",
   "status.stopping": "Zatrzymywanie - aplikacja wraca do realnego zegara",
   "status.refused": "Odmowa - podmiana nie zadziałała, więc aplikacja została zatrzymana",
   "status.stopped": "Sesja zatrzymana - aplikacja wróciła do realnego zegara",
@@ -488,6 +488,7 @@
   "report.verdict": "werdykt",
   "report.no_verdict": "brak werdyktu",
   "report.did_not_take_effect": "NIE ZADZIAŁAŁO - cel zniknął zaraz po wstrzyknięciu",
+  "report.cut_short": "PRZERWANA - Chrono Mock zatrzymał się, zanim zamknął sesję, więc werdykt niżej to tylko ten podany na początku",
   "report.vanish_detail": "{0} - działał {1} ms",
   "report.processes": "procesy: {0}",
   "report.session": "sesja",
@@ -523,6 +524,8 @@
   "result.headline_did_not_take_effect": "Nie zadziałało",
   "result.headline_did_not_start": "Nie wystartowało",
   "result.headline_no_verdict": "Brak werdyktu",
+  "result.headline_cut_short": "Przerwana",
+  "result.cut_short": "Sesja nie została zamknięta, więc nie ma dla niej werdyktu. Niżej jest to, co Chrono Mock zgłosił do tej chwili - liczby są dolną granicą, nie sumą.",
   // The target's own exit code, in the reader's words (the summary keeps report.target_exit). The number follows this prefix.
   "result.exit_code": "Aplikacja zakończyła się sama, z kodem wyjścia",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."

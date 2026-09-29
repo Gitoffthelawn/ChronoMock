@@ -19,6 +19,8 @@ public partial class App : Application
         // Last-resort net for a UI-thread exception that escaped a view model (a malformed core event,
         // an unreadable file) - shown to the user, never left to terminate the app silently (M-6, rule 6).
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+        // The other way a fault goes unseen: a task nobody awaited (R4-N52).
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         try
         {
@@ -91,33 +93,34 @@ public partial class App : Application
     {
         // Surface the failure and keep the app alive - a recoverable slip (one bad event, one bad preset)
         // should not take down the whole session. Marked handled so the dispatcher does not tear down.
-        //
-        // A modal box per occurrence is not an option (R2-N12): a repeating exception - a binding that
-        // throws on every heartbeat - opened one box per beat, and a window the user cannot out-click is
-        // worse than the fault it reports. But the fix for that was a flag set once per RUN, which
-        // silenced every later exception including UNRELATED ones. An early stumble in the preset list
-        // then muted a coverage failure an hour later, and the app went on looking healthy while every
-        // operation threw. That is rule 6 spread over a session.
-        //
-        // So the box is per SIGNATURE, not per run. A repeating fault still shows once - a genuinely new
-        // one is still reported, because it is new information and the reader has not seen it.
-        var signature = $"{e.Exception.GetType().FullName}|{e.Exception.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}";
-        if (_reportedSignatures.Count < MaxReportedSignatures && _reportedSignatures.Add(signature))
-        {
-            System.Windows.MessageBox.Show(
-                e.Exception.Message, "Chrono Mock",
-                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
-        }
-
+        // Once per signature, not per occurrence and not per run - FaultReports has why.
+        Report(e.Exception);
         e.Handled = true;
     }
 
-    /// <summary>How many DISTINCT faults are reported before the app stops opening boxes. Past this many
-    /// different failures the interface is not recoverable in any useful sense, and the boxes have stopped
-    /// being information - one more would be noise on top of an app that is already broken.</summary>
-    private const int MaxReportedSignatures = 8;
+    /// <summary>
+    /// A task that failed with nobody awaiting it (R4-N52). The runtime raises this from the finalizer, long
+    /// after the fault and on no thread the window owns, and without a handler the fault was simply gone -
+    /// the app went on as if the work had succeeded. Marked observed, then shown on the UI thread the same
+    /// way as a dispatcher fault.
+    /// </summary>
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        e.SetObserved();
+        var fault = e.Exception.InnerExceptions.Count == 1 ? e.Exception.InnerExceptions[0] : e.Exception;
+        Dispatcher.BeginInvoke(() => Report(fault));
+    }
 
-    /// <summary>Fault signatures already reported this run - type plus innermost frame, so a repeating
-    /// fault is one box and a genuinely different one is still heard.</summary>
-    private readonly HashSet<string> _reportedSignatures = new(StringComparer.Ordinal);
+    private void Report(Exception fault)
+    {
+        if (_faults.ShouldShow(fault))
+        {
+            System.Windows.MessageBox.Show(
+                fault.Message, "Chrono Mock",
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
+    }
+
+    /// <summary>Which faults were already shown this run, shared by both handlers.</summary>
+    private readonly FaultReports _faults = new();
 }

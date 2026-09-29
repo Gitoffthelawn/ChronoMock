@@ -266,7 +266,7 @@
   "status.running": "Running",
   "status.ended": "Session ended",
   "status.did_not_take_effect": "Did not take effect - the application vanished",
-  "status.core_stopped": "Stopped - the application's clock is frozen",
+  "status.core_stopped": "Chrono Mock stopped unexpectedly - the application is back on the real clock",
   "status.stopping": "Stopping - returning the application to the real clock",
   "status.refused": "Refused - the substitution did not take effect, so the application was stopped",
   "status.stopped": "Session stopped - the application is back on the real clock",
@@ -509,6 +509,7 @@
   "report.verdict": "verdict",
   "report.no_verdict": "no verdict emitted",
   "report.did_not_take_effect": "DID NOT TAKE EFFECT - the target vanished right after injection",
+  "report.cut_short": "CUT SHORT - Chrono Mock stopped before it closed the session, so the verdict below is only the one it gave at the start",
   "report.vanish_detail": "{0} - lived {1} ms",
   "report.processes": "processes: {0}",
   "report.session": "session",
@@ -548,6 +549,8 @@
   "result.headline_did_not_take_effect": "Did not take effect",
   "result.headline_did_not_start": "Did not start",
   "result.headline_no_verdict": "No verdict",
+  "result.headline_cut_short": "Cut short",
+  "result.cut_short": "The session was never closed, so there is no verdict for it. Below is what Chrono Mock reported until then - the counts are a floor, not a total.",
   // The target's own exit code, in the reader's words (the summary keeps report.target_exit). The number follows this prefix.
   "result.exit_code": "The application exited on its own with exit code",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."

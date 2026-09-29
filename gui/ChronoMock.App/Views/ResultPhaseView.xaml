@@ -135,6 +135,12 @@
                        Margin="{StaticResource StackGapSm}"
                        Text="{Binding VerdictMeaningKey, Converter={StaticResource KeyToText}}"
                        Visibility="{Binding ResultHasMeaning, Converter={StaticResource BoolToVis}}" />
+            <!-- In place of the reason when the core stopped before it closed the session (R4-W3): the verdict
+                 it gave at the start is not the session's, so the headline is not a verdict and this says why. -->
+            <TextBlock x:Name="CutShortNote" Style="{StaticResource PartLabel}" TextWrapping="Wrap"
+                       Margin="{StaticResource StackGapSm}"
+                       Text="{DynamicResource result.cut_short}"
+                       Visibility="{Binding IsCutShort, Converter={StaticResource BoolToVis}}" />
 
             <!--
               HOW IT ENDED. The status sentence, and under it the two facts from the end that a status

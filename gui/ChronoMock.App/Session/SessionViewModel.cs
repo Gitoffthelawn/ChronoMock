@@ -249,6 +249,9 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     private IReadOnlyList<ReachedEngine> _engines = [];
 
     private bool _hasTiming;
+
+    // Whether the core closed the session with `ended` (R4-W3). See IsCutShort.
+    private bool _endedSeen;
     private long _elapsedRealMs;
     private long _elapsedFakeMs;
     private string _fakeEndWall = string.Empty;
@@ -313,7 +316,18 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         RaisePropertyChanged(nameof(AuditExplainsVerdict));
         RaisePropertyChanged(nameof(AuditExplainsMeaning));
         RaisePropertyChanged(nameof(AuditStartsOpen));
+        RaisePropertyChanged(nameof(IsCutShort));
     }
+
+    /// <summary>
+    /// The core stopped before it closed the session (R4-W3): no <c>ended</c> reached the panel. A core that
+    /// died or went quiet ends on <see cref="SessionStatusKind.CoreStopped"/> or
+    /// <see cref="SessionStatusKind.CoreUnresponsive"/>, which are only ever set when no <c>ended</c> came -
+    /// one that did would have left the session on <see cref="SessionStatusKind.Ended"/>. A Stop is the one
+    /// ending that can go either way, because the core is killed when it does not end in time.
+    /// </summary>
+    public bool IsCutShort => _statusKind is SessionStatusKind.CoreStopped or SessionStatusKind.CoreUnresponsive
+        || (_statusKind == SessionStatusKind.Stopped && !_endedSeen);
 
     /// <summary>True while the session is live - the in-flight controls bind their visibility to this.</summary>
     public bool IsRunning => _statusKind == SessionStatusKind.Running;
@@ -1096,10 +1110,17 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// (zone cannot re-render in flight, scale-duration has no in-flight command).</summary>
     public bool CanEditTime => _idle || IsRunning;
 
-    /// <summary>True once the session has ended, so a finished result can be returned to a fresh setup form
-    /// (New session). Only the terminal states qualify - a live or a still-closing session is not a result
-    /// to leave yet. Tracks the same set as <see cref="ShowsSessionControls"/>, from the other side.</summary>
-    public bool CanBeginNewSession => IsTerminal(_statusKind);
+    /// <summary>True once the session has ended AND been closed down, so a finished result can be returned to
+    /// a fresh setup form (New session). Only the terminal states qualify - a live or a still-closing session
+    /// is not a result to leave yet. Tracks the same set as <see cref="ShowsSessionControls"/>, from the other
+    /// side.
+    /// <para>
+    /// The status turns terminal as the event stream ends, and the start task then still records the session,
+    /// disposes the core and captures its diagnostics before it goes idle - up to about two seconds when the
+    /// core has to be stopped. A new form begun in between was then written over by that tail (R4-S27), so
+    /// the button waits for idle as well.
+    /// </para></summary>
+    public bool CanBeginNewSession => IsTerminal(_statusKind) && _idle;
 
     /// <summary>
     /// Return a finished session to a fresh setup form: clear the result (verdict, coverage, diagnostics)
@@ -1173,6 +1194,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     {
         SessionStatusKind.DidNotTakeEffect => "result.headline_did_not_take_effect",
         SessionStatusKind.Error when !_hasTiming => "result.headline_did_not_start",
+        _ when IsCutShort => "result.headline_cut_short",
         _ => _verdictKnown ? _verdictLabelKey : "result.headline_no_verdict",
     };
 
@@ -1183,6 +1205,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     {
         SessionStatusKind.DidNotTakeEffect => VerdictKind.Fails,
         SessionStatusKind.Error when !_hasTiming => VerdictKind.Fails,
+        _ when IsCutShort => VerdictKind.Undetermined,
         _ => _verdictKnown ? _verdictKind : VerdictKind.Undetermined,
     };
 
@@ -1576,6 +1599,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             // terminal outcome (e.g. `ended` arriving right after `vanished` -> DidNotTakeEffect) must not
             // overwrite the honest "did not take effect" verdict in the summary and history.
             case EndedEvent e when !IsTerminal(StatusKind):
+                _endedSeen = true;
                 if (e.FakeEndWall is not null)
                 {
                     // The core's authoritative end timing (docs/08 section 6) - prefer it over the last heartbeat.
@@ -1802,24 +1826,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             _launched = true; // the target is now running - this session will be recorded in history on exit
             SetStatus("status.running", SessionStatusKind.Running);
 
-            var watchdogFired = await CoreSession.PumpAsync(session.Events, Apply, IdleTimeout);
-
-            // The event stream ended. Decide the final status by WHY it ended (M-10):
-            if (_stopRequested)
-            {
-                // The user pressed Stop. Show that plainly even if the core managed a clean `ended` first -
-                // the verdict and coverage already captured still stand and are shown separately.
-                SetStatus("status.stopped", SessionStatusKind.Stopped);
-            }
-            else if (!IsTerminal(StatusKind))
-            {
-                // No terminal event arrived. Either the idle watchdog fired (the core stopped heartbeating)
-                // or the core just closed its stdout on its own (docs/08 section 7). Either way the finally
-                // stops the core, the hook self-detaches, and the target returns to real time - do not hang.
-                SetStatus(
-                    watchdogFired ? "status.core_unresponsive" : "status.core_stopped",
-                    watchdogFired ? SessionStatusKind.CoreUnresponsive : SessionStatusKind.CoreStopped);
-            }
+            OnStreamEnded(await CoreSession.PumpAsync(session.Events, Apply, IdleTimeout), _stopRequested);
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException
                                        or UnauthorizedAccessException
@@ -1846,31 +1853,77 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
-            if (_launched)
+            // Nested, so nothing that fails on the way out can skip what makes the window usable again: an
+            // exception out of recording the session used to leave the core undisposed and the window never
+            // idle, with Start disabled for good and a hung core still running (R4-S27).
+            try
             {
-                // A session actually ran (the target launched) - record it with its final verdict.
-                await RecordSessionAsync();
-            }
-
-            if (session is not null)
-            {
-                // Dispose blocks briefly (it waits for the core to exit) and keeps that wait off the UI
-                // thread itself - see CoreSession.DisposeAsync.
-                await session.DisposeAsync();
-
-                // Now that dispose has drained the core's stderr, capture diagnostics for support if the
-                // session was anything but a clean success (RELEASE-012). A clean works session captures
-                // nothing. (On a Stop the core was already disposed off-thread, so this is best-effort -
-                // but a stopped healthy session has no error stderr to lose.)
-                CaptureDiagnostics(session.Diagnostics, session.DiagnosticsDropped);
-
-                if (ReferenceEquals(_session, session))
+                if (_launched)
                 {
-                    _session = null;
+                    // A session actually ran (the target launched) - record it with its final verdict.
+                    await RecordSessionAsync();
                 }
             }
+            finally
+            {
+                try
+                {
+                    await CloseSessionAsync(session);
+                }
+                finally
+                {
+                    Idle = true;
+                }
+            }
+        }
+    }
 
-            Idle = true;
+    /// <summary>Dispose the core and capture its diagnostics, the part of the way out of a session that has to
+    /// happen whatever else failed.</summary>
+    private async Task CloseSessionAsync(CoreSession? session)
+    {
+        if (session is null)
+        {
+            return;
+        }
+
+        // Dispose blocks briefly (it waits for the core to exit) and keeps that wait off the UI
+        // thread itself - see CoreSession.DisposeAsync.
+        await session.DisposeAsync();
+
+        // Now that dispose has drained the core's stderr, capture diagnostics for support if the
+        // session was anything but a clean success (RELEASE-012). A clean works session captures
+        // nothing. (On a Stop the core was already disposed off-thread, so this is best-effort -
+        // but a stopped healthy session has no error stderr to lose.)
+        CaptureDiagnostics(session.Diagnostics, session.DiagnosticsDropped, session.CoreExitCode);
+
+        if (ReferenceEquals(_session, session))
+        {
+            _session = null;
+        }
+    }
+
+    /// <summary>
+    /// Decide the final status once the event stream has ended, by WHY it ended (M-10). Its own method, with
+    /// the Stop passed in rather than read, so the endings a live core produces can be reached without one -
+    /// the result phase is drawn from them, and a Stop the core did or did not close is tested (R4-W3).
+    /// </summary>
+    internal void OnStreamEnded(bool watchdogFired, bool stopRequested)
+    {
+        if (stopRequested)
+        {
+            // The user pressed Stop. Show that plainly even if the core managed a clean `ended` first -
+            // the verdict and coverage already captured still stand and are shown separately.
+            SetStatus("status.stopped", SessionStatusKind.Stopped);
+        }
+        else if (!IsTerminal(StatusKind))
+        {
+            // No terminal event arrived. Either the idle watchdog fired (the core stopped heartbeating)
+            // or the core just closed its stdout on its own (docs/08 section 7). Either way the finally
+            // stops the core, the hook self-detaches, and the target returns to real time - do not hang.
+            SetStatus(
+                watchdogFired ? "status.core_unresponsive" : "status.core_stopped",
+                watchdogFired ? SessionStatusKind.CoreUnresponsive : SessionStatusKind.CoreStopped);
         }
     }
 
@@ -1944,6 +1997,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         Engines = [];
 
         _hasTiming = false;
+        _endedSeen = false;
         _elapsedRealMs = 0;
         _elapsedFakeMs = 0;
         // 🔴 Cleared, not zeroed on screen: "0:00:00" beside a clock is a measurement, and a session that
@@ -2030,6 +2084,13 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         // The target the session RAN ON, not the one now in the form - see the snapshot fields.
         sb.Append("  ").Append(translate("report.target")).Append(": ")
           .Append(Path.GetFileName(RequestedTargetPath)).Append('\n');
+
+        // A session the core never closed says so above the verdict it qualifies (R4-W3), as the CLI report
+        // does: the verdict below is the one from the start, not the session's.
+        if (IsCutShort)
+        {
+            sb.Append("  ").Append(translate("report.cut_short")).Append('\n');
+        }
 
         // Verdict headline: a vanish is an honest non-effect first, then the family/parent verdict, else none.
         if (_statusKind == SessionStatusKind.DidNotTakeEffect)
@@ -2127,14 +2188,14 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// the StartAsync finally AFTER the client is disposed, so the core's stderr has been fully drained.
     /// Internal so a unit test can drive it with a fake line list and a fake log (no core process).
     /// </summary>
-    internal void CaptureDiagnostics(IEnumerable<string> lines, int dropped = 0)
+    internal void CaptureDiagnostics(IEnumerable<string> lines, int dropped = 0, int? coreExit = null)
     {
         if (IsReliable)
         {
             return; // a clean works session needs no diagnostics - keep the button and the log out of it
         }
 
-        var block = BuildDiagnosticsBlock(lines, dropped);
+        var block = BuildDiagnosticsBlock(lines, dropped, coreExit);
         DiagnosticsText = block;
         // Best-effort file: a read-only medium returns null, and the in-memory copy behind the button stands.
         var path = _diagnosticsLog.Save(block);
@@ -2148,7 +2209,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// the core's stderr and parse-error lines verbatim. English and stable, like the core's own stderr and
     /// the CLI report - it is a technical artifact for a bug report, not interface text (rule 15 governs the
     /// UI - this is data). Pure over the view state, so it is unit tested with a fake line list.</summary>
-    internal string BuildDiagnosticsBlock(IEnumerable<string> lines, int dropped = 0)
+    internal string BuildDiagnosticsBlock(IEnumerable<string> lines, int dropped = 0, int? coreExit = null)
     {
         var mode = RequestedMode;
         var modeToken = mode.Mode switch { "frozen" => "frozen", "flow" => "flow", _ => $"x{mode.Multiplier ?? 1}" };
@@ -2158,6 +2219,19 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         sb.Append("  when:      ")
           .Append(DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("  status:    ").Append(_statusKind).Append(" (").Append(_statusKey).Append(")\n");
+        // The code the core itself ended with, which is what tells a crash from a kill once the core sent
+        // nothing more (R4-S27). A negative one is an NTSTATUS, so it is shown in hex as well, as the CLI does.
+        if (coreExit is { } code)
+        {
+            sb.Append("  core exit: ").Append(code.ToString(CultureInfo.InvariantCulture));
+            if (code < 0)
+            {
+                sb.Append(" (0x").Append(unchecked((uint)code).ToString("X8", CultureInfo.InvariantCulture)).Append(')');
+            }
+
+            sb.Append('\n');
+        }
+
         var target = RequestedTargetPath;
         sb.Append("  target:    ").Append(target.Length > 0 ? target : "(none)").Append('\n');
         sb.Append("  requested: ").Append(RequestedMoment)
@@ -2192,7 +2266,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// <summary>A clean "works" session is the only reliable one - anything else must carry the unreliable
     /// banner in an export (chrono-mock 8.8), mirroring the CLI's session_is_reliable.</summary>
     private bool IsReliable => _verdictKind == VerdictKind.Works
-                              && _statusKind != SessionStatusKind.DidNotTakeEffect;
+                              && _statusKind is not (SessionStatusKind.DidNotTakeEffect or SessionStatusKind.Error)
+                              && !IsCutShort;
 
     private static string Seconds(long ms) => (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
 
@@ -2351,7 +2426,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
     // A vanished session could not be audited, so it is recorded as "undetermined" - honest, never a faked
     // verdict (untouchable rule 4). Otherwise the per-session/family verdict kind maps to its wire string.
-    private string RecordedVerdict() => _statusKind == SessionStatusKind.DidNotTakeEffect
+    private string RecordedVerdict() => _statusKind == SessionStatusKind.DidNotTakeEffect || IsCutShort
         ? "undetermined"
         : _verdictKind switch
         {
