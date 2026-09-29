@@ -700,7 +700,7 @@ unsafe fn late_scan() { unsafe {
         log(&format!("[chrono_hook] late: enable_all_hooks: {e:?}"));
         return;
     }
-    if let Some(c) = joined_cov() {
+    if let Some(c) = live_cov() {
         // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
         // intersection, so this order cannot produce a warning about a channel the report does not
         // list - and the other order could not either. Stated rather than left to luck.
@@ -714,8 +714,9 @@ unsafe fn late_scan() { unsafe {
 
 /// Spawn the watcher once, lazily - NOT from DllMain, to stay clear of the loader lock.
 fn ensure_watcher() {
-    // Relaxed load first, and it is the hot path that pays for it. `detached()` calls this on EVERY
-    // detour - every clock read, every wait, every timer arm - and `compare_exchange` emits a LOCKED
+    // Relaxed load first, and it is the hot path that pays for it. `detached()` calls this on nearly
+    // every detour - every clock read, every scaled wait, every timer arm, though not the waits that are
+    // only counted (`enter_observed_wait`) - and `compare_exchange` emits a LOCKED
     // read-modify-write whether or not it succeeds. So the one-time setup below was charging a bus
     // lock to the hottest path this product has, forever, to re-learn a fact settled once.
     //
@@ -738,11 +739,19 @@ fn ensure_watcher() {
 #[cold]
 #[inline(never)]
 fn start_watcher() {
-    if CORE_HANDLE.get().is_some()
+    if let Some(&core) = CORE_HANDLE.get()
         && WATCHER_STARTED
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
     {
+        if over_at_first_look(HANDLE(core as *mut c_void)) {
+            // What the watcher would do the moment it woke, done before this call returns, because the
+            // caller reads `DETACHED` next. No thread: there is no core left to wait on, and a session
+            // that is over installs nothing more (`watcher_proc`).
+            release_duration_axes();
+            DETACHED.store(true, Ordering::SeqCst);
+            return;
+        }
         unsafe {
             match CreateThread(None, 0, Some(watcher_proc), None, THREAD_CREATION_FLAGS(0), None) {
                 Ok(h) => {
@@ -947,35 +956,67 @@ fn ft_to_i64(ft: FILETIME) -> i64 {
 ///
 /// After the core is gone the slot is nobody's evidence any more - and once a new core has reclaimed the
 /// block, the same slot belongs to the NEXT session, whose report would count this application's calls
-/// as its own target's (read from the code before the fix, `tools/probes/r4-6`). One relaxed load, on
-/// the hottest path the product has: the flag is one-way and publishes nothing, the reasoning
-/// `ensure_watcher` gives for the same load.
+/// as its own target's (read from the code before the fix, `tools/probes/r4-6`). The flag alone left
+/// that window open until the watcher woke, and for good in a process whose watcher never started: a
+/// detour that only counts - a connection, an observed wait, a direct process creation - never calls
+/// `detached()`. So every write asks the block as well, the same pid comparison each clock read already
+/// makes after its read.
+///
+/// No measurement reached that window - a probe that kept waiting or connecting through the next
+/// session added nothing to it, with or without this check - and the check's cost could not be told
+/// from nothing: `tools/probes/r4-6/hotpath.ps1` puts two copies of the same build 0.40 ns apart (ten
+/// pairs of 200 million), and this check 0.45 ns from the same build without it. Unreachable in
+/// measurement, and free as far as it can be measured, like the check after each read (R2-S6).
+///
+/// The end mark is not asked here: the core reads every slot's final counts BEFORE it marks the end, so
+/// a count written after the mark lands in a slot nobody reads again, until a reclaim zeroes it - and
+/// after a reclaim the pid no longer matches.
 fn live_cov() -> Option<*mut Cov> {
     if DETACHED.load(Ordering::Relaxed) {
         return None;
     }
-    cov_ptr()
-}
-
-/// The slot for the writes that are rare enough to afford a look at the block itself: a child that was
-/// not followed, a late channel. Past `live_cov` it asks whether the block still names the session this
-/// process joined, which closes the window between a reclaim and the watcher noticing its core is gone.
-fn joined_cov() -> Option<*mut Cov> {
-    let c = live_cov()?;
+    let c = cov_ptr()?;
     still_ours(ctl_ptr()? as *const Ctl).then_some(c)
 }
 
+/// Whether the block says the session this process joined is over: it carries the end mark, or it names
+/// another session. The mark comes first, because after an ordered end the block keeps naming this
+/// session until a new core takes it over, so `still_ours` alone reads "running" for as long as the
+/// watcher has not woken.
+fn block_says_over(ended: bool, ours: impl FnOnce() -> bool) -> bool {
+    ended || !ours()
+}
+
 /// Whether the session this process joined is over, as far as it can tell right now: the watcher saw its
-/// core go, or the block names another session. Asked before a child is followed, so a process the
-/// session left running starts its children as it would without us (R4-W2).
+/// core go, or the block says so. Asked before a child is followed, so a process the session left running
+/// starts its children as it would without us (R4-W2).
 fn session_over() -> bool {
     if detached() {
         return true;
     }
     match ctl_ptr() {
-        Some(p) => !still_ours(p as *const Ctl),
+        Some(p) => {
+            let p = p as *const Ctl;
+            block_says_over(unsafe { read_ended(p) }, || still_ours(p))
+        }
         None => true,
     }
+}
+
+/// Whether the session is over at the moment this process first reaches for its watcher, which it does
+/// from its first detour, not when it joins (`ensure_watcher`). A process that touches no detour while
+/// its session runs therefore starts the watcher only after the end - and until that new thread had run,
+/// every read came back on the session's clock: measured on a probe that read no clock while its session
+/// ran, five reads in a row after the end at the session's date (`tools/probes/r4-6`, case M1).
+fn over_at_first_look(core: HANDLE) -> bool {
+    let block_over = match ctl_ptr() {
+        Some(p) => {
+            let p = p as *const Ctl;
+            block_says_over(unsafe { read_ended(p) }, || still_ours(p))
+        }
+        None => true,
+    };
+    block_over || read_core_wait(unsafe { wait_raw(core, 0) }, || core_exit_code(core)) == CoreWait::Gone
 }
 
 fn bump(idx: usize) {
@@ -2192,7 +2233,7 @@ unsafe extern "system" fn h_ntcup(
     if direct && status >= 0 && !process_handle.is_null() {
         let child = HANDLE(*(process_handle as *const *mut c_void));
         let pid = GetProcessId(child);
-        if let Some(c) = joined_cov() {
+        if let Some(c) = live_cov() {
             record_uncovered_child(c, pid);
         }
     }
@@ -2332,7 +2373,7 @@ unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspende
             // process that ran on the real clock (the 32-bit child of a 64-bit parent, typically).
             // Asked again rather than trusted from the caller's check: the injection can take seconds,
             // and a session that ended meanwhile must not have a child written into its slot.
-            if let Some(c) = joined_cov() {
+            if let Some(c) = live_cov() {
                 bump_uninjected_children(c);
                 record_uncovered_child(c, info.dwProcessId);
             }
@@ -3059,6 +3100,15 @@ mod tests {
         assert_eq!(read_core_wait(WAIT_FAILED.0, || Some(STILL_ACTIVE_CODE)), CoreWait::Failed);
         assert_eq!(read_core_wait(WAIT_FAILED.0, || Some(0)), CoreWait::Gone);
         assert_eq!(read_core_wait(WAIT_FAILED.0, || None), CoreWait::Gone);
+    }
+
+    /// A block is over when it carries the end mark or names another session. The mark answers alone,
+    /// because after an ordered end the block still names this session until a new core takes it over.
+    #[test]
+    fn a_block_with_the_end_mark_or_another_sessions_name_is_over() {
+        assert!(!block_says_over(false, || true), "a live block of this session read as over");
+        assert!(block_says_over(true, || true), "an ended block still naming this session read as running");
+        assert!(block_says_over(false, || false), "a block naming another session read as running");
     }
 
     /// A watcher that failed to start gets more chances than the one it had, and not endless ones.

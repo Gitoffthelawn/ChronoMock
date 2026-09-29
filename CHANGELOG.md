@@ -131,6 +131,12 @@ Notable changes to Chrono Mock, newest first. The format follows
   attempt to start it left the application on the session's clock after the end, and one failed wait
   on the session let the application go while the session was still running. Both are now tried
   again.
+- **An application that read no clock during its session reads the real one after it.** The part of
+  Chrono Mock inside an application begins to watch for the end of its session at the first clock
+  read, not when it starts. An application that read no clock while the session ran made that first
+  read after the end, and it came back at the session's date, as did the reads right after it.
+  Measured on an application of our own, x64 and x86: all five reads in a row after the end read
+  2077, the session's year. They now read the real date.
 - **A console application no longer reads or writes the session's own channel.** `chrono run` and
   the window talk to the session over the standard input and output of the process that runs it,
   and a console application the session started was handed both. Measured on a console application

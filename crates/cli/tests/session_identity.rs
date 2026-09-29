@@ -15,6 +15,10 @@
 //! The second test starts ANOTHER session while that application still runs. Before the fix its later
 //! child joined the second session - it read that session's date and stood in its coverage - and the
 //! second core called the first session's ordered end a dead core.
+//!
+//! The third is about the application itself: one that read no clock while its session ran, and reads
+//! it for the first time after the end. Its hook starts watching the core from the first detour, not
+//! when it joins, so that first read used to come back on the session's clock.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -32,6 +36,10 @@ const PROBE_CHILD_AFTER: &str = "CHRONO_SESSION_IDENTITY_PROBE_CHILD_AFTER_MS";
 
 /// Set, the probe only writes one line and waits this many milliseconds - the second session's target.
 const PROBE_IDLE: &str = "CHRONO_SESSION_IDENTITY_PROBE_IDLE_MS";
+
+/// Set, the probe reads no clock until this many milliseconds have passed, then reads it once - the
+/// target of the third test.
+const PROBE_LATE_READ: &str = "CHRONO_SESSION_IDENTITY_PROBE_LATE_READ_MS";
 
 /// The probe's own name, which is how the binary is asked to run it and nothing else.
 const PROBE: &str = "probe_starts_a_child_after_its_session_ends";
@@ -73,8 +81,13 @@ fn hooked() -> bool {
 }
 
 fn append(file: &Path, role: &str) {
+    append_seconds(file, role, wall_seconds());
+}
+
+/// `append` with the seconds given, so a line can be written without reading the clock.
+fn append_seconds(file: &Path, role: &str, seconds: u64) {
     use std::io::Write;
-    let line = format!("{role} {} {} {}\n", wall_seconds(), u8::from(hooked()), std::process::id());
+    let line = format!("{role} {seconds} {} {}\n", u8::from(hooked()), std::process::id());
     let mut out = std::fs::OpenOptions::new().create(true).append(true).open(file).expect("the probe opens its file");
     out.write_all(line.as_bytes()).expect("the probe writes its line");
 }
@@ -86,7 +99,8 @@ fn millis(name: &str) -> Option<u64> {
 
 /// Writes `parent-start`, waits past the session, starts itself as the child, which writes `child`,
 /// then writes `parent-after`. Each line holds the wall seconds read, 1 when the hook is loaded, and the
-/// pid. With `PROBE_IDLE` set it writes `idle` and only waits.
+/// pid. With `PROBE_IDLE` set it writes `idle` and only waits. With `PROBE_LATE_READ` set it writes
+/// `late-start` without reading the clock, waits, and writes `late-read` with the clock read once.
 #[test]
 #[ignore = "the target of the two session tests in this file, not a test on its own"]
 fn probe_starts_a_child_after_its_session_ends() {
@@ -94,6 +108,14 @@ fn probe_starts_a_child_after_its_session_ends() {
         return;
     };
     let out = PathBuf::from(out);
+    if let Some(late) = millis(PROBE_LATE_READ) {
+        // Nothing here reads a clock the hook watches until the wait is over: the line carries 0 for
+        // its seconds, and a plain sleep is not hooked in a session that does not scale durations.
+        append_seconds(&out, "late-start", 0);
+        std::thread::sleep(Duration::from_millis(late));
+        append(&out, "late-read");
+        return;
+    }
     if let Some(idle) = millis(PROBE_IDLE) {
         append(&out, "idle");
         std::thread::sleep(Duration::from_millis(idle));
@@ -292,6 +314,47 @@ fn a_second_session_neither_adopts_the_first_ones_application_nor_calls_its_end_
         !covered.contains(&u64::from(child.pid)),
         "the second session's coverage names the first one's child {}. {}",
         child.pid,
+        context()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An application that read no clock while its session ran reads the real clock the first time it reads
+/// one after the end - not the session's date until its watcher happens to run.
+#[test]
+fn a_process_that_read_no_clock_in_its_session_reads_the_real_clock_after_it() {
+    let _one = ONE_SESSION.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = prepare("session-late-read");
+    let file = dir.join("probe.txt");
+
+    // As in the first test, `output()` returns once the probe is done, which is what the file needs.
+    let out = session(SESSION_AT, "2")
+        .env(PROBE_OUT, &file)
+        .env(PROBE_LATE_READ, CHILD_AFTER_MS.to_string())
+        .output()
+        .expect("the tool must run");
+    let real_now = wall_seconds();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let text = std::fs::read_to_string(&file).unwrap_or_default();
+    let context = || format!("probe: {text:?} stdout: {stdout} stderr: {}", String::from_utf8_lossy(&out.stderr));
+
+    // The application joined the session, or the read below says nothing about a session.
+    let Some(start) = line(&text, "late-start") else {
+        panic!("the probe wrote nothing under the session. {}", context());
+    };
+    assert!(start.hooked, "the application did not join the session. {}", context());
+    assert!(
+        stdout.lines().any(|l| l.contains("\"session_verdict\"") && l.contains("\"session.left_running\"")),
+        "the session did not end before the application did, so this proves nothing. {}",
+        context()
+    );
+    let Some(read) = line(&text, "late-read") else {
+        panic!("the application never read the clock after the session. {}", context());
+    };
+    assert!(
+        read.seconds <= real_now && real_now - read.seconds < 600,
+        "the first read after the session ended came back at {} (real {real_now}) - the session's clock. {}",
+        read.seconds,
         context()
     );
     let _ = std::fs::remove_dir_all(&dir);
