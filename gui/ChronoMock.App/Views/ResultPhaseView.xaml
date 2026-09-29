@@ -135,6 +135,12 @@
                        Margin="{StaticResource StackGapSm}"
                        Text="{Binding VerdictMeaningKey, Converter={StaticResource KeyToText}}"
                        Visibility="{Binding ResultHasMeaning, Converter={StaticResource BoolToVis}}" />
+            <!-- In place of the reason when the core stopped before it closed the session (R4-W3): the verdict
+                 it gave at the start is not the session's, so the headline is not a verdict and this says why. -->
+            <TextBlock x:Name="CutShortNote" Style="{StaticResource PartLabel}" TextWrapping="Wrap"
+                       Margin="{StaticResource StackGapSm}"
+                       Text="{DynamicResource result.cut_short}"
+                       Visibility="{Binding IsCutShort, Converter={StaticResource BoolToVis}}" />
 
             <!--
               HOW IT ENDED. The status sentence, and under it the two facts from the end that a status
@@ -162,6 +168,13 @@
                        Visibility="{Binding HasTargetExit, Converter={StaticResource BoolToVis}}">
               <Run Text="{DynamicResource result.exit_code}" /><Run Text="{Binding TargetExitCode, StringFormat=' {0}.', Mode=OneWay}" />
             </TextBlock>
+            <!-- What the session went on for after the application closed (ADR-16), right under the line
+                 that says it closed: for a launcher that line alone reads as the end of the session, and the
+                 warning that explains it sits folded in the audit below. Data rows, so the fact list. -->
+            <controls:TextNamedList x:Name="FollowedList" Style="{StaticResource PartFactList}"
+                                    Header="{DynamicResource result.followed}"
+                                    ItemsSource="{Binding FollowedRows}"
+                                    Visibility="{Binding HasFollowed, Converter={StaticResource BoolToVis}}" />
             <!-- The raw failure detail, verbatim, so a failure is never silent - in the error ink, at the size
                  of prose, because it is a sentence somebody has to act on. -->
             <TextBlock x:Name="LastErrorNote" Style="{StaticResource PartErrorNote}"

@@ -266,7 +266,7 @@
   "status.running": "Running",
   "status.ended": "Session ended",
   "status.did_not_take_effect": "Did not take effect - the application vanished",
-  "status.core_stopped": "Stopped - the application's clock is frozen",
+  "status.core_stopped": "Chrono Mock stopped unexpectedly - the application is back on the real clock",
   "status.stopping": "Stopping - returning the application to the real clock",
   "status.refused": "Refused - the substitution did not take effect, so the application was stopped",
   "status.stopped": "Session stopped - the application is back on the real clock",
@@ -503,12 +503,17 @@
 
   // Where the diagnostics log was written (RELEASE-012); the path follows this prefix.
   "diagnostics.saved": "Diagnostics saved to",
+  // The box for an unexpected fault (R4-N52): what happened and what to do first, then where the full details went (the path follows fault.saved), then the exception's own message (it follows fault.detail).
+  "fault.unexpected": "Something inside Chrono Mock failed unexpectedly. The window stays open, but what it was doing at that moment may not have finished. If this keeps happening, restart Chrono Mock.",
+  "fault.saved": "The details were saved to:",
+  "fault.detail": "Technical detail:",
   "report.unreliable_banner": "!! UNRELIABLE EVIDENCE - the time substitution did not fully take effect. Do not cite this as proof of behavior.",
   "report.title": "Chrono Mock - session report",
   "report.target": "target",
   "report.verdict": "verdict",
   "report.no_verdict": "no verdict emitted",
   "report.did_not_take_effect": "DID NOT TAKE EFFECT - the target vanished right after injection",
+  "report.cut_short": "CUT SHORT - Chrono Mock stopped before it closed the session, so the verdict below is only the one it gave at the start",
   "report.vanish_detail": "{0} - lived {1} ms",
   "report.processes": "processes: {0}",
   "report.session": "session",
@@ -518,6 +523,8 @@
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "target exited with code",
   "report.cleanup": "not fully cleaned up",
+  // The processes the session went on for after the target closed (ADR-16), under the exit line, in the CLI report's words. "Went on for", never "until they closed": a Stop can end the session while one still runs.
+  "report.followed": "the target had started these, and the session went on for them",
   // The processes the hook never got into, one line per pid the way the CLI report prints them (the screen
   // groups them - the clipboard keeps the pids). The role line is its own template so a translator never
   // assembles a sentence around an optional word.
@@ -548,8 +555,12 @@
   "result.headline_did_not_take_effect": "Did not take effect",
   "result.headline_did_not_start": "Did not start",
   "result.headline_no_verdict": "No verdict",
+  "result.headline_cut_short": "Cut short",
+  "result.cut_short": "The session was never closed, so there is no verdict for it. Below is what Chrono Mock reported until then - the counts are a floor, not a total.",
   // The target's own exit code, in the reader's words (the summary keeps report.target_exit). The number follows this prefix.
   "result.exit_code": "The application exited on its own with exit code",
+  // The heading over the processes the session went on for after the application closed (ADR-16). The list composes the count after it: "... had started (2)". Same "went on for" rule as report.followed.
+  "result.followed": "The session went on for the programs the application had started",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."
   "result.lived_before": "The application ran for",
   "result.lived_after": "and then vanished.",

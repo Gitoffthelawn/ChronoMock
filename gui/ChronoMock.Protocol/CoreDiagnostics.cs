@@ -42,7 +42,10 @@ internal sealed class CoreDiagnostics
     internal void Add(string line)
     {
         _lines.Enqueue(line);
-        _linesDropped += TrimToCap(_lines, MaxLines);
+        // Atomic, because two threads add here: the reader of the core's stderr, and dispose, which notes a
+        // reader that did not finish in time - that is, while that reader still runs. A plain += between them
+        // could lose a count, and the block would then claim to be less of a tail than it is (R4-N52).
+        Interlocked.Add(ref _linesDropped, TrimToCap(_lines, MaxLines));
     }
 
     /// <summary>Keep one line about the core's stdout that was not an event, while there is room, and count it

@@ -38,6 +38,9 @@ internal sealed class CoreSession : IAsyncDisposable
     /// can say it is a tail rather than the whole of it (rule 6).</summary>
     internal int DiagnosticsDropped => _client.DiagnosticsDropped;
 
+    /// <summary>The core's exit code once the session is disposed, or null.</summary>
+    internal int? CoreExitCode => _client.ExitCode;
+
     /// <summary>
     /// Connect to the core and complete the handshake. The returned session is ALWAYS non-null once the
     /// core process exists, even when the handshake refuses - the caller owns disposal either way, and a

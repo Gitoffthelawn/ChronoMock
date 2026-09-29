@@ -118,6 +118,11 @@ public sealed record SessionVerdictEvent : ChronoEvent
     /// <summary>The DevTools endpoints the session reached inside the application, one per engine. Empty
     /// for a session that found none, and for a Chromium session, which opened its own.</summary>
     [JsonPropertyName("engines")] public IReadOnlyList<ReachedEngine> Engines { get; init; } = [];
+
+    /// <summary>The processes the session went on for after the target closed (ADR-16) - a launcher's
+    /// application, or a helper that kept the session open. Empty when nothing outlived the target, for a
+    /// session that ended while the target ran, and in messages from an older core.</summary>
+    [JsonPropertyName("followed")] public IReadOnlyList<FollowedProcess> Followed { get; init; } = [];
 }
 
 public sealed record EndedEvent : ChronoEvent

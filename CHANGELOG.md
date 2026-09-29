@@ -118,6 +118,28 @@ Notable changes to Chrono Mock, newest first. The format follows
   exited 1, the code for a usage error. Such a run now says CUT SHORT above its numbers, the evidence
   file leads with the unreliable banner, a line names the code the core stopped with, and the exit
   code is 3 whatever that code was.
+- **The window no longer shows a session whose core stopped as working.** The result led with the first
+  verdict in green - "Works" - over the counts of the session's first moment, beside "the application's
+  clock is frozen", which has not been true since the application goes back to the real clock when the
+  core is gone. The summary it copied had no unreliable banner, no diagnostics were kept, and the history
+  recorded "works". Such a session, and a Stop the core did not close, now reads "Cut short", says there
+  is no verdict for it and that the counts are a floor, and says the application is back on the real
+  clock. The copied summary leads with the banner and a CUT SHORT line, the diagnostics are kept with the
+  code the core stopped with - after a Stop too, which used to read them before the core had finished
+  shutting down - and the history records it as undetermined. A session that failed with an
+  error is no longer copied without the banner either. New session now waits until the previous session
+  has been closed down, which could otherwise overwrite the new form, and a failure while recording a
+  session no longer leaves Start disabled for good. A background task that failed with nobody waiting on
+  it is now reported like any other unexpected fault, instead of being lost. An unexpected fault no
+  longer shows the bare exception message: the box says in the interface's language what happened and
+  what to do, and names the file its full details were saved to, which is written even when the window
+  can no longer show the box.
+- **The window names the programs a session went on for after the application closed.** When the
+  program you start hands the work to another one and closes - a launcher - the session goes on for
+  the programs it started, and the CLI report names them. The window said only that the application
+  had exited on its own, with its exit code, and the one sentence explaining why the session lasted
+  longer sat among the warnings, below the fold. The result now lists those programs under the exit
+  code, by name and pid, and the copied summary lists them in the same place.
 - **After a run cut short, `chrono run` no longer says the application may still run on the session
   clock.** Once the core is gone, what the application runs natively goes back to the real clock, and
   only pages inside a web engine it embeds stay on the session clock, so the line now says only that

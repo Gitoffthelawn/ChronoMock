@@ -126,6 +126,7 @@ internal static class PhaseStates
             ReasonKey = "session.family_covered",
             ProcessCount = 2,
             WarningKeys = ["session.followed_family"],
+            Followed = [new FollowedProcess { Pid = 5150, Image = "app.exe" }, new FollowedProcess { Pid = 5151 }],
         });
         model.Apply(Ended());
         return model;
@@ -364,6 +365,19 @@ internal static class PhaseStates
         return model;
     }
 
+    /// <summary>
+    /// A core that stopped after the parent's verdict (R4-W3): no session verdict, no ended, and the stream ended
+    /// on its own. The verdict from the start is a works, which is what the panel used to lead with.
+    /// </summary>
+    public static SessionViewModel ResultCutShort()
+    {
+        var model = ResultRunning(new SessionViewModel(SeededHistory(), new SavedDiagnosticsLog()));
+        model.Apply(new VerdictEvent { V = ProtocolJson.ProtocolVersion, Verdict = "works", ReasonKey = "coverage.time_channels_covered" });
+        model.OnStreamEnded(watchdogFired: false, stopRequested: false);
+        model.CaptureDiagnostics(["core stderr: thread 'main' panicked at an unexpected state"], coreExit: 101);
+        return model;
+    }
+
     /// <summary>A start that never got off the ground, with its diagnostics.</summary>
     public static SessionViewModel ResultNotStarted()
     {
@@ -389,9 +403,9 @@ internal static class PhaseStates
     }
 
     /// <summary>Running with the audit reported, on a history of three, one heartbeat past the start.</summary>
-    private static SessionViewModel ResultRunning()
+    private static SessionViewModel ResultRunning(SessionViewModel? start = null)
     {
-        var model = WithTarget(new SessionViewModel(SeededHistory()));
+        var model = WithTarget(start ?? new SessionViewModel(SeededHistory()));
         // The zone the heartbeats carry. No session was started here, so the started-at fact falls back to
         // the form, and a form left on UTC made the first render start a session at +00:00 and reach +02:00.
         model.SelectedZone = TimeInputs.Zones.Single(z => z.BiasMinutes == -120);

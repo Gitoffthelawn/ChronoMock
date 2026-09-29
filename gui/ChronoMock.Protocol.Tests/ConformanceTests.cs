@@ -177,6 +177,25 @@ public class ConformanceTests
         await Task.WhenAny(dispose, Task.Delay(ReadTimeout, TestContext.Current.CancellationToken));
     }
 
+    /// <summary>
+    /// A second dispose waits for the first. The GUI's Stop starts one in the background and awaits another
+    /// on its way out, and the second used to return at once - so the diagnostics were captured before the
+    /// core's exit code and stderr were there, in exactly the session the core did not close (R4-S27).
+    /// </summary>
+    [Fact]
+    public async Task A_second_dispose_waits_for_the_first_and_sees_the_exit_code()
+    {
+        var (core, target) = Fixture();
+        var client = CoreClient.Launch(core, StartAt(target, mode: "multiplier", multiplier: 60));
+        _ = await ReadUntilAsync(client, e => e.OfType<StateEvent>().Any(), ReadTimeout);
+
+        var first = client.DisposeAsync().AsTask();
+        await client.DisposeAsync().AsTask().WaitAsync(ReadTimeout, TestContext.Current.CancellationToken);
+
+        Assert.True(first.IsCompleted, "the second dispose returned while the first was still shutting down");
+        Assert.NotNull(client.ExitCode);
+    }
+
     /// <summary>PIDs of live processes running this exact core image - the honest way to ask whether the
     /// core is still alive, independent of any stream or client state
     /// ([[measure-process-exit-via-hasexited]]).</summary>
