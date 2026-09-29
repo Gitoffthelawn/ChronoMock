@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use chrono_proto::TargetSpec;
+use chrono_proto::{TargetConsole, TargetSpec};
 
 use crate::zone::parse_zone_to_bias;
 
@@ -129,6 +129,9 @@ pub(crate) fn target_spec_for(ra: &RunArgs) -> TargetSpec {
         args: ra.args.clone(),
         cwd: ra.cwd.clone(),
         embedded: ra.embedded,
+        // The terminal `chrono run` was started from: its console for input, its stderr for output
+        // (R4-D15). Named rather than left to the default, so the driver's choice is visible here.
+        console: TargetConsole::Shared,
     }
 }
 

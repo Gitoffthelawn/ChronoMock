@@ -18,6 +18,7 @@ use crate::cdp_attach::{Attacher, Pumped, ShimOrigin};
 use crate::cdp_discover::{Discovery, Notice};
 use crate::embedded::engine_env;
 use crate::output::{diag, outln};
+use crate::pe::is_windowed_program;
 use crate::zone::{moment_epoch_ms, now_epoch_ms};
 
 const USAGE: &str = "usage: chrono __cdp-embedded --at <YYYY-MM-DDTHH:MM:SS> [--multiplier N] [--seconds S] \
@@ -110,7 +111,13 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
             for (name, value) in &env {
                 outln!("env {name}={value}");
             }
-            let target = chrono_mech::Target { path, args: host_args, cwd: args.cwd.as_deref(), env: &env };
+            let target = chrono_mech::Target {
+                path,
+                args: host_args,
+                cwd: args.cwd.as_deref(),
+                env: &env,
+                stdio: chrono_mech::TargetStdio::choose(false, is_windowed_program(std::path::Path::new(path))),
+            };
             match chrono_mech::launch_plain(&target) {
                 Ok(child) => {
                     outln!("launched pid {}", child.pid);

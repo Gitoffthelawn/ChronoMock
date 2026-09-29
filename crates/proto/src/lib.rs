@@ -31,6 +31,24 @@ pub struct TargetSpec {
     /// Ignored for a target that IS Chromium, which the CDP session drives anyway.
     #[serde(default = "embedded_default")]
     pub embedded: bool,
+    /// Where a console program's console is (docs/08, ADR-17): `shared` gives it the core's console
+    /// and stderr, `new` a console window of its own. Neither hands it the core's stdin or stdout,
+    /// which carry this protocol (R4-W1). A client from before this field existed gets `shared`, and
+    /// a value this build does not know makes the whole `start` unreadable, so it is refused rather
+    /// than guessed at. Ignored for a Chromium target, whose browser gets no standard handles.
+    #[serde(default)]
+    pub console: TargetConsole,
+}
+
+/// The two places a console program's console can be (see [`TargetSpec::console`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TargetConsole {
+    /// The core's own console and stderr: a terminal's, when the client runs in one.
+    #[default]
+    Shared,
+    /// A console window of its own, for a client with no console to share (the GUI).
+    New,
 }
 
 /// The default for [`TargetSpec::embedded`]: reach the pages.
@@ -355,6 +373,9 @@ mod tests {
                 // inside the application is the coverage promise, and the opt-out is the flag a
                 // client has to send. An older client that never heard of it gets the promise.
                 assert!(target.embedded, "a missing embedded must mean reach the pages");
+                // A client from before the field keeps the console it always had, and now without the
+                // protocol in it (R4-W1).
+                assert_eq!(target.console, TargetConsole::Shared, "a missing console must mean shared");
             }
             _ => panic!("expected a start command"),
         }
@@ -365,7 +386,13 @@ mod tests {
         let cmd = Command::Start {
             v: PROTOCOL_VERSION,
             id: 1,
-            target: TargetSpec { path: "C:/app.exe".into(), args: vec!["--x".into()], cwd: None, embedded: false },
+            target: TargetSpec {
+                path: "C:/app.exe".into(),
+                args: vec!["--x".into()],
+                cwd: None,
+                embedded: false,
+                console: TargetConsole::New,
+            },
             time: TimeSpec {
                 moment: MomentSpec {
                     kind: "absolute".into(),
@@ -384,12 +411,25 @@ mod tests {
         assert!(line.contains(r#""type":"start""#));
         let back = parse_command(&line).unwrap();
         match back {
-            Command::Start { id, time, .. } => {
+            Command::Start { id, time, target, .. } => {
                 assert_eq!(id, 1);
                 assert_eq!(time.multiplier, Some(60));
+                assert_eq!(target.console, TargetConsole::New);
             }
             _ => panic!("wrong command variant"),
         }
+        assert!(line.contains(r#""console":"new""#), "{line}");
+    }
+
+    /// A console value this build does not know makes the `start` unreadable, so the core refuses it
+    /// the way it refuses any malformed command - never guessing which console was meant.
+    #[test]
+    fn a_start_with_an_unknown_console_is_not_read() {
+        let line = r#"{"type":"start","v":1,"id":1,"target":{"path":"C:/app.exe","console":"window"},
+            "time":{"moment":{"kind":"absolute","local":"2038-01-19T03:14:07","tz_bias_min":0,"delta":null},
+            "mode":"flow","multiplier":null,"scale_duration":false,"scale_qpc":false}}"#;
+        assert!(parse_command(line).is_err());
+        assert!(parse_command(&line.replace("window", "shared")).is_ok());
     }
 
     #[test]

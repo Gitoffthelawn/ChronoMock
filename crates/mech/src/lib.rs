@@ -16,6 +16,7 @@ mod environment;
 mod family;
 mod listeners;
 mod policy;
+mod stdio;
 mod tree;
 
 pub use batch::{batch_launch_problem, is_batch_script};
@@ -23,6 +24,7 @@ pub use environment::{current_environment, encode_block, environment_block, merg
 pub use family::FamilyMember;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
+pub use stdio::TargetStdio;
 pub use tree::family_of;
 
 use std::ffi::{c_void, OsStr};
@@ -62,7 +64,6 @@ use windows::Win32::System::Threading::{
     ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
     LPTHREAD_START_ROUTINE,
     PROCESS_INFORMATION, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
-    STARTUPINFOW,
 };
 use windows::Win32::System::Performance::QueryPerformanceCounter;
 use windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTime;
@@ -77,6 +78,8 @@ pub struct Target<'a> {
     /// `lpEnvironment` - byte for byte what every session did before the embedded-engine channel
     /// (docs/09) had two variables to add. Non-empty means a block built by `environment_block`.
     pub env: &'a [(String, String)],
+    /// The standard handles it starts with (R4-W1, ADR-17) - never this process's stdin or stdout.
+    pub stdio: TargetStdio,
 }
 
 /// Why preparing a session failed. Each variant carries a message from the point of
@@ -704,6 +707,7 @@ impl Drop for PlainChild {
 /// probe starts a host the channel then has to find.
 pub fn launch_plain(target: &Target) -> Result<PlainChild, String> {
     let (mut app, mut cmdline) = launch_line(target)?;
+    let stdio = stdio::launch_stdio(target.stdio)?;
     // SAFETY: the same call `prepare` makes with the same buffers, minus the suspend flag. The
     // thread handle is closed at once - nothing here resumes or inspects the thread.
     unsafe {
@@ -712,10 +716,6 @@ pub fn launch_plain(target: &Target) -> Result<PlainChild, String> {
             .as_ref()
             .map(|w| PCWSTR(w.as_ptr()))
             .unwrap_or(PCWSTR::null());
-        let si = STARTUPINFOW {
-            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-            ..Default::default()
-        };
         let mut pi = PROCESS_INFORMATION::default();
         let (block, env_ptr, env_flag) = environment_for(target.env);
         let launched = CreateProcessW(
@@ -723,14 +723,15 @@ pub fn launch_plain(target: &Target) -> Result<PlainChild, String> {
             Some(PWSTR(cmdline.as_mut_ptr())),
             None,
             None,
-            false,
-            env_flag,
+            stdio.inherit,
+            env_flag | stdio.flags,
             env_ptr,
             cwd_ptr,
-            &si,
+            stdio.startup_info(),
             &mut pi,
         );
         drop(block);
+        drop(stdio);
         launched.map_err(|e| win32_detail("CreateProcessW", &e))?;
         let _ = CloseHandle(pi.hThread);
         Ok(PlainChild { pid: pi.dwProcessId, handle: pi.hProcess })
@@ -1201,6 +1202,8 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
     // Before the lock and the control block, so a target that cannot be given its command line leaves
     // nothing behind to undo.
     let (mut app, mut cmdline) = launch_line(target).map_err(PrepareError::Launch)?;
+    // The same reason: the handles the target starts with are opened before anything is shared.
+    let stdio = stdio::launch_stdio(target.stdio).map_err(PrepareError::Launch)?;
 
     unsafe {
         // 0. Session lock, before anything shared is touched. Everything below - the decision to
@@ -1280,10 +1283,6 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             .as_ref()
             .map(|w| PCWSTR(w.as_ptr()))
             .unwrap_or(PCWSTR::null());
-        let si = STARTUPINFOW {
-            cb: std::mem::size_of::<STARTUPINFOW>() as u32,
-            ..Default::default()
-        };
         let mut pi = PROCESS_INFORMATION::default();
         let (block, env_ptr, env_flag) = environment_for(target.env);
         let launched = CreateProcessW(
@@ -1291,14 +1290,16 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             Some(PWSTR(cmdline.as_mut_ptr())),
             None,
             None,
-            false,
-            CREATE_SUSPENDED | env_flag,
+            stdio.inherit,
+            CREATE_SUSPENDED | env_flag | stdio.flags,
             env_ptr,
             cwd_ptr,
-            &si,
+            stdio.startup_info(),
             &mut pi,
         );
         drop(block);
+        // The child holds its own copies now, so this process's are closed at once.
+        drop(stdio);
         if let Err(e) = launched {
             let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
             let _ = CloseHandle(hmap);
@@ -1600,7 +1601,7 @@ mod tests {
         let program = r"C:\no-such-dir\app.exe";
         let clean = ["one".to_string(), "two".to_string()];
         let cut = ["one".to_string(), "tw\0o".to_string()];
-        let target = |path, args, cwd| super::Target { path, args, cwd, env: &[] };
+        let target = |path, args, cwd| super::Target { path, args, cwd, env: &[], stdio: super::TargetStdio::Shared };
 
         for (label, t) in [
             ("argument", target(program, &cut[..], None)),
@@ -1620,7 +1621,8 @@ mod tests {
         let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
         let path = format!(r"{system_root}\System32\cmd.exe");
         let args = vec!["/c".to_string(), format!("if defined {name} (exit 3) else (exit 0)")];
-        let child = super::launch_plain(&super::Target { path: &path, args: &args, cwd: None, env })
+        let target = super::Target { path: &path, args: &args, cwd: None, env, stdio: super::TargetStdio::Shared };
+        let child = super::launch_plain(&target)
             .expect("cmd.exe launches");
         child.wait_exit(10_000).expect("cmd.exe exits within ten seconds")
     }
