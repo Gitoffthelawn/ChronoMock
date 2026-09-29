@@ -65,7 +65,8 @@ use std::sync::OnceLock;
 use chrono_ctl::{
     bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at, dur_tick_at,
     header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, ReleasedAxes,
-    publish_pid, read_anchor, read_core_pid, read_dur, read_qpc, read_scale_dur, read_scale_qpc,
+    publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_qpc, read_scale_dur,
+    read_scale_qpc, set_created,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_late_installed, wait_hit_floor, ChannelModule, Cov,
@@ -94,9 +95,9 @@ use windows::Win32::System::Memory::{
 };
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, CreateThread, GetCurrentProcessId, GetExitCodeThread, GetProcessId, OpenProcess,
-    ResumeThread, WaitForSingleObject, CREATE_SUSPENDED, INFINITE, LPTHREAD_START_ROUTINE,
-    PROCESS_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
+    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetExitCodeThread,
+    GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
+    INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
 use windows::Win32::System::Time::{
     FileTimeToSystemTime, SystemTimeToFileTime, DYNAMIC_TIME_ZONE_INFORMATION, TIME_ZONE_INFORMATION,
@@ -300,6 +301,8 @@ static CORE_HANDLE: OnceLock<usize> = OnceLock::new();
 /// The pid of the core that owned the control block when this process joined its session. Kept so
 /// every anchor read can confirm the block is still that session's (R2-S6, `still_ours`).
 static CORE_PID: OnceLock<u32> = OnceLock::new();
+/// When that core was created, read with its pid - the other half of the session's identity (R4-W2).
+static CORE_CREATED: OnceLock<u64> = OnceLock::new();
 static DETACHED: AtomicBool = AtomicBool::new(false);
 static WATCHER_STARTED: AtomicBool = AtomicBool::new(false);
 
@@ -724,6 +727,20 @@ fn still_ours(p: *const Ctl) -> bool {
     DETACHED.store(true, Ordering::SeqCst);
     false
 }
+
+/// When the process behind `handle` was created, as one FILETIME number, or `None` when the handle does
+/// not allow the question (it needs `PROCESS_QUERY_LIMITED_INFORMATION`). The kernel's record of the
+/// system time at creation, which no hook touches and a later change of the system clock does not move
+/// (MS Learn, `GetProcessTimes`) - the same number the mechanism reads for the same process.
+///
+/// # Safety
+/// `handle` must be a process handle, or the pseudo-handle of this process.
+unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
+    let (mut created, mut exited, mut kernel, mut user) =
+        (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user).ok()?;
+    Some(ft_to_i64(created) as u64)
+}}
 
 /// Real (unbiased) monotonic anchor base - ADR-5. QUIT may be hooked for the duration
 /// axis, so prefer the trampoline (the real value) to keep our scaled output from
@@ -2536,6 +2553,7 @@ unsafe fn install() -> Result<(), String> { unsafe {
     // Watch the core process so the target reverts to real time if the core vanishes.
     let core_pid = read_core_pid(ctl as *const Ctl);
     let _ = CORE_PID.set(core_pid); // the session we joined, for `still_ours` (R2-S6)
+    let _ = CORE_CREATED.set(read_core_created(ctl as *const Ctl));
     if core_pid != 0
         && let Ok(h) = OpenProcess(PROCESS_SYNCHRONIZE, false, core_pid) {
             let _ = CORE_HANDLE.set(h.0 as usize);
@@ -2560,6 +2578,9 @@ unsafe fn install() -> Result<(), String> { unsafe {
     let cov: Option<*mut Cov> = match cov_slot {
         Some(slot) => {
             let cptr = cov_at_mut(ctl, slot);
+            // Which process this slot is, beyond a pid the system will hand out again once we are gone
+            // (R4-N12). Before the pid is published, so the mechanism never reads one without the other.
+            set_created(cptr, process_created(GetCurrentProcess()).unwrap_or(0));
             let _ = COV_PTR.set(cptr as usize);
             Some(cptr)
         }

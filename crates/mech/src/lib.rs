@@ -37,13 +37,13 @@ use chrono_ctl::{
     cov_at, ctl_size, freeze_dur, freeze_qpc, header_is_ours, read_anchor, read_calls,
     read_core_pid, read_dur, read_installed, read_late_installed, read_pid, read_pid_count, read_qpc,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
-    write_anchor, write_anchor_full, write_header,
+    mark_ended, write_anchor, write_anchor_full, write_core_created, write_header,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory, ChannelModule,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, IDX_TIMEGETTIME, MAX_COV_PIDS,
 };
 use windows::core::{s, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
+    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, FILETIME, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
     WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
@@ -60,7 +60,8 @@ use windows::Win32::System::SystemInformation::{
 use windows::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
 use windows::Win32::System::Threading::{
     CreateMutexW, CreateProcessW, CreateRemoteThread, GetCurrentProcess, GetCurrentProcessId,
-    GetExitCodeProcess, GetExitCodeThread, IsWow64Process2, OpenProcess, QueryFullProcessImageNameW,
+    GetExitCodeProcess, GetExitCodeThread, GetProcessTimes, IsWow64Process2, OpenProcess,
+    QueryFullProcessImageNameW,
     ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
     LPTHREAD_START_ROUTINE,
     PROCESS_INFORMATION, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
@@ -638,6 +639,11 @@ impl Session {
 impl Drop for Session {
     fn drop(&mut self) {
         unsafe {
+            // Every ordered way out of a session passes here, so this is where the block learns the
+            // session is over (R4-W2): a process of it that starts a child later does not hand that
+            // child a clock nobody drives, and the next core can say what it took over. A core that is
+            // killed never gets here, which the session's identity in the block covers instead.
+            mark_ended(self.ctl_addr as *mut Ctl);
             let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
                 Value: self.ctl_addr as *mut c_void,
             });
@@ -1177,6 +1183,21 @@ fn uncovered_from_attempts(attempts: u32) -> u32 {
     attempts.saturating_sub(MAX_COV_PIDS as u32)
 }
 
+/// When the process behind `handle` was created, as one FILETIME number, or `None` when the handle
+/// does not allow the question (it needs `PROCESS_QUERY_LIMITED_INFORMATION`). The system time at
+/// creation, unaffected by later changes to the system clock (MS Learn, `GetProcessTimes` and
+/// `PsGetProcessCreateTimeQuadPart`), which is what makes it a process's identity next to a pid that
+/// the system recycles.
+///
+/// # Safety
+/// `handle` must be a process handle, or the pseudo-handle of this process.
+pub(crate) unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
+    let (mut created, mut exited, mut kernel, mut user) =
+        (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
+    GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user).ok()?;
+    Some(((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64)
+}}
+
 /// Find the registry slot a process published its pid into, so its coverage can be read out of the
 /// control block. Returns None if the process never registered (its hook failed, or the registry was
 /// full) - the honest answer then is no coverage, never a guess.
@@ -1275,6 +1296,10 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         write_tz_bias(ctl, tz_bias);
         write_scale_dur(ctl, spec.scale_duration);
         write_scale_qpc(ctl, spec.scale_qpc);
+        // The pair that names this session (R4-W2), the pid LAST. Reading our own creation time cannot
+        // realistically fail, and if it did the 0 would make every hook refuse to join rather than join
+        // a session it cannot tell from another - the target's injection then fails, loudly.
+        write_core_created(ctl, process_created(GetCurrentProcess()).unwrap_or(0));
         write_core_pid(ctl, GetCurrentProcessId());
 
         // 2. Launch SUSPENDED so the hook lands before the first instruction.
