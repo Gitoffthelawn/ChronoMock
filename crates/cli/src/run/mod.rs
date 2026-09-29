@@ -261,8 +261,8 @@ fn skipped_sample(text: &str) -> String {
     format!("{cut:?}{more}")
 }
 
-/// What the driver says about the lines it skipped, one sentence to a line: what it means for the
-/// report, and what to report. The count alone said neither (R4/5 review round).
+/// What the driver says about the lines it skipped, in two lines: what they cost the report, and what
+/// to report. The count alone said neither (R4/5 review round).
 fn skipped_notice(skipped: u64, first: &str) -> [String; 2] {
     let (what, pronoun, which) = if skipped == 1 {
         ("a line on the core's output that was not a protocol event".to_string(), "it", "The line")
