@@ -48,6 +48,11 @@ internal sealed record SessionPlan(string CorePath, PeReader.Machine Machine, St
                 // present-but-empty cwd straight to CreateProcessW, where it is not a valid directory.
                 Cwd = string.IsNullOrWhiteSpace(workingFolder) ? null : workingFolder,
                 Embedded = embedded,
+                // A console program shows up the way it does when the tester starts it, in a console
+                // window of its own (R4-D16, ADR-17). The core runs with no window, so the console it
+                // could share is one nobody sees: no input, and the program's output in the diagnostics
+                // block. A program with a window gets nothing from this either way.
+                Console = TargetSpec.NewConsole,
             },
             Time = time,
             Force = force,

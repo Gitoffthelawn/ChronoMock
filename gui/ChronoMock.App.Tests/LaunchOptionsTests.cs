@@ -69,6 +69,18 @@ public class LaunchOptionsTests
         Assert.False(SessionPlan.Build(APeFile(), AnyTime(), embedded: false).Start.Target.Embedded);
     }
 
+    /// <summary>A console program started from the panel gets a console window of its own (R4-D16): the
+    /// core runs with no window, so the console it would otherwise share is one nobody sees. The field has
+    /// to reach the wire, since the core's default is the other one.</summary>
+    [Fact]
+    public void A_console_program_from_the_panel_gets_a_console_of_its_own()
+    {
+        var plan = SessionPlan.Build(APeFile(), AnyTime());
+
+        Assert.Equal(TargetSpec.NewConsole, plan.Start.Target.Console);
+        Assert.Contains("\"console\":\"new\"", plan.Start.ToNdjson(), StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The preview reads the ISO input back in words. The inputs are locale-invariant on purpose (a dev box
     /// and a test VM in different locales must read the same typed date the same way) - this line is what

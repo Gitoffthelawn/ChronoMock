@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -21,15 +20,15 @@ public sealed class CoreClient : IAsyncDisposable
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
-    /// <summary>How many diagnostic lines are kept. The core's stderr is unbounded in principle (a chatty
-    /// target, a long session), and the whole queue is later joined into one string for the diagnostics
-    /// block, so it is capped and the OLDEST lines go - a failure is explained by what happened last.</summary>
-    private const int MaxDiagnostics = 2000;
+    /// <summary>How many characters of a line that was not an event go into the diagnostics block. The
+    /// line can be up to <see cref="ProtocolJson.MaxProtocolLine"/> bytes, and the start of it is what
+    /// says what wrote it.</summary>
+    private const int NoiseSampleChars = 200;
 
     /// <summary>How many unread events the client will hold before it makes the reader block.
     ///
     /// Every other input channel in this tool is bounded - MAX_WS_BYTES, MAX_PROTOCOL_LINE,
-    /// MAX_QUEUED_EVENTS, the seqlock read budget, the business-day walk, MaxDiagnostics - and this one
+    /// MAX_QUEUED_EVENTS, the seqlock read budget, the business-day walk, CoreDiagnostics.MaxLines - and this one
     /// was not, so a consumer that stopped draining (a UI thread parked on a modal dialog) grew it for
     /// as long as the session ran. The core emits about one event a second, so the cap is thousands of
     /// times what a healthy session queues, and BlockingFull is the right full-behaviour here: dropping
@@ -44,8 +43,7 @@ public sealed class CoreClient : IAsyncDisposable
             SingleWriter = true,
             FullMode = BoundedChannelFullMode.Wait,
         });
-    private readonly ConcurrentQueue<string> _diagnostics = new();
-    private int _diagnosticsDropped;
+    private readonly CoreDiagnostics _log = new();
     private readonly object _stdinLock = new();
     private readonly Task _readLoop;
     private readonly Task _stderrDrain;
@@ -65,11 +63,12 @@ public sealed class CoreClient : IAsyncDisposable
     public ChannelReader<ChronoEvent> Events => _events.Reader;
 
     /// <summary>
-    /// Human-side diagnostics: the core's stderr lines and any per-line parse errors. Never on the
-    /// protocol path - surfaced for logging, never parsed. Draining stderr on its own task also keeps a
-    /// full stderr pipe buffer from deadlocking the core.
+    /// Human-side diagnostics: the lines on the core's stdout that were not events, then the core's stderr
+    /// lines (see <see cref="CoreDiagnostics.Snapshot"/>). Never on the protocol path - surfaced for logging,
+    /// never parsed. Draining stderr on its own task also keeps a full stderr pipe buffer from deadlocking
+    /// the core.
     /// </summary>
-    public IReadOnlyCollection<string> Diagnostics => _diagnostics;
+    public IReadOnlyCollection<string> Diagnostics => _log.Snapshot();
 
     /// <summary>
     /// Spawn the core WITHOUT sending a command, so the client can gate on <c>ready</c> - check the protocol
@@ -91,7 +90,8 @@ public sealed class CoreClient : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
             StandardInputEncoding = Utf8NoBom,
-            StandardOutputEncoding = Utf8NoBom,
+            // No encoding for stdout: its bytes are read and decoded by ProtocolLineReader, which refuses
+            // what is not UTF-8 rather than replacing it.
             StandardErrorEncoding = Utf8NoBom,
         };
 
@@ -173,24 +173,19 @@ public sealed class CoreClient : IAsyncDisposable
     {
         try
         {
-            var stdout = _process.StandardOutput;
-            string? line;
-            while ((line = await stdout.ReadLineAsync().ConfigureAwait(false)) is not null)
+            var lines = new ProtocolLineReader(_process.StandardOutput.BaseStream);
+            while (true)
             {
-                if (line.Length == 0)
+                var read = await lines.ReadAsync().ConfigureAwait(false);
+                if (read.Kind is ProtocolLineKind.Eof)
                 {
-                    continue;
+                    break;
                 }
 
-                ChronoEvent? evt;
-                try
+                var (evt, noise) = Interpret(read);
+                if (noise is not null)
                 {
-                    evt = EventParser.Parse(line);
-                }
-                catch (JsonException ex)
-                {
-                    AddDiagnostic($"parse error: {ex.Message} :: {line}");
-                    continue;
+                    _log.AddNoise(noise);
                 }
 
                 if (evt is not null)
@@ -209,13 +204,77 @@ public sealed class CoreClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// What one read of the core's stdout is: an event to hand on, a line that was not one (described for the
+    /// diagnostics block), or neither - an empty line, or an event type this build does not know, which is
+    /// ignored for forward compatibility (docs/08 section 2).
+    /// <para>
+    /// An event that names another protocol version is not handed on (R4-W1): whatever wrote it, this
+    /// client cannot know what its fields mean. Except <c>ready</c>, which is the version check itself -
+    /// <see cref="HandshakeGate"/> refuses a mismatched one with <c>handshake.protocol_mismatch</c>, and
+    /// dropping it here would turn that into "no handshake" after the whole wait, a diagnosis pointing away
+    /// from the answer.
+    /// </para>
+    /// <para>
+    /// Pure, so every kind of line is tested without a core process.
+    /// </para>
+    /// </summary>
+    internal static (ChronoEvent? Event, string? Noise) Interpret(ProtocolLine read)
+    {
+        switch (read.Kind)
+        {
+            case ProtocolLineKind.NotText:
+                return (null, "core stdout: a line that is not UTF-8, skipped");
+            case ProtocolLineKind.TooLong:
+                return (null, $"core stdout: a line of {ProtocolJson.MaxProtocolLine} bytes or more, skipped");
+            case ProtocolLineKind.Eof:
+                return (null, null);
+        }
+
+        if (read.Text.Length == 0)
+        {
+            return (null, null);
+        }
+
+        ChronoEvent? evt;
+        try
+        {
+            evt = EventParser.Parse(read.Text);
+        }
+        catch (JsonException ex)
+        {
+            return (null, $"core stdout: not an event ({ex.Message}), skipped: {Sample(read.Text)}");
+        }
+
+        if (evt is null or ReadyEvent || evt.V == ProtocolJson.ProtocolVersion)
+        {
+            return (evt, null);
+        }
+
+        return (null, $"core stdout: an event of protocol version {evt.V}, where this client speaks "
+            + $"{ProtocolJson.ProtocolVersion}, skipped: {Sample(read.Text)}");
+    }
+
+    /// <summary>The start of a line for the diagnostics block, cut at <see cref="NoiseSampleChars"/> and
+    /// never through the middle of a surrogate pair.</summary>
+    private static string Sample(string line)
+    {
+        if (line.Length <= NoiseSampleChars)
+        {
+            return line;
+        }
+
+        var cut = char.IsHighSurrogate(line[NoiseSampleChars - 1]) ? NoiseSampleChars - 1 : NoiseSampleChars;
+        return string.Concat(line.AsSpan(0, cut), "...");
+    }
+
     private async Task DrainStderrAsync()
     {
         var stderr = _process.StandardError;
         string? line;
         while ((line = await stderr.ReadLineAsync().ConfigureAwait(false)) is not null)
         {
-            AddDiagnostic($"core stderr: {line}");
+            _log.Add($"core stderr: {line}");
         }
     }
 
@@ -272,10 +331,12 @@ public sealed class CoreClient : IAsyncDisposable
         }
 
         // The core is gone. Complete the event stream NOW instead of waiting for the read loop to see EOF
-        // on stdout. That EOF does not arrive when the core dies: the target holds the write end of the
-        // core's stdout pipe, so it lands only once the APPLICATION UNDER TEST exits - which after a Stop
+        // on stdout. That EOF did not arrive when the core died: the target held the write end of the
+        // core's stdout pipe, so it landed only once the APPLICATION UNDER TEST exited - which after a Stop
         // is whenever the tester happens to close it. Measured on this path: the core exited 21 ms after
-        // `end`, and the read loop stayed parked until the target was killed, to the millisecond.
+        // `end`, and the read loop stayed parked until the target was killed, to the millisecond. The
+        // target no longer gets that pipe (R4-W1, ADR-17), and the rule stays: EOF says when whoever holds
+        // the pipe lets go, which is no statement about the core.
         //
         // Consumers gate "the session is over" on this stream (the GUI keeps showing "stopping" until it
         // ends, then falls back to its 15 s idle watchdog), so the target's lifetime must not be what
@@ -291,52 +352,20 @@ public sealed class CoreClient : IAsyncDisposable
         await Task.WhenAny(_endedRead.Task, Task.Delay(DrainTimeout)).ConfigureAwait(false);
         _events.Writer.TryComplete();
 
-        // Bounded join for the same reason: the read loop can be parked on ReadLineAsync for as long as
-        // the target holds that pipe, and dispose must not inherit the target's lifetime. Disposing the
-        // process below closes the stream underneath it either way.
+        // Bounded join for the same reason: the read loop can be parked on a read for as long as anything
+        // holds that pipe, and dispose must not inherit that lifetime. Disposing the process below closes
+        // the stream underneath it either way.
         await AwaitQuietly(_readLoop, JoinTimeout).ConfigureAwait(false);
         await AwaitQuietly(_stderrDrain, JoinTimeout).ConfigureAwait(false);
         _process.Dispose();
     }
 
-    /// <summary>
-    /// Append one diagnostic line, dropping the oldest past the cap and counting what was dropped.
-    ///
-    /// <para>
-    /// 🔴 The marker used to be a LINE, enqueued once when the first drop happened. Enqueue appends and
-    /// the trimming dequeues from the front, so after another <see cref="MaxDiagnostics"/> lines the
-    /// marker reached the front and was dropped itself - and the flag that guarded it was already set,
-    /// so it never came back. The block then read as complete again, which is exactly what it was
-    /// written to prevent. A counter cannot fall out of the queue, and it can say HOW MANY lines went,
-    /// which the marker never could.
-    /// </para>
-    /// </summary>
-    private void AddDiagnostic(string line)
-    {
-        _diagnostics.Enqueue(line);
-        _diagnosticsDropped += TrimToCap(_diagnostics, MaxDiagnostics);
-    }
-
-    /// <summary>Drop the oldest entries until the queue is within <paramref name="cap"/>, and say how many
-    /// went. Pure over the queue, so the rule this replaced - a marker line that fell out of its own queue
-    /// - is testable without a core process.</summary>
-    internal static int TrimToCap(ConcurrentQueue<string> queue, int cap)
-    {
-        var dropped = 0;
-        while (queue.Count > cap && queue.TryDequeue(out _))
-        {
-            dropped++;
-        }
-
-        return dropped;
-    }
-
     /// <summary>How many diagnostic lines were dropped to stay under the cap, so a caller can say the
     /// block is a tail rather than the whole of it. Zero means nothing was lost.</summary>
-    public int DiagnosticsDropped => Volatile.Read(ref _diagnosticsDropped);
+    public int DiagnosticsDropped => _log.Dropped;
 
     /// <summary>How long dispose waits to join a background reader before giving up on it. The read loop
-    /// can be parked on a pipe the target still holds, so this is a bound on OUR shutdown, not on the
+    /// can be parked on a pipe something else still holds, so this is a bound on OUR shutdown, not on the
     /// reader - the process dispose that follows closes the stream underneath it.</summary>
     private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(2);
 
@@ -355,7 +384,7 @@ public sealed class CoreClient : IAsyncDisposable
                 var finished = await Task.WhenAny(task, Task.Delay(limit)).ConfigureAwait(false);
                 if (!ReferenceEquals(finished, task))
                 {
-                    AddDiagnostic($"background task did not finish within {limit.TotalSeconds:0.#}s");
+                    _log.Add($"background task did not finish within {limit.TotalSeconds:0.#}s");
                     return;
                 }
             }
@@ -364,7 +393,7 @@ public sealed class CoreClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            AddDiagnostic($"background task: {ex.Message}");
+            _log.Add($"background task: {ex.Message}");
         }
     }
 }

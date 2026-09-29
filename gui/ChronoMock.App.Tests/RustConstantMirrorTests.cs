@@ -74,6 +74,31 @@ public class RustConstantMirrorTests
     }
 
     /// <summary>
+    /// The panel and <c>chrono run</c> skip a line on the core's stdout at the same length, and the core
+    /// reads its commands with the same bound (R4-N52). A client with a longer bound would hand on a line
+    /// the other reader gives up on, and one with a shorter bound would skip an event the core meant.
+    /// <para>
+    /// The Rust side is a product of factors (<c>1024 * 1024</c>), so the guard multiplies them rather than
+    /// reading one literal - a rewrite into a single number is still read the same way.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_protocol_line_bound_matches_the_one_the_core_reads_with()
+    {
+        var wire = ReadRustSource("crates", "cli", "src", "wire.rs");
+        var expression = CaptureOne(wire, @"const MAX_PROTOCOL_LINE: usize = ([0-9_ *]+);", "MAX_PROTOCOL_LINE");
+        var value = expression
+            .Split('*')
+            .Select(factor => long.Parse(factor.Trim().Replace("_", string.Empty), System.Globalization.CultureInfo.InvariantCulture))
+            .Aggregate(1L, (product, factor) => product * factor);
+
+        Assert.True(
+            value == ProtocolJson.MaxProtocolLine,
+            $"the core reads protocol lines up to {value} bytes (MAX_PROTOCOL_LINE) but the panel up to "
+                + $"{ProtocolJson.MaxProtocolLine} - change both together (R4-N52)");
+    }
+
+    /// <summary>
     /// The GUI validates the speed box before sending, as a courtesy - the core is the real gate.
     /// A courtesy that disagrees with the gate is worse than none: too low and the app refuses a
     /// speed the core accepts, too high and it offers one the core rejects mid-session (R2-K2).
