@@ -63,10 +63,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use chrono_ctl::{
-    bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at, dur_tick_at,
+    anchor_write_in_progress, bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at,
+    dur_tick_at, find_pid_slot,
     header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, ReleasedAxes,
     publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_ended, read_qpc,
-    read_scale_dur, read_scale_qpc, set_created,
+    read_pid_count, read_scale_dur, read_scale_qpc, set_created, MAX_COV_PIDS,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_late_installed, wait_hit_floor, ChannelModule, Cov,
@@ -94,9 +95,11 @@ use windows::Win32::System::Memory::{
     PAGE_READWRITE,
 };
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
+use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_UNKNOWN};
 use windows::Win32::System::Threading::{
     CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
-    GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
+    GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, IsWow64Process2, OpenProcess, ResumeThread,
+    WaitForSingleObject, CREATE_SUSPENDED,
     INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
@@ -510,6 +513,12 @@ fn release_duration_axes() {
     let now_quit = real_quit();
     let now_qpc = real_qpc();
     let (dur, qpc) = unsafe { (read_dur(p), read_qpc(p)) };
+    if unsafe { anchor_write_in_progress(p) } {
+        // The core died between the two halves of a rate change, so the reads above gave up waiting and
+        // took the fields as they stand. The order of the stores keeps that mix running forward (R4-N5),
+        // and this line is how anyone reading the log learns the release came from it.
+        log("[chrono_hook] the core stopped in the middle of an anchor write - axes released from a partly written anchor");
+    }
     if still_ours(p) {
         let _ = RELEASED.set(release_axes(dur, qpc, now_quit, now_qpc));
     }
@@ -617,12 +626,13 @@ unsafe fn pin_module(name: PCSTR) -> Option<HMODULE> { unsafe {
 /// for the rest of the session would burn the target's CPU to re-learn the same no (R6).
 ///
 /// The trampoline is stored in `slot` BEFORE anything enables the detour, exactly as `make_hook`
-/// does. Reversing that would let a detour fire with no original to call (R4).
+/// does. Reversing that would let a detour fire with no original to call (R4). A created detour goes
+/// into `created` with its channel bit and address, for `enable_each`.
 ///
 /// # Safety
 /// `detour` must be correct for `slot`, and `module` must be a live, pinned module handle.
 unsafe fn late_one<T: Copy>(
-    newly: &mut u64,
+    created: &mut Vec<(u64, usize)>,
     module: HMODULE,
     idx: usize,
     detour: *mut c_void,
@@ -644,7 +654,7 @@ unsafe fn late_one<T: Copy>(
     match MinHook::create_hook(target as *const () as *mut c_void, detour) {
         Ok(original) => {
             let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
-            *newly |= ch.bit;
+            created.push((ch.bit, target as *const () as usize));
         }
         Err(e) => log(&format!("[chrono_hook] late: create_hook {} failed: {e:?}", ch.name)),
     }
@@ -655,9 +665,9 @@ unsafe fn late_one<T: Copy>(
 /// Ordering is the whole safety argument here (R2). Every module handle and every export address is
 /// resolved, and every trampoline built, BEFORE a single hook is enabled - because `MH_EnableHook`
 /// freezes all other threads, and calling into the loader while threads are frozen is how a hooking
-/// library deadlocks a process. `MinHook::enable_all_hooks` is the last step and it takes one
-/// freeze for the whole batch, and it skips hooks that are already live, so the ones installed at
-/// startup are not touched.
+/// library deadlocks a process. Enabling is the last step, one detour at a time (`enable_each`, one
+/// freeze apiece), so a failure leaves the ones before it counted and the ones installed at startup
+/// untouched (R4-W7).
 unsafe fn late_scan() { unsafe {
     if !INSTALL_DONE.load(Ordering::Acquire) {
         return; // install has not published its mask yet (R1)
@@ -671,33 +681,30 @@ unsafe fn late_scan() { unsafe {
         return;
     }
 
-    let mut newly: u64 = 0;
+    let mut created: Vec<(u64, usize)> = Vec::new();
     if todo & USER32_LATE != 0
         && let Some(m) = pin_module(s!("user32.dll"))
     {
-        late_one(&mut newly, m, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
-        late_one(&mut newly, m, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
-        late_one(&mut newly, m, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
+        late_one(&mut created, m, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
+        late_one(&mut created, m, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
+        late_one(&mut created, m, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
     }
     if todo & WINMM_LATE != 0
         && let Some(m) = pin_module(s!("winmm.dll"))
     {
-        late_one(&mut newly, m, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
-        late_one(&mut newly, m, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
+        late_one(&mut created, m, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
+        late_one(&mut created, m, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
     }
     if todo & WS2_32_LATE != 0
         && let Some(m) = pin_module(s!("ws2_32.dll"))
     {
-        late_one(&mut newly, m, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
-    }
-    if newly == 0 {
-        return;
+        late_one(&mut created, m, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
     }
 
-    if let Err(e) = MinHook::enable_all_hooks() {
-        // Nothing may be claimed: the trampolines exist but no new detour is live. The bits stay out
-        // of the Cov, so the audit reports these channels as it did before - not as covered.
-        log(&format!("[chrono_hook] late: enable_all_hooks: {e:?}"));
+    // Only what went live may be claimed. A detour that could not be enabled keeps its bit out of the
+    // Cov, so the audit reports its channel as it did before - not as covered.
+    let newly = enable_each(&created, |target| MinHook::enable_hook(target as *mut c_void));
+    if newly == 0 {
         return;
     }
     if let Some(c) = live_cov() {
@@ -2269,6 +2276,14 @@ unsafe fn inject_self(hproc: HANDLE) -> bool { unsafe {
     if addr == 0 {
         return false;
     }
+    // A child of the other bitness cannot load this library, so nothing is written into it and no thread
+    // is started there (R4-N9). The remote load used to be tried anyway and to come back empty, which
+    // counted the child right, but only after allocating in it and starting a thread at an address that
+    // means nothing in its half of the machine.
+    if bitness_differs(process_machine(hproc), process_machine(GetCurrentProcess())) {
+        log("[chrono_hook] child of the other bitness - not injected, it runs on the real clock");
+        return false;
+    }
     let hmod = HMODULE(addr as *mut c_void);
     // GetModuleFileNameW returns the char count WITHOUT the NUL on success, or the buffer length on
     // truncation (ERROR_INSUFFICIENT_BUFFER) - it never says how much room it needed. A single MAX_PATH
@@ -2365,6 +2380,38 @@ unsafe fn inject_self(hproc: HANDLE) -> bool { unsafe {
     loaded
 }}
 
+/// The machine a live process runs as, or `None` when it cannot be asked. The same reading as the
+/// mechanism's (`chrono-mech`, `process_machine`), which `chrono-ctl` cannot host without depending on
+/// `windows`: `IsWow64Process2` names the emulated machine, or UNKNOWN for a native process, whose
+/// machine is then the native one.
+///
+/// # Safety
+/// `process` must be a process handle with at least `PROCESS_QUERY_LIMITED_INFORMATION`, or the
+/// pseudo-handle of this process.
+unsafe fn process_machine(process: HANDLE) -> Option<u16> { unsafe {
+    let (mut own, mut native) = (IMAGE_FILE_MACHINE(0), IMAGE_FILE_MACHINE(0));
+    IsWow64Process2(process, &mut own, Some(&mut native)).ok()?;
+    Some(if own == IMAGE_FILE_MACHINE_UNKNOWN { native.0 } else { own.0 })
+}}
+
+/// Whether a child runs on another machine than this process. Only two known, different answers say
+/// so - a machine that could not be asked leaves the injection to be tried, as it always was.
+fn bitness_differs(child: Option<u16>, own: Option<u16>) -> bool {
+    matches!((child, own), (Some(c), Some(o)) if c != o)
+}
+
+/// Whether a child the parent tried to inject ran on the real clock, from what the parent can see once
+/// the remote load has returned (R4-S2).
+///
+/// A load that failed is the old answer. A load that succeeded is not enough on its own: the child's
+/// install can fail after the library loaded (MinHook could not enable its detours), and the library
+/// then stays, answers the load, and never publishes the child's pid. The child publishes it before
+/// the load returns, so a missing pid means it is not covered - unless the registry was full, when it
+/// may simply have had no slot to publish into, which `coverage.pid_registry_full` already reports.
+fn child_ran_uncovered(loaded: bool, signed_in: bool, slot_claims: u32) -> bool {
+    !loaded || (!signed_in && slot_claims <= MAX_COV_PIDS as u32)
+}
+
 /// After a create call we forced to CREATE_SUSPENDED returns, inject the hook into the
 /// new child so it joins the session, then resume it unless the caller originally asked
 /// for a suspended child. Shared by the CreateProcessW and CreateProcessA detours.
@@ -2375,7 +2422,19 @@ unsafe fn inject_self(hproc: HANDLE) -> bool { unsafe {
 unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspended: bool) { unsafe {
     if r != 0 && !pi.is_null() {
         let info = core::ptr::read_unaligned(pi);
-        if !inject_self(info.hProcess) {
+        let loaded = inject_self(info.hProcess);
+        // Asked of the registry only after the load returned, which is after the child's install ended.
+        let (signed_in, slot_claims) = match ctl_ptr() {
+            Some(p) if loaded => (
+                find_pid_slot(p as *const Ctl, info.dwProcessId, process_created(info.hProcess)).is_some(),
+                read_pid_count(p as *const Ctl),
+            ),
+            _ => (false, 0),
+        };
+        if child_ran_uncovered(loaded, signed_in, slot_claims) {
+            if loaded {
+                log("[chrono_hook] child loaded the hook but did not sign in - its install failed, it runs uncovered");
+            }
             // Record it in OUR slot: the child never reserved one and never will, so without this the
             // process simply would not appear anywhere in the audit (R2-S2). The mechanism turns a
             // non-zero count into `inheritance.child_not_injected`, and the pid lets it NAME the
@@ -2816,6 +2875,46 @@ unsafe fn pin_self() { unsafe {
     }
 }}
 
+/// Enable every created detour, or take back the ones that went live when that fails (R4-W7).
+///
+/// MinHook enables the detours one by one, with every other thread frozen, and stops at the first one
+/// it cannot write, leaving the ones before it live (`EnableAllHooksLL`, minhook-0.9.0 `hook.c`). Those
+/// would put part of the application on the session's clock while the audit, which publishes nothing
+/// after a failure, says none of it is. Disabling writes the original bytes back and keeps every
+/// trampoline, so a detour that somehow stayed live still has an original to call (`remove_hook` would
+/// free them). The answer names what happened, for the log.
+fn enable_or_take_back<E: std::fmt::Debug>(
+    enable: impl FnOnce() -> Result<(), E>,
+    disable: impl FnOnce() -> Result<(), E>,
+) -> Result<(), String> {
+    let Err(e) = enable() else {
+        return Ok(());
+    };
+    Err(match disable() {
+        Ok(()) => format!("enable_all_hooks: {e:?}, every detour that went live was taken back"),
+        Err(d) => format!(
+            "enable_all_hooks: {e:?}, and taking the live ones back failed too ({d:?}), so part of the \
+             application may read the session's clock while the audit reports no channel"
+        ),
+    })
+}
+
+/// Enable the late detours one at a time and answer the bits of those that went live (R4-W7).
+///
+/// One at a time, not `enable_all_hooks`: that stops at its first failure with the ones before it live,
+/// and a take-back through `disable_all_hooks` here would also switch off every detour `install` enabled
+/// at startup. A detour that fails stays created and off, and its channel stays out of the coverage mask.
+fn enable_each<E: std::fmt::Debug>(created: &[(u64, usize)], mut enable: impl FnMut(usize) -> Result<(), E>) -> u64 {
+    let mut live = 0;
+    for &(bit, target) in created {
+        match enable(target) {
+            Ok(()) => live |= bit,
+            Err(e) => log(&format!("[chrono_hook] late: enable_hook for channel bit 0x{bit:x} failed: {e:?}")),
+        }
+    }
+    live
+}
+
 /// What `DllMain` answers for `DLL_PROCESS_ATTACH` after `install`: TRUE unless the install refused
 /// before anything changed (see `InstallError`).
 fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
@@ -3085,14 +3184,14 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
     // process) the target keeps running on real time - DllMain cannot undo a load - so the honest
     // report is zero covered channels, which the mechanism turns into a failing verdict rather than
     // a silent "works" over a session that substituted nothing (rule 4).
-    if let Err(e) = MinHook::enable_all_hooks() {
+    if let Err(why) = enable_or_take_back(|| MinHook::enable_all_hooks(), || MinHook::disable_all_hooks()) {
         if let Some(c) = cov {
             // Explicit, not merely "we never wrote": a reader that somehow saw this slot must read
             // zero covered channels, not a claim we cannot back. We also return without publishing
             // our PID, so the mechanism never looks at the slot at all.
             set_channels_installed(c, 0);
         }
-        return Err(InstallError::Failed(format!("enable_all_hooks: {e:?}")));
+        return Err(InstallError::Failed(why));
     }
     if let Some(c) = cov {
         set_channels_installed(c, pending);
@@ -3215,6 +3314,72 @@ mod tests {
         assert_eq!(attach_answer(&Ok(())), 1);
         assert_eq!(attach_answer(&Err(InstallError::Refused("ended".into()))), 0);
         assert_eq!(attach_answer(&Err(InstallError::Failed("enable_all_hooks".into()))), 1);
+    }
+
+    /// A failed enable takes back whatever went live, a clean one takes nothing back, and a take-back
+    /// that fails too says so (R4-W7).
+    #[test]
+    fn a_failed_enable_takes_back_whatever_went_live() {
+        let taken_back = Cell::new(0);
+        let take_back = || {
+            taken_back.set(taken_back.get() + 1);
+            Ok::<(), i32>(())
+        };
+        assert!(enable_or_take_back(|| Ok::<(), i32>(()), take_back).is_ok());
+        assert_eq!(taken_back.get(), 0, "a clean enable takes nothing back");
+        assert!(enable_or_take_back(|| Err::<(), i32>(5), take_back).is_err());
+        assert_eq!(taken_back.get(), 1, "a failed enable takes back what went live, once");
+        let both = enable_or_take_back(|| Err::<(), i32>(5), || Err::<(), i32>(6)).unwrap_err();
+        assert!(both.contains("failed too"), "a take-back that fails is named: {both}");
+    }
+
+    /// Late detours are enabled one by one: a failure in the middle neither stops the ones after it nor
+    /// gets its own channel counted (R4-W7).
+    #[test]
+    fn late_detours_are_enabled_one_by_one_and_only_the_live_ones_count() {
+        let created = [(0b001, 10), (0b010, 20), (0b100, 30)];
+        let tried = Cell::new(0);
+        let live = enable_each(&created, |target| {
+            tried.set(tried.get() + 1);
+            if target == 20 { Err(7) } else { Ok(()) }
+        });
+        assert_eq!(live, 0b101, "only the two that went live are claimed");
+        assert_eq!(tried.get(), 3, "a failure does not stop the ones after it");
+        assert_eq!(enable_each::<i32>(&[], |_| Ok(())), 0);
+    }
+
+    /// A child is counted as uncovered when its load failed, and when it loaded but never signed in while
+    /// the registry still had room - its install failed after the library loaded (R4-S2). Past the end
+    /// of the registry a missing pid proves nothing, and `coverage.pid_registry_full` speaks for it.
+    #[test]
+    fn a_child_that_loaded_but_never_signed_in_ran_uncovered() {
+        let room = MAX_COV_PIDS as u32;
+        assert!(child_ran_uncovered(false, false, 3), "the load failed");
+        assert!(!child_ran_uncovered(true, true, 3), "loaded and signed in");
+        assert!(child_ran_uncovered(true, false, 3), "loaded, no pid, room left");
+        assert!(child_ran_uncovered(true, false, room), "the last slot was still a slot");
+        assert!(!child_ran_uncovered(true, false, room + 1), "the registry was full");
+    }
+
+    /// Only two known, different machines skip the injection (R4-N9). One that could not be asked leaves
+    /// it to be tried, as before.
+    #[test]
+    fn only_a_known_other_machine_skips_the_injection() {
+        const AMD64: u16 = 0x8664;
+        const I386: u16 = 0x014c;
+        assert!(bitness_differs(Some(I386), Some(AMD64)));
+        assert!(bitness_differs(Some(AMD64), Some(I386)));
+        assert!(!bitness_differs(Some(AMD64), Some(AMD64)));
+        assert!(!bitness_differs(None, Some(AMD64)));
+        assert!(!bitness_differs(Some(I386), None));
+    }
+
+    /// This process can be asked what it runs as, and the answer is the bitness it was built for.
+    #[test]
+    fn this_process_runs_as_the_machine_it_was_built_for() {
+        let own = unsafe { process_machine(GetCurrentProcess()) };
+        let built = if cfg!(target_pointer_width = "64") { 0x8664 } else { 0x014c };
+        assert_eq!(own, Some(built));
     }
 
     /// MinHook stands ready when it initialized now or had been already, and every other answer is a

@@ -853,9 +853,74 @@ pub unsafe fn write_anchor(p: *mut Ctl, a_fake: i64, a_real: i64, multiplier: i6
     write_volatile(sp, s.wrapping_add(1)); // even - write done
 }}
 
+/// One field of the full anchor, as `write_anchor_full` stores it.
+#[derive(Clone, Copy, Debug)]
+enum AnchorStore {
+    AFake(i64),
+    AReal(i64),
+    DurTickC0(u64),
+    DurQuitC0(i64),
+    DurQpcC0(i64),
+    DurQ0(i64),
+    DurQpcQ0(i64),
+    Multiplier(i64),
+}
+
+/// The full anchor's stores, in the order they reach the block (R4-N5).
+///
+/// The seqlock hides a write in progress from every reader but one: a core killed in the middle of the
+/// write leaves `seq` odd for good, the readers fall back to the fields as they stand (`read_dur`), and
+/// the watcher freezes the axes from them for the rest of the application's life (`release_axes`). So
+/// every prefix of this order has to be a clock that does not run backwards. The bases go first and the
+/// rate last: a new base with the old rate is a step forward, a new base and origin with the old rate is
+/// continuous (the base was frozen at the old rate), and only the last store changes the rate. Each
+/// base before its origin, because an origin moved to now under an old base is behind where the axis
+/// stood. The rate went first until R4/7, which projected the OLD bases at the NEW rate - after a
+/// slowdown, behind where the axis stood, and released there for good.
+#[allow(clippy::too_many_arguments)]
+fn full_anchor_stores(
+    a_fake: i64,
+    a_real: i64,
+    multiplier: i64,
+    dur_tick_c0: u64,
+    dur_quit_c0: i64,
+    dur_q0: i64,
+    dur_qpc_c0: i64,
+    dur_qpc_q0: i64,
+) -> [AnchorStore; 8] {
+    [
+        AnchorStore::AFake(a_fake),
+        AnchorStore::AReal(a_real),
+        AnchorStore::DurTickC0(dur_tick_c0),
+        AnchorStore::DurQuitC0(dur_quit_c0),
+        AnchorStore::DurQpcC0(dur_qpc_c0),
+        AnchorStore::DurQ0(dur_q0),
+        AnchorStore::DurQpcQ0(dur_qpc_q0),
+        AnchorStore::Multiplier(multiplier),
+    ]
+}
+
+/// Store one field of the full anchor.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+unsafe fn store_anchor_field(p: *mut Ctl, store: AnchorStore) { unsafe {
+    match store {
+        AnchorStore::AFake(v) => write_volatile(addr_of_mut!((*p).a_fake), v),
+        AnchorStore::AReal(v) => write_volatile(addr_of_mut!((*p).a_real), v),
+        AnchorStore::DurTickC0(v) => write_volatile(addr_of_mut!((*p).dur_tick_c0), v),
+        AnchorStore::DurQuitC0(v) => write_volatile(addr_of_mut!((*p).dur_quit_c0), v),
+        AnchorStore::DurQpcC0(v) => write_volatile(addr_of_mut!((*p).dur_qpc_c0), v),
+        AnchorStore::DurQ0(v) => write_volatile(addr_of_mut!((*p).dur_q0), v),
+        AnchorStore::DurQpcQ0(v) => write_volatile(addr_of_mut!((*p).dur_qpc_q0), v),
+        AnchorStore::Multiplier(v) => write_volatile(addr_of_mut!((*p).multiplier), v),
+    }
+}}
+
 /// Write the FULL anchor (wall triple plus the duration anchor) under the seqlock, in one transaction
 /// so a reader never sees a new multiplier against an old duration base. This is the `prepare` (initial)
 /// and `set_multiplier` (rebase) writer - `jump` uses `write_anchor` to leave the duration axis alone.
+/// The order of the stores is `full_anchor_stores`, and it matters only to a writer killed mid-write.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Ctl`.
@@ -875,16 +940,20 @@ pub unsafe fn write_anchor_full(
     let s = read_volatile(sp).wrapping_add(1);
     write_volatile(sp, s); // odd - write in progress
     fence(Ordering::Release);
-    write_volatile(addr_of_mut!((*p).a_fake), a_fake);
-    write_volatile(addr_of_mut!((*p).a_real), a_real);
-    write_volatile(addr_of_mut!((*p).multiplier), multiplier);
-    write_volatile(addr_of_mut!((*p).dur_tick_c0), dur_tick_c0);
-    write_volatile(addr_of_mut!((*p).dur_quit_c0), dur_quit_c0);
-    write_volatile(addr_of_mut!((*p).dur_q0), dur_q0);
-    write_volatile(addr_of_mut!((*p).dur_qpc_c0), dur_qpc_c0);
-    write_volatile(addr_of_mut!((*p).dur_qpc_q0), dur_qpc_q0);
+    for store in full_anchor_stores(a_fake, a_real, multiplier, dur_tick_c0, dur_quit_c0, dur_q0, dur_qpc_c0, dur_qpc_q0) {
+        store_anchor_field(p, store);
+    }
     fence(Ordering::Release);
     write_volatile(sp, s.wrapping_add(1)); // even - write done
+}}
+
+/// Whether an anchor write is in progress - `seq` is odd. Read once, after a seqlock reader has given
+/// up, it means the writer stopped in the middle for good and the fields are a mix of old and new.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn anchor_write_in_progress(p: *const Ctl) -> bool { unsafe {
+    read_volatile(addr_of!((*p).seq)) & 1 == 1
 }}
 
 /// How many times a seqlock reader retries before it gives up and returns a fallback (RELEASE-009). A write
@@ -1423,6 +1492,33 @@ pub unsafe fn set_created(p: *mut Cov, created: u64) { unsafe {
 /// `p` must point to a live, correctly aligned `Cov`.
 pub unsafe fn read_created(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).created))
+}}
+
+/// Whether a slot whose process recorded `recorded` as its creation time can be the process created at
+/// `created`. Zero recorded (the hook could not read it) or no time asked is unknown, and unknown does
+/// not rule a slot out - only two known, different times do.
+pub fn same_creation(recorded: u64, created: Option<u64>) -> bool {
+    match created {
+        Some(c) if recorded != 0 => c == recorded,
+        _ => true,
+    }
+}
+
+/// The registry slot the process `pid`, created at `created` when that is known, published its pid
+/// into. `None` if it never did - its hook failed, or the registry was full - and the honest answer is
+/// then no coverage, never a guess.
+///
+/// One source for both sides: the mechanism finds the target it launched, and the hook asks whether a
+/// child it injected signed in (R4-S2). The creation time is what tells a child apart from an earlier
+/// process that published the same pid - slots are never freed, and the system hands pids out again.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn find_pid_slot(p: *const Ctl, pid: u32, created: Option<u64>) -> Option<usize> { unsafe {
+    if pid == 0 {
+        return None; // the value of every slot not yet published
+    }
+    (0..MAX_COV_PIDS).find(|&i| read_pid(p, i) == pid && same_creation(read_created(cov_at(p, i)), created))
 }}
 
 /// Read the installed-channels bitmask (mechanism side, per-process `Cov`).
@@ -2074,6 +2170,81 @@ mod tests {
             assert_eq!(read_pid(p, 2), 3333);
             assert_eq!(read_pid(p, 3), 0);
         }
+    }
+
+    /// A core killed in the middle of a rate change leaves the anchor half written, and the watcher then
+    /// releases the axes from whatever stands there (R4-N5). Every prefix of the stores, for a slowdown
+    /// and a speed-up alike, must read no earlier on any of the three duration axes than the axis read
+    /// when the write began - and the complete write must be continuous with it.
+    #[test]
+    fn every_prefix_of_a_rate_change_keeps_the_duration_axes_from_running_back() {
+        const Q0: i64 = 1_000_000_000;
+        const QPC_Q0: i64 = 2_000_000_000;
+        const T: i64 = Q0 + 36_000_000_000; // an hour of real 100 ns units after the last anchor
+        const QPC_T: i64 = QPC_Q0 + 36_000_000_000;
+        let (tick_c0, quit_c0, qpc_c0) = (5_000u64, 50_000_000i64, 7_000_000i64);
+        for (old_m, new_m) in [(1440, 1), (1, 1440), (60, 2), (2, 60)] {
+            let at = |c: &Ctl, t: i64, qt: i64| {
+                let p = c as *const Ctl;
+                let (tc, qc, q0, m) = unsafe { read_dur(p) };
+                let (pc, pq0, pm) = unsafe { read_qpc(p) };
+                (dur_tick_at(tc, q0, m, t), dur_quit_at(qc, q0, m, t), dur_qpc_at(pc, pq0, pm, qt))
+            };
+            let mut before = zeroed_ctl();
+            unsafe { write_anchor_full(&mut *before, 0, Q0, old_m, tick_c0, quit_c0, Q0, qpc_c0, QPC_Q0) };
+            let last = at(&before, T, QPC_T);
+            let (frozen_tick, frozen_quit) = freeze_dur(tick_c0, quit_c0, Q0, old_m, T);
+            let frozen_qpc = freeze_qpc(qpc_c0, QPC_Q0, old_m, QPC_T);
+            let stores = full_anchor_stores(9, T, new_m, frozen_tick, frozen_quit, T, frozen_qpc, QPC_T);
+            for k in 0..=stores.len() {
+                let mut ctl = zeroed_ctl();
+                let p = &mut *ctl as *mut Ctl;
+                unsafe {
+                    write_anchor_full(p, 0, Q0, old_m, tick_c0, quit_c0, Q0, qpc_c0, QPC_Q0);
+                    for store in &stores[..k] {
+                        store_anchor_field(p, *store);
+                    }
+                }
+                for later in [0, 1, 10_000, 10_000_000] {
+                    let now = at(&ctl, T + later, QPC_T + later);
+                    assert!(
+                        now.0 >= last.0 && now.1 >= last.1 && now.2 >= last.2,
+                        "x{old_m} to x{new_m}, killed after {k} of {} stores ({:?}), {later} later: tick, quit, \
+                         qpc {now:?} read earlier than {last:?}",
+                        stores.len(),
+                        stores.get(k.wrapping_sub(1))
+                    );
+                }
+            }
+            let mut after = zeroed_ctl();
+            unsafe { write_anchor_full(&mut *after, 9, T, new_m, frozen_tick, frozen_quit, T, frozen_qpc, QPC_T) };
+            assert_eq!(at(&after, T, QPC_T), last, "x{old_m} to x{new_m}: the complete write is not continuous");
+        }
+    }
+
+    /// A slot is found by its pid, and among slots with the same pid by its creation time - an earlier
+    /// process that published the pid the system later gave a child is not that child (R4-S2). Unknown
+    /// times rule nothing out, and pid 0, the value of every empty slot, is never found.
+    #[test]
+    fn a_slot_is_found_by_its_pid_and_its_creation_time() {
+        let mut ctl = zeroed_ctl();
+        let p = &mut *ctl as *mut Ctl;
+        unsafe {
+            for (pid, created) in [(700, 11), (800, 22), (700, 33), (900, 0)] {
+                let slot = reserve_cov_slot(p).expect("a slot");
+                set_created(cov_at_mut(p, slot), created);
+                publish_pid(p, slot, pid);
+            }
+            assert_eq!(find_pid_slot(p, 800, None), Some(1));
+            assert_eq!(find_pid_slot(p, 700, Some(33)), Some(2), "the later process under a reused pid");
+            assert_eq!(find_pid_slot(p, 700, Some(11)), Some(0));
+            assert_eq!(find_pid_slot(p, 700, Some(44)), None, "neither process under that pid");
+            assert_eq!(find_pid_slot(p, 900, Some(55)), Some(3), "a slot that recorded no time is not ruled out");
+            assert_eq!(find_pid_slot(p, 600, None), None, "never published");
+            assert_eq!(find_pid_slot(p, 0, None), None, "an empty slot is nobody's");
+        }
+        assert!(same_creation(0, Some(5)) && same_creation(5, None) && same_creation(5, Some(5)));
+        assert!(!same_creation(5, Some(6)));
     }
 
     #[test]

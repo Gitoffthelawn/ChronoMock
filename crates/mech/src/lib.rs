@@ -35,7 +35,7 @@ use std::time::Instant;
 use chrono_core::{ChannelCoverage, Coverage, SessionSpec, TimeMode};
 use chrono_ctl::{
     cov_at, ctl_size, freeze_dur, freeze_qpc, header_is_ours, read_anchor, read_calls,
-    read_core_pid, read_created, read_dur, read_ended, read_installed, read_late_installed, read_pid,
+    find_pid_slot, read_core_pid, read_created, read_dur, read_ended, read_installed, read_late_installed, read_pid,
     read_pid_count, read_qpc,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header,
@@ -1217,16 +1217,6 @@ pub(crate) unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
     Some(((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64)
 }}
 
-/// Find the registry slot a process published its pid into, so its coverage can be read out of the
-/// control block. Returns None if the process never registered (its hook failed, or the registry was
-/// full) - the honest answer then is no coverage, never a guess.
-///
-/// # Safety
-/// `ctl` must point to a live, correctly aligned `Ctl`.
-unsafe fn find_pid_slot(ctl: *const Ctl, pid: u32) -> Option<usize> { unsafe {
-    (0..MAX_COV_PIDS).find(|&i| read_pid(ctl, i) == pid)
-}}
-
 /// Prepare and start a session on `target` using `spec`, injecting `hook_dll`.
 pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<Prepared, PrepareError> {
     // The session gate, not the plain conversion: a zone the hook's local channels cannot carry, or an
@@ -1381,7 +1371,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // this is deterministic) and read the install bitmask. If the hook could not claim a slot
         // (best-effort failure in the target), report no coverage rather than guessing - honest.
         let parent_pid = pi.dwProcessId;
-        let parent_slot = find_pid_slot(ctl, parent_pid);
+        let parent_slot = find_pid_slot(ctl, parent_pid, None);
         let installed = match parent_slot {
             Some(slot) => read_installed(cov_at(ctl, slot)),
             None => 0,
