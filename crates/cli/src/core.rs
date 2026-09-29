@@ -18,8 +18,8 @@ use chrono_core::{
 };
 use chrono_mech::{FamilyMember, UncoveredChild};
 use chrono_proto::{
-    parse_command, Command, Event, FollowedProcess, MomentSpec, TargetSpec, TimeSpec, PROTOCOL_VERSION,
-    UNCOVERED_CHILDREN_WIRE_MAX,
+    parse_command, Command, Event, FollowedProcess, MomentSpec, TargetConsole, TargetSpec, TimeSpec,
+    PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
 };
 
 use crate::cdp;
@@ -36,6 +36,7 @@ use crate::events::{
 };
 use crate::grammar::parse_shift;
 use crate::output::diag;
+use crate::pe::is_windowed_program;
 use crate::report::detect_runtime_warnings;
 use crate::wire::{read_protocol_line, spawn_command_reader};
 pub(crate) fn core_mode() -> i32 {
@@ -126,6 +127,10 @@ pub(crate) fn core_mode() -> i32 {
         args: &target.args,
         cwd: target.cwd.as_deref(),
         env: &launch.env,
+        stdio: chrono_mech::TargetStdio::choose(
+            target.console == TargetConsole::New,
+            is_windowed_program(std::path::Path::new(&target.path)),
+        ),
     };
 
     // Detect the target's runtime up front (static, no QPC hook, no process inspection) so the first
@@ -1039,6 +1044,7 @@ mod tests {
                 args: Vec::new(),
                 cwd: cwd.map(str::to_string),
                 embedded: true,
+                console: Default::default(),
             },
             time: TimeSpec {
                 moment: MomentSpec {

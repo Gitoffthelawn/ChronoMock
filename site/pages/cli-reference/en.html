@@ -162,7 +162,10 @@
           <tr>
             <td><code>--json</code></td>
             <td>Emit the session as machine-readable records instead of the report - the same
-              stream the window itself consumes.</td>
+              stream the window itself consumes. A console application's own output goes to
+              standard error, so standard output holds the records and nothing else. An
+              application still running when the session ends keeps writing there, so whatever
+              reads standard error to its end waits for it, and the run says so.</td>
           </tr>
         </tbody>
       </table>
