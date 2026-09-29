@@ -251,6 +251,14 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          a scratch file, and nothing reaches past this machine",
     ),
     (
+        "crates/cli/tests/hook_integrity.rs",
+        "spawn",
+        "runs this test binary's own ignored probe twice per case, once alone as the control and once \
+         under a session through the built binary, and the probe starts itself once more as its child \
+         through CreateProcessW. They only call clock and timer functions, free the hook library and \
+         write a scratch file, and nothing reaches past this machine",
+    ),
+    (
         "crates/cli/tests/network_observer.rs",
         "socket",
         "binds a loopback listener on a port the system picks, and the probe connects to that port \

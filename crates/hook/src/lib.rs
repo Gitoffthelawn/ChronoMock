@@ -86,7 +86,7 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::Diagnostics::Debug::{OutputDebugStringA, WriteProcessMemory};
 use windows::Win32::System::LibraryLoader::{
     GetModuleFileNameW, GetModuleHandleA, GetModuleHandleExA, GetProcAddress,
-    GET_MODULE_HANDLE_EX_FLAG_PIN,
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_PIN,
 };
 use windows::Win32::System::Memory::{
     MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualAllocEx, VirtualFreeEx,
@@ -1031,12 +1031,12 @@ fn bump(idx: usize) {
 /// `*lp` holding uninitialized garbage while claiming success (L-3).
 ///
 /// # Safety
-/// `lp` must be a valid, writable pointer to a `SYSTEMTIME`.
+/// `lp` must be a valid, writable pointer to a `SYSTEMTIME`, aligned or not.
 unsafe fn write_systemtime(lp: *mut SYSTEMTIME, ft_ticks: i64) -> bool { unsafe {
     let ft = i64_to_ft(ft_ticks);
     let mut st = SYSTEMTIME::default();
     if FileTimeToSystemTime(&ft, &mut st).is_ok() {
-        *lp = st;
+        core::ptr::write_unaligned(lp, st);
         true
     } else {
         false
@@ -1046,11 +1046,18 @@ unsafe fn write_systemtime(lp: *mut SYSTEMTIME, ft_ticks: i64) -> bool { unsafe 
 // --- Detours -------------------------------------------------------------------
 // Each fills its out-parameter with the fake instant, or falls back to the original
 // if the anchor is unreadable or the pointer is null.
+//
+// Every read and write through a pointer the application passed in is unaligned (R4-N3). The real
+// functions accept a buffer at any address - a packed structure puts a FILETIME or a SYSTEMTIME on
+// an odd one, and x86 and x64 load and store there without complaint - so the application has done
+// nothing wrong. A plain `*lp = x` on such a pointer is undefined behaviour in Rust, and a debug
+// build of this library checks it and aborts the application on the spot (measured by the
+// misaligned buffers in `crates/cli/tests/hook_integrity.rs`).
 
 unsafe extern "system" fn h_gstaft(lp: *mut FILETIME) { unsafe {
     bump(IDX_GSTAFT);
     match compute_fake() {
-        Some(t) if !lp.is_null() => *lp = i64_to_ft(t),
+        Some(t) if !lp.is_null() => core::ptr::write_unaligned(lp, i64_to_ft(t)),
         _ => {
             if let Some(o) = O_GSTAFT.get() {
                 o(lp)
@@ -1062,7 +1069,7 @@ unsafe extern "system" fn h_gstaft(lp: *mut FILETIME) { unsafe {
 unsafe extern "system" fn h_gstpaft(lp: *mut FILETIME) { unsafe {
     bump(IDX_GSTPAFT);
     match compute_fake() {
-        Some(t) if !lp.is_null() => *lp = i64_to_ft(t),
+        Some(t) if !lp.is_null() => core::ptr::write_unaligned(lp, i64_to_ft(t)),
         _ => {
             if let Some(o) = O_GSTPAFT.get() {
                 o(lp)
@@ -1111,7 +1118,7 @@ unsafe extern "system" fn h_ntqst(lp: *mut i64) -> i32 { unsafe {
     bump(IDX_NTQST);
     match compute_fake() {
         Some(t) if !lp.is_null() => {
-            *lp = t;
+            core::ptr::write_unaligned(lp, t);
             0 // STATUS_SUCCESS
         }
         // A null output pointer: the real NtQuerySystemTime answers STATUS_ACCESS_VIOLATION. Reporting
@@ -1177,7 +1184,7 @@ unsafe extern "system" fn h_gtzi(lp: *mut TIME_ZONE_INFORMATION) -> u32 { unsafe
     if !lp.is_null() {
         let mut tzi = TIME_ZONE_INFORMATION { Bias: cur_tz_bias(), ..Default::default() };
         set_wide(&mut tzi.StandardName, SESSION_ZONE_NAME);
-        *lp = tzi;
+        core::ptr::write_unaligned(lp, tzi);
         return 0; // TIME_ZONE_ID_UNKNOWN - the session zone has no DST
     }
     O_GTZI.get().map(|o| o(lp)).unwrap_or(TIME_ZONE_ID_INVALID)
@@ -1204,7 +1211,7 @@ unsafe extern "system" fn h_gdtzi(lp: *mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32
         };
         set_wide(&mut d.StandardName, SESSION_ZONE_NAME);
         set_wide(&mut d.TimeZoneKeyName, SESSION_ZONE_NAME);
-        *lp = d;
+        core::ptr::write_unaligned(lp, d);
         return 0; // TIME_ZONE_ID_UNKNOWN - the session zone has no DST
     }
     O_GDTZI.get().map(|o| o(lp)).unwrap_or(TIME_ZONE_ID_INVALID)
@@ -1262,9 +1269,9 @@ unsafe fn write_session_utc(local: *const SYSTEMTIME, utc: *mut SYSTEMTIME) -> b
 /// always mean the active zone, which we replace with the flat session zone.
 ///
 /// # Safety
-/// `src` and `dst` must be valid, non-null FILETIME pointers.
+/// `src` and `dst` must be valid, non-null FILETIME pointers, aligned or not.
 unsafe fn shift_filetime(src: *const FILETIME, dst: *mut FILETIME, add: bool) -> i32 { unsafe {
-    let ticks = ft_to_i64(*src);
+    let ticks = ft_to_i64(core::ptr::read_unaligned(src));
     // Out of range means "we cannot express this", reported as failure so the caller falls back to
     // the original, exactly as `write_systemtime` already does (L-3). The arithmetic and the
     // "still a FILETIME" test live in `chrono-ctl` (`shift_ticks_by_bias`), where they can be
@@ -1279,7 +1286,7 @@ unsafe fn shift_filetime(src: *const FILETIME, dst: *mut FILETIME, add: bool) ->
             return 0;
         }
     };
-    *dst = i64_to_ft(shifted);
+    core::ptr::write_unaligned(dst, i64_to_ft(shifted));
     1
 }}
 
@@ -1465,7 +1472,7 @@ unsafe extern "system" fn h_tick32_kb() -> u32 { unsafe { tick32_or(&O_TICK32_KB
 unsafe fn quit_after_session(lp: *mut u64) -> i32 { unsafe {
     match released_quit() {
         Some(v) if !lp.is_null() => {
-            *lp = v as u64;
+            core::ptr::write_unaligned(lp, v as u64);
             1
         }
         _ => O_QUIT.get().map(|o| o(lp)).unwrap_or(0),
@@ -1485,7 +1492,7 @@ unsafe extern "system" fn h_quit(lp: *mut u64) -> i32 { unsafe {
                 if !still_ours(p as *const Ctl) {
                     return quit_after_session(lp);
                 }
-                *lp = fake;
+                core::ptr::write_unaligned(lp, fake);
             }
             // No control block (unreachable: CTL_PTR is set before these hooks install) - defer to the
             // real value rather than fake a zero.
@@ -1517,7 +1524,7 @@ unsafe fn qpc_after_session(o: QpcFn, lp: *mut i64) -> i32 { unsafe {
     };
     let mut real: i64 = 0;
     o(&mut real);
-    *lp = r.qpc_at(real);
+    core::ptr::write_unaligned(lp, r.qpc_at(real));
     1
 }}
 
@@ -1545,7 +1552,7 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
             if !still_ours(p as *const Ctl) {
                 return qpc_after_session(o, lp); // reclaimed mid-read (R2-S6)
             }
-            *lp = fake;
+            core::ptr::write_unaligned(lp, fake);
             1
         }
         // Detached (core gone): on from where the axis stood, never back to the real counter (rule 3).
@@ -1657,10 +1664,11 @@ unsafe extern "system" fn h_ntdelay(alertable: u8, interval: *const i64) -> i32 
             if interval.is_null() {
                 o(alertable, interval)
             } else {
-                if delay_hit_floor(*interval, m) {
+                let requested = core::ptr::read_unaligned(interval);
+                if delay_hit_floor(requested, m) {
                     note_wait_at_floor();
                 }
-                let scaled = scale_delay_interval(*interval, m);
+                let scaled = scale_delay_interval(requested, m);
                 o(alertable, &scaled as *const i64)
             }
         }
@@ -1929,7 +1937,7 @@ unsafe extern "system" fn h_swt(
         // mid-call falls through to the original untouched.
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
-                let scaled_due = scale_timer_due(*due, fake_now, m);
+                let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
                 let scaled_period = scale_timer_period(period, m);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, resume)
             }
@@ -1955,7 +1963,7 @@ unsafe extern "system" fn h_swtex(
     match try_enter_timer(IDX_SWTEX) {
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
-                let scaled_due = scale_timer_due(*due, fake_now, m);
+                let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
                 let scaled_period = scale_timer_period(period, m);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, wake_context, tolerable_delay)
             }
@@ -2105,7 +2113,7 @@ unsafe extern "system" fn h_ntdiocf(
 /// unchanged (NULL due = cancel, or the core detached mid-call). Shared by both detours.
 ///
 /// # Safety
-/// `pft`, when non-null, must point to a valid FILETIME.
+/// `pft`, when non-null, must point to a valid FILETIME, aligned or not.
 unsafe fn scale_tp_timer(pft: *const FILETIME, period: u32, window: u32) -> Option<(FILETIME, u32, u32)> { unsafe {
     if pft.is_null() {
         return None; // NULL = cancel: forward untouched
@@ -2113,7 +2121,7 @@ unsafe fn scale_tp_timer(pft: *const FILETIME, period: u32, window: u32) -> Opti
     // One snapshot for both halves: the due date is absolute, so the rate it is divided by has to be
     // the rate that belongs to this `fake_now` and not to whatever the block said a moment earlier.
     let (fake_now, m) = fake_now_and_dur_m()?; // detached: forward untouched
-    let scaled_due = scale_timer_due(ft_to_i64(*pft), fake_now, m);
+    let scaled_due = scale_timer_due(ft_to_i64(core::ptr::read_unaligned(pft)), fake_now, m);
     Some((i64_to_ft(scaled_due), scale_timer_period_ms(period, m), scale_timer_elapse(window, m)))
 }}
 
@@ -2231,7 +2239,7 @@ unsafe extern "system" fn h_ntcup(
     // so a failed create never dereferences anything. A bad handle makes `GetProcessId` return 0,
     // which `record_uncovered_child` ignores - the failure mode is an unnamed child, not a fault.
     if direct && status >= 0 && !process_handle.is_null() {
-        let child = HANDLE(*(process_handle as *const *mut c_void));
+        let child = HANDLE(core::ptr::read_unaligned(process_handle as *const *mut c_void));
         let pid = GetProcessId(child);
         if let Some(c) = live_cov() {
             record_uncovered_child(c, pid);
@@ -2362,10 +2370,11 @@ unsafe fn inject_self(hproc: HANDLE) -> bool { unsafe {
 /// for a suspended child. Shared by the CreateProcessW and CreateProcessA detours.
 ///
 /// # Safety
-/// `pi`, when non-null, must point to a PROCESS_INFORMATION filled by a successful create.
+/// `pi`, when non-null, must point to a PROCESS_INFORMATION filled by a successful create, aligned or
+/// not.
 unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspended: bool) { unsafe {
     if r != 0 && !pi.is_null() {
-        let info = *pi;
+        let info = core::ptr::read_unaligned(pi);
         if !inject_self(info.hProcess) {
             // Record it in OUR slot: the child never reserved one and never will, so without this the
             // process simply would not appear anywhere in the audit (R2-S2). The mechanism turns a
@@ -2759,6 +2768,54 @@ struct CoreLook {
     created_now: Option<u64>,
 }
 
+unsafe extern "system" {
+    /// MinHook's initialization, the same symbol the wrapper crate declares privately. Its status comes
+    /// back as the plain number the C library returns, so a value outside the wrapper's enum can never
+    /// be read into it.
+    fn MH_Initialize() -> i32;
+}
+
+/// `MH_OK` in MinHook's status list.
+const MH_OK: i32 = 0;
+
+/// `MH_ERROR_ALREADY_INITIALIZED` in MinHook's status list.
+const MH_ERROR_ALREADY_INITIALIZED: i32 = 1;
+
+/// Whether MinHook stands ready after `MH_Initialize` answered `status`. Anything else - its private
+/// heap could not be created - leaves no hook possible, and is a refusal before anything changed.
+fn minhook_ready(status: i32) -> bool {
+    status == MH_OK || status == MH_ERROR_ALREADY_INITIALIZED
+}
+
+/// Keep this library loaded until the process ends, whatever the application does (R4-N2).
+///
+/// A detour is a jump written into the system's own code, into this library. An application that
+/// calls `FreeLibrary` on a module it finds loaded in itself - a plug-in host cleaning up, a tool that
+/// unloads what it did not load - used to unmap the library under those jumps, and its next clock read
+/// ran into freed memory (measured, `crates/cli/tests/hook_integrity.rs`). Pinned, a module "stays
+/// loaded until the process is terminated, no matter how many times FreeLibrary is called" (MS Learn,
+/// `GetModuleHandleExW`). The address is one of this library's functions, so no name is looked up.
+///
+/// A failure is a line in the log and not a refusal: the detours are not made yet, and a library that
+/// cannot be pinned is exactly as safe as it was before this existed.
+///
+/// # Safety
+/// Runs under the loader lock, in `install`. MS Learn's DLL best practices rule out any call that may
+/// take that lock, and a module lookup likely does - but this thread already holds it, and `install`
+/// has made the same kind of lookup (`GetModuleHandleA` on kernel32, ntdll, user32) from the start.
+/// That a lookup re-entering a lock its own thread holds cannot deadlock is an assessment, not source.
+unsafe fn pin_self() { unsafe {
+    let mut module = HMODULE::default();
+    let here = PCSTR(pin_self as *const () as *const u8);
+    if let Err(e) =
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, here, &mut module)
+    {
+        log(&format!(
+            "[chrono_hook] could not pin the hook library ({e:?}), so an application that frees it loses its clock"
+        ));
+    }
+}}
+
 /// What `DllMain` answers for `DLL_PROCESS_ATTACH` after `install`: TRUE unless the install refused
 /// before anything changed (see `InstallError`).
 fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
@@ -2767,6 +2824,51 @@ fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
         Ok(()) | Err(InstallError::Failed(_)) => 1,
     }
 }
+
+/// The duration axis, and the waits and timers that ride it, created only for a session that asked to
+/// scale durations. One opt-in group, kept out of `install` so that the install stays readable.
+///
+/// The anchor lives in the shared Ctl: the core initialized it in
+/// prepare (from the real GetTickCount64 / QUIT, before the target ran) and rebases it on every
+/// set_multiplier, so a speed change never rewinds the axis (H-1). No per-process capture here - the
+/// detours read it under the same seqlock as the wall multiplier. QPC stays real unless its own
+/// opt-in asks otherwise (ADR-2) - timeGetTime rides this axis, sharing GetTickCount's base.
+///
+/// # Safety
+/// Called from `install` only, under the same conditions as `make_hook`.
+unsafe fn make_duration_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) { unsafe {
+    make_hook(pending, k32, ntdll, IDX_GTC64, h_tick as *const () as *mut c_void, &O_TICK);
+    make_kernelbase_copy_hook(pending, k32, IDX_GTC64, h_tick_kb as *const () as *mut c_void, &O_TICK_KB);
+    make_hook(pending, k32, ntdll, IDX_GTC, h_tick32 as *const () as *mut c_void, &O_TICK32);
+    make_kernelbase_copy_hook(pending, k32, IDX_GTC, h_tick32_kb as *const () as *mut c_void, &O_TICK32_KB);
+    make_hook(pending, k32, ntdll, IDX_QUIT, h_quit as *const () as *mut c_void, &O_QUIT);
+    make_hook(pending, k32, ntdll, IDX_SLEEP, h_sleep as *const () as *mut c_void, &O_SLEEP);
+    make_hook(pending, k32, ntdll, IDX_SLEEPEX, h_sleepex as *const () as *mut c_void, &O_SLEEPEX);
+    make_hook(pending, k32, ntdll, IDX_NTDELAY, h_ntdelay as *const () as *mut c_void, &O_NTDELAY);
+    make_hook(pending, k32, ntdll, IDX_WFSO, h_wfso as *const () as *mut c_void, &O_WFSO);
+    make_hook(pending, k32, ntdll, IDX_WFSOEX, h_wfsoex as *const () as *mut c_void, &O_WFSOEX);
+    make_hook(pending, k32, ntdll, IDX_WFMO, h_wfmo as *const () as *mut c_void, &O_WFMO);
+    make_hook(pending, k32, ntdll, IDX_WFMOEX, h_wfmoex as *const () as *mut c_void, &O_WFMOEX);
+    make_hook(pending, k32, ntdll, IDX_SOAW, h_soaw as *const () as *mut c_void, &O_SOAW);
+    make_hook(pending, k32, ntdll, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
+    make_hook(pending, k32, ntdll, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
+    // The four waits that used to be neither scaled nor observed. They ride the same opt-in as the
+    // rest of the wait family: a session that did not ask for the duration axis is not watching
+    // waits at all. Three resolve in kernelbase and the socket one in ws2_32, which is optional and
+    // therefore also in the late scan below (ADR-10) - without that entry this would repeat exactly
+    // the gap ADR-10 was written to close.
+    make_hook(pending, k32, ntdll, IDX_SCVSRW, h_scvsrw as *const () as *mut c_void, &O_SCVSRW);
+    make_hook(pending, k32, ntdll, IDX_SCVCS, h_scvcs as *const () as *mut c_void, &O_SCVCS);
+    make_hook(pending, k32, ntdll, IDX_WOA, h_woa as *const () as *mut c_void, &O_WOA);
+    make_hook(pending, k32, ntdll, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
+    make_hook(pending, k32, ntdll, IDX_SWT, h_swt as *const () as *mut c_void, &O_SWT);
+    make_hook(pending, k32, ntdll, IDX_SWTEX, h_swtex as *const () as *mut c_void, &O_SWTEX);
+    make_hook(pending, k32, ntdll, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
+    make_hook(pending, k32, ntdll, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
+    make_hook(pending, k32, ntdll, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
+    make_hook(pending, k32, ntdll, IDX_TPTIMER, h_set_tp_timer as *const () as *mut c_void, &O_TPTIMER);
+    make_hook(pending, k32, ntdll, IDX_TPTIMEREX, h_set_tp_timer_ex as *const () as *mut c_void, &O_TPTIMEREX);
+}}
 
 /// Install and enable every channel's detour, wiring this process to the shared anchor.
 ///
@@ -2837,6 +2939,17 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
         give_back(core);
         return Err(InstallError::Refused(why.into()));
     }
+    // MinHook's own state, made here where a failure can still be a refusal (R4-N1). The wrapper crate
+    // makes this call itself inside its first `create_hook`, and answers every failure but "already
+    // initialized" with a panic, which cannot unwind out of `DllMain` and ends the application instead.
+    // Asked first, the wrapper then only ever sees "already initialized", which it ignores.
+    let status = MH_Initialize();
+    if !minhook_ready(status) {
+        give_back(core);
+        return Err(InstallError::Refused(format!("MH_Initialize answered {status}")));
+    }
+    // Past the last refusal, so a refused library still unloads (R4-N2).
+    pin_self();
     let _ = CTL_PTR.set(view.Value as usize);
     let _ = TZ_BIAS.set(read_tz_bias(ctl as *const Ctl));
     // The session we joined, for `still_ours` (R2-S6), and the core the watcher waits on.
@@ -2914,43 +3027,9 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
     make_hook(&mut pending, k32, ntdll, IDX_TLTST, h_tltst as *const () as *mut c_void, &O_TLTST);
     make_hook(&mut pending, k32, ntdll, IDX_TLTSTEX, h_tltstex as *const () as *mut c_void, &O_TLTSTEX);
 
-    // Duration axis (opt-in). The anchor lives in the shared Ctl now: the core initialized it in
-    // prepare (from the real GetTickCount64 / QUIT, before the target ran) and rebases it on every
-    // set_multiplier, so a speed change never rewinds the axis (H-1). No per-process capture here - the
-    // detours read it under the same seqlock as the wall multiplier. QPC stays real unless its own
-    // opt-in asks otherwise (ADR-2) - timeGetTime rides this axis, sharing GetTickCount's base.
+    // Duration axis (opt-in), with the waits and timers that ride it - see `make_duration_hooks`.
     if read_scale_dur(ctl as *const Ctl) {
-        make_hook(&mut pending, k32, ntdll, IDX_GTC64, h_tick as *const () as *mut c_void, &O_TICK);
-        make_kernelbase_copy_hook(&mut pending, k32, IDX_GTC64, h_tick_kb as *const () as *mut c_void, &O_TICK_KB);
-        make_hook(&mut pending, k32, ntdll, IDX_GTC, h_tick32 as *const () as *mut c_void, &O_TICK32);
-        make_kernelbase_copy_hook(&mut pending, k32, IDX_GTC, h_tick32_kb as *const () as *mut c_void, &O_TICK32_KB);
-        make_hook(&mut pending, k32, ntdll, IDX_QUIT, h_quit as *const () as *mut c_void, &O_QUIT);
-        make_hook(&mut pending, k32, ntdll, IDX_SLEEP, h_sleep as *const () as *mut c_void, &O_SLEEP);
-        make_hook(&mut pending, k32, ntdll, IDX_SLEEPEX, h_sleepex as *const () as *mut c_void, &O_SLEEPEX);
-        make_hook(&mut pending, k32, ntdll, IDX_NTDELAY, h_ntdelay as *const () as *mut c_void, &O_NTDELAY);
-        make_hook(&mut pending, k32, ntdll, IDX_WFSO, h_wfso as *const () as *mut c_void, &O_WFSO);
-        make_hook(&mut pending, k32, ntdll, IDX_WFSOEX, h_wfsoex as *const () as *mut c_void, &O_WFSOEX);
-        make_hook(&mut pending, k32, ntdll, IDX_WFMO, h_wfmo as *const () as *mut c_void, &O_WFMO);
-        make_hook(&mut pending, k32, ntdll, IDX_WFMOEX, h_wfmoex as *const () as *mut c_void, &O_WFMOEX);
-        make_hook(&mut pending, k32, ntdll, IDX_SOAW, h_soaw as *const () as *mut c_void, &O_SOAW);
-        make_hook(&mut pending, k32, ntdll, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
-        make_hook(&mut pending, k32, ntdll, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
-        // The four waits that used to be neither scaled nor observed. They ride the same opt-in as the
-        // rest of the wait family: a session that did not ask for the duration axis is not watching
-        // waits at all. Three resolve in kernelbase and the socket one in ws2_32, which is optional and
-        // therefore also in the late scan below (ADR-10) - without that entry this would repeat exactly
-        // the gap ADR-10 was written to close.
-        make_hook(&mut pending, k32, ntdll, IDX_SCVSRW, h_scvsrw as *const () as *mut c_void, &O_SCVSRW);
-        make_hook(&mut pending, k32, ntdll, IDX_SCVCS, h_scvcs as *const () as *mut c_void, &O_SCVCS);
-        make_hook(&mut pending, k32, ntdll, IDX_WOA, h_woa as *const () as *mut c_void, &O_WOA);
-        make_hook(&mut pending, k32, ntdll, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
-        make_hook(&mut pending, k32, ntdll, IDX_SWT, h_swt as *const () as *mut c_void, &O_SWT);
-        make_hook(&mut pending, k32, ntdll, IDX_SWTEX, h_swtex as *const () as *mut c_void, &O_SWTEX);
-        make_hook(&mut pending, k32, ntdll, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
-        make_hook(&mut pending, k32, ntdll, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
-        make_hook(&mut pending, k32, ntdll, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
-        make_hook(&mut pending, k32, ntdll, IDX_TPTIMER, h_set_tp_timer as *const () as *mut c_void, &O_TPTIMER);
-        make_hook(&mut pending, k32, ntdll, IDX_TPTIMEREX, h_set_tp_timer_ex as *const () as *mut c_void, &O_TPTIMEREX);
+        make_duration_hooks(&mut pending, k32, ntdll);
     }
 
     // QPC axis (opt-in `scale_qpc`, ADR-2 reversal). SEPARATE from scale_duration because scaling QPC also
@@ -3136,6 +3215,18 @@ mod tests {
         assert_eq!(attach_answer(&Ok(())), 1);
         assert_eq!(attach_answer(&Err(InstallError::Refused("ended".into()))), 0);
         assert_eq!(attach_answer(&Err(InstallError::Failed("enable_all_hooks".into()))), 1);
+    }
+
+    /// MinHook stands ready when it initialized now or had been already, and every other answer is a
+    /// refusal - the wrapper crate would have panicked on it inside `DllMain` (R4-N1). The failures are
+    /// MinHook's own codes: unknown, not initialized, and the heap it could not create.
+    #[test]
+    fn minhook_is_ready_only_when_it_initialized_or_already_had() {
+        assert!(minhook_ready(MH_OK));
+        assert!(minhook_ready(MH_ERROR_ALREADY_INITIALIZED));
+        for failure in [-1, 2, 9, 10] {
+            assert!(!minhook_ready(failure), "status {failure} left MinHook unusable and must refuse");
+        }
     }
 
     /// A two-body channel is covered only when both bodies are detoured. Either one failing leaves a
