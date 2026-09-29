@@ -48,8 +48,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   with a window, or empty input otherwise, as in CI. Standard output carries the report and nothing
   else, and with `--json` it is a clean stream of protocol events. The application's output used to
   go into the channel between `chrono run` and the session, where the report lost it and `--json`
-  mixed it in with the events (see Fixed). An application with a window of its own still starts
-  without standard handles, as it does from a terminal.
+  mixed it in with the events (see Fixed). An application still running when the session ends
+  keeps writing there, so a script or a CI step that reads `chrono run`'s standard error to its end
+  waits until the application exits, as it did before this change. `chrono run` now says so when it
+  happens, where the wait used to look like the tool hanging. An application with a window of its
+  own still starts without standard handles, as it does from a terminal.
 - **Started from the window, a console application opens in a console window of its own**, with
   its output and its input there, as when it is started by hand. A short-lived one closes the
   window as it exits. An application with a window of its own is not affected. The machine

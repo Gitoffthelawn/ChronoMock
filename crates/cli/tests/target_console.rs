@@ -95,9 +95,14 @@ fn a_console_target_neither_reads_the_commands_nor_writes_into_the_events() {
     );
     assert!(!stdout.contains("protocol.bad_command_ignored"), "a command arrived broken: {}", describe(&out));
     // The target's own output went where the tool's diagnostics go (R4-D15).
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("target-said-"), "the target's output did not reach stderr: {}", describe(&out));
+    // And it still held that stream when the session ended, which this test feels: `output()` reads
+    // stderr through a pipe to its end, so it returns when the ping does, not when the tool exits. The
+    // run says so, where the wait would otherwise look like the tool hanging (R4/5 review round).
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("target-said-"),
-        "the target's output did not reach stderr: {}",
+        stderr.contains("the application is still running and writes to this command's standard error"),
+        "the run did not say the target holds its stderr: {}",
         describe(&out)
     );
     assert_eq!(out.status.code(), Some(0), "{}", describe(&out));

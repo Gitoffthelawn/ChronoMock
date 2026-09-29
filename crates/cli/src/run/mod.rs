@@ -17,7 +17,7 @@ mod moment;
 /// `--dry-run`: describing the session instead of running it.
 mod plan;
 
-use std::io::{BufReader, Write};
+use std::io::{BufReader, IsTerminal, Write};
 use std::process::{Command as PCommand, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -200,10 +200,21 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         out!("{}", render_report(&report));
     }
 
+    // Whether a caller reading this command's stderr to its end will wait for the target instead of
+    // for this command (R4/5 review round): the target was given a copy of that stream, and nothing
+    // waits for the end of a terminal.
+    let caller_waits_on_target = target_gets_our_stderr(
+        crate::pe::is_windowed_program(std::path::Path::new(&ra.target)),
+        cdp::is_chromium_target(&ra.target),
+    ) && !std::io::stderr().is_terminal();
+
     // A session that timed out has no verdict to report, and must not borrow one: the core was
     // killed mid-flight, so its exit code says how it died, not what it found (untouchable rule 4).
     if let Some(which) = timed_out {
-        return report_cut_short(which, ra.timeout_secs);
+        return report_cut_short(which, ra.timeout_secs, caller_waits_on_target);
+    }
+    if caller_waits_on_target && ended_with_the_target_running(report.target_exit, &report.warnings) {
+        diag!("{STDERR_HELD_BY_TARGET}");
     }
 
     // The tool's exit code is the session verdict, carried by the core's exit code
@@ -504,19 +515,27 @@ impl Heartbeats {
 
 /// What the driver says when it cut the run short, and the code it exits with.
 ///
-/// Which limit ran out decides only the first sentence - both mean the same thing, that there is no
-/// verdict to report. Lifted out of `driver_run` so the pinned complexity ceiling stays where it is
-/// (clippy.toml), which is the ceiling working rather than a nuisance.
-fn report_cut_short(which: &str, timeout_secs: Option<u64>) -> i32 {
-    match which {
-        "timeout" => diag!(
+/// Lifted out of `driver_run` so the pinned complexity ceiling stays where it is (clippy.toml), which
+/// is the ceiling working rather than a nuisance.
+fn report_cut_short(which: &str, timeout_secs: Option<u64>, caller_waits_on_target: bool) -> i32 {
+    for line in cut_short_notice(which, timeout_secs, caller_waits_on_target) {
+        diag!("{line}");
+    }
+    6
+}
+
+/// The lines `report_cut_short` prints. Which limit ran out decides only the first - both mean the
+/// same thing, that there is no verdict to report.
+fn cut_short_notice(which: &str, timeout_secs: Option<u64>, caller_waits_on_target: bool) -> Vec<String> {
+    let mut lines = vec![match which {
+        "timeout" => format!(
             "chrono: gave up after the --timeout of {}s - the core was stopped, so this run has no verdict",
             timeout_secs.unwrap_or(0)
         ),
-        _ => diag!(
+        _ => format!(
             "chrono: the core sent no event for {DRIVER_IDLE_TIMEOUT_SECS}s and was stopped - this run has no verdict"
         ),
-    }
+    }];
     // The target is NOT killed with the core, and that is the normal arrangement rather than an
     // oversight: a session ordinarily stays attached until the application exits, because detaching
     // early would hand it back the real clock. Stopping the core does not change that, so the app
@@ -524,11 +543,42 @@ fn report_cut_short(which: &str, timeout_secs: Option<u64>) -> i32 {
     // a real run, where the application had to be closed by hand afterwards. Killing someone else's
     // application over a diagnostic ceiling is a bigger decision than this line, so this says it
     // instead of doing it (rule 6).
-    diag!(
+    lines.push(
         "chrono: the target was started by the core and does not exit with it - it may still be running on the session clock, so close it yourself"
+            .to_string(),
     );
-    6
+    // Whether it runs is not known here, the core that knew is gone - hence "if it is".
+    if caller_waits_on_target {
+        lines.push(
+            "chrono: if it is, it still writes to this command's standard error, so whatever reads that stream to its end waits until the application exits"
+                .to_string(),
+        );
+    }
+    lines
 }
+
+/// Whether a target started the way this one was gets a copy of this command's standard error. A
+/// console program on the shared console does (ADR-17), a program with a window and the Chromium
+/// mode's browser get none.
+fn target_gets_our_stderr(windowed: Option<bool>, chromium: bool) -> bool {
+    windowed != Some(true) && !chromium
+}
+
+/// Whether the session ended with the target itself still running: processes were left running, and
+/// the target is not one of those that exited, because `ended` names the target's exit code when it has
+/// one. A process the target started may hold the stream too, but whether it was given one is not
+/// known here, so only the target is spoken for.
+fn ended_with_the_target_running(target_exit: Option<i32>, warnings: &[String]) -> bool {
+    target_exit.is_none() && warnings.iter().any(|w| w == "session.left_running")
+}
+
+/// Said when the session ended with the target still running on a copy of this command's standard
+/// error, which is not a terminal. The command exits with the session, and a script or a CI step
+/// reading that stream to its end then waits for the application instead - measured, the command out
+/// at 4 s and the end of the stream at 13.5 s (R4/5 review round). Unexplained, that wait looks like
+/// the tool hanging. It was the same before R4/5, when the application's lines went into the protocol
+/// and were lost.
+const STDERR_HELD_BY_TARGET: &str = "chrono: the application is still running and writes to this command's standard error, so whatever reads that stream to its end waits until the application exits";
 
 /// Map the core's exit code to the tool's.
 ///
@@ -706,6 +756,37 @@ mod tests {
         assert_eq!(late.budget(), Duration::ZERO);
         assert_eq!(late.which_limit(), "timeout");
         assert_eq!(quiet.which_limit(), "idle");
+    }
+
+    /// The run says the target holds its stderr only where it does (R4/5 review round): a target given
+    /// a copy of it, and a session that ended with that target itself still running.
+    #[test]
+    fn only_a_target_given_our_stderr_and_left_running_holds_it() {
+        assert!(target_gets_our_stderr(Some(false), false), "a console program on the shared console");
+        assert!(target_gets_our_stderr(None, false), "a program of unknown kind goes on the shared console too");
+        assert!(!target_gets_our_stderr(Some(true), false), "a program with a window gets no standard handles");
+        assert!(!target_gets_our_stderr(Some(false), true), "the Chromium mode's browser gets none either");
+
+        let left = vec!["session.left_running".to_string()];
+        assert!(ended_with_the_target_running(None, &left));
+        assert!(!ended_with_the_target_running(Some(0), &left), "the target exited, only its children run");
+        assert!(!ended_with_the_target_running(None, &[]), "nothing was left running");
+        assert!(!ended_with_the_target_running(None, &["session.followed_family".to_string()]));
+    }
+
+    /// A run cut short says the target may still run, and where it was given this command's stderr,
+    /// that a reader of that stream may wait for it (R4/5 review round).
+    #[test]
+    fn a_run_cut_short_says_a_reader_of_stderr_may_wait_for_the_target() {
+        let held = cut_short_notice("timeout", Some(5), true);
+        assert!(held[0].contains("--timeout of 5s"), "{held:?}");
+        assert!(held[1].contains("may still be running on the session clock"), "{held:?}");
+        assert!(held[2].starts_with("chrono: if it is, it still writes to this command's standard error"), "{held:?}");
+        assert_eq!(held.len(), 3);
+
+        let not_held = cut_short_notice("idle", None, false);
+        assert!(not_held[0].contains("sent no event for"), "{not_held:?}");
+        assert_eq!(not_held.len(), 2, "no word about stderr when the target was not given it: {not_held:?}");
     }
 
     /// A core killed from outside carries no verdict, and the number it does carry is in no table

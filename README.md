@@ -166,8 +166,10 @@ and every exit code of both commands is listed in the
 [CLI reference](https://chronomock.donislawdev.com/cli-reference/).
 
 A console application's own output appears on `chrono run`'s standard error while it runs, so
-standard output holds the report, or with `--json` the events, and nothing else. Started from the
-window, a console application opens in a console window of its own.
+standard output holds the report, or with `--json` the events, and nothing else. An application
+that is still running when the session ends keeps writing there, so a script or a CI step that
+reads that stream to its end waits until the application exits, and `chrono run` says so when it
+happens. Started from the window, a console application opens in a console window of its own.
 
 <details>
 <summary><strong>Table of contents</strong></summary>
