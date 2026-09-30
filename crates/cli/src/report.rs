@@ -320,6 +320,12 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "embedded.registry_arguments_hidden" => {
             "a WebView2 AdditionalBrowserArguments policy value for this application exists in the registry, and the session's environment variable hid it for the session - any flags it carried (a debugging port of your own, say) were not applied"
         }
+        "embedded.webview2_not_reached" => {
+            "the application loaded WebView2, but the session never reached its web engine, so its pages may have run on the real clock"
+        }
+        "embedded.elevated_host" => {
+            "Chrono Mock is running as administrator, so this application is too, and WebView2 then ignores the setting the session reaches its pages through - run Chrono Mock without administrator rights"
+        }
         "coverage.pid_registry_full" => {
             "this session ran more processes than the audit can track (256), so some ran uncovered and are missing from the process count and the channel lists below"
         }

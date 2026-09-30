@@ -372,6 +372,13 @@ impl SessionLedger {
             .chain(self.uncovered_children.iter().map(|c| c.pid))
             .collect()
     }
+
+    /// The processes the hook is in: the application itself, and what it started that the hook followed
+    /// into. These are the ones that can hold the WebView2 client library - the engine's own processes
+    /// (the uncovered children) carry the engine, not the client.
+    pub(crate) fn hosts(&self, parent: u32) -> Vec<u32> {
+        std::iter::once(parent).chain(self.family_pids.iter().copied()).collect()
+    }
 }
 
 /// The host's clock now, as the origin a page is shimmed from.
@@ -428,6 +435,7 @@ pub(crate) fn run_session(
         if now >= child_deadline {
             ledger.poll(&mut session);
             bridge.family(ledger.family(session.pid));
+            bridge.look_for_webview2(&ledger.hosts(session.pid));
             child_deadline = now + child_poll;
         }
         // Every turn, from the host's clock as it stands now - a page shimmed this turn starts on
@@ -698,9 +706,17 @@ pub(crate) fn close_session(
     // What the pages inside the application did, folded into the family like any process: a page
     // shimmed and reading time is covered, one refused or failed is not, and none at all judges
     // nothing (docs/09 section 12.7).
+    let hosts: Vec<u32> = std::iter::once(session.pid).chain(family_pids.iter().copied()).collect();
+    bridge.look_for_webview2_last(&hosts);
     let pages = bridge.finish();
     let page_rows = covered_channels(pages.counts.clone());
     family = family.combine(embedded_verdict(pages.reached, pages.seen.len(), !page_rows.is_empty(), pages.failed + pages.overflow));
+    // An application that loaded WebView2 while no engine of it was reached: its pages may have run on
+    // the real clock, and nothing the hook saw says otherwise - for an elevated host the engine is
+    // started by a system service, so the hook never sees it at all. The family cannot be `works`.
+    if pages.engine_missed() {
+        family = family.combine(Verdict::Partial);
+    }
     let uncovered_children_total = session.uncovered_children_total();
     // A process nobody reached ran on the real clock: that is "something uncovered" for the family,
     // so the family cannot be `works` (untouchable rule 4 at the session level - the verdict model

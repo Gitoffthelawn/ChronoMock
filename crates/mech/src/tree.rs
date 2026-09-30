@@ -72,7 +72,7 @@ pub(crate) fn process_entries() -> Result<Vec<ProcessEntry>, String> {
 }
 
 /// A fixed-size UTF-16 buffer as the text before its first zero.
-fn text_up_to_nul(units: &[u16]) -> String {
+pub(crate) fn text_up_to_nul(units: &[u16]) -> String {
     let end = units.iter().position(|&u| u == 0).unwrap_or(units.len());
     String::from_utf16_lossy(&units[..end])
 }

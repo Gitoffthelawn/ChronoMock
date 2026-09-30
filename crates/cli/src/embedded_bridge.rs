@@ -19,8 +19,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use chrono_mech::ModuleProbe;
 use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
@@ -63,6 +64,51 @@ pub(crate) const KEY_REGISTRY_ARGUMENTS_HIDDEN: &str = "embedded.registry_argume
 /// A page still open when the session ended did not confirm it was let go, so it may keep the session
 /// clock until it is reloaded or closed.
 const KEY_PAGES_NOT_RELEASED: &str = "embedded.pages_not_released";
+/// The application loaded WebView2 and the session never reached its web engine, for whatever reason
+/// no other key names - so its pages may have run on the real clock (docs/09 section 12.12).
+pub(crate) const KEY_WEBVIEW2_NOT_REACHED: &str = "embedded.webview2_not_reached";
+/// Said beside the key above when the application's token is elevated: WebView2 ignores the
+/// environment variable the session reaches its engine through for an elevated host (Microsoft Learn,
+/// "Develop secure WebView2 apps"), which is the one reason the channel cannot do its work there.
+pub(crate) const KEY_ELEVATED_HOST: &str = "embedded.elevated_host";
+
+/// The library a WebView2 client loads into its own process when it creates an environment: the
+/// application's own web view, as opposed to the processes of the engine it starts. Its presence in a
+/// process of the family is what says the application uses WebView2 at all.
+const WEBVIEW2_CLIENT_LIBRARY: &str = "EmbeddedBrowserWebView.dll";
+
+/// How often the family is asked whether it has loaded WebView2. A look at a process's modules costs a
+/// millisecond or two and the answer only ever turns from no to yes, so once a second is plenty.
+const LOOK_EVERY: Duration = Duration::from_secs(1);
+
+/// A process of the family seen with the WebView2 client library loaded, with what its token said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WebView2Host {
+    pub(crate) pid: u32,
+    /// `None` when the token could not be read - never taken for "not elevated".
+    pub(crate) elevated: Option<bool>,
+}
+
+/// The warnings for an application that loaded WebView2 while the session never reached a web engine
+/// in it. Said only when all three hold: a host was seen, no engine was reached, and no other key of
+/// the channel already names why (an endpoint that answered and could not be attached to, or a
+/// discovery that could not look) - a second line for the same fact would only repeat it. The
+/// elevated line rides beside the first only when the token said elevated.
+///
+/// Pure, so each combination is tested without a session.
+fn unreached_warnings(host: Option<WebView2Host>, reached: bool, explained: bool) -> Vec<String> {
+    let Some(host) = host else {
+        return Vec::new();
+    };
+    if reached || explained {
+        return Vec::new();
+    }
+    let mut out = vec![KEY_WEBVIEW2_NOT_REACHED.to_string()];
+    if host.elevated == Some(true) {
+        out.push(KEY_ELEVATED_HOST.to_string());
+    }
+    out
+}
 
 /// What a native start needs from the channel before the target launches: the variables that make
 /// an engine open its port, the port reserved for a Qt engine, and what there already is to say.
@@ -124,14 +170,31 @@ pub(crate) struct Outcome {
     rate_changed: bool,
     pub(crate) engines: Vec<ReachedEngine>,
     warnings: Vec<String>,
+    /// A process of the family that had WebView2 loaded, when one was seen at any point of the session.
+    webview2: Option<WebView2Host>,
 }
 
 impl Outcome {
+    /// Whether the application used WebView2 and the session never reached its engine, with nothing
+    /// else in this outcome already saying why. The family cannot be `works` then: its pages may have
+    /// run on the real clock, and a verdict that does not say so would be the audit claiming a channel
+    /// it did not reach (untouchable rule 4).
+    pub(crate) fn engine_missed(&self) -> bool {
+        !self.unreached_warnings().is_empty()
+    }
+
+    fn unreached_warnings(&self) -> Vec<String> {
+        let explained =
+            self.warnings.iter().any(|w| w == KEY_ENGINE_UNREACHABLE || w == KEY_DISCOVERY_UNAVAILABLE);
+        unreached_warnings(self.webview2, self.reached, explained)
+    }
+
     /// The warnings the session verdict carries for this channel, each said only when it happened.
     /// `zone_differs` is whether the session zone is not the host machine's: the pages read the
     /// host's (ADR-8), which is a fact to say only when it makes a difference.
     pub(crate) fn session_warnings(&self, zone_differs: bool) -> Vec<String> {
         let mut out = self.warnings.clone();
+        out.extend(self.unreached_warnings());
         let pages = !self.seen.is_empty();
         if self.reached {
             out.push(KEY_DEBUG_PORT_OPEN.to_string());
@@ -190,6 +253,11 @@ pub(crate) struct EmbeddedBridge {
     pushed: Option<ShimOrigin>,
     rate_changed: bool,
     reached: bool,
+    /// Whether the channel is on, which is what makes the family worth asking about WebView2.
+    looking: bool,
+    /// The first process of the family seen with the WebView2 client library loaded.
+    host: Option<WebView2Host>,
+    last_look: Option<Instant>,
 }
 
 impl EmbeddedBridge {
@@ -212,6 +280,9 @@ impl EmbeddedBridge {
             pushed: None,
             rate_changed: false,
             reached: false,
+            looking: launch.enabled,
+            host: None,
+            last_look: None,
         };
         if !launch.enabled {
             return bridge;
@@ -251,6 +322,44 @@ impl EmbeddedBridge {
         {
             d.update_family(self.family.iter().copied().collect());
         }
+    }
+
+    /// Ask the family whether any process of it has loaded WebView2, at most once a second and only
+    /// until one has. `hosts` are the processes the hook is in - the application itself - and not the
+    /// engine's own processes, which carry the engine and not the client library. The hook cannot
+    /// answer this for an elevated host, whose engine a system service starts, so it is asked from
+    /// outside (docs/09 section 12.12).
+    pub(crate) fn look_for_webview2(&mut self, hosts: &[u32]) {
+        self.look_with(hosts, false, Instant::now(), chrono_mech::process_has_module, chrono_mech::process_elevated);
+    }
+
+    /// The same look once more as the session closes, whatever the cadence says: what turned up in the
+    /// last second counts.
+    pub(crate) fn look_for_webview2_last(&mut self, hosts: &[u32]) {
+        self.look_with(hosts, true, Instant::now(), chrono_mech::process_has_module, chrono_mech::process_elevated);
+    }
+
+    /// The look over any two questions, so the cadence, the stopping once found and the order are
+    /// tested with answers of the test's making.
+    fn look_with(
+        &mut self,
+        hosts: &[u32],
+        forced: bool,
+        now: Instant,
+        has: impl Fn(u32, &str) -> ModuleProbe,
+        elevated: impl Fn(u32) -> Option<bool>,
+    ) {
+        if !self.looking || self.host.is_some() {
+            return;
+        }
+        if !forced && self.last_look.is_some_and(|t| now.saturating_duration_since(t) < LOOK_EVERY) {
+            return;
+        }
+        self.last_look = Some(now);
+        self.host = hosts
+            .iter()
+            .find(|&&pid| has(pid, WEBVIEW2_CLIENT_LIBRARY) == ModuleProbe::Loaded)
+            .map(|&pid| WebView2Host { pid, elevated: elevated(pid) });
     }
 
     /// One turn: take what discovery found and start connecting to it, take what connected and
@@ -433,6 +542,7 @@ impl EmbeddedBridge {
             rate_changed: self.rate_changed,
             engines: self.engines,
             warnings: self.warnings,
+            webview2: self.host,
         };
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
@@ -525,6 +635,7 @@ mod tests {
             rate_changed,
             engines: Vec::new(),
             warnings: warnings.iter().map(|w| w.to_string()).collect(),
+            webview2: None,
         }
     }
 
@@ -547,5 +658,106 @@ mod tests {
             ]
         );
         assert_eq!(outcome(true, &[1], 0, false, &[]).session_warnings(false), vec![KEY_DEBUG_PORT_OPEN]);
+    }
+
+    fn host(elevated: Option<bool>) -> Option<WebView2Host> {
+        Some(WebView2Host { pid: 42, elevated })
+    }
+
+    /// Every combination of the facts the claim rests on. No host seen says nothing, reached or not. A
+    /// host with an engine reached says nothing. A host with nothing reached and nothing else naming why
+    /// says the claim - and the elevated line only when the token SAID elevated: one that could not be
+    /// read is not one that is not elevated, and neither is it elevated.
+    #[test]
+    fn an_unreached_webview2_is_said_only_when_a_host_was_seen_nothing_was_reached_and_nothing_else_says_why() {
+        assert!(unreached_warnings(None, false, false).is_empty());
+        assert!(unreached_warnings(None, true, false).is_empty());
+        assert!(unreached_warnings(host(Some(true)), true, false).is_empty());
+        assert_eq!(unreached_warnings(host(Some(false)), false, false), vec![KEY_WEBVIEW2_NOT_REACHED]);
+        assert_eq!(unreached_warnings(host(None), false, false), vec![KEY_WEBVIEW2_NOT_REACHED]);
+        assert_eq!(
+            unreached_warnings(host(Some(true)), false, false),
+            vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]
+        );
+        assert!(unreached_warnings(host(Some(true)), false, true).is_empty(), "another key already names why");
+    }
+
+    /// The outcome applies that rule to what the bridge noted: an unreachable endpoint and a discovery
+    /// that could not look each already explain a miss, a Qt port taken does not (it is about another
+    /// engine), and the claim rides the session warnings in front of the open-port line.
+    #[test]
+    fn the_outcome_misses_its_engine_only_when_a_host_was_seen_and_no_key_already_says_why() {
+        let with_host = |reached: bool, warnings: &[&str], seen: Option<WebView2Host>| {
+            let mut o = outcome(reached, &[], 0, false, warnings);
+            o.webview2 = seen;
+            o
+        };
+        assert!(!outcome(false, &[], 0, false, &[]).engine_missed());
+        assert!(with_host(false, &[], host(Some(true))).engine_missed());
+        assert!(!with_host(true, &[], host(Some(true))).engine_missed());
+        assert!(!with_host(false, &[KEY_ENGINE_UNREACHABLE], host(None)).engine_missed());
+        assert!(!with_host(false, &[KEY_DISCOVERY_UNAVAILABLE], host(None)).engine_missed());
+        assert!(with_host(false, &[KEY_QT_PORT_TAKEN], host(None)).engine_missed());
+        assert_eq!(
+            with_host(false, &[], host(Some(true))).session_warnings(false),
+            vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]
+        );
+    }
+
+    /// A bridge with the channel on and no discovery to start: nothing is reserved and no thread runs.
+    fn looking_bridge() -> EmbeddedBridge {
+        let launch = Launch { env: Vec::new(), qt_port: None, enabled: true, unavailable: true, registry_hidden: false };
+        EmbeddedBridge::start(&launch, vec![1], false)
+    }
+
+    /// The family is asked only when the channel is on, in order, stopping at the first process that
+    /// has the library and reading the token of that one alone - and once one answered, never again.
+    #[test]
+    fn the_family_is_asked_about_webview2_only_when_the_channel_is_on_and_only_until_one_answers() {
+        use std::cell::Cell;
+        let asked = Cell::new(0u32);
+        let has = |pid: u32, library: &str| {
+            asked.set(asked.get() + 1);
+            assert_eq!(library, WEBVIEW2_CLIENT_LIBRARY);
+            if pid == 2 { ModuleProbe::Loaded } else { ModuleProbe::NotLoaded }
+        };
+        let token = |pid: u32| Some(pid == 2);
+        let t0 = Instant::now();
+
+        let mut off = EmbeddedBridge::start(&Launch::off(), vec![1], false);
+        off.look_with(&[1, 2], true, t0, has, token);
+        assert_eq!(asked.get(), 0, "a channel that is off asks nothing");
+        assert_eq!(off.host, None);
+
+        let mut on = looking_bridge();
+        on.look_with(&[1, 2, 3], false, t0, has, token);
+        assert_eq!(asked.get(), 2, "the walk stops at the first process that has it");
+        assert_eq!(on.host, Some(WebView2Host { pid: 2, elevated: Some(true) }));
+        on.look_with(&[1, 2, 3], true, t0 + Duration::from_secs(9), has, token);
+        assert_eq!(asked.get(), 2, "once found, even a forced look does not ask again");
+    }
+
+    /// A look that found nothing waits out the cadence before the next one, unless it is the closing
+    /// look, which ignores it. A process that could not be looked into is not one that has the library.
+    #[test]
+    fn a_look_that_found_nothing_waits_out_the_cadence_unless_it_is_forced() {
+        use std::cell::Cell;
+        let asked = Cell::new(0u32);
+        let none = |_: u32, _: &str| {
+            asked.set(asked.get() + 1);
+            ModuleProbe::NotLoaded
+        };
+        let t0 = Instant::now();
+        let mut bridge = looking_bridge();
+        bridge.look_with(&[1], false, t0, none, |_| None);
+        bridge.look_with(&[1], false, t0 + LOOK_EVERY / 2, none, |_| None);
+        assert_eq!(asked.get(), 1, "inside the cadence nothing is asked");
+        bridge.look_with(&[1], false, t0 + LOOK_EVERY, none, |_| None);
+        assert_eq!(asked.get(), 2);
+        bridge.look_with(&[1], true, t0 + LOOK_EVERY, none, |_| None);
+        assert_eq!(asked.get(), 3, "the closing look ignores the cadence");
+
+        bridge.look_with(&[1], true, t0 + LOOK_EVERY, |_: u32, _: &str| ModuleProbe::Unknown, |_| Some(true));
+        assert_eq!(bridge.host, None, "an unknown answer is not a sighting");
     }
 }
