@@ -14,6 +14,7 @@
 mod batch;
 mod environment;
 mod family;
+mod job;
 mod listeners;
 mod policy;
 mod stdio;
@@ -66,7 +67,8 @@ use windows::Win32::System::Threading::{
     QueryFullProcessImageNameW,
     ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
     LPTHREAD_START_ROUTINE,
-    PROCESS_INFORMATION, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SYNCHRONIZE,
 };
 use windows::Win32::System::Performance::QueryPerformanceCounter;
 use windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTime;
@@ -118,6 +120,9 @@ pub struct Prepared {
     /// Whether a previous session's control block was still there and was taken over, and how that
     /// session had ended. The caller surfaces this so the takeover is not silent.
     pub reclaimed: Reclaimed,
+    /// What went wrong with the job the target was started in (R4-S1), for the caller to say. `None`
+    /// on every ordinary launch.
+    pub start_job_note: Option<String>,
 }
 
 /// What `prepare` found under the control block's name before it started.
@@ -675,14 +680,23 @@ impl Drop for Session {
 
 /// A process launched WITHOUT the hook, for a probe that needs a host running with the session's
 /// environment and nothing else - the embedded-engine channel proves its port discovery and its
-/// attach on a host it started this way (docs/09). The process is the owner's for as long as this
-/// value lives and is TERMINATED when it drops, whichever way the owner leaves - an early return
-/// included. A probe that launched an application must never leave it running with the session's
-/// variables in its environment. Nothing today needs to keep such a process alive past its owner,
-/// so there is no way to detach one - the day a caller needs that, it gets a method, not a default.
+/// attach on a host it started this way (docs/09) - and for the browser of the Chromium mechanism. The
+/// process is the owner's for as long as this value lives and is TERMINATED when it drops, whichever
+/// way the owner leaves - an early return included. A probe that launched an application must never
+/// leave it running with the session's variables in its environment. Nothing today needs to keep such
+/// a process alive past its owner, so there is no way to detach one - the day a caller needs that, it
+/// gets a method, not a default.
+///
+/// It runs in a job from its first instruction, with everything it starts (R4-N15, R4-N30): ending
+/// only the process we started left its children running, and a killed owner ended nothing at all.
+/// The job ends them all together, the second case included, because the kernel closes a killed
+/// process's handles.
 pub struct PlainChild {
     pub pid: u32,
     handle: HANDLE,
+    /// `None` only when the system would not give it one, which `job_note` then says.
+    job: Option<job::Job>,
+    job_note: Option<String>,
 }
 
 impl PlainChild {
@@ -707,62 +721,127 @@ impl PlainChild {
         }
     }
 
-    /// End the process now. Idempotent: a process already gone is not an error here.
+    /// End the process now, with everything it started. Idempotent: a process already gone is not an
+    /// error here.
     pub fn terminate(&self) {
+        if let Some(job) = &self.job {
+            job.end_all(1);
+        }
         // SAFETY: the handle is ours until drop, and terminating a process that already exited fails
         // harmlessly.
         unsafe {
             let _ = TerminateProcess(self.handle, 1);
         }
     }
+
+    /// Why the process runs without a job, when it does - its children then outlive it, and a killed
+    /// owner leaves it running. The owner says so rather than let it pass (rule 6).
+    pub fn job_note(&self) -> Option<&str> {
+        self.job_note.as_deref()
+    }
 }
 
 impl Drop for PlainChild {
     fn drop(&mut self) {
-        // SAFETY: terminating the process this struct owns (a process already gone fails harmlessly),
-        // then closing the one handle it opened, once.
+        self.terminate();
+        // SAFETY: closing the one process handle this struct opened, once. The job closes after this,
+        // with its own drop.
         unsafe {
-            let _ = TerminateProcess(self.handle, 1);
             let _ = CloseHandle(self.handle);
         }
     }
 }
 
 /// Launch a target without suspending or injecting it: `CreateProcessW` with the command line the
-/// hooked launch builds, the working folder, and the same environment treatment. The one way a
-/// probe starts a host the channel then has to find.
+/// hooked launch builds, the working folder, and the same environment treatment, in a job that ends
+/// it and its children with the value (R4-N15). The one way a probe starts a host the channel then
+/// has to find, and the way the Chromium mechanism starts its browser (R4-N30).
 pub fn launch_plain(target: &Target) -> Result<PlainChild, String> {
-    let (mut app, mut cmdline) = launch_line(target)?;
-    let stdio = stdio::launch_stdio(target.stdio)?;
-    // SAFETY: the same call `prepare` makes with the same buffers, minus the suspend flag. The
-    // thread handle is closed at once - nothing here resumes or inspects the thread.
+    let (app, cmdline) = launch_line(target)?;
+    // SAFETY: the buffers `launch_line` made for this target. The thread handle is closed at once -
+    // nothing here resumes or inspects the thread.
     unsafe {
-        let cwd_wide = target.cwd.map(to_wide);
-        let cwd_ptr = cwd_wide
-            .as_ref()
-            .map(|w| PCWSTR(w.as_ptr()))
-            .unwrap_or(PCWSTR::null());
-        let mut pi = PROCESS_INFORMATION::default();
-        let (block, env_ptr, env_flag) = environment_for(target.env);
-        let launched = CreateProcessW(
-            PCWSTR(app.as_mut_ptr()),
-            Some(PWSTR(cmdline.as_mut_ptr())),
-            None,
-            None,
-            stdio.inherit,
-            env_flag | stdio.flags,
-            env_ptr,
-            cwd_ptr,
-            stdio.startup_info(),
-            &mut pi,
-        );
-        drop(block);
-        drop(stdio);
-        launched.map_err(|e| win32_detail("CreateProcessW", &e))?;
+        let (pi, job) = create_in_job(&app, &cmdline, target, PROCESS_CREATION_FLAGS(0), false)?;
         let _ = CloseHandle(pi.hThread);
-        Ok(PlainChild { pid: pi.dwProcessId, handle: pi.hProcess })
+        let (job, job_note) = match job {
+            Ok(job) => (Some(job), None),
+            Err(why) => (None, Some(why)),
+        };
+        Ok(PlainChild { pid: pi.dwProcessId, handle: pi.hProcess, job, job_note })
     }
 }
+
+/// The job a process was started in, or why it runs without one.
+type JobOrWhy = Result<job::Job, String>;
+
+/// Start `target` in a job that ends it when the job's last handle closes. With `children_stay_out`
+/// the children it starts stay outside that job, which is how `prepare` holds a target only while it
+/// starts it. A job the system will not start a process in (this process runs in one that forbids
+/// nesting, say) is not a reason to refuse the launch: the process then starts without one, and the
+/// answer says why. A launch that fails for another reason fails the same way the second time.
+///
+/// # Safety
+/// `app` and `cmdline` are the NUL-terminated buffers `launch_line` made for `target`.
+unsafe fn create_in_job(
+    app: &[u16],
+    cmdline: &[u16],
+    target: &Target,
+    flags: PROCESS_CREATION_FLAGS,
+    children_stay_out: bool,
+) -> Result<(PROCESS_INFORMATION, JobOrWhy), String> { unsafe {
+    let job = job::Job::ending_with_us(children_stay_out);
+    if let Ok(held) = &job {
+        match create_process(app, cmdline, target, flags, Some(held.handle())) {
+            Ok(pi) => return Ok((pi, job)),
+            Err(in_job) => {
+                let pi = create_process(app, cmdline, target, flags, None)?;
+                return Ok((pi, Err(format!("the system would not start it in a job ({in_job})"))));
+            }
+        }
+    }
+    let pi = create_process(app, cmdline, target, flags, None)?;
+    Ok((pi, job))
+}}
+
+/// One `CreateProcessW` for `target`: its environment, its standard handles and, when named, the job
+/// it starts in. The command line is copied for the call, because `CreateProcessW` may write to it.
+///
+/// # Safety
+/// `app` and `cmdline` are NUL-terminated.
+unsafe fn create_process(
+    app: &[u16],
+    cmdline: &[u16],
+    target: &Target,
+    flags: PROCESS_CREATION_FLAGS,
+    job: Option<HANDLE>,
+) -> Result<PROCESS_INFORMATION, String> { unsafe {
+    let stdio = stdio::launch_stdio(target.stdio, job)?;
+    let mut line = cmdline.to_vec();
+    let cwd_wide = target.cwd.map(to_wide);
+    let cwd_ptr = cwd_wide
+        .as_ref()
+        .map(|w| PCWSTR(w.as_ptr()))
+        .unwrap_or(PCWSTR::null());
+    let mut pi = PROCESS_INFORMATION::default();
+    let (block, env_ptr, env_flag) = environment_for(target.env);
+    let launched = CreateProcessW(
+        PCWSTR(app.as_ptr()),
+        Some(PWSTR(line.as_mut_ptr())),
+        None,
+        None,
+        stdio.inherit,
+        flags | env_flag | stdio.flags,
+        env_ptr,
+        cwd_ptr,
+        stdio.startup_info(),
+        &mut pi,
+    );
+    // The child holds its own copies now, so this process's are closed at once.
+    drop(block);
+    drop(stdio);
+    launched.map_err(|e| win32_detail("CreateProcessW", &e))?;
+    Ok(pi)
+}}
 
 /// A zero character ends the string `CreateProcessW` reads, so a path, an argument or a working folder
 /// holding one lost whatever followed it without a word - for a program, while the batch path already
@@ -1215,9 +1294,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
     let dll_wide = to_wide(&hook_dll.to_string_lossy());
     // Before the lock and the control block, so a target that cannot be given its command line leaves
     // nothing behind to undo.
-    let (mut app, mut cmdline) = launch_line(target).map_err(PrepareError::Launch)?;
-    // The same reason: the handles the target starts with are opened before anything is shared.
-    let stdio = stdio::launch_stdio(target.stdio).map_err(PrepareError::Launch)?;
+    let (app, cmdline) = launch_line(target).map_err(PrepareError::Launch)?;
 
     unsafe {
         // 0. Session lock, before anything shared is touched. Everything below - the decision to
@@ -1296,34 +1373,19 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         write_core_created(ctl, process_created(GetCurrentProcess()).unwrap_or(0));
         write_core_pid(ctl, GetCurrentProcessId());
 
-        // 2. Launch SUSPENDED so the hook lands before the first instruction.
-        let cwd_wide = target.cwd.map(to_wide);
-        let cwd_ptr = cwd_wide
-            .as_ref()
-            .map(|w| PCWSTR(w.as_ptr()))
-            .unwrap_or(PCWSTR::null());
-        let mut pi = PROCESS_INFORMATION::default();
-        let (block, env_ptr, env_flag) = environment_for(target.env);
-        let launched = CreateProcessW(
-            PCWSTR(app.as_mut_ptr()),
-            Some(PWSTR(cmdline.as_mut_ptr())),
-            None,
-            None,
-            stdio.inherit,
-            CREATE_SUSPENDED | env_flag | stdio.flags,
-            env_ptr,
-            cwd_ptr,
-            stdio.startup_info(),
-            &mut pi,
-        );
-        drop(block);
-        // The child holds its own copies now, so this process's are closed at once.
-        drop(stdio);
-        if let Err(e) = launched {
-            let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-            let _ = CloseHandle(hmap);
-            return Err(PrepareError::Launch(win32_detail("CreateProcessW", &e)));
-        }
+        // 2. Launch SUSPENDED so the hook lands before the first instruction, and in a job that ends the
+        // target with this core until it runs (R4-S1). A core that died while the target was still
+        // suspended - killed by the window after its patience ran out, Ctrl+C, a crash - left it
+        // suspended for good, holding its executable and the hook library open. Its children stay out
+        // of the job.
+        let (pi, start_job) = match create_in_job(&app, &cmdline, target, CREATE_SUSPENDED, true) {
+            Ok(started) => started,
+            Err(e) => {
+                let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
+                let _ = CloseHandle(hmap);
+                return Err(PrepareError::Launch(e));
+            }
+        };
 
         // 2a. Refuse a target this core cannot reach, before trying (R2-S1). The process exists but is
         // still suspended - it has not run an instruction - so terminating it here costs the tester
@@ -1378,6 +1440,9 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             let _ = CloseHandle(hmap);
             return Err(PrepareError::Inject("ResumeThread failed - target left suspended".into()));
         }
+        // It runs now, so the job lets go of it before the guard window: from here a core that dies
+        // leaves the application running, as ADR-14 promises.
+        let start_job_note = let_go_of(start_job);
         let waited = WaitForSingleObject(pi.hProcess, GUARD_MS);
         let coverage = match parent_slot {
             Some(slot) => {
@@ -1417,7 +1482,27 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             family: family::Family::new(MAX_COV_PIDS, parent_slot),
             _lock: lock,
         };
-        Ok(Prepared { coverage, session, vanished_lived_ms, reclaimed })
+        Ok(Prepared { coverage, session, vanished_lived_ms, reclaimed, start_job_note })
+    }
+}
+
+/// Let the start-up job go of a target that runs (R4-S1), and say what the caller has to know when it
+/// could not: the target started outside a job, or it could not be let out of it and ends with this
+/// core. Such a job is kept open rather than closed, because closing it would end the application now.
+fn let_go_of(job: JobOrWhy) -> Option<String> {
+    match job {
+        Ok(job) => match job.let_go() {
+            Ok(()) => None,
+            Err((held, why)) => {
+                std::mem::forget(held);
+                Some(format!(
+                    "the application could not be let out of the job it started in ({why}), so it closes when this core exits"
+                ))
+            }
+        },
+        Err(why) => Some(format!(
+            "the application started outside a job ({why}) - had this core stopped before it ran, it would have been left suspended"
+        )),
     }
 }
 
@@ -1648,6 +1733,54 @@ mod tests {
         let child = super::launch_plain(&target)
             .expect("cmd.exe launches");
         child.wait_exit(10_000).expect("cmd.exe exits within ten seconds")
+    }
+
+    /// Whether a process is gone within five seconds - ending a job is the kernel's to schedule.
+    fn gone_soon(pid: u32) -> bool {
+        (0..50).any(|_| {
+            let gone = !super::process_is_alive(pid);
+            if !gone {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            gone
+        })
+    }
+
+    /// R4-N15: a plain child and what it started end together, and without any code of ours running.
+    /// Closing the job's handle is what the kernel does for an owner that was killed, so the job is
+    /// dropped on its own here, the process untouched. Ending only the process we started used to leave
+    /// its children running, and a killed owner ended nothing at all.
+    #[test]
+    fn a_plain_child_and_what_it_started_end_when_its_job_closes() {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        let path = format!(r"{system_root}\System32\cmd.exe");
+        let ping = format!(r"{system_root}\System32\PING.EXE");
+        let args = ["/c".to_string(), ping, "-n".into(), "30".into(), "127.0.0.1".into()];
+        let target = super::Target { path: &path, args: &args, cwd: None, env: &[], stdio: super::TargetStdio::Discarded };
+        let mut child = super::launch_plain(&target).expect("cmd.exe launches");
+        assert!(child.job_note().is_none(), "the child runs without a job: {:?}", child.job_note());
+
+        // The grandchild, once cmd.exe has started it.
+        let grandchild = (0..50).find_map(|_| {
+            let found = tree::process_entries()
+                .ok()?
+                .into_iter()
+                .find(|e| e.parent == child.pid && e.image.eq_ignore_ascii_case("PING.EXE"))
+                .map(|e| e.pid);
+            if found.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            found
+        });
+        let Some(grandchild) = grandchild else {
+            panic!("cmd.exe did not start ping within five seconds");
+        };
+
+        drop(child.job.take());
+        let (root_gone, grandchild_gone) = (gone_soon(child.pid), gone_soon(grandchild));
+        child.terminate();
+        assert!(root_gone, "closing the job left the process we started running");
+        assert!(grandchild_gone, "closing the job left the process it started running");
     }
 
     #[test]

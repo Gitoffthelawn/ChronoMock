@@ -4,17 +4,10 @@
 //! the end (chrono-mock 8.8 - leave nothing behind).
 
 use std::io::{self, Write};
-use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
-use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-    SetInformationJobObject,
-};
+use chrono_mech::{PlainChild, Target, TargetStdio};
 
 /// Whether the target exe looks like a Chromium/Electron app: its folder ships the Chromium runtime
 /// (`icudtl.dat` plus a V8 snapshot). Electron additionally carries `resources/app.asar`, but the
@@ -33,10 +26,9 @@ pub fn is_chromium_target(target: &str) -> bool {
 /// is terminated and the temp profile removed on [`shutdown`], since (unlike a native target) this is
 /// our own instance, not the user's running app.
 pub struct LaunchedChromium {
-    child: Child,
-    /// The OS-level tie between the browser and this process. `None` only if the job could not be
-    /// set up, in which case the session runs exactly as it did before this existed.
-    job: Option<KillOnCloseJob>,
+    /// The browser, in a job that ends it and everything it starts when the job closes - which the
+    /// kernel does for a killed core as well (see `chrono_mech::PlainChild`).
+    child: PlainChild,
     pub port: u16,
     user_data_dir: PathBuf,
     /// Set by [`cleanup`], read by [`Drop`]. Two jobs, and the second is the reason it exists: it
@@ -50,7 +42,7 @@ impl LaunchedChromium {
     /// Whether the launched instance is still running. Reaps it if it has exited (so a later shutdown
     /// is a clean no-op). Lets the driver end the session when the user closes the app.
     pub fn is_running(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        self.child.is_alive()
     }
 
     /// Terminate the launched instance and remove its temp profile. Best-effort: a QA tool must not
@@ -76,13 +68,11 @@ impl LaunchedChromium {
             return Vec::new();
         }
         self.cleaned = true;
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        // Killing `child` is not the same as killing the browser. Some launchers exit after handing
-        // off to another process - the wait loop above says so in as many words, because that shape
-        // still opens the debug port - and killing a launcher that already exited ends nothing.
-        // Dropping the job closes its last handle, and the OS terminates everything in it.
-        drop(self.job.take());
+        // The whole job, not only the process we started. Some launchers exit after handing off to
+        // another process - the wait loop above says so in as many words, because that shape still
+        // opens the debug port - and ending a launcher that already exited ends nothing.
+        self.child.terminate();
+        let _ = self.child.wait_exit(PROCESS_END_WAIT_MS);
         // Chromium's own child processes (renderer, GPU) briefly outlive the main process we killed and
         // keep file locks on the profile, so an immediate remove races and fails. They self-terminate a
         // few hundred ms after the parent dies (broken IPC channel), so retry over ~half a second, each
@@ -119,115 +109,41 @@ impl LaunchedChromium {
 /// What it does NOT cover, so nobody reads more into it than it gives: a force-killed core. No
 /// destructor runs on `TerminateProcess`, and that path is real - measured by killing the core
 /// mid-session, after which the launched Electron app was still running with its debug port open, and
-/// its profile survived until the NEXT session's orphan sweep removed it. That case is covered by
-/// [`KillOnCloseJob`] instead, which lives in the kernel precisely because no code of ours runs to
-/// be given the chance. This drop still owns the profile directory, which the job knows nothing
-/// about.
+/// its profile survived until the NEXT session's orphan sweep removed it. That case is covered by the
+/// job the browser runs in (`chrono_mech::PlainChild`), which lives in the kernel precisely because no
+/// code of ours runs to be given the chance. This drop still owns the profile directory, which the job
+/// knows nothing about.
 impl Drop for LaunchedChromium {
     fn drop(&mut self) {
         let _ = self.cleanup();
     }
 }
 
-/// A job object holding the launched browser, with "kill on close" set: when the last handle to it
-/// goes away, Windows terminates every process inside.
-///
-/// This is what covers the case [`Drop`] on `LaunchedChromium` explicitly does not - a force-killed
-/// core. `TerminateProcess` runs no destructor, no `atexit`, nothing: measured by killing the core
-/// mid-session, after which the launched Electron app was still running with its debug port open.
-/// Handles, however, are closed by the kernel whatever way a process dies, so the tie has to live
-/// where a dying process cannot skip it. A longer grace period in the client cannot reach this case
-/// at all, since nothing in our code runs to be given the extra time.
-///
-/// It also covers a case that was already possible on the ordinary path: a launcher that exits after
-/// handing the window off to another process. `child.kill()` then kills something that has already
-/// gone, and the browser survives its own shutdown.
-struct KillOnCloseJob(HANDLE);
+/// How long the cleanup waits for the browser to end once its job has been told to end it, in real
+/// milliseconds. The profile can only be removed once the processes holding it are gone.
+const PROCESS_END_WAIT_MS: u32 = 2_000;
 
-impl Drop for KillOnCloseJob {
-    fn drop(&mut self) {
-        // SAFETY: the handle came from CreateJobObjectW and is closed exactly once - this type is
-        // not Clone, and the only owner is the LaunchedChromium that took it.
-        unsafe {
-            let _ = CloseHandle(self.0);
-        }
-    }
+/// The arguments the browser starts with: the isolated profile and a debug port Chromium picks
+/// itself, ahead of the user's own. Separated from [`launch_chromium`] so they can be checked without
+/// a Chromium on the machine - there is no portable one to test against.
+fn chromium_arguments(user_data_dir: &Path, args: &[String]) -> Vec<String> {
+    let mut all = vec![format!("--user-data-dir={}", user_data_dir.display()), "--remote-debugging-port=0".to_string()];
+    all.extend(args.iter().cloned());
+    all
 }
 
-// SAFETY: a job handle is a kernel object usable from any thread - nothing here is thread-affine.
-// Needed because the session that owns a LaunchedChromium is not pinned to one thread.
-unsafe impl Send for KillOnCloseJob {}
-
-/// Put `child` in a fresh kill-on-close job. `None` on any failure, which is deliberate: this is a
-/// safety net, and a session that cannot get one is still a session that works - it simply loses the
-/// guarantee, and says so on stderr rather than silently (rule 6).
-fn tie_lifetime_to_ours(child: &Child) -> Option<KillOnCloseJob> {
-    // SAFETY: all three calls are the documented sequence for a job object. The handle is owned by
-    // KillOnCloseJob from the moment it is created, so no path leaks it - `info` outlives the call.
-    unsafe {
-        let job = match CreateJobObjectW(None, None) {
-            Ok(h) => KillOnCloseJob(h),
-            Err(e) => {
-                // Not `eprintln!`, which panics on a closed standard error (R4-S11, tests/hygiene.rs
-                // H10). This module names nothing in the crate, so it writes the line itself.
-                let _ = writeln!(io::stderr(), "chrono: could not create a job object for the browser: {e}");
-                return None;
-            }
-        };
-        let info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-            BasicLimitInformation: windows::Win32::System::JobObjects::JOBOBJECT_BASIC_LIMIT_INFORMATION {
-                LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        if let Err(e) = SetInformationJobObject(
-            job.0,
-            JobObjectExtendedLimitInformation,
-            std::ptr::from_ref(&info).cast(),
-            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        ) {
-            let _ = writeln!(io::stderr(), "chrono: could not set kill-on-close on the browser's job object: {e}");
-            return None;
-        }
-        if let Err(e) = AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle())) {
-            let _ = writeln!(io::stderr(), "chrono: could not put the browser in a job object: {e}");
-            return None;
-        }
-        Some(job)
-    }
-}
-
-/// The command that launches the browser. Separated from [`launch_chromium`] so the flags it
-/// carries can be checked without a Chromium on the machine - there is no portable one to test
-/// against, and the working directory in particular is a single call that nothing else would notice
-/// going missing.
-fn chromium_command(target: &str, user_data_dir: &Path, args: &[String], cwd: Option<&str>) -> Command {
-    // A web-framework rule reads the target as untrusted input reaching a command. Its taint source
-    // is a request from a stranger, and there is none here: this is a desktop tool whose entire
-    // function is to start the program its user named, on that user's own machine, under that
-    // user's own token. Naming the program is the feature, not a way into the process.
-    //
-    // Nor is there a shell to inject into. `std::process::Command` documents that arguments are
-    // given literally to the program and that shell syntax has no effect, so the metacharacters
-    // the rule is looking for are ordinary characters in a file name here. `args` is passed the
-    // same way, as separate values rather than a line for something else to re-parse.
-    // nosemgrep: rust.actix.command-injection.rust-actix-command-injection.rust-actix-command-injection
-    let mut cmd = Command::new(target);
-    cmd.arg(format!("--user-data-dir={}", user_data_dir.display()))
-        .arg("--remote-debugging-port=0")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // The working directory the caller asked for. The wire has carried `cwd` since the protocol was
-    // written and the native mechanism has always honoured it - this path did not, so a folder set in
-    // the panel or on the command line was silently ignored for exactly the targets the CDP mechanism
-    // owns (rule 6). It does NOT touch the profile: that stays in our own temp directory.
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
-    cmd
+/// What the mechanism starts for the browser. It goes through `chrono_mech::launch_plain`, which puts
+/// it in its job before its first instruction (R4-N30): the job used to be joined after the start, and
+/// whatever the browser started in between stayed out of it. `std::process::Command` could not do
+/// better on stable Rust, which offers neither the thread handle to resume a suspended start nor an
+/// attribute list. Its output goes to NUL, as it did.
+///
+/// The working directory is the one the caller asked for. The wire has carried `cwd` since the
+/// protocol was written and the native mechanism has always honoured it - this path did not, so a
+/// folder set in the panel or on the command line was silently ignored for exactly the targets the
+/// CDP mechanism owns (rule 6). It does NOT touch the profile: that stays in our own temp directory.
+fn chromium_target<'a>(target: &'a str, arguments: &'a [String], cwd: Option<&'a str>) -> Target<'a> {
+    Target { path: target, args: arguments, cwd, env: &[], stdio: TargetStdio::Discarded }
 }
 
 /// How long to wait for a launched Chromium to publish its debug port. Named so the client-side
@@ -274,18 +190,21 @@ pub fn launch_chromium(
     let user_data_dir = unique_temp_dir();
     create_profile_dir(&user_data_dir)?;
 
-    let mut cmd = chromium_command(target, &user_data_dir, args, cwd);
-    let mut child = match cmd.spawn() {
+    let arguments = chromium_arguments(&user_data_dir, args);
+    let child = match chrono_mech::launch_plain(&chromium_target(target, &arguments, cwd)) {
         Ok(c) => c,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&user_data_dir);
-            return Err(io::Error::new(e.kind(), format!("cannot launch chromium target '{target}': {e}")));
+            return Err(io::Error::other(format!("cannot launch chromium target '{target}': {e}")));
         }
     };
-
-    // Immediately after spawn, before the browser has had time to fan out into renderer and GPU
-    // processes: children created after this inherit the job, children created before it would not.
-    let job = tie_lifetime_to_ours(&child);
+    // A browser the system would not start in a job still makes a session that works - it only loses
+    // the guarantee, and that is said rather than left out (rule 6). Not `eprintln!`, which panics on a
+    // closed standard error (R4-S11, tests/hygiene.rs H10), and this module names nothing in the crate,
+    // so it writes the line itself.
+    if let Some(why) = child.job_note() {
+        let _ = writeln!(io::stderr(), "chrono: the browser runs without a job ({why}) - a core that is killed leaves it running");
+    }
 
     let port_file = user_data_dir.join("DevToolsActivePort");
     let mut deadline = Instant::now() + Duration::from_secs(PORT_WAIT_SECS);
@@ -293,7 +212,7 @@ pub fn launch_chromium(
     let mut child_exit: Option<String> = None;
     loop {
         if let Some(port) = read_active_port(&port_file) {
-            return Ok(LaunchedChromium { child, job, port, user_data_dir, cleaned: false });
+            return Ok(LaunchedChromium { child, port, user_data_dir, cleaned: false });
         }
         // A target that dies immediately - wrong flags, not a Chromium app after all, a crash on
         // startup - used to cost the full 15 s and then a guess for an error message. Watch the
@@ -302,19 +221,16 @@ pub fn launch_chromium(
         // shortens the wait to a grace period rather than failing on the spot, and names the exit
         // code if the port never appears.
         if child_exit.is_none()
-            && let Ok(Some(status)) = child.try_wait() {
-                child_exit = Some(match status.code() {
-                    Some(c) => format!(" (it exited with code {c})"),
-                    None => " (it exited)".to_string(),
-                });
+            && let Some(code) = child.wait_exit(0) {
+                child_exit = Some(format!(" (it exited with code {code})"));
                 let grace = Instant::now() + Duration::from_secs(2);
                 if grace < deadline {
                     deadline = grace;
                 }
             }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate();
+            let _ = child.wait_exit(PROCESS_END_WAIT_MS);
             let _ = std::fs::remove_dir_all(&user_data_dir);
             let detail = child_exit.unwrap_or_default();
             return Err(io::Error::new(
@@ -460,25 +376,21 @@ mod tests {
         assert!(!dir.exists(), "the guard left its fixture behind");
     }
 
-    /// A long-lived stand-in for the launched browser. `ping` is on every Windows box and needs no
-    /// shell, so the process we spawn IS the child we hold - a `cmd /c ...` wrapper would leave the
-    /// real worker running when the wrapper is killed, which is exactly the confusion these two
-    /// tests must not have.
-    fn spawn_placeholder_child() -> Child {
-        std::process::Command::new("ping")
-            .args(["-n", "30", "127.0.0.1"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("ping should spawn on Windows")
+    /// A long-lived stand-in for the launched browser, started the way the browser is. `ping` is on
+    /// every Windows box and needs no shell, so the process we start IS the child we hold - a
+    /// `cmd /c ...` wrapper would leave the real worker running when the wrapper is ended, which is
+    /// exactly the confusion these tests must not have. Named by its full path, because the launch
+    /// does not search `PATH`, and a browser target is always a file the caller found.
+    fn spawn_placeholder_child() -> PlainChild {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        let ping = Path::new(&root).join("System32").join("PING.EXE").display().to_string();
+        let args = ["-n".to_string(), "30".to_string(), "127.0.0.1".to_string()];
+        chrono_mech::launch_plain(&Target { path: &ping, args: &args, cwd: None, env: &[], stdio: TargetStdio::Discarded })
+            .expect("ping should start on Windows")
     }
 
     fn process_is_running(pid: u32) -> bool {
-        let out = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-            .expect("tasklist should run");
-        String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
+        chrono_mech::process_is_alive(pid)
     }
 
     /// The net. An instance that goes out of scope without an explicit shutdown must still end the
@@ -493,10 +405,10 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("fixture profile");
 
         let child = spawn_placeholder_child();
-        let pid = child.id();
+        let pid = child.pid;
         assert!(process_is_running(pid), "the placeholder child never started");
 
-        drop(LaunchedChromium { child, job: None, port: 1, user_data_dir: dir.clone(), cleaned: false });
+        drop(LaunchedChromium { child, port: 1, user_data_dir: dir.clone(), cleaned: false });
 
         assert!(!process_is_running(pid), "the drop left the launched process running");
         assert!(!dir.exists(), "the drop left the profile directory behind");
@@ -507,62 +419,24 @@ mod tests {
     /// folder set in the panel or with `--cwd` did nothing for exactly the targets this mechanism
     /// owns. Silently - which is the part that makes it worth a test rather than a comment.
     #[test]
-    fn the_launch_command_starts_the_browser_in_the_requested_folder() {
-        let profile = PathBuf::from("C:/temp/profile");
-        let with = chromium_command("app.exe", &profile, &[], Some("C:/work"));
-        assert_eq!(with.get_current_dir(), Some(Path::new("C:/work")));
+    fn the_launch_starts_the_browser_in_the_requested_folder() {
+        let arguments = chromium_arguments(Path::new("C:/temp/profile"), &[]);
+        assert_eq!(chromium_target("app.exe", &arguments, Some("C:/work")).cwd, Some("C:/work"));
 
         // Absent means "wherever we are", not an empty directory.
-        let without = chromium_command("app.exe", &profile, &[], None);
-        assert_eq!(without.get_current_dir(), None);
+        assert_eq!(chromium_target("app.exe", &arguments, None).cwd, None);
     }
 
     /// The working directory must not disturb the isolated profile: the profile is ours, lives in our
-    /// own temp directory, and a target that starts elsewhere still gets that same profile.
+    /// own temp directory, and a target that starts elsewhere still gets that same profile. The user's
+    /// own arguments come after ours, where Chromium reads them - a user profile flag never gets this
+    /// far (see the refusal test below).
     #[test]
     fn a_working_folder_does_not_move_the_isolated_profile() {
-        let profile = PathBuf::from("C:/temp/profile");
-        let cmd = chromium_command("app.exe", &profile, &[], Some("C:/work"));
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-
-        assert!(
-            args.iter().any(|a| a == "--user-data-dir=C:/temp/profile"),
-            "the isolated profile flag went missing: {args:?}"
-        );
-        assert!(args.iter().any(|a| a == "--remote-debugging-port=0"));
-    }
-
-    /// The case no destructor can reach: the core dies without running any code of its own.
-    ///
-    /// Dropping the job handle without touching the child stands in for exactly that - when a
-    /// process is terminated, the kernel closes its handles whatever the process was doing, and
-    /// kill-on-close is what turns that into the browser going away. Before this existed, killing
-    /// the core mid-session left the launched browser running with its debug port open (measured on a
-    /// real Electron app) - the placeholder child here plays that browser.
-    #[test]
-    fn closing_the_job_ends_the_browser_with_no_destructor_involved() {
-        let mut child = spawn_placeholder_child();
-        let pid = child.id();
-        let job = tie_lifetime_to_ours(&child).expect("a job object should be available");
-        assert!(process_is_running(pid), "the placeholder child never started");
-
-        drop(job);
-
-        // Termination is the kernel's to schedule, so give it a moment rather than racing it.
-        let mut gone = false;
-        for _ in 0..50 {
-            if !process_is_running(pid) {
-                gone = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        let _ = child.kill();
-        let _ = child.wait();
-        assert!(gone, "closing the job left the process running - kill-on-close is not in effect");
+        let arguments = chromium_arguments(Path::new("C:/temp/profile"), &["--mine".to_string()]);
+        let target = chromium_target("app.exe", &arguments, Some("C:/work"));
+        assert_eq!(target.args, ["--user-data-dir=C:/temp/profile", "--remote-debugging-port=0", "--mine"]);
+        assert_eq!(target.stdio, TargetStdio::Discarded, "the browser's output went somewhere it was not before");
     }
 
     /// Cleanup runs once. A second run is not merely wasted work: `shutdown_with_residue` may have
@@ -577,7 +451,6 @@ mod tests {
 
         let mut inst = LaunchedChromium {
             child: spawn_placeholder_child(),
-            job: None,
             port: 1,
             user_data_dir: dir.clone(),
             cleaned: false,

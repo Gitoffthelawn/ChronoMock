@@ -135,11 +135,6 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "the WebSocket client for that same local debug port",
     ),
     (
-        "crates/cli/src/cdp/launch.rs",
-        "spawn",
-        "launching the Chromium or Electron target under test",
-    ),
-    (
         "crates/cli/src/run/mod.rs",
         "spawn",
         "launching the core process the driver speaks the protocol to",
@@ -249,6 +244,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "runs this test binary's own ignored probe under a session through the built binary, and the \
          probe ends the core that started it, which is a process of that same session. It only writes \
          a scratch file, and nothing reaches past this machine",
+    ),
+    (
+        "crates/cli/tests/launch_job.rs",
+        "spawn",
+        "runs this test binary under a session through the built binary, and a callback in it ends the \
+         core that started it while the core is still starting it. It only writes a scratch file, and \
+         nothing reaches past this machine",
     ),
     (
         "crates/cli/tests/hook_integrity.rs",

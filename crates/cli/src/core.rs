@@ -151,6 +151,10 @@ pub(crate) fn core_mode() -> i32 {
             if let Some(notice) = reclaim_notice(prepared.reclaimed) {
                 diag!("{notice}");
             }
+            // The job the target was started in, when something about it went wrong (R4-S1).
+            if let Some(note) = &prepared.start_job_note {
+                diag!("chrono core: {note}");
+            }
             let verdict = verdict_from_coverage(&prepared.coverage);
             // The parent's own coverage (its pid). Children that join later report
             // separately from run_session, each with its own pid and counts.
