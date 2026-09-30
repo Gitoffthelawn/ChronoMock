@@ -70,7 +70,8 @@ use chrono_ctl::{
     read_pid_count, read_scale_dur, read_scale_qpc, set_created, MAX_COV_PIDS,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
-    scale_timer_period_ms, scale_wait, set_channels_installed, set_late_installed, wait_hit_floor, ChannelModule, Cov,
+    scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
+    wait_hit_floor, ChannelModule, Cov,
     Ctl, CHANNELS, IDX_GDTZI, IDX_GLT, IDX_GST, IDX_GSTAFT, IDX_GSTPAFT, IDX_GTC, IDX_GTC64,
     IDX_GTZI, IDX_NTDELAY, IDX_NTQSI, IDX_NTQST, IDX_QUIT, IDX_SLEEP, IDX_SLEEPEX, IDX_STSL,
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
@@ -78,7 +79,7 @@ use chrono_ctl::{
     IDX_TPTIMER, IDX_TPTIMEREX, IDX_NTCUP, IDX_CONNECT, IDX_QPC, IDX_TIMEGETTIME, IDX_SCVSRW,
     IDX_SCVCS, IDX_WOA, IDX_WSAWFME,
 };
-use minhook::MinHook;
+use minhook::{MinHook, MH_STATUS};
 use windows::core::{s, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, SetLastError, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HMODULE, SYSTEMTIME,
@@ -576,6 +577,15 @@ fn released_quit() -> Option<i64> {
 /// modules were all present at startup.
 static LATE_TODO: AtomicU64 = AtomicU64::new(0);
 
+/// Channels whose module and export were there and whose detour could not be made or switched on, at
+/// startup or in the late scan. Published to `Cov::failed_channels`, by `install` with the installed
+/// mask and by the watcher after each scan that added to it.
+///
+/// Without it, a failed detour in an optional module read in the report exactly like a module the
+/// application never loaded - no line at all - while the application called the real function. A
+/// missing export is left out on purpose: then the application cannot call the function either.
+static HOOK_FAILED: AtomicU64 = AtomicU64::new(0);
+
 /// Has `install` published its coverage mask yet.
 ///
 /// This is R1, and it is a real ordering hazard rather than a theoretical one: `install` enables the
@@ -627,7 +637,8 @@ unsafe fn pin_module(name: PCSTR) -> Option<HMODULE> { unsafe {
 ///
 /// The trampoline is stored in `slot` BEFORE anything enables the detour, exactly as `make_hook`
 /// does. Reversing that would let a detour fire with no original to call (R4). A created detour goes
-/// into `created` with its channel bit and address, for `enable_each`.
+/// into `created` with its channel bit and address, for `enable_late`, and one that cannot be created
+/// goes into `HOOK_FAILED`.
 ///
 /// # Safety
 /// `detour` must be correct for `slot`, and `module` must be a live, pinned module handle.
@@ -656,7 +667,10 @@ unsafe fn late_one<T: Copy>(
             let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
             created.push((ch.bit, target as *const () as usize));
         }
-        Err(e) => log(&format!("[chrono_hook] late: create_hook {} failed: {e:?}", ch.name)),
+        Err(e) => {
+            HOOK_FAILED.fetch_or(ch.bit, Ordering::Relaxed);
+            log(&format!("[chrono_hook] late: create_hook {} failed: {e:?}", ch.name));
+        }
     }
 }}
 
@@ -665,9 +679,9 @@ unsafe fn late_one<T: Copy>(
 /// Ordering is the whole safety argument here (R2). Every module handle and every export address is
 /// resolved, and every trampoline built, BEFORE a single hook is enabled - because `MH_EnableHook`
 /// freezes all other threads, and calling into the loader while threads are frozen is how a hooking
-/// library deadlocks a process. Enabling is the last step, one detour at a time (`enable_each`, one
-/// freeze apiece), so a failure leaves the ones before it counted and the ones installed at startup
-/// untouched (R4-W7).
+/// library deadlocks a process. Enabling is the last step, one freeze for the whole batch and one per
+/// detour only when the batch fails (`enable_late`), so a failure leaves the ones that went live
+/// counted, the ones that did not recorded, and the ones installed at startup untouched (R4-W7).
 unsafe fn late_scan() { unsafe {
     if !INSTALL_DONE.load(Ordering::Acquire) {
         return; // install has not published its mask yet (R1)
@@ -681,6 +695,7 @@ unsafe fn late_scan() { unsafe {
         return;
     }
 
+    let failed_before = HOOK_FAILED.load(Ordering::Relaxed);
     let mut created: Vec<(u64, usize)> = Vec::new();
     if todo & USER32_LATE != 0
         && let Some(m) = pin_module(s!("user32.dll"))
@@ -701,22 +716,32 @@ unsafe fn late_scan() { unsafe {
         late_one(&mut created, m, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
     }
 
-    // Only what went live may be claimed. A detour that could not be enabled keeps its bit out of the
-    // Cov, so the audit reports its channel as it did before - not as covered.
-    let newly = enable_each(&created, |target| MinHook::enable_hook(target as *mut c_void));
-    if newly == 0 {
-        return;
-    }
+    // Only what went live may be claimed, and what did not is recorded: a failed detour in a module the
+    // application loaded is a channel it calls on the real clock, and the audit lists it as not covered
+    // instead of reading it as a module that never arrived.
+    let (newly, failed) =
+        enable_late(&created, |batch| queue_and_apply(batch), |bit, target| enable_one_late(bit, target));
+    let failed_now = HOOK_FAILED.fetch_or(failed, Ordering::Relaxed) | failed;
     if let Some(c) = live_cov() {
-        // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
-        // intersection, so this order cannot produce a warning about a channel the report does not
-        // list - and the other order could not either. Stated rather than left to luck.
-        set_late_installed(c, read_late_installed(c) | newly);
-        // OR, never a plain store: `install` owns the startup bits and this thread owns the late
-        // ones. Read-modify-write is safe here because this is the only writer after INSTALL_DONE.
-        set_channels_installed(c, read_installed(c) | newly);
+        if newly != 0 {
+            // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
+            // intersection, so this order cannot produce a warning about a channel the report does not
+            // list - and the other order could not either. Stated rather than left to luck.
+            set_late_installed(c, read_late_installed(c) | newly);
+            // OR, never a plain store: `install` owns the startup bits and this thread owns the late
+            // ones. Read-modify-write is safe here because this is the only writer after INSTALL_DONE.
+            set_channels_installed(c, read_installed(c) | newly);
+        }
+        // A whole-mask write, safe for the same reason. The mechanism asks it only about channels the
+        // installed mask does not hold, so the order of the two writes cannot show a live channel as
+        // failed once both have landed.
+        if failed_now != failed_before {
+            set_failed_channels(c, failed_now);
+        }
     }
-    log(&format!("[chrono_hook] late: installed 0x{newly:x}"));
+    if newly != 0 {
+        log(&format!("[chrono_hook] late: installed 0x{newly:x}"));
+    }
 }}
 
 /// Spawn the watcher once, lazily - NOT from DllMain, to stay clear of the loader lock.
@@ -2765,7 +2790,13 @@ unsafe fn make_hook<T: Copy>(
             let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
             *pending |= ch.bit;
         }
-        Err(e) => log(&format!("[chrono_hook] create_hook {} failed: {e:?}", ch.name)),
+        Err(e) => {
+            // The module and the export are there, so the application can call this and will reach the
+            // real function. Recorded, because for an optional module nothing else tells this apart from
+            // a module it never loaded.
+            HOOK_FAILED.fetch_or(ch.bit, Ordering::Relaxed);
+            log(&format!("[chrono_hook] create_hook {} failed: {e:?}", ch.name));
+        }
     }
 }}
 
@@ -2899,20 +2930,67 @@ fn enable_or_take_back<E: std::fmt::Debug>(
     })
 }
 
-/// Enable the late detours one at a time and answer the bits of those that went live (R4-W7).
+/// Enable the late detours with one freeze, and one at a time only when that fails (R4-W7). Answers the
+/// bits that went live and the bits that did not.
 ///
-/// One at a time, not `enable_all_hooks`: that stops at its first failure with the ones before it live,
-/// and a take-back through `disable_all_hooks` here would also switch off every detour `install` enabled
-/// at startup. A detour that fails stays created and off, and its channel stays out of the coverage mask.
-fn enable_each<E: std::fmt::Debug>(created: &[(u64, usize)], mut enable: impl FnMut(usize) -> Result<(), E>) -> u64 {
-    let mut live = 0;
-    for &(bit, target) in created {
-        match enable(target) {
-            Ok(()) => live |= bit,
-            Err(e) => log(&format!("[chrono_hook] late: enable_hook for channel bit 0x{bit:x} failed: {e:?}")),
-        }
+/// One freeze for the batch because each costs tens of milliseconds - measured at about 42 ms on the
+/// owner's machine, most of it MinHook's snapshot of every thread in the system - and a detour switched
+/// on after it leaves its channel on the real clock that much longer. Six detours one by one took about
+/// 257 ms. Not `enable_all_hooks`, though: a take-back through `disable_all_hooks` would also switch off
+/// every detour `install` enabled at startup. `batch` is MinHook's queue, which applies only what was
+/// queued, and `one` is the fallback for a batch that stopped part-way.
+fn enable_late(
+    created: &[(u64, usize)],
+    batch: impl FnOnce(&[(u64, usize)]) -> bool,
+    mut one: impl FnMut(u64, usize) -> bool,
+) -> (u64, u64) {
+    let attempted = created.iter().fold(0, |mask, &(bit, _)| mask | bit);
+    if attempted == 0 {
+        return (0, 0);
     }
-    live
+    if batch(created) {
+        return (attempted, 0);
+    }
+    let live = created.iter().filter(|&&(bit, target)| one(bit, target)).fold(0, |mask, &(bit, _)| mask | bit);
+    (live, attempted & !live)
+}
+
+/// The batch half of `enable_late`: queue every late detour, then apply the queue under one freeze.
+///
+/// The queue stops at the first detour it cannot write and leaves the ones before it live
+/// (`MH_ApplyQueued`, minhook-0.9.0 `hook.c`), which is why a failure goes on to each detour's own enable
+/// rather than being read as "none of them". A detour that could not be queued is not applied here, and
+/// its own enable reaches it the same way.
+///
+/// # Safety
+/// Every address must be a detour `late_one` created.
+unsafe fn queue_and_apply(created: &[(u64, usize)]) -> bool { unsafe {
+    created.iter().all(|&(_, target)| MinHook::queue_enable_hook(target as *mut c_void).is_ok())
+        && MinHook::apply_queued().is_ok()
+}}
+
+/// The fallback half of `enable_late`: one detour's own enable, after a batch that failed part-way.
+///
+/// "Already on" is a detour the batch switched on before it stopped, and it is live. Counting it as
+/// failed would do worse than put a wrong line in the report: the take-out below, applied by the next
+/// module's batch, would switch off a detour the coverage mask claims. A detour that really failed is
+/// taken out of the queue for the same reason, so no later batch switches it on behind the mask's back.
+///
+/// # Safety
+/// `target` must be a detour `late_one` created.
+unsafe fn enable_one_late(bit: u64, target: usize) -> bool { unsafe {
+    let answer = MinHook::enable_hook(target as *mut c_void);
+    if went_live(&answer) {
+        return true;
+    }
+    let _ = MinHook::queue_disable_hook(target as *mut c_void);
+    log(&format!("[chrono_hook] late: enable_hook for channel bit 0x{bit:x} failed: {answer:?}"));
+    false
+}}
+
+/// Whether one detour's own enable left it live: switched on now, or already on.
+fn went_live(answer: &Result<(), MH_STATUS>) -> bool {
+    matches!(answer, Ok(()) | Err(MH_STATUS::MH_ERROR_ENABLED))
 }
 
 /// What `DllMain` answers for `DLL_PROCESS_ATTACH` after `install`: TRUE unless the install refused
@@ -3195,6 +3273,7 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
     }
     if let Some(c) = cov {
         set_channels_installed(c, pending);
+        set_failed_channels(c, HOOK_FAILED.load(Ordering::Relaxed));
     }
 
     // Hand the watcher whatever this session WANTED from an optional module and did not get. The set
@@ -3333,19 +3412,41 @@ mod tests {
         assert!(both.contains("failed too"), "a take-back that fails is named: {both}");
     }
 
-    /// Late detours are enabled one by one: a failure in the middle neither stops the ones after it nor
-    /// gets its own channel counted (R4-W7).
+    /// Late detours go on in one batch, one freeze for all of them. Only a batch that fails falls back to
+    /// each detour's own enable, where a failure in the middle neither stops the ones after it nor gets
+    /// its own channel counted, and comes back as failed so the audit can list it (R4-W7).
     #[test]
-    fn late_detours_are_enabled_one_by_one_and_only_the_live_ones_count() {
+    fn late_detours_go_on_in_one_batch_and_one_by_one_only_when_it_fails() {
         let created = [(0b001, 10), (0b010, 20), (0b100, 30)];
         let tried = Cell::new(0);
-        let live = enable_each(&created, |target| {
+        let one = |_bit, target| {
             tried.set(tried.get() + 1);
-            if target == 20 { Err(7) } else { Ok(()) }
-        });
-        assert_eq!(live, 0b101, "only the two that went live are claimed");
+            target != 20
+        };
+
+        let batched = Cell::new(0);
+        let whole = enable_late(&created, |b| { batched.set(b.len()); true }, one);
+        assert_eq!(whole, (0b111, 0), "a batch that went through claims every detour in it");
+        assert_eq!((batched.get(), tried.get()), (3, 0), "one batch of three, no detour on its own");
+
+        let split = enable_late(&created, |_| false, one);
+        assert_eq!(split, (0b101, 0b010), "only the two that went live are claimed, the third is failed");
         assert_eq!(tried.get(), 3, "a failure does not stop the ones after it");
-        assert_eq!(enable_each::<i32>(&[], |_| Ok(())), 0);
+
+        let called = Cell::new(false);
+        assert_eq!(enable_late(&[], |_| { called.set(true); true }, one), (0, 0));
+        assert!(!called.get(), "nothing created, nothing to freeze the threads for");
+    }
+
+    /// After a batch that stopped part-way, a detour it already switched on answers "already enabled" to
+    /// its own enable, and that is live. Read as failed, its channel would be reported uncovered and taken
+    /// out of the queue, and the next batch would switch it off under a mask that claims it.
+    #[test]
+    fn a_detour_the_batch_already_switched_on_counts_as_live() {
+        assert!(went_live(&Ok(())));
+        assert!(went_live(&Err(MH_STATUS::MH_ERROR_ENABLED)));
+        assert!(!went_live(&Err(MH_STATUS::MH_ERROR_MEMORY_PROTECT)));
+        assert!(!went_live(&Err(MH_STATUS::MH_ERROR_NOT_CREATED)));
     }
 
     /// A child is counted as uncovered when its load failed, and when it loaded but never signed in while

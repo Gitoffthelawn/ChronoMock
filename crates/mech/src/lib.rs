@@ -35,11 +35,12 @@ use std::time::Instant;
 use chrono_core::{ChannelCoverage, Coverage, SessionSpec, TimeMode};
 use chrono_ctl::{
     cov_at, ctl_size, freeze_dur, freeze_qpc, header_is_ours, read_anchor, read_calls,
-    find_pid_slot, read_core_pid, read_created, read_dur, read_ended, read_installed, read_late_installed, read_pid,
+    find_pid_slot, read_core_pid, read_created, read_dur, read_ended, read_failed_channels, read_installed,
+    read_late_installed, read_pid,
     read_pid_count, read_qpc,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header,
-    write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory, ChannelModule,
+    write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, IDX_TIMEGETTIME, MAX_COV_PIDS,
 };
 use windows::core::{s, PCWSTR, PWSTR};
@@ -990,6 +991,10 @@ unsafe fn gather_coverage(
     let mut any_timer_observed = false;
     let mut any_spawn_observed = false;
     let mut any_source_observed = false;
+    // Channels the hook tried and could not switch on - the one way to tell a failed detour in an
+    // optional module from a module the application never loaded. Read only for a channel that is not
+    // installed, so one that failed at startup and went live on the late scan is simply covered.
+    let failed = read_failed_channels(cov);
     for (idx, ch) in CHANNELS.iter().enumerate() {
         // The duration axis and the TIME observers are opt-in: with scale_duration off, their channels
         // are not expected. The spawn observer (NtCreateUserProcess) is NOT opt-in - process creation
@@ -1026,24 +1031,13 @@ unsafe fn gather_coverage(
                     }
                 }
                 out.observed.push(ChannelCoverage { channel: ch.name.to_string(), calls });
-            } else if matches!(
-                ch.module,
-                ChannelModule::Kernel32
-                    | ChannelModule::Ntdll
-                    | ChannelModule::KernelBase
-                    | ChannelModule::KernelBaseBehindKernel32
-                    | ChannelModule::KernelBaseAndKernel32
-            ) {
-                // The module is in every process, so "wanted and not installed" can only mean the
-                // hook failed. That used to produce no line at all: not covered, not uncovered,
-                // absent - so a watch the session promised was quietly not running while the report
-                // read as complete. It goes in its own bucket rather than `uncovered`, which is a
-                // verdict input and would turn a failed observer into a Partial session.
-                //
-                // An OPTIONAL module stays silent here, and that is a different, still-open case:
-                // absent means the target cannot call the channel at all, and this side cannot yet
-                // tell that from "the module arrived and the hook failed" - the hook would have to
-                // say so, which is a field it does not have.
+            } else if ch.module.in_every_process() || failed & ch.bit != 0 {
+                // "Wanted and not installed" in a module every process has, or one the hook says it
+                // could not switch on: either way the hook failed. That used to produce no line at
+                // all: not covered, not uncovered, absent - so a watch the session promised was
+                // quietly not running while the report read as complete. It goes in its own bucket
+                // rather than `uncovered`, which is a verdict input and would turn a failed observer
+                // into a Partial session.
                 out.unobserved.push(ch.name.to_string());
             }
             continue;
@@ -1053,25 +1047,15 @@ unsafe fn gather_coverage(
                 channel: ch.name.to_string(),
                 calls: read_calls(cov, idx),
             });
-        } else {
-            // Failed install. A channel in an ALWAYS-present module (kernel32/ntdll) is a real
-            // coverage gap -> uncovered. A channel in an OPTIONAL module (user32/winmm) most likely
-            // just is not loaded in this process (a console app or service never loaded user32), so
-            // the app cannot call it at all - not a gap, so it goes nowhere rather than faking a
-            // partial verdict (rule 4: never claim a gap the target could not hit). Static imports,
-            // the common case, are already loaded in our DllMain - only a target that loads the module
-            // dynamically after startup and then uses the channel would slip past here (documented).
-            match ch.module {
-                // kernelbase sits with kernel32 and ntdll rather than with the optional three: every
-                // Win32 process has it, so a channel of its that did not install is a real gap and has
-                // to be reported as one.
-                ChannelModule::Kernel32
-                | ChannelModule::Ntdll
-                | ChannelModule::KernelBase
-                | ChannelModule::KernelBaseBehindKernel32
-                | ChannelModule::KernelBaseAndKernel32 => out.uncovered.push(ch.name.to_string()),
-                ChannelModule::User32 | ChannelModule::Winmm | ChannelModule::Ws2_32 => {}
-            }
+        } else if ch.module.in_every_process() || failed & ch.bit != 0 {
+            // Failed install, and a real coverage gap: the module is in every process (kernelbase
+            // included, since kernel32 is built on it), or it is an optional one the hook found loaded
+            // and could not detour. An optional module with no failure recorded is simply not loaded
+            // in this process (a console app or service never loads user32), so the app cannot call
+            // the channel at all - not a gap, so it goes nowhere rather than faking a partial verdict
+            // (rule 4: never claim a gap the target could not hit). One that arrives after startup is
+            // the late scan's to find (ADR-10), and a detour that fails there is recorded the same way.
+            out.uncovered.push(ch.name.to_string());
         }
     }
     // Separate warnings by observed kind, so the tester knows WHICH time source ran real: an object
@@ -1683,6 +1667,8 @@ mod tests {
     use chrono_ctl::CH_QPC;
     // Same for the winmm-clock test: the bit, its counter index, and the counter writer.
     use chrono_ctl::{bump_calls, set_late_installed, CH_TIMEGETTIME, IDX_CONNECT, IDX_TIMEGETTIME};
+    // The failed-detour test pairs the winmm clock with winmm's observed timer.
+    use chrono_ctl::CH_TIMESETEVENT;
 
     /// R2-X2. The projection the core reports has to be the one the target sees - the hook clamps at
     /// the end of the range, so this must clamp there too. Before it did, a session at the edge showed
@@ -1911,8 +1897,9 @@ mod tests {
         assert!(warned(&hot), "scaling the winmm clock has a cost and the audit names it");
         assert_eq!(chrono_core::verdict_from_coverage(&hot), chrono_core::Verdict::Works);
 
-        // A winmm channel that did not install is still not a gap - a target without winmm loaded cannot
-        // call it, so it goes nowhere rather than faking a partial verdict (the User32/Winmm rule).
+        // A winmm channel that did not install, with no failure recorded by the hook, is still not a gap -
+        // a target without winmm loaded cannot call it, so it goes nowhere rather than faking a partial
+        // verdict (the User32/Winmm rule).
         let absent = unsafe { gather_coverage(&busy as *const Cov, all & !CH_TIMEGETTIME, true, false) };
         assert!(!absent.uncovered.iter().any(is_tgt), "winmm absent is not a coverage gap");
 
@@ -1922,6 +1909,43 @@ mod tests {
         assert!(!off.covered.iter().any(|c| is_tgt(&c.channel)));
         assert!(!off.observed.iter().any(|c| is_tgt(&c.channel)));
         assert!(!warned(&off));
+    }
+
+    /// A detour the hook could not switch on in an optional module it found loaded is a failed hook,
+    /// not a module the application never loaded, and the report has to say so the way it does for
+    /// kernel32 (untouchable rule 4). A scaled channel is a gap that moves the verdict, an observed one
+    /// goes to `unobserved`, and one that failed and then went live on the late scan is covered.
+    #[test]
+    fn a_detour_that_failed_in_a_loaded_optional_module_is_reported() {
+        let all = CHANNELS.iter().fold(0u64, |acc, ch| acc | ch.bit);
+        let both = CH_TIMEGETTIME | CH_TIMESETEVENT;
+        let named = |list: &[String], name: &str| list.iter().any(|n| n == name);
+
+        // Nothing recorded: the module was not loaded, so neither channel is a gap and the verdict holds.
+        let absent = zeroed_cov();
+        let quiet = unsafe { gather_coverage(&absent as *const Cov, all & !both, true, false) };
+        assert!(!named(&quiet.uncovered, "timeGetTime"));
+        assert!(!named(&quiet.unobserved, "timeSetEvent"));
+        assert_eq!(chrono_core::verdict_from_coverage(&quiet), chrono_core::Verdict::Works);
+
+        // The hook recorded both as failed: the scaled clock is uncovered, the observed timer unobserved.
+        let mut failed = zeroed_cov();
+        failed.failed_channels = both;
+        let gap = unsafe { gather_coverage(&failed as *const Cov, all & !both, true, false) };
+        assert!(named(&gap.uncovered, "timeGetTime"), "a failed scaled detour is a gap");
+        assert!(named(&gap.unobserved, "timeSetEvent"), "a failed observer is not running");
+        assert!(!named(&gap.uncovered, "timeSetEvent"), "an observer never moves the verdict");
+        assert_eq!(chrono_core::verdict_from_coverage(&gap), chrono_core::Verdict::Partial);
+
+        // Failed at startup, live after the late scan: covered, and no gap left behind.
+        let retried = unsafe { gather_coverage(&failed as *const Cov, all, true, false) };
+        assert!(retried.covered.iter().any(|c| c.channel == "timeGetTime"));
+        assert!(retried.uncovered.is_empty() && retried.unobserved.is_empty());
+        assert_eq!(chrono_core::verdict_from_coverage(&retried), chrono_core::Verdict::Works);
+
+        // Without the duration opt-in these channels are not wanted, so a stale bit says nothing.
+        let off = unsafe { gather_coverage(&failed as *const Cov, all & !both, false, false) };
+        assert!(!named(&off.uncovered, "timeGetTime") && !named(&off.unobserved, "timeSetEvent"));
     }
 
     /// Network timeouts follow the session once the tick count is detoured in kernelbase, and the audit

@@ -340,6 +340,21 @@ pub enum ChannelModule {
     KernelBaseAndKernel32,
 }
 
+impl ChannelModule {
+    /// Whether every Win32 process has this module loaded before any library of ours. For such a module
+    /// a channel that is wanted and not installed can only mean the hook failed. For the other three it
+    /// can also mean the application never loaded the module, and only the hook's own record
+    /// (`Cov::failed_channels`) tells the two apart.
+    pub const fn in_every_process(self) -> bool {
+        match self {
+            Self::Kernel32 | Self::Ntdll | Self::KernelBase | Self::KernelBaseBehindKernel32 | Self::KernelBaseAndKernel32 => {
+                true
+            }
+            Self::User32 | Self::Winmm | Self::Ws2_32 => false,
+        }
+    }
+}
+
 /// What kind of time a channel carries. The duration axis and the object-wait observation
 /// are opt-in (scale_duration), so the mechanism only expects `Duration` and `WaitObserved`
 /// channels when the session asked for it.
@@ -612,7 +627,11 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 /// `core_created` (inserted before `scale_dur`, so every field after it moves) and `ended` (in the
 /// old padding), and `Cov` gained `created`, which widens every slot. A pid alone could not tell a
 /// live session from one whose core had died, nor a recycled pid from the core that wrote it.
-pub const CTL_LAYOUT_VERSION: u32 = 7;
+///
+/// 8: `Cov` gained `failed_channels`, which widens every slot for the same reason version 3 did. The
+/// hook now says which channels it could not switch on, so a failed detour in an optional module is
+/// reported instead of reading as a module the application never loaded.
+pub const CTL_LAYOUT_VERSION: u32 = 8;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -778,6 +797,18 @@ pub struct Cov {
     /// number (R4-N12). 0 = not recorded, and the mechanism then falls back to asking the process
     /// snapshot who started it. Appended after every other field, so no offset inside a slot moves.
     pub created: u64,
+    /// Channels whose module was loaded and whose export was found, but whose detour could not be made
+    /// or switched on - at startup or in the late scan. The mechanism asks it only about a channel that
+    /// is not in `installed_channels`, because a detour that failed at startup gets one more try when
+    /// the watcher looks for late modules, and one that succeeded there is covered.
+    ///
+    /// Why the hook has to say it: for a channel in a module that is in every process, "wanted and not
+    /// installed" can only mean the hook failed, and the report says so. For the three optional modules
+    /// (`user32`, `winmm`, `ws2_32`) the same silence also means "the application never loaded it", which
+    /// is no gap at all - so a failed detour there used to leave its channel out of the report, and an
+    /// application could read the real `timeGetTime` beside a scaled tick count while the report looked
+    /// complete (untouchable rule 4). Appended after every other field, so no offset inside a slot moves.
+    pub failed_channels: u64,
 }
 
 impl Cov {
@@ -793,6 +824,7 @@ impl Cov {
         uncovered_children_count: 0,
         uncovered_children_pad: 0,
         created: 0,
+        failed_channels: 0,
     };
 }
 
@@ -1554,6 +1586,25 @@ pub unsafe fn read_late_installed(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).late_installed))
 }}
 
+/// Publish the channels whose detour could not be made or switched on (hook side, per-process `Cov`).
+/// A whole-mask write of everything that failed so far: `install` writes it with the installed mask,
+/// and after that only the watcher does, so there is one writer at a time.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn set_failed_channels(p: *mut Cov, mask: u64) { unsafe {
+    write_volatile(addr_of_mut!((*p).failed_channels), mask);
+}}
+
+/// Read the failed-detour bitmask (mechanism side, per-process `Cov`). A bit that is also in
+/// `installed_channels` is a detour that failed once and went live on a later try.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_failed_channels(p: *const Cov) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).failed_channels))
+}}
+
 /// Increment a channel's call counter (hook side, per-process `Cov`). `idx` must be
 /// < CHANNEL_COUNT.
 ///
@@ -1876,6 +1927,7 @@ mod tests {
         use core::mem::{offset_of, size_of};
         assert_eq!(offset_of!(Ctl, core_created) % 8, 0, "core_created is not 8-byte aligned");
         assert_eq!(offset_of!(Cov, created) % 8, 0, "Cov.created is not 8-byte aligned");
+        assert_eq!(offset_of!(Cov, failed_channels) % 8, 0, "Cov.failed_channels is not 8-byte aligned");
         assert_eq!(size_of::<Cov>() % 8, 0, "a slot would misalign the next one");
         assert_eq!(
             offset_of!(Ctl, covs),

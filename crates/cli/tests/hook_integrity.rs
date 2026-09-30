@@ -188,8 +188,9 @@ const KILL_ON_JOB_CLOSE: u32 = 0x2000;
 /// Why the probe needs it: the hook starts every child suspended and resumes it after injecting it, so
 /// a probe that dies inside `CreateProcessW` - which is what a revert of R4-N3 in `inherit_into_child`
 /// does - leaves its child suspended for good, holding the output of the session. The test would then
-/// wait on nothing forever instead of failing. The job handle is never closed on purpose: closing the
-/// last one ends every process in the job, this one included, so it closes when this process ends.
+/// wait on nothing forever instead of failing. The job handle of a job this process joined is never
+/// closed on purpose: closing the last one ends every process in the job, this one included, so it
+/// closes when this process ends. A job it could not join is closed at once.
 fn contain_family() -> bool {
     // JOBOBJECT_EXTENDED_LIMIT_INFORMATION: 144 bytes on 64-bit, 112 on 32-bit, with LimitFlags at byte
     // 16 on both (two LARGE_INTEGER time limits come first).
@@ -200,9 +201,15 @@ fn contain_family() -> bool {
     // pseudo-handle of this process.
     unsafe {
         let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-        !job.is_null()
-            && SetInformationJobObject(job, JOB_EXTENDED_LIMITS, limits.as_ptr().cast(), size) != 0
-            && AssignProcessToJobObject(job, GetCurrentProcess()) != 0
+        if job.is_null() {
+            return false;
+        }
+        let joined = SetInformationJobObject(job, JOB_EXTENDED_LIMITS, limits.as_ptr().cast(), size) != 0
+            && AssignProcessToJobObject(job, GetCurrentProcess()) != 0;
+        if !joined {
+            CloseHandle(job);
+        }
+        joined
     }
 }
 

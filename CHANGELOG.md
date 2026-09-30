@@ -120,7 +120,15 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **Detours that could only partly be switched on no longer stay half on.** Switching them on stops at
   the first one that cannot be written, and the ones before it stayed live while the audit reported
   none, so part of the application ran on the session's clock unreported. They are switched off again
-  now, and the detours for a module that loads later go on one at a time, each counted once it is live.
+  now. The detours for a module that loads later still go on together, and when that stops part-way,
+  each one goes on by itself and is counted once it is live.
+- **A time function whose detour could not be switched on is reported, also in a library that is not in
+  every application.** For `user32`, `winmm` and `ws2_32` a function missing from the report read as a
+  library the application never loaded - also when the library was there and only the detour had
+  failed, so an application could read the real `timeGetTime` beside a scaled tick count while the
+  report looked complete. Such a function is now listed as not covered, and a session with one is
+  partial. A function the audit only counts is listed as not watched, as it already was for the
+  libraries every application has.
 - **A child whose hook failed after it loaded is reported as running on the real clock.** It used to be
   missing from the report altogether. A child of the other bitness is no longer written into before it
   is counted, since the library cannot load there anyway.
