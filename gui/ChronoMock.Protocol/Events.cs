@@ -60,6 +60,11 @@ public sealed record VerdictEvent : ChronoEvent
     [JsonPropertyName("verdict")] public required string Verdict { get; init; }
     [JsonPropertyName("refuse_start")] public bool RefuseStart { get; init; }
     [JsonPropertyName("reason_key")] public required string ReasonKey { get; init; }
+
+    /// <summary>With <see cref="RefuseStart"/>, the processes of the application the core could not end, so
+    /// they still run on the real clock (R4-S5). Empty on every other verdict, and absent from the message
+    /// then, or from a core older than the field.</summary>
+    [JsonPropertyName("left_running")] public IReadOnlyList<FollowedProcess> LeftRunning { get; init; } = [];
 }
 
 public sealed record AckEvent : ChronoEvent

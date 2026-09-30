@@ -130,7 +130,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   `left_running` field of the `verdict` event. When the tool could not look for all of them - the
   process list would not be read, or the application was still starting processes after the last of
   three passes - the report says some may still run, and the `verdict` event carries
-  `family_search_incomplete`.
+  `family_search_incomplete`. The window says the session ended the application instead of that it
+  was stopped, and lists the same processes under that line and in the copied summary, with the same
+  caveat when the search was not complete.
 - **A new session opens its live view and its result at the top.** The window keeps one of each for
   as long as it is open, and each kept its scroll position, so a second session showed its result
   wherever the first one had been read to - with the verdict out of sight above the edge. Both now

@@ -300,7 +300,15 @@ internal static class PhaseStates
     }
 
     /// <summary>The core refusing to start, with the diagnostics that refusal leaves behind.</summary>
-    public static SessionViewModel ResultRefused()
+    public static SessionViewModel ResultRefused() => ResultRefused([]);
+
+    /// <summary>A refusal that could not end all of the application (R4-S5): the status says it was ended,
+    /// and the list under it names what still runs on the real clock - one named, one the list could not
+    /// name.</summary>
+    public static SessionViewModel ResultRefusedLeftRunning()
+        => ResultRefused([new FollowedProcess { Pid = 5150, Image = "helper.exe" }, new FollowedProcess { Pid = 5151 }]);
+
+    private static SessionViewModel ResultRefused(IReadOnlyList<FollowedProcess> leftRunning)
     {
         var model = WithTarget(new SessionViewModel(SeededHistory(), new SavedDiagnosticsLog()));
         // 🔴 THE AUDIT COMES BEFORE THE VERDICT (crates/cli/src/core.rs, the start sequence): the core reports
@@ -322,6 +330,7 @@ internal static class PhaseStates
             Verdict = "fails",
             ReasonKey = "coverage.time_channels_uncovered",
             RefuseStart = true,
+            LeftRunning = leftRunning,
         });
         model.CaptureDiagnostics(["core stderr: chrono core: verdict fails, refusing to hand back the session"]);
         return model;

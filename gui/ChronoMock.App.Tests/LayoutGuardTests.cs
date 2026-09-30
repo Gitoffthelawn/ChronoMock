@@ -826,6 +826,39 @@ public class LayoutGuardTests
         Assert.True(rowInside, "the list is on the result without the program it names");
     }
 
+    /// <summary>
+    /// What a refusal could not end stands on the result, under the status that says the application was ended
+    /// and above the actions on the answer (R4-S5) - and a refusal that ended everything shows no list at all.
+    /// Measured on the arrange pass, with the row looked for inside the list's bounds, as for the programs a
+    /// session went on for.
+    /// </summary>
+    [Fact]
+    public void What_a_refusal_could_not_end_stands_under_the_refused_status()
+    {
+        var (status, list, copy, rowInside, emptyShown) = WpfTestHost.InvokeSettled(() =>
+        {
+            var view = new ResultPhaseView { DataContext = PhaseStates.ResultRefusedLeftRunning() };
+            LayoutProbe.Settle(view);
+            var elements = LayoutProbe.Walk(view);
+            var left = elements.Single(e => e.Name == "LeftRunningList");
+            var row = elements.Any(e => e.IsVisible
+                && e.Text == "helper.exe (pid 5150)"
+                && e.Bounds.Top >= left.Bounds.Top
+                && e.Bounds.Bottom <= left.Bounds.Bottom);
+            var ended = new ResultPhaseView { DataContext = PhaseStates.ResultRefused() };
+            LayoutProbe.Settle(ended);
+            var none = LayoutProbe.Walk(ended).Single(e => e.Name == "LeftRunningList").IsVisible;
+            return (elements.Single(e => e.Name == "ResultStatus"), left, elements.Single(e => e.Name == "CopyRow"), row, none);
+        });
+
+        Assert.True(status.IsVisible, "the refused status the list follows from is not on the result");
+        Assert.True(list.IsVisible, "what the refusal could not end is not on the result");
+        Assert.True(status.Bounds.Bottom <= list.Bounds.Top, $"the list starts at {list.Bounds.Top:F0}, above the status's end at {status.Bounds.Bottom:F0}");
+        Assert.True(list.Bounds.Bottom <= copy.Bounds.Top, $"the list ends at {list.Bounds.Bottom:F0}, below the copy row's top at {copy.Bounds.Top:F0}");
+        Assert.True(rowInside, "the list is on the result without the process it names");
+        Assert.False(emptyShown, "a refusal that ended everything shows an empty list");
+    }
+
     /// <summary>The rebuilt phases in every state the sheet draws, with the section that holds the state opened.</summary>
     /// <remarks>Lazy on purpose: every view is created inside the caller's dispatcher call.</remarks>
     private static IEnumerable<(string Name, FrameworkElement View)> PhaseStatesOnCanvas()
@@ -844,6 +877,7 @@ public class LayoutGuardTests
         yield return ("result that worked", ResultView(PhaseStates.ResultWorks()));
         yield return ("result that partly worked", ResultView(PhaseStates.ResultPartial()));
         yield return ("result refused", ResultView(PhaseStates.ResultRefused()));
+        yield return ("result refused, processes left running", ResultView(PhaseStates.ResultRefusedLeftRunning()));
         yield return ("result that did not take effect", ResultView(PhaseStates.ResultVanished()));
         yield return ("result that did not start", ResultView(PhaseStates.ResultNotStarted()));
         yield return ("result that went on for the programs the application started", ResultView(PhaseStates.ResultWorksAfterHandOff()));
