@@ -115,6 +115,10 @@ pub(crate) struct SessionReport {
     /// processes of it that could not be ended, from `verdict.left_running` (R4-S5). `None` for every
     /// session that was not refused.
     pub(crate) refused: Option<Vec<chrono_proto::FollowedProcess>>,
+    /// With `refused`, whether the core could not look for all of the application's processes, from
+    /// `verdict.family_search_incomplete`. The line that says the application was ended then says that some
+    /// of it may still run.
+    pub(crate) refusal_incomplete: bool,
     /// Session duration as the core states it in `ended`: (fake wall reached, real ms elapsed,
     /// fake ms elapsed), or None when `ended` carried no end wall (a session that never started).
     /// Authoritative, not sampled from the heartbeats - one source of truth (3d35a79).
@@ -685,11 +689,14 @@ fn render_followed(followed: &[chrono_proto::FollowedProcess]) -> String {
 /// verdict above it says the substitution did not take effect, and this is what followed from that:
 /// the application was ended, except the processes named here, which could not be. The report used to
 /// say nothing of it, so a reader could not tell a refused run from one that went on.
-fn render_refusal(refused: Option<&[chrono_proto::FollowedProcess]>) -> String {
+fn render_refusal(refused: Option<&[chrono_proto::FollowedProcess]>, incomplete: bool) -> String {
     let Some(left) = refused else {
         return String::new();
     };
     let mut out = String::from("  refused:  the substitution did not take effect, so the session ended the application\n");
+    if incomplete {
+        out.push_str("            not every process the application started could be looked for - some may still run on the REAL clock\n");
+    }
     if left.is_empty() {
         return out;
     }
@@ -824,7 +831,7 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
         out.push_str("  verdict:  <no verdict emitted>\n");
     }
     // Right under the verdict it follows from.
-    out.push_str(&render_refusal(r.refused.as_deref()));
+    out.push_str(&render_refusal(r.refused.as_deref(), r.refusal_incomplete));
 
     // Errors the headline did not consume: a session that DID start and then had a command rejected
     // (an out-of-range set_multiplier, which by design does not end the session). Those used to be
@@ -1022,6 +1029,7 @@ mod tests {
             engines: vec![],
             followed: vec![],
             refused: None,
+            refusal_incomplete: false,
             uncovered: vec![],
             unobserved: vec![],
             installed_late: vec![],
@@ -1255,6 +1263,17 @@ mod tests {
         assert!(out.contains("except these, which it could not end - they run on the REAL clock:\n"), "got:\n{out}");
         assert!(out.contains("            - helper.exe (pid 5150)\n"), "got:\n{out}");
         assert!(out.contains("            - pid 5151\n"), "got:\n{out}");
+        assert!(!out.contains("could be looked for"), "a complete search was reported as incomplete:\n{out}");
+
+        // A search that could not look for everything says so right under the line that says the
+        // application was ended, so that line never stands alone as a claim of a full cleanup.
+        let incomplete = SessionReport { refusal_incomplete: true, ..refused(Vec::new()) };
+        let out = render_report(&incomplete);
+        let ended = out.find("so the session ended the application\n").expect("the refused line");
+        let caveat = out
+            .find("            not every process the application started could be looked for - some may still run on the REAL clock\n")
+            .expect("the incomplete search is not in the report");
+        assert!(ended < caveat, "got:\n{out}");
 
         assert!(!render_report(&empty_report()).contains("refused:"));
     }

@@ -1842,7 +1842,7 @@ mod tests {
         assert!(super::process_is_alive(grandchild), "ping ended on its own before the family was ended");
 
         let end = ending::end_family(child.handle, child.pid, &[], &[]);
-        assert!(end.note.is_none(), "{:?}", end.note);
+        assert!(end.incomplete.is_none(), "{:?}", end.incomplete);
         assert!(end.left_running.is_empty(), "the refusal left these running: {:?}", end.left_running);
         assert!(gone_soon(child.pid), "the launched process was not ended");
         assert!(gone_soon(grandchild), "the process it started was not ended");

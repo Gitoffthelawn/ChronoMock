@@ -195,8 +195,9 @@ pub(crate) fn core_mode() -> i32 {
             // marks unreliable through the verdict it carries.
             let refuse = verdict == Verdict::Fails && !force;
             // The family is ended BEFORE the verdict goes out, so the verdict can name what is still
-            // running (R4-S5).
-            let left_running = if refuse { end_refused_family(&prepared.session) } else { Vec::new() };
+            // running, and say when it could not look for all of it (R4-S5).
+            let (left_running, family_search_incomplete) =
+                if refuse { end_refused_family(&prepared.session) } else { (Vec::new(), false) };
             emit(&Event::Verdict {
                 v: PROTOCOL_VERSION,
                 id: Some(1),
@@ -204,6 +205,7 @@ pub(crate) fn core_mode() -> i32 {
                 refuse_start: refuse,
                 reason_key: reason_key.into(),
                 left_running,
+                family_search_incomplete,
             });
             if refuse {
                 prepared.session.end();
@@ -632,17 +634,20 @@ const KEY_FOLLOWED_FAMILY: &str = "session.followed_family";
 const KEY_HANDED_OFF_UNCOVERED: &str = "target.handed_off_uncovered";
 
 /// End the application a refusal will not let run, with everything it started (R4-S5), and name what
-/// is still running afterwards for the verdict. A family that could be looked for only in part is said
-/// on stderr, where the other human-side details of a start go.
-fn end_refused_family(session: &chrono_mech::Session) -> Vec<FollowedProcess> {
+/// is still running afterwards for the verdict, with whether the family could be looked for in full. Why
+/// it could not goes to stderr, where the other human-side details of a start go - the verdict carries
+/// the fact, so the report and the window cannot claim the whole application was ended.
+fn end_refused_family(session: &chrono_mech::Session) -> (Vec<FollowedProcess>, bool) {
     let end = session.terminate_family();
-    if let Some(note) = &end.note {
-        diag!("chrono core: {note}");
+    if let Some(why) = &end.incomplete {
+        diag!("chrono core: {why}");
     }
-    end.left_running
+    let left = end
+        .left_running
         .into_iter()
         .map(|m| FollowedProcess { pid: m.pid, image: m.image.as_deref().map(crate::cdp::sanitise_target_text) })
-        .collect()
+        .collect();
+    (left, end.incomplete.is_some())
 }
 
 /// Why a target vanished inside the guard window with nothing on the session clock left running.

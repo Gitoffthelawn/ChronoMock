@@ -54,8 +54,29 @@ pub struct FamilyEnd {
     /// to end, ones that did not end in time, and children the hook named that could not be confirmed
     /// as the application's, which are left alone rather than risk ending somebody else's process.
     pub left_running: Vec<FamilyMember>,
-    /// Why only part of the family could be looked for, when the process list could not be read.
-    pub note: Option<String>,
+    /// Why the family could not be looked for in full, when it could not: the process list would not
+    /// be read, the launched process would not say when it was created, or the application was still
+    /// starting processes after the last round. Processes it started may then run on unnamed, and the
+    /// caller has to say so wherever it says the application was ended.
+    pub incomplete: Option<String>,
+}
+
+/// What the rounds need from the system, behind one seam so the rounds can be tested on made-up lists:
+/// the time, the process list, a process's creation time (opening it the first time), and ending one.
+trait Processes {
+    fn now(&mut self) -> u64;
+    fn list(&mut self) -> Result<Vec<ProcessEntry>, String>;
+    fn born_of(&mut self, pid: u32) -> Option<u64>;
+    fn end(&mut self, pid: u32);
+}
+
+/// What the rounds found: the family (the launched process first), the ring children named and not
+/// ended, the image names the lists gave, and why the search was not complete, when it was not.
+struct Searched {
+    family: Vec<Known>,
+    named: Vec<u32>,
+    images: HashMap<u32, String>,
+    incomplete: Option<String>,
 }
 
 /// End the process the session launched and every process of its family this core can confirm, and
@@ -68,44 +89,73 @@ pub struct FamilyEnd {
 pub(crate) fn end_family(root: HANDLE, root_pid: u32, slots: &[Known], ring: &[u32]) -> FamilyEnd {
     // SAFETY: the caller's handle on the launched process, with every right the launch gave it. Ending
     // a process that already exited fails harmlessly.
-    let root_born = unsafe { process_created(root) }.unwrap_or(0);
+    let root_born = unsafe { process_created(root) };
     unsafe {
         let _ = TerminateProcess(root, 1);
     }
     // SAFETY: no arguments, no failure.
     let own = unsafe { GetCurrentProcessId() };
     let mut opened = Opened::default();
-    let mut family = vec![Known { pid: root_pid, born: root_born }];
+    let searched = search(&mut opened, root_pid, root_born, slots, ring, own);
+    let images = &searched.images;
+    let mut left_running = still_running(root, &searched.family, &opened, images);
+    left_running.extend(searched.named.iter().map(|&pid| FamilyMember { pid, image: images.get(&pid).cloned() }));
+    FamilyEnd { left_running, incomplete: searched.incomplete }
+}
+
+/// The rounds: read the time, take the list, confirm and end what is new, parents before children. A
+/// list that could not be read ends the registry members all the same and is tried again next round.
+/// The search is complete when a list that was read found nothing new - everything of the family still
+/// running at that moment had been ended already.
+///
+/// A launched process that would not say when it was created vouches for nothing: 0 would let any older
+/// process naming its pid through as a child, so its children are not looked for at all, and the
+/// answer says so.
+fn search(sys: &mut dyn Processes, root_pid: u32, root_born: Option<u64>, slots: &[Known], ring: &[u32], own: u32) -> Searched {
+    let mut family = vec![Known { pid: root_pid, born: root_born.unwrap_or(u64::MAX) }];
     let mut images: HashMap<u32, String> = HashMap::new();
     let mut named = Vec::new();
-    let mut note = None;
+    let mut unread = None;
+    let mut settled = false;
     for _ in 0..ROUNDS {
         // Read before the list, so a process created after it cannot pass for one the list holds.
-        let taken_at = precise_now();
-        let listed = match process_entries() {
-            Ok(list) => list,
+        let taken_at = sys.now();
+        // A list read after one that failed makes the failure no longer the reason for anything.
+        let listed = match sys.list() {
+            Ok(list) => {
+                unread = None;
+                Some(list)
+            }
             Err(e) => {
-                note = Some(format!(
-                    "the process list could not be read ({e}), so processes the application started \
-                     outside the hook's registry may still be running"
-                ));
-                Vec::new()
+                unread = Some(e);
+                None
             }
         };
-        images.extend(listed.iter().map(|e| (e.pid, e.image.clone())));
-        let mut born_of = |pid: u32| opened.born_of(pid);
-        let found = round(&mut family, slots, &listed, taken_at, own, &mut born_of);
-        named = named_from_ring(ring, &family, &listed, taken_at, own, &mut born_of);
-        for k in &found {
-            opened.end(k.pid);
+        let entries = listed.as_deref().unwrap_or_default();
+        images.extend(entries.iter().map(|e| (e.pid, e.image.clone())));
+        let found = round(&mut family, slots, entries, taken_at, own, &mut |pid| sys.born_of(pid));
+        if listed.is_some() {
+            // Only from a list that was read: an empty one would forget the children named before.
+            named = named_from_ring(ring, &family, entries, taken_at, own, &mut |pid| sys.born_of(pid));
         }
-        if found.is_empty() || listed.is_empty() {
+        for k in &found {
+            sys.end(k.pid);
+        }
+        if listed.is_some() && found.is_empty() {
+            settled = true;
             break;
         }
     }
-    let mut left_running = still_running(root, &family, &opened, &images);
-    left_running.extend(named.into_iter().map(|pid| FamilyMember { pid, image: images.get(&pid).cloned() }));
-    FamilyEnd { left_running, note }
+    let incomplete = if root_born.is_none() {
+        Some("the launched process would not say when it was created, so the processes it started were not looked for".to_string())
+    } else if settled {
+        None
+    } else if let Some(e) = unread {
+        Some(format!("the process list could not be read ({e}), so processes the application started may still be running"))
+    } else {
+        Some(format!("the application was still starting processes after {ROUNDS} rounds, so the latest may still be running"))
+    };
+    Searched { family, named, images, incomplete }
 }
 
 /// One round over one process list: the registry members not confirmed before, then every process
@@ -301,7 +351,16 @@ struct Opened {
     held: HashMap<u32, Held>,
 }
 
-impl Opened {
+/// The live system: the precise clock, the process list, and the processes opened here.
+impl Processes for Opened {
+    fn now(&mut self) -> u64 {
+        precise_now()
+    }
+
+    fn list(&mut self) -> Result<Vec<ProcessEntry>, String> {
+        process_entries()
+    }
+
     /// When the process under `pid` was created, opening it the first time it is asked about, or `None`
     /// when it cannot be opened or asked.
     fn born_of(&mut self, pid: u32) -> Option<u64> {
@@ -315,7 +374,7 @@ impl Opened {
     }
 
     /// Ask the system to end a process this module holds, when the handle allows it.
-    fn end(&self, pid: u32) {
+    fn end(&mut self, pid: u32) {
         if let Some(held) = self.held.get(&pid).filter(|h| h.can_end) {
             // SAFETY: a handle this module holds, opened with the right to end the process.
             unsafe {
@@ -471,6 +530,113 @@ mod tests {
         let slots = [Known { pid: 20, born: 0 }, Known { pid: 21, born: 0 }];
         let found = round(&mut vec![ROOT], &slots, &list, 200, OWN, &mut births(&[(20, Some(110)), (21, Some(110))]));
         assert_eq!(pids(&found), [20]);
+    }
+
+    /// A made-up system for the rounds: one scripted list per round (a round past the script reads an
+    /// empty list), creation times from a table, a clock well past every creation time, and the pids it
+    /// was asked to end, in order.
+    struct Scripted {
+        lists: Vec<Result<Vec<ProcessEntry>, String>>,
+        births: HashMap<u32, Option<u64>>,
+        clock: u64,
+        ended: Vec<u32>,
+    }
+
+    impl Scripted {
+        fn new(lists: Vec<Result<Vec<ProcessEntry>, String>>, births: &[(u32, Option<u64>)]) -> Self {
+            Scripted { lists, births: births.iter().copied().collect(), clock: 1_000, ended: Vec::new() }
+        }
+    }
+
+    impl Processes for Scripted {
+        fn now(&mut self) -> u64 {
+            self.clock += 100;
+            self.clock
+        }
+        fn list(&mut self) -> Result<Vec<ProcessEntry>, String> {
+            if self.lists.is_empty() { Ok(Vec::new()) } else { self.lists.remove(0) }
+        }
+        fn born_of(&mut self, pid: u32) -> Option<u64> {
+            self.births.get(&pid).copied().flatten()
+        }
+        fn end(&mut self, pid: u32) {
+            self.ended.push(pid);
+        }
+    }
+
+    /// A list that fails after one that named a ring child keeps the child named, and the search says it
+    /// was not complete - the last list it read was the one before the failure.
+    #[test]
+    fn a_list_that_fails_after_one_that_named_ring_children_keeps_them_named() {
+        let mut sys = Scripted::new(
+            vec![Ok(listed(&[(20, 10), (90, 555)])), Err("no list".into()), Err("no list".into())],
+            &[(20, Some(110)), (90, Some(130))],
+        );
+        let s = search(&mut sys, ROOT.pid, Some(ROOT.born), &[], &[90], OWN);
+        assert_eq!(sys.ended, [20]);
+        assert_eq!(s.named, [90], "the ring child named by the list that was read was forgotten");
+        assert!(s.incomplete.as_deref().is_some_and(|w| w.contains("could not be read")), "{:?}", s.incomplete);
+    }
+
+    /// A list that fails does not end the search: the registry members are ended all the same, the next
+    /// round reads the list, and a list that finds nothing new makes the search complete.
+    #[test]
+    fn a_list_that_fails_and_then_reads_ends_the_registry_members_and_completes() {
+        let mut sys = Scripted::new(vec![Err("no list".into()), Ok(listed(&[(70, 999)]))], &[(70, Some(150))]);
+        let s = search(&mut sys, ROOT.pid, Some(ROOT.born), &[Known { pid: 70, born: 150 }], &[], OWN);
+        assert_eq!(sys.ended, [70]);
+        assert_eq!(s.incomplete, None);
+    }
+
+    /// Every round finds a process the one before did not: the application was still starting them, so
+    /// the latest may be running, and the search says so.
+    #[test]
+    fn a_family_still_growing_after_the_last_round_is_not_complete() {
+        let mut sys = Scripted::new(
+            vec![
+                Ok(listed(&[(20, 10)])),
+                Ok(listed(&[(20, 10), (30, 20)])),
+                Ok(listed(&[(20, 10), (30, 20), (40, 30)])),
+            ],
+            &[(20, Some(110)), (30, Some(120)), (40, Some(130))],
+        );
+        let s = search(&mut sys, ROOT.pid, Some(ROOT.born), &[], &[], OWN);
+        assert_eq!(sys.ended, [20, 30, 40]);
+        assert!(s.incomplete.as_deref().is_some_and(|w| w.contains("still starting")), "{:?}", s.incomplete);
+    }
+
+    /// A list that failed once and then read gives the reason the search really ended on: the family was
+    /// still growing, not a list that could not be read.
+    #[test]
+    fn a_failure_followed_by_lists_that_read_is_not_given_as_the_reason() {
+        let mut sys = Scripted::new(
+            vec![Err("no list".into()), Ok(listed(&[(20, 10)])), Ok(listed(&[(20, 10), (30, 20)]))],
+            &[(20, Some(110)), (30, Some(120))],
+        );
+        let s = search(&mut sys, ROOT.pid, Some(ROOT.born), &[], &[], OWN);
+        assert_eq!(sys.ended, [20, 30]);
+        assert!(s.incomplete.as_deref().is_some_and(|w| w.contains("still starting")), "{:?}", s.incomplete);
+    }
+
+    /// A launched process that would not say when it was created vouches for nothing - with 0 it would
+    /// have vouched for every older process naming its pid - so its children are not looked for, and the
+    /// search says so.
+    #[test]
+    fn a_launched_process_that_will_not_say_when_it_was_created_vouches_for_nothing() {
+        let mut sys = Scripted::new(vec![Ok(listed(&[(20, 10), (90, 555)]))], &[(20, Some(110)), (90, Some(130))]);
+        let s = search(&mut sys, ROOT.pid, None, &[], &[90], OWN);
+        assert!(sys.ended.is_empty(), "{:?}", sys.ended);
+        assert!(s.named.is_empty(), "{:?}", s.named);
+        assert!(s.incomplete.as_deref().is_some_and(|w| w.contains("would not say")), "{:?}", s.incomplete);
+    }
+
+    /// The control: a first list with nothing of the family in it is a complete search.
+    #[test]
+    fn a_first_list_with_nothing_new_is_a_complete_search() {
+        let mut sys = Scripted::new(vec![Ok(listed(&[(40, 99)]))], &[(40, Some(105))]);
+        let s = search(&mut sys, ROOT.pid, Some(ROOT.born), &[], &[], OWN);
+        assert!(sys.ended.is_empty());
+        assert_eq!(s.incomplete, None);
     }
 
     /// A child the hook named that the walk does not reach is named, never ended - only while it runs and

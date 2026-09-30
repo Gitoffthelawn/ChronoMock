@@ -248,6 +248,13 @@ pub enum Event {
         /// reads as empty.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         left_running: Vec<FollowedProcess>,
+        /// With `refuse_start`, set when the core could not look for all of the application's processes:
+        /// the process list would not be read, the launched process would not say when it was created, or
+        /// the application was still starting processes after the last round. Processes it started may
+        /// then run on the real clock without being named in `left_running`. False on every other verdict
+        /// and then absent from the message. Additive: an older message without it reads as false.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        family_search_incomplete: bool,
     },
     /// Solicited reply that a command was applied (reflects the command's `id`).
     Ack {
@@ -462,6 +469,7 @@ mod tests {
             refuse_start: false,
             reason_key: "mechanism.not_implemented".into(),
             left_running: vec![],
+            family_search_incomplete: false,
         };
         let line = ev.to_ndjson();
         assert!(!line.contains("\"id\""), "null id must be omitted, got {line}");
@@ -481,10 +489,12 @@ mod tests {
                 FollowedProcess { pid: 5150, image: Some("helper.exe".into()) },
                 FollowedProcess { pid: 5151, image: None },
             ],
+            family_search_incomplete: true,
         };
         match parse_event(&refused.to_ndjson()).unwrap() {
-            Event::Verdict { left_running, refuse_start, .. } => {
+            Event::Verdict { left_running, refuse_start, family_search_incomplete, .. } => {
                 assert!(refuse_start);
+                assert!(family_search_incomplete, "the incomplete search was lost on the wire");
                 assert_eq!(left_running.len(), 2);
                 assert_eq!(left_running[0], FollowedProcess { pid: 5150, image: Some("helper.exe".into()) });
                 assert_eq!(left_running[1], FollowedProcess { pid: 5151, image: None });
@@ -498,11 +508,16 @@ mod tests {
             refuse_start: false,
             reason_key: "coverage.time_channels_covered".into(),
             left_running: vec![],
+            family_search_incomplete: false,
         };
         assert!(!works.to_ndjson().contains("left_running"), "an empty list went on the wire");
+        assert!(!works.to_ndjson().contains("family_search_incomplete"), "a false flag went on the wire");
         let older = r#"{"type":"verdict","v":1,"id":1,"verdict":"works","refuse_start":false,"reason_key":"x"}"#;
         match parse_event(older).unwrap() {
-            Event::Verdict { left_running, .. } => assert!(left_running.is_empty()),
+            Event::Verdict { left_running, family_search_incomplete, .. } => {
+                assert!(left_running.is_empty());
+                assert!(!family_search_incomplete);
+            }
             other => panic!("expected a verdict, got {other:?}"),
         }
     }
