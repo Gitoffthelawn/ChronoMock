@@ -109,6 +109,33 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The injected library no longer takes down an application that does nothing wrong.** Handing a
+  clock or timer function a buffer at an odd address, which a packed structure does and Windows
+  accepts, was undefined behaviour in the hook, and its debug build ended the application on the spot.
+  Freeing the hook library, which an application may do with any module it finds loaded in itself,
+  unmapped it under its own detours, and the next clock read crashed - the library now stays loaded
+  until the application ends. A failure of the hooking library to set itself up ended the application
+  from inside its start, and now it declines to join instead: the application runs on the real clock
+  and the session reports it as not covered.
+- **Detours that could only partly be switched on no longer stay half on.** Switching them on stops at
+  the first one that cannot be written, and the ones before it stayed live while the audit reported
+  none, so part of the application ran on the session's clock unreported. They are switched off again
+  now. The detours for a module that loads later still go on together, and when that stops part-way,
+  each one goes on by itself and is counted once it is live.
+- **A time function whose detour could not be switched on is reported, also in a library that is not in
+  every application.** For `user32`, `winmm` and `ws2_32` a function missing from the report read as a
+  library the application never loaded - also when the library was there and only the detour had
+  failed, so an application could read the real `timeGetTime` beside a scaled tick count while the
+  report looked complete. Such a function is now listed as not covered, and a session with one is
+  partial. A function the audit only counts is listed as not watched, as it already was for the
+  libraries every application has.
+- **A child whose hook failed after it loaded is reported as running on the real clock.** It used to be
+  missing from the report altogether. A child of the other bitness is no longer written into before it
+  is counted, since the library cannot load there anyway.
+- **A core that stopped in the middle of a speed change no longer leaves the timers behind.** The new
+  speed was stored before the new starting points, so a slowdown cut short there read the old starting
+  points at the new speed - behind where the tick count, the interrupt time and QPC stood - and an
+  application that outlived the session kept that. The speed is stored last now.
 - **A session whose core stopped before it closed it is no longer reported as working.** The core
   sends a first verdict a fraction of a second into the session and closes the session at its end.
   When it stopped in between - a crash, or a kill from outside - `chrono run` reported that first

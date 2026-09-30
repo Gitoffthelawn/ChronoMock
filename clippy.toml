@@ -73,7 +73,12 @@ too-many-lines-threshold = 161
 # Lowered 2026-09-29 with the length ceiling above, by the same move: `run::driver_run` handed its read
 # loop to `run::stream_session` and neither is near the top now. The holder is `mech::gather_coverage`
 # at 23, then `report::render_report` and a `proto` test at 22, a calendar test at 21, `collect_rust` 20.
-cognitive-complexity-threshold = 23
+#
+# Lowered 2026-09-30 (the review round on R4/7): `mech::gather_coverage` asks one predicate,
+# `ChannelModule::in_every_process`, where it used to spell out the five modules in two places, and came
+# down to 22. That is a three-way tie at 22 - `gather_coverage`, `report::render_report` and a `proto`
+# test - then a calendar test at 21 and `collect_rust` at 20 (measured by `tools/margin.ps1 -Rust`).
+cognitive-complexity-threshold = 22
 
 # Three blocks reach 6 and nothing reaches 7: `cdp_session.rs:294` plus two in `tests/hygiene.rs`.
 # The lint is OFF by default (its default threshold is 0, meaning disabled), so this line is what

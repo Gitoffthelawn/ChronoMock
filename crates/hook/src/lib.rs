@@ -63,13 +63,15 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use chrono_ctl::{
-    bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at, dur_tick_at,
+    anchor_write_in_progress, bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at,
+    dur_tick_at, find_pid_slot,
     header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, ReleasedAxes,
     publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_ended, read_qpc,
-    read_scale_dur, read_scale_qpc, set_created,
+    read_pid_count, read_scale_dur, read_scale_qpc, set_created, MAX_COV_PIDS,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
-    scale_timer_period_ms, scale_wait, set_channels_installed, set_late_installed, wait_hit_floor, ChannelModule, Cov,
+    scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
+    wait_hit_floor, ChannelModule, Cov,
     Ctl, CHANNELS, IDX_GDTZI, IDX_GLT, IDX_GST, IDX_GSTAFT, IDX_GSTPAFT, IDX_GTC, IDX_GTC64,
     IDX_GTZI, IDX_NTDELAY, IDX_NTQSI, IDX_NTQST, IDX_QUIT, IDX_SLEEP, IDX_SLEEPEX, IDX_STSL,
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
@@ -77,7 +79,7 @@ use chrono_ctl::{
     IDX_TPTIMER, IDX_TPTIMEREX, IDX_NTCUP, IDX_CONNECT, IDX_QPC, IDX_TIMEGETTIME, IDX_SCVSRW,
     IDX_SCVCS, IDX_WOA, IDX_WSAWFME,
 };
-use minhook::MinHook;
+use minhook::{MinHook, MH_STATUS};
 use windows::core::{s, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, SetLastError, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HMODULE, SYSTEMTIME,
@@ -86,7 +88,7 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::Diagnostics::Debug::{OutputDebugStringA, WriteProcessMemory};
 use windows::Win32::System::LibraryLoader::{
     GetModuleFileNameW, GetModuleHandleA, GetModuleHandleExA, GetProcAddress,
-    GET_MODULE_HANDLE_EX_FLAG_PIN,
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_PIN,
 };
 use windows::Win32::System::Memory::{
     MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualAllocEx, VirtualFreeEx,
@@ -94,9 +96,11 @@ use windows::Win32::System::Memory::{
     PAGE_READWRITE,
 };
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
+use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_UNKNOWN};
 use windows::Win32::System::Threading::{
     CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
-    GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, OpenProcess, ResumeThread, WaitForSingleObject, CREATE_SUSPENDED,
+    GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, IsWow64Process2, OpenProcess, ResumeThread,
+    WaitForSingleObject, CREATE_SUSPENDED,
     INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
@@ -510,6 +514,12 @@ fn release_duration_axes() {
     let now_quit = real_quit();
     let now_qpc = real_qpc();
     let (dur, qpc) = unsafe { (read_dur(p), read_qpc(p)) };
+    if unsafe { anchor_write_in_progress(p) } {
+        // The core died between the two halves of a rate change, so the reads above gave up waiting and
+        // took the fields as they stand. The order of the stores keeps that mix running forward (R4-N5),
+        // and this line is how anyone reading the log learns the release came from it.
+        log("[chrono_hook] the core stopped in the middle of an anchor write - axes released from a partly written anchor");
+    }
     if still_ours(p) {
         let _ = RELEASED.set(release_axes(dur, qpc, now_quit, now_qpc));
     }
@@ -567,6 +577,15 @@ fn released_quit() -> Option<i64> {
 /// modules were all present at startup.
 static LATE_TODO: AtomicU64 = AtomicU64::new(0);
 
+/// Channels whose module and export were there and whose detour could not be made or switched on, at
+/// startup or in the late scan. Published to `Cov::failed_channels`, by `install` with the installed
+/// mask and by the watcher after each scan that added to it.
+///
+/// Without it, a failed detour in an optional module read in the report exactly like a module the
+/// application never loaded - no line at all - while the application called the real function. A
+/// missing export is left out on purpose: then the application cannot call the function either.
+static HOOK_FAILED: AtomicU64 = AtomicU64::new(0);
+
 /// Has `install` published its coverage mask yet.
 ///
 /// This is R1, and it is a real ordering hazard rather than a theoretical one: `install` enables the
@@ -617,12 +636,14 @@ unsafe fn pin_module(name: PCSTR) -> Option<HMODULE> { unsafe {
 /// for the rest of the session would burn the target's CPU to re-learn the same no (R6).
 ///
 /// The trampoline is stored in `slot` BEFORE anything enables the detour, exactly as `make_hook`
-/// does. Reversing that would let a detour fire with no original to call (R4).
+/// does. Reversing that would let a detour fire with no original to call (R4). A created detour goes
+/// into `created` with its channel bit and address, for `enable_late`, and one that cannot be created
+/// goes into `HOOK_FAILED`.
 ///
 /// # Safety
 /// `detour` must be correct for `slot`, and `module` must be a live, pinned module handle.
 unsafe fn late_one<T: Copy>(
-    newly: &mut u64,
+    created: &mut Vec<(u64, usize)>,
     module: HMODULE,
     idx: usize,
     detour: *mut c_void,
@@ -644,9 +665,12 @@ unsafe fn late_one<T: Copy>(
     match MinHook::create_hook(target as *const () as *mut c_void, detour) {
         Ok(original) => {
             let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
-            *newly |= ch.bit;
+            created.push((ch.bit, target as *const () as usize));
         }
-        Err(e) => log(&format!("[chrono_hook] late: create_hook {} failed: {e:?}", ch.name)),
+        Err(e) => {
+            HOOK_FAILED.fetch_or(ch.bit, Ordering::Relaxed);
+            log(&format!("[chrono_hook] late: create_hook {} failed: {e:?}", ch.name));
+        }
     }
 }}
 
@@ -655,9 +679,9 @@ unsafe fn late_one<T: Copy>(
 /// Ordering is the whole safety argument here (R2). Every module handle and every export address is
 /// resolved, and every trampoline built, BEFORE a single hook is enabled - because `MH_EnableHook`
 /// freezes all other threads, and calling into the loader while threads are frozen is how a hooking
-/// library deadlocks a process. `MinHook::enable_all_hooks` is the last step and it takes one
-/// freeze for the whole batch, and it skips hooks that are already live, so the ones installed at
-/// startup are not touched.
+/// library deadlocks a process. Enabling is the last step, one freeze for the whole batch and one per
+/// detour only when the batch fails (`enable_late`), so a failure leaves the ones that went live
+/// counted, the ones that did not recorded, and the ones installed at startup untouched (R4-W7).
 unsafe fn late_scan() { unsafe {
     if !INSTALL_DONE.load(Ordering::Acquire) {
         return; // install has not published its mask yet (R1)
@@ -671,45 +695,53 @@ unsafe fn late_scan() { unsafe {
         return;
     }
 
-    let mut newly: u64 = 0;
+    let failed_before = HOOK_FAILED.load(Ordering::Relaxed);
+    let mut created: Vec<(u64, usize)> = Vec::new();
     if todo & USER32_LATE != 0
         && let Some(m) = pin_module(s!("user32.dll"))
     {
-        late_one(&mut newly, m, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
-        late_one(&mut newly, m, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
-        late_one(&mut newly, m, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
+        late_one(&mut created, m, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
+        late_one(&mut created, m, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
+        late_one(&mut created, m, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
     }
     if todo & WINMM_LATE != 0
         && let Some(m) = pin_module(s!("winmm.dll"))
     {
-        late_one(&mut newly, m, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
-        late_one(&mut newly, m, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
+        late_one(&mut created, m, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
+        late_one(&mut created, m, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
     }
     if todo & WS2_32_LATE != 0
         && let Some(m) = pin_module(s!("ws2_32.dll"))
     {
-        late_one(&mut newly, m, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
-    }
-    if newly == 0 {
-        return;
+        late_one(&mut created, m, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
     }
 
-    if let Err(e) = MinHook::enable_all_hooks() {
-        // Nothing may be claimed: the trampolines exist but no new detour is live. The bits stay out
-        // of the Cov, so the audit reports these channels as it did before - not as covered.
-        log(&format!("[chrono_hook] late: enable_all_hooks: {e:?}"));
-        return;
-    }
+    // Only what went live may be claimed, and what did not is recorded: a failed detour in a module the
+    // application loaded is a channel it calls on the real clock, and the audit lists it as not covered
+    // instead of reading it as a module that never arrived.
+    let (newly, failed) =
+        enable_late(&created, |batch| queue_and_apply(batch), |bit, target| enable_one_late(bit, target));
+    let failed_now = HOOK_FAILED.fetch_or(failed, Ordering::Relaxed) | failed;
     if let Some(c) = live_cov() {
-        // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
-        // intersection, so this order cannot produce a warning about a channel the report does not
-        // list - and the other order could not either. Stated rather than left to luck.
-        set_late_installed(c, read_late_installed(c) | newly);
-        // OR, never a plain store: `install` owns the startup bits and this thread owns the late
-        // ones. Read-modify-write is safe here because this is the only writer after INSTALL_DONE.
-        set_channels_installed(c, read_installed(c) | newly);
+        if newly != 0 {
+            // The late mask FIRST, the coverage mask second. The mechanism reads the two as an
+            // intersection, so this order cannot produce a warning about a channel the report does not
+            // list - and the other order could not either. Stated rather than left to luck.
+            set_late_installed(c, read_late_installed(c) | newly);
+            // OR, never a plain store: `install` owns the startup bits and this thread owns the late
+            // ones. Read-modify-write is safe here because this is the only writer after INSTALL_DONE.
+            set_channels_installed(c, read_installed(c) | newly);
+        }
+        // A whole-mask write, safe for the same reason. The mechanism asks it only about channels the
+        // installed mask does not hold, so the order of the two writes cannot show a live channel as
+        // failed once both have landed.
+        if failed_now != failed_before {
+            set_failed_channels(c, failed_now);
+        }
     }
-    log(&format!("[chrono_hook] late: installed 0x{newly:x}"));
+    if newly != 0 {
+        log(&format!("[chrono_hook] late: installed 0x{newly:x}"));
+    }
 }}
 
 /// Spawn the watcher once, lazily - NOT from DllMain, to stay clear of the loader lock.
@@ -1031,12 +1063,12 @@ fn bump(idx: usize) {
 /// `*lp` holding uninitialized garbage while claiming success (L-3).
 ///
 /// # Safety
-/// `lp` must be a valid, writable pointer to a `SYSTEMTIME`.
+/// `lp` must be a valid, writable pointer to a `SYSTEMTIME`, aligned or not.
 unsafe fn write_systemtime(lp: *mut SYSTEMTIME, ft_ticks: i64) -> bool { unsafe {
     let ft = i64_to_ft(ft_ticks);
     let mut st = SYSTEMTIME::default();
     if FileTimeToSystemTime(&ft, &mut st).is_ok() {
-        *lp = st;
+        core::ptr::write_unaligned(lp, st);
         true
     } else {
         false
@@ -1046,11 +1078,18 @@ unsafe fn write_systemtime(lp: *mut SYSTEMTIME, ft_ticks: i64) -> bool { unsafe 
 // --- Detours -------------------------------------------------------------------
 // Each fills its out-parameter with the fake instant, or falls back to the original
 // if the anchor is unreadable or the pointer is null.
+//
+// Every read and write through a pointer the application passed in is unaligned (R4-N3). The real
+// functions accept a buffer at any address - a packed structure puts a FILETIME or a SYSTEMTIME on
+// an odd one, and x86 and x64 load and store there without complaint - so the application has done
+// nothing wrong. A plain `*lp = x` on such a pointer is undefined behaviour in Rust, and a debug
+// build of this library checks it and aborts the application on the spot (measured by the
+// misaligned buffers in `crates/cli/tests/hook_integrity.rs`).
 
 unsafe extern "system" fn h_gstaft(lp: *mut FILETIME) { unsafe {
     bump(IDX_GSTAFT);
     match compute_fake() {
-        Some(t) if !lp.is_null() => *lp = i64_to_ft(t),
+        Some(t) if !lp.is_null() => core::ptr::write_unaligned(lp, i64_to_ft(t)),
         _ => {
             if let Some(o) = O_GSTAFT.get() {
                 o(lp)
@@ -1062,7 +1101,7 @@ unsafe extern "system" fn h_gstaft(lp: *mut FILETIME) { unsafe {
 unsafe extern "system" fn h_gstpaft(lp: *mut FILETIME) { unsafe {
     bump(IDX_GSTPAFT);
     match compute_fake() {
-        Some(t) if !lp.is_null() => *lp = i64_to_ft(t),
+        Some(t) if !lp.is_null() => core::ptr::write_unaligned(lp, i64_to_ft(t)),
         _ => {
             if let Some(o) = O_GSTPAFT.get() {
                 o(lp)
@@ -1111,7 +1150,7 @@ unsafe extern "system" fn h_ntqst(lp: *mut i64) -> i32 { unsafe {
     bump(IDX_NTQST);
     match compute_fake() {
         Some(t) if !lp.is_null() => {
-            *lp = t;
+            core::ptr::write_unaligned(lp, t);
             0 // STATUS_SUCCESS
         }
         // A null output pointer: the real NtQuerySystemTime answers STATUS_ACCESS_VIOLATION. Reporting
@@ -1177,7 +1216,7 @@ unsafe extern "system" fn h_gtzi(lp: *mut TIME_ZONE_INFORMATION) -> u32 { unsafe
     if !lp.is_null() {
         let mut tzi = TIME_ZONE_INFORMATION { Bias: cur_tz_bias(), ..Default::default() };
         set_wide(&mut tzi.StandardName, SESSION_ZONE_NAME);
-        *lp = tzi;
+        core::ptr::write_unaligned(lp, tzi);
         return 0; // TIME_ZONE_ID_UNKNOWN - the session zone has no DST
     }
     O_GTZI.get().map(|o| o(lp)).unwrap_or(TIME_ZONE_ID_INVALID)
@@ -1204,7 +1243,7 @@ unsafe extern "system" fn h_gdtzi(lp: *mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32
         };
         set_wide(&mut d.StandardName, SESSION_ZONE_NAME);
         set_wide(&mut d.TimeZoneKeyName, SESSION_ZONE_NAME);
-        *lp = d;
+        core::ptr::write_unaligned(lp, d);
         return 0; // TIME_ZONE_ID_UNKNOWN - the session zone has no DST
     }
     O_GDTZI.get().map(|o| o(lp)).unwrap_or(TIME_ZONE_ID_INVALID)
@@ -1262,9 +1301,9 @@ unsafe fn write_session_utc(local: *const SYSTEMTIME, utc: *mut SYSTEMTIME) -> b
 /// always mean the active zone, which we replace with the flat session zone.
 ///
 /// # Safety
-/// `src` and `dst` must be valid, non-null FILETIME pointers.
+/// `src` and `dst` must be valid, non-null FILETIME pointers, aligned or not.
 unsafe fn shift_filetime(src: *const FILETIME, dst: *mut FILETIME, add: bool) -> i32 { unsafe {
-    let ticks = ft_to_i64(*src);
+    let ticks = ft_to_i64(core::ptr::read_unaligned(src));
     // Out of range means "we cannot express this", reported as failure so the caller falls back to
     // the original, exactly as `write_systemtime` already does (L-3). The arithmetic and the
     // "still a FILETIME" test live in `chrono-ctl` (`shift_ticks_by_bias`), where they can be
@@ -1279,7 +1318,7 @@ unsafe fn shift_filetime(src: *const FILETIME, dst: *mut FILETIME, add: bool) ->
             return 0;
         }
     };
-    *dst = i64_to_ft(shifted);
+    core::ptr::write_unaligned(dst, i64_to_ft(shifted));
     1
 }}
 
@@ -1465,7 +1504,7 @@ unsafe extern "system" fn h_tick32_kb() -> u32 { unsafe { tick32_or(&O_TICK32_KB
 unsafe fn quit_after_session(lp: *mut u64) -> i32 { unsafe {
     match released_quit() {
         Some(v) if !lp.is_null() => {
-            *lp = v as u64;
+            core::ptr::write_unaligned(lp, v as u64);
             1
         }
         _ => O_QUIT.get().map(|o| o(lp)).unwrap_or(0),
@@ -1485,7 +1524,7 @@ unsafe extern "system" fn h_quit(lp: *mut u64) -> i32 { unsafe {
                 if !still_ours(p as *const Ctl) {
                     return quit_after_session(lp);
                 }
-                *lp = fake;
+                core::ptr::write_unaligned(lp, fake);
             }
             // No control block (unreachable: CTL_PTR is set before these hooks install) - defer to the
             // real value rather than fake a zero.
@@ -1517,7 +1556,7 @@ unsafe fn qpc_after_session(o: QpcFn, lp: *mut i64) -> i32 { unsafe {
     };
     let mut real: i64 = 0;
     o(&mut real);
-    *lp = r.qpc_at(real);
+    core::ptr::write_unaligned(lp, r.qpc_at(real));
     1
 }}
 
@@ -1545,7 +1584,7 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
             if !still_ours(p as *const Ctl) {
                 return qpc_after_session(o, lp); // reclaimed mid-read (R2-S6)
             }
-            *lp = fake;
+            core::ptr::write_unaligned(lp, fake);
             1
         }
         // Detached (core gone): on from where the axis stood, never back to the real counter (rule 3).
@@ -1657,10 +1696,11 @@ unsafe extern "system" fn h_ntdelay(alertable: u8, interval: *const i64) -> i32 
             if interval.is_null() {
                 o(alertable, interval)
             } else {
-                if delay_hit_floor(*interval, m) {
+                let requested = core::ptr::read_unaligned(interval);
+                if delay_hit_floor(requested, m) {
                     note_wait_at_floor();
                 }
-                let scaled = scale_delay_interval(*interval, m);
+                let scaled = scale_delay_interval(requested, m);
                 o(alertable, &scaled as *const i64)
             }
         }
@@ -1929,7 +1969,7 @@ unsafe extern "system" fn h_swt(
         // mid-call falls through to the original untouched.
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
-                let scaled_due = scale_timer_due(*due, fake_now, m);
+                let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
                 let scaled_period = scale_timer_period(period, m);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, resume)
             }
@@ -1955,7 +1995,7 @@ unsafe extern "system" fn h_swtex(
     match try_enter_timer(IDX_SWTEX) {
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
-                let scaled_due = scale_timer_due(*due, fake_now, m);
+                let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
                 let scaled_period = scale_timer_period(period, m);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, wake_context, tolerable_delay)
             }
@@ -2105,7 +2145,7 @@ unsafe extern "system" fn h_ntdiocf(
 /// unchanged (NULL due = cancel, or the core detached mid-call). Shared by both detours.
 ///
 /// # Safety
-/// `pft`, when non-null, must point to a valid FILETIME.
+/// `pft`, when non-null, must point to a valid FILETIME, aligned or not.
 unsafe fn scale_tp_timer(pft: *const FILETIME, period: u32, window: u32) -> Option<(FILETIME, u32, u32)> { unsafe {
     if pft.is_null() {
         return None; // NULL = cancel: forward untouched
@@ -2113,7 +2153,7 @@ unsafe fn scale_tp_timer(pft: *const FILETIME, period: u32, window: u32) -> Opti
     // One snapshot for both halves: the due date is absolute, so the rate it is divided by has to be
     // the rate that belongs to this `fake_now` and not to whatever the block said a moment earlier.
     let (fake_now, m) = fake_now_and_dur_m()?; // detached: forward untouched
-    let scaled_due = scale_timer_due(ft_to_i64(*pft), fake_now, m);
+    let scaled_due = scale_timer_due(ft_to_i64(core::ptr::read_unaligned(pft)), fake_now, m);
     Some((i64_to_ft(scaled_due), scale_timer_period_ms(period, m), scale_timer_elapse(window, m)))
 }}
 
@@ -2231,7 +2271,7 @@ unsafe extern "system" fn h_ntcup(
     // so a failed create never dereferences anything. A bad handle makes `GetProcessId` return 0,
     // which `record_uncovered_child` ignores - the failure mode is an unnamed child, not a fault.
     if direct && status >= 0 && !process_handle.is_null() {
-        let child = HANDLE(*(process_handle as *const *mut c_void));
+        let child = HANDLE(core::ptr::read_unaligned(process_handle as *const *mut c_void));
         let pid = GetProcessId(child);
         if let Some(c) = live_cov() {
             record_uncovered_child(c, pid);
@@ -2259,6 +2299,14 @@ unsafe extern "system" fn h_ntcup(
 unsafe fn inject_self(hproc: HANDLE) -> bool { unsafe {
     let addr = *SELF_HMOD.get().unwrap_or(&0);
     if addr == 0 {
+        return false;
+    }
+    // A child of the other bitness cannot load this library, so nothing is written into it and no thread
+    // is started there (R4-N9). The remote load used to be tried anyway and to come back empty, which
+    // counted the child right, but only after allocating in it and starting a thread at an address that
+    // means nothing in its half of the machine.
+    if bitness_differs(process_machine(hproc), process_machine(GetCurrentProcess())) {
+        log("[chrono_hook] child of the other bitness - not injected, it runs on the real clock");
         return false;
     }
     let hmod = HMODULE(addr as *mut c_void);
@@ -2357,16 +2405,61 @@ unsafe fn inject_self(hproc: HANDLE) -> bool { unsafe {
     loaded
 }}
 
+/// The machine a live process runs as, or `None` when it cannot be asked. The same reading as the
+/// mechanism's (`chrono-mech`, `process_machine`), which `chrono-ctl` cannot host without depending on
+/// `windows`: `IsWow64Process2` names the emulated machine, or UNKNOWN for a native process, whose
+/// machine is then the native one.
+///
+/// # Safety
+/// `process` must be a process handle with at least `PROCESS_QUERY_LIMITED_INFORMATION`, or the
+/// pseudo-handle of this process.
+unsafe fn process_machine(process: HANDLE) -> Option<u16> { unsafe {
+    let (mut own, mut native) = (IMAGE_FILE_MACHINE(0), IMAGE_FILE_MACHINE(0));
+    IsWow64Process2(process, &mut own, Some(&mut native)).ok()?;
+    Some(if own == IMAGE_FILE_MACHINE_UNKNOWN { native.0 } else { own.0 })
+}}
+
+/// Whether a child runs on another machine than this process. Only two known, different answers say
+/// so - a machine that could not be asked leaves the injection to be tried, as it always was.
+fn bitness_differs(child: Option<u16>, own: Option<u16>) -> bool {
+    matches!((child, own), (Some(c), Some(o)) if c != o)
+}
+
+/// Whether a child the parent tried to inject ran on the real clock, from what the parent can see once
+/// the remote load has returned (R4-S2).
+///
+/// A load that failed is the old answer. A load that succeeded is not enough on its own: the child's
+/// install can fail after the library loaded (MinHook could not enable its detours), and the library
+/// then stays, answers the load, and never publishes the child's pid. The child publishes it before
+/// the load returns, so a missing pid means it is not covered - unless the registry was full, when it
+/// may simply have had no slot to publish into, which `coverage.pid_registry_full` already reports.
+fn child_ran_uncovered(loaded: bool, signed_in: bool, slot_claims: u32) -> bool {
+    !loaded || (!signed_in && slot_claims <= MAX_COV_PIDS as u32)
+}
+
 /// After a create call we forced to CREATE_SUSPENDED returns, inject the hook into the
 /// new child so it joins the session, then resume it unless the caller originally asked
 /// for a suspended child. Shared by the CreateProcessW and CreateProcessA detours.
 ///
 /// # Safety
-/// `pi`, when non-null, must point to a PROCESS_INFORMATION filled by a successful create.
+/// `pi`, when non-null, must point to a PROCESS_INFORMATION filled by a successful create, aligned or
+/// not.
 unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspended: bool) { unsafe {
     if r != 0 && !pi.is_null() {
-        let info = *pi;
-        if !inject_self(info.hProcess) {
+        let info = core::ptr::read_unaligned(pi);
+        let loaded = inject_self(info.hProcess);
+        // Asked of the registry only after the load returned, which is after the child's install ended.
+        let (signed_in, slot_claims) = match ctl_ptr() {
+            Some(p) if loaded => (
+                find_pid_slot(p as *const Ctl, info.dwProcessId, process_created(info.hProcess)).is_some(),
+                read_pid_count(p as *const Ctl),
+            ),
+            _ => (false, 0),
+        };
+        if child_ran_uncovered(loaded, signed_in, slot_claims) {
+            if loaded {
+                log("[chrono_hook] child loaded the hook but did not sign in - its install failed, it runs uncovered");
+            }
             // Record it in OUR slot: the child never reserved one and never will, so without this the
             // process simply would not appear anywhere in the audit (R2-S2). The mechanism turns a
             // non-zero count into `inheritance.child_not_injected`, and the pid lets it NAME the
@@ -2697,7 +2790,13 @@ unsafe fn make_hook<T: Copy>(
             let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
             *pending |= ch.bit;
         }
-        Err(e) => log(&format!("[chrono_hook] create_hook {} failed: {e:?}", ch.name)),
+        Err(e) => {
+            // The module and the export are there, so the application can call this and will reach the
+            // real function. Recorded, because for an optional module nothing else tells this apart from
+            // a module it never loaded.
+            HOOK_FAILED.fetch_or(ch.bit, Ordering::Relaxed);
+            log(&format!("[chrono_hook] create_hook {} failed: {e:?}", ch.name));
+        }
     }
 }}
 
@@ -2759,6 +2858,141 @@ struct CoreLook {
     created_now: Option<u64>,
 }
 
+unsafe extern "system" {
+    /// MinHook's initialization, the same symbol the wrapper crate declares privately. Its status comes
+    /// back as the plain number the C library returns, so a value outside the wrapper's enum can never
+    /// be read into it.
+    fn MH_Initialize() -> i32;
+}
+
+/// `MH_OK` in MinHook's status list.
+const MH_OK: i32 = 0;
+
+/// `MH_ERROR_ALREADY_INITIALIZED` in MinHook's status list.
+const MH_ERROR_ALREADY_INITIALIZED: i32 = 1;
+
+/// Whether MinHook stands ready after `MH_Initialize` answered `status`. Anything else - its private
+/// heap could not be created - leaves no hook possible, and is a refusal before anything changed.
+fn minhook_ready(status: i32) -> bool {
+    status == MH_OK || status == MH_ERROR_ALREADY_INITIALIZED
+}
+
+/// Keep this library loaded until the process ends, whatever the application does (R4-N2).
+///
+/// A detour is a jump written into the system's own code, into this library. An application that
+/// calls `FreeLibrary` on a module it finds loaded in itself - a plug-in host cleaning up, a tool that
+/// unloads what it did not load - used to unmap the library under those jumps, and its next clock read
+/// ran into freed memory (measured, `crates/cli/tests/hook_integrity.rs`). Pinned, a module "stays
+/// loaded until the process is terminated, no matter how many times FreeLibrary is called" (MS Learn,
+/// `GetModuleHandleExW`). The address is one of this library's functions, so no name is looked up.
+///
+/// A failure is a line in the log and not a refusal: the detours are not made yet, and a library that
+/// cannot be pinned is exactly as safe as it was before this existed.
+///
+/// # Safety
+/// Runs under the loader lock, in `install`. MS Learn's DLL best practices rule out any call that may
+/// take that lock, and a module lookup likely does - but this thread already holds it, and `install`
+/// has made the same kind of lookup (`GetModuleHandleA` on kernel32, ntdll, user32) from the start.
+/// That a lookup re-entering a lock its own thread holds cannot deadlock is an assessment, not source.
+unsafe fn pin_self() { unsafe {
+    let mut module = HMODULE::default();
+    let here = PCSTR(pin_self as *const () as *const u8);
+    if let Err(e) =
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, here, &mut module)
+    {
+        log(&format!(
+            "[chrono_hook] could not pin the hook library ({e:?}), so an application that frees it loses its clock"
+        ));
+    }
+}}
+
+/// Enable every created detour, or take back the ones that went live when that fails (R4-W7).
+///
+/// MinHook enables the detours one by one, with every other thread frozen, and stops at the first one
+/// it cannot write, leaving the ones before it live (`EnableAllHooksLL`, minhook-0.9.0 `hook.c`). Those
+/// would put part of the application on the session's clock while the audit, which publishes nothing
+/// after a failure, says none of it is. Disabling writes the original bytes back and keeps every
+/// trampoline, so a detour that somehow stayed live still has an original to call (`remove_hook` would
+/// free them). The answer names what happened, for the log.
+fn enable_or_take_back<E: std::fmt::Debug>(
+    enable: impl FnOnce() -> Result<(), E>,
+    disable: impl FnOnce() -> Result<(), E>,
+) -> Result<(), String> {
+    let Err(e) = enable() else {
+        return Ok(());
+    };
+    Err(match disable() {
+        Ok(()) => format!("enable_all_hooks: {e:?}, every detour that went live was taken back"),
+        Err(d) => format!(
+            "enable_all_hooks: {e:?}, and taking the live ones back failed too ({d:?}), so part of the \
+             application may read the session's clock while the audit reports no channel"
+        ),
+    })
+}
+
+/// Enable the late detours with one freeze, and one at a time only when that fails (R4-W7). Answers the
+/// bits that went live and the bits that did not.
+///
+/// One freeze for the batch because each costs tens of milliseconds - measured at about 42 ms on the
+/// owner's machine, most of it MinHook's snapshot of every thread in the system - and a detour switched
+/// on after it leaves its channel on the real clock that much longer. Six detours one by one took about
+/// 257 ms. Not `enable_all_hooks`, though: a take-back through `disable_all_hooks` would also switch off
+/// every detour `install` enabled at startup. `batch` is MinHook's queue, which applies only what was
+/// queued, and `one` is the fallback for a batch that stopped part-way.
+fn enable_late(
+    created: &[(u64, usize)],
+    batch: impl FnOnce(&[(u64, usize)]) -> bool,
+    mut one: impl FnMut(u64, usize) -> bool,
+) -> (u64, u64) {
+    let attempted = created.iter().fold(0, |mask, &(bit, _)| mask | bit);
+    if attempted == 0 {
+        return (0, 0);
+    }
+    if batch(created) {
+        return (attempted, 0);
+    }
+    let live = created.iter().filter(|&&(bit, target)| one(bit, target)).fold(0, |mask, &(bit, _)| mask | bit);
+    (live, attempted & !live)
+}
+
+/// The batch half of `enable_late`: queue every late detour, then apply the queue under one freeze.
+///
+/// The queue stops at the first detour it cannot write and leaves the ones before it live
+/// (`MH_ApplyQueued`, minhook-0.9.0 `hook.c`), which is why a failure goes on to each detour's own enable
+/// rather than being read as "none of them". A detour that could not be queued is not applied here, and
+/// its own enable reaches it the same way.
+///
+/// # Safety
+/// Every address must be a detour `late_one` created.
+unsafe fn queue_and_apply(created: &[(u64, usize)]) -> bool { unsafe {
+    created.iter().all(|&(_, target)| MinHook::queue_enable_hook(target as *mut c_void).is_ok())
+        && MinHook::apply_queued().is_ok()
+}}
+
+/// The fallback half of `enable_late`: one detour's own enable, after a batch that failed part-way.
+///
+/// "Already on" is a detour the batch switched on before it stopped, and it is live. Counting it as
+/// failed would do worse than put a wrong line in the report: the take-out below, applied by the next
+/// module's batch, would switch off a detour the coverage mask claims. A detour that really failed is
+/// taken out of the queue for the same reason, so no later batch switches it on behind the mask's back.
+///
+/// # Safety
+/// `target` must be a detour `late_one` created.
+unsafe fn enable_one_late(bit: u64, target: usize) -> bool { unsafe {
+    let answer = MinHook::enable_hook(target as *mut c_void);
+    if went_live(&answer) {
+        return true;
+    }
+    let _ = MinHook::queue_disable_hook(target as *mut c_void);
+    log(&format!("[chrono_hook] late: enable_hook for channel bit 0x{bit:x} failed: {answer:?}"));
+    false
+}}
+
+/// Whether one detour's own enable left it live: switched on now, or already on.
+fn went_live(answer: &Result<(), MH_STATUS>) -> bool {
+    matches!(answer, Ok(()) | Err(MH_STATUS::MH_ERROR_ENABLED))
+}
+
 /// What `DllMain` answers for `DLL_PROCESS_ATTACH` after `install`: TRUE unless the install refused
 /// before anything changed (see `InstallError`).
 fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
@@ -2767,6 +3001,51 @@ fn attach_answer(installed: &Result<(), InstallError>) -> i32 {
         Ok(()) | Err(InstallError::Failed(_)) => 1,
     }
 }
+
+/// The duration axis, and the waits and timers that ride it, created only for a session that asked to
+/// scale durations. One opt-in group, kept out of `install` so that the install stays readable.
+///
+/// The anchor lives in the shared Ctl: the core initialized it in
+/// prepare (from the real GetTickCount64 / QUIT, before the target ran) and rebases it on every
+/// set_multiplier, so a speed change never rewinds the axis (H-1). No per-process capture here - the
+/// detours read it under the same seqlock as the wall multiplier. QPC stays real unless its own
+/// opt-in asks otherwise (ADR-2) - timeGetTime rides this axis, sharing GetTickCount's base.
+///
+/// # Safety
+/// Called from `install` only, under the same conditions as `make_hook`.
+unsafe fn make_duration_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) { unsafe {
+    make_hook(pending, k32, ntdll, IDX_GTC64, h_tick as *const () as *mut c_void, &O_TICK);
+    make_kernelbase_copy_hook(pending, k32, IDX_GTC64, h_tick_kb as *const () as *mut c_void, &O_TICK_KB);
+    make_hook(pending, k32, ntdll, IDX_GTC, h_tick32 as *const () as *mut c_void, &O_TICK32);
+    make_kernelbase_copy_hook(pending, k32, IDX_GTC, h_tick32_kb as *const () as *mut c_void, &O_TICK32_KB);
+    make_hook(pending, k32, ntdll, IDX_QUIT, h_quit as *const () as *mut c_void, &O_QUIT);
+    make_hook(pending, k32, ntdll, IDX_SLEEP, h_sleep as *const () as *mut c_void, &O_SLEEP);
+    make_hook(pending, k32, ntdll, IDX_SLEEPEX, h_sleepex as *const () as *mut c_void, &O_SLEEPEX);
+    make_hook(pending, k32, ntdll, IDX_NTDELAY, h_ntdelay as *const () as *mut c_void, &O_NTDELAY);
+    make_hook(pending, k32, ntdll, IDX_WFSO, h_wfso as *const () as *mut c_void, &O_WFSO);
+    make_hook(pending, k32, ntdll, IDX_WFSOEX, h_wfsoex as *const () as *mut c_void, &O_WFSOEX);
+    make_hook(pending, k32, ntdll, IDX_WFMO, h_wfmo as *const () as *mut c_void, &O_WFMO);
+    make_hook(pending, k32, ntdll, IDX_WFMOEX, h_wfmoex as *const () as *mut c_void, &O_WFMOEX);
+    make_hook(pending, k32, ntdll, IDX_SOAW, h_soaw as *const () as *mut c_void, &O_SOAW);
+    make_hook(pending, k32, ntdll, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
+    make_hook(pending, k32, ntdll, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
+    // The four waits that used to be neither scaled nor observed. They ride the same opt-in as the
+    // rest of the wait family: a session that did not ask for the duration axis is not watching
+    // waits at all. Three resolve in kernelbase and the socket one in ws2_32, which is optional and
+    // therefore also in the late scan below (ADR-10) - without that entry this would repeat exactly
+    // the gap ADR-10 was written to close.
+    make_hook(pending, k32, ntdll, IDX_SCVSRW, h_scvsrw as *const () as *mut c_void, &O_SCVSRW);
+    make_hook(pending, k32, ntdll, IDX_SCVCS, h_scvcs as *const () as *mut c_void, &O_SCVCS);
+    make_hook(pending, k32, ntdll, IDX_WOA, h_woa as *const () as *mut c_void, &O_WOA);
+    make_hook(pending, k32, ntdll, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
+    make_hook(pending, k32, ntdll, IDX_SWT, h_swt as *const () as *mut c_void, &O_SWT);
+    make_hook(pending, k32, ntdll, IDX_SWTEX, h_swtex as *const () as *mut c_void, &O_SWTEX);
+    make_hook(pending, k32, ntdll, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
+    make_hook(pending, k32, ntdll, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
+    make_hook(pending, k32, ntdll, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
+    make_hook(pending, k32, ntdll, IDX_TPTIMER, h_set_tp_timer as *const () as *mut c_void, &O_TPTIMER);
+    make_hook(pending, k32, ntdll, IDX_TPTIMEREX, h_set_tp_timer_ex as *const () as *mut c_void, &O_TPTIMEREX);
+}}
 
 /// Install and enable every channel's detour, wiring this process to the shared anchor.
 ///
@@ -2837,6 +3116,17 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
         give_back(core);
         return Err(InstallError::Refused(why.into()));
     }
+    // MinHook's own state, made here where a failure can still be a refusal (R4-N1). The wrapper crate
+    // makes this call itself inside its first `create_hook`, and answers every failure but "already
+    // initialized" with a panic, which cannot unwind out of `DllMain` and ends the application instead.
+    // Asked first, the wrapper then only ever sees "already initialized", which it ignores.
+    let status = MH_Initialize();
+    if !minhook_ready(status) {
+        give_back(core);
+        return Err(InstallError::Refused(format!("MH_Initialize answered {status}")));
+    }
+    // Past the last refusal, so a refused library still unloads (R4-N2).
+    pin_self();
     let _ = CTL_PTR.set(view.Value as usize);
     let _ = TZ_BIAS.set(read_tz_bias(ctl as *const Ctl));
     // The session we joined, for `still_ours` (R2-S6), and the core the watcher waits on.
@@ -2914,43 +3204,9 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
     make_hook(&mut pending, k32, ntdll, IDX_TLTST, h_tltst as *const () as *mut c_void, &O_TLTST);
     make_hook(&mut pending, k32, ntdll, IDX_TLTSTEX, h_tltstex as *const () as *mut c_void, &O_TLTSTEX);
 
-    // Duration axis (opt-in). The anchor lives in the shared Ctl now: the core initialized it in
-    // prepare (from the real GetTickCount64 / QUIT, before the target ran) and rebases it on every
-    // set_multiplier, so a speed change never rewinds the axis (H-1). No per-process capture here - the
-    // detours read it under the same seqlock as the wall multiplier. QPC stays real unless its own
-    // opt-in asks otherwise (ADR-2) - timeGetTime rides this axis, sharing GetTickCount's base.
+    // Duration axis (opt-in), with the waits and timers that ride it - see `make_duration_hooks`.
     if read_scale_dur(ctl as *const Ctl) {
-        make_hook(&mut pending, k32, ntdll, IDX_GTC64, h_tick as *const () as *mut c_void, &O_TICK);
-        make_kernelbase_copy_hook(&mut pending, k32, IDX_GTC64, h_tick_kb as *const () as *mut c_void, &O_TICK_KB);
-        make_hook(&mut pending, k32, ntdll, IDX_GTC, h_tick32 as *const () as *mut c_void, &O_TICK32);
-        make_kernelbase_copy_hook(&mut pending, k32, IDX_GTC, h_tick32_kb as *const () as *mut c_void, &O_TICK32_KB);
-        make_hook(&mut pending, k32, ntdll, IDX_QUIT, h_quit as *const () as *mut c_void, &O_QUIT);
-        make_hook(&mut pending, k32, ntdll, IDX_SLEEP, h_sleep as *const () as *mut c_void, &O_SLEEP);
-        make_hook(&mut pending, k32, ntdll, IDX_SLEEPEX, h_sleepex as *const () as *mut c_void, &O_SLEEPEX);
-        make_hook(&mut pending, k32, ntdll, IDX_NTDELAY, h_ntdelay as *const () as *mut c_void, &O_NTDELAY);
-        make_hook(&mut pending, k32, ntdll, IDX_WFSO, h_wfso as *const () as *mut c_void, &O_WFSO);
-        make_hook(&mut pending, k32, ntdll, IDX_WFSOEX, h_wfsoex as *const () as *mut c_void, &O_WFSOEX);
-        make_hook(&mut pending, k32, ntdll, IDX_WFMO, h_wfmo as *const () as *mut c_void, &O_WFMO);
-        make_hook(&mut pending, k32, ntdll, IDX_WFMOEX, h_wfmoex as *const () as *mut c_void, &O_WFMOEX);
-        make_hook(&mut pending, k32, ntdll, IDX_SOAW, h_soaw as *const () as *mut c_void, &O_SOAW);
-        make_hook(&mut pending, k32, ntdll, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
-        make_hook(&mut pending, k32, ntdll, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
-        // The four waits that used to be neither scaled nor observed. They ride the same opt-in as the
-        // rest of the wait family: a session that did not ask for the duration axis is not watching
-        // waits at all. Three resolve in kernelbase and the socket one in ws2_32, which is optional and
-        // therefore also in the late scan below (ADR-10) - without that entry this would repeat exactly
-        // the gap ADR-10 was written to close.
-        make_hook(&mut pending, k32, ntdll, IDX_SCVSRW, h_scvsrw as *const () as *mut c_void, &O_SCVSRW);
-        make_hook(&mut pending, k32, ntdll, IDX_SCVCS, h_scvcs as *const () as *mut c_void, &O_SCVCS);
-        make_hook(&mut pending, k32, ntdll, IDX_WOA, h_woa as *const () as *mut c_void, &O_WOA);
-        make_hook(&mut pending, k32, ntdll, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
-        make_hook(&mut pending, k32, ntdll, IDX_SWT, h_swt as *const () as *mut c_void, &O_SWT);
-        make_hook(&mut pending, k32, ntdll, IDX_SWTEX, h_swtex as *const () as *mut c_void, &O_SWTEX);
-        make_hook(&mut pending, k32, ntdll, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
-        make_hook(&mut pending, k32, ntdll, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
-        make_hook(&mut pending, k32, ntdll, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
-        make_hook(&mut pending, k32, ntdll, IDX_TPTIMER, h_set_tp_timer as *const () as *mut c_void, &O_TPTIMER);
-        make_hook(&mut pending, k32, ntdll, IDX_TPTIMEREX, h_set_tp_timer_ex as *const () as *mut c_void, &O_TPTIMEREX);
+        make_duration_hooks(&mut pending, k32, ntdll);
     }
 
     // QPC axis (opt-in `scale_qpc`, ADR-2 reversal). SEPARATE from scale_duration because scaling QPC also
@@ -3006,17 +3262,18 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
     // process) the target keeps running on real time - DllMain cannot undo a load - so the honest
     // report is zero covered channels, which the mechanism turns into a failing verdict rather than
     // a silent "works" over a session that substituted nothing (rule 4).
-    if let Err(e) = MinHook::enable_all_hooks() {
+    if let Err(why) = enable_or_take_back(|| MinHook::enable_all_hooks(), || MinHook::disable_all_hooks()) {
         if let Some(c) = cov {
             // Explicit, not merely "we never wrote": a reader that somehow saw this slot must read
             // zero covered channels, not a claim we cannot back. We also return without publishing
             // our PID, so the mechanism never looks at the slot at all.
             set_channels_installed(c, 0);
         }
-        return Err(InstallError::Failed(format!("enable_all_hooks: {e:?}")));
+        return Err(InstallError::Failed(why));
     }
     if let Some(c) = cov {
         set_channels_installed(c, pending);
+        set_failed_channels(c, HOOK_FAILED.load(Ordering::Relaxed));
     }
 
     // Hand the watcher whatever this session WANTED from an optional module and did not get. The set
@@ -3136,6 +3393,106 @@ mod tests {
         assert_eq!(attach_answer(&Ok(())), 1);
         assert_eq!(attach_answer(&Err(InstallError::Refused("ended".into()))), 0);
         assert_eq!(attach_answer(&Err(InstallError::Failed("enable_all_hooks".into()))), 1);
+    }
+
+    /// A failed enable takes back whatever went live, a clean one takes nothing back, and a take-back
+    /// that fails too says so (R4-W7).
+    #[test]
+    fn a_failed_enable_takes_back_whatever_went_live() {
+        let taken_back = Cell::new(0);
+        let take_back = || {
+            taken_back.set(taken_back.get() + 1);
+            Ok::<(), i32>(())
+        };
+        assert!(enable_or_take_back(|| Ok::<(), i32>(()), take_back).is_ok());
+        assert_eq!(taken_back.get(), 0, "a clean enable takes nothing back");
+        assert!(enable_or_take_back(|| Err::<(), i32>(5), take_back).is_err());
+        assert_eq!(taken_back.get(), 1, "a failed enable takes back what went live, once");
+        let both = enable_or_take_back(|| Err::<(), i32>(5), || Err::<(), i32>(6)).unwrap_err();
+        assert!(both.contains("failed too"), "a take-back that fails is named: {both}");
+    }
+
+    /// Late detours go on in one batch, one freeze for all of them. Only a batch that fails falls back to
+    /// each detour's own enable, where a failure in the middle neither stops the ones after it nor gets
+    /// its own channel counted, and comes back as failed so the audit can list it (R4-W7).
+    #[test]
+    fn late_detours_go_on_in_one_batch_and_one_by_one_only_when_it_fails() {
+        let created = [(0b001, 10), (0b010, 20), (0b100, 30)];
+        let tried = Cell::new(0);
+        let one = |_bit, target| {
+            tried.set(tried.get() + 1);
+            target != 20
+        };
+
+        let batched = Cell::new(0);
+        let whole = enable_late(&created, |b| { batched.set(b.len()); true }, one);
+        assert_eq!(whole, (0b111, 0), "a batch that went through claims every detour in it");
+        assert_eq!((batched.get(), tried.get()), (3, 0), "one batch of three, no detour on its own");
+
+        let split = enable_late(&created, |_| false, one);
+        assert_eq!(split, (0b101, 0b010), "only the two that went live are claimed, the third is failed");
+        assert_eq!(tried.get(), 3, "a failure does not stop the ones after it");
+
+        let called = Cell::new(false);
+        assert_eq!(enable_late(&[], |_| { called.set(true); true }, one), (0, 0));
+        assert!(!called.get(), "nothing created, nothing to freeze the threads for");
+    }
+
+    /// After a batch that stopped part-way, a detour it already switched on answers "already enabled" to
+    /// its own enable, and that is live. Read as failed, its channel would be reported uncovered and taken
+    /// out of the queue, and the next batch would switch it off under a mask that claims it.
+    #[test]
+    fn a_detour_the_batch_already_switched_on_counts_as_live() {
+        assert!(went_live(&Ok(())));
+        assert!(went_live(&Err(MH_STATUS::MH_ERROR_ENABLED)));
+        assert!(!went_live(&Err(MH_STATUS::MH_ERROR_MEMORY_PROTECT)));
+        assert!(!went_live(&Err(MH_STATUS::MH_ERROR_NOT_CREATED)));
+    }
+
+    /// A child is counted as uncovered when its load failed, and when it loaded but never signed in while
+    /// the registry still had room - its install failed after the library loaded (R4-S2). Past the end
+    /// of the registry a missing pid proves nothing, and `coverage.pid_registry_full` speaks for it.
+    #[test]
+    fn a_child_that_loaded_but_never_signed_in_ran_uncovered() {
+        let room = MAX_COV_PIDS as u32;
+        assert!(child_ran_uncovered(false, false, 3), "the load failed");
+        assert!(!child_ran_uncovered(true, true, 3), "loaded and signed in");
+        assert!(child_ran_uncovered(true, false, 3), "loaded, no pid, room left");
+        assert!(child_ran_uncovered(true, false, room), "the last slot was still a slot");
+        assert!(!child_ran_uncovered(true, false, room + 1), "the registry was full");
+    }
+
+    /// Only two known, different machines skip the injection (R4-N9). One that could not be asked leaves
+    /// it to be tried, as before.
+    #[test]
+    fn only_a_known_other_machine_skips_the_injection() {
+        const AMD64: u16 = 0x8664;
+        const I386: u16 = 0x014c;
+        assert!(bitness_differs(Some(I386), Some(AMD64)));
+        assert!(bitness_differs(Some(AMD64), Some(I386)));
+        assert!(!bitness_differs(Some(AMD64), Some(AMD64)));
+        assert!(!bitness_differs(None, Some(AMD64)));
+        assert!(!bitness_differs(Some(I386), None));
+    }
+
+    /// This process can be asked what it runs as, and the answer is the bitness it was built for.
+    #[test]
+    fn this_process_runs_as_the_machine_it_was_built_for() {
+        let own = unsafe { process_machine(GetCurrentProcess()) };
+        let built = if cfg!(target_pointer_width = "64") { 0x8664 } else { 0x014c };
+        assert_eq!(own, Some(built));
+    }
+
+    /// MinHook stands ready when it initialized now or had been already, and every other answer is a
+    /// refusal - the wrapper crate would have panicked on it inside `DllMain` (R4-N1). The failures are
+    /// MinHook's own codes: unknown, not initialized, and the heap it could not create.
+    #[test]
+    fn minhook_is_ready_only_when_it_initialized_or_already_had() {
+        assert!(minhook_ready(MH_OK));
+        assert!(minhook_ready(MH_ERROR_ALREADY_INITIALIZED));
+        for failure in [-1, 2, 9, 10] {
+            assert!(!minhook_ready(failure), "status {failure} left MinHook unusable and must refuse");
+        }
     }
 
     /// A two-body channel is covered only when both bodies are detoured. Either one failing leaves a

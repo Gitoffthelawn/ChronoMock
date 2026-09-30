@@ -21,5 +21,5 @@
 # cannot drift apart in silence - but it cannot tell you which of the two you meant to change.
 
 too-many-lines-threshold = 160
-cognitive-complexity-threshold = 22
+cognitive-complexity-threshold = 21
 excessive-nesting-threshold = 5
