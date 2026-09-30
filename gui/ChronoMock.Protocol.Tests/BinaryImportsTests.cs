@@ -182,12 +182,15 @@ public class BinaryImportsTests
         ),
         (
             "chrono.exe", "advapi32.dll",
-            "RegGetValueW, and nothing else. One read-only registry question for the same channel " +
-            "(docs/09 section 12.10): whether a WebView2 AdditionalBrowserArguments policy value for the " +
-            "target is there, because the session's environment variable hides it for the session and " +
-            "the tester is told so. The standard library stopped importing this module when it moved its " +
-            "random seed to bcryptprimitives, so it arrives here for this one call. Measured: one import " +
-            "by name, on both bitnesses"
+            "Three calls, and nothing else. RegGetValueW is one read-only registry question for the " +
+            "embedded-engine channel (docs/09 section 12.10): whether a WebView2 AdditionalBrowserArguments " +
+            "policy value for the target is there, because the session's environment variable hides it for " +
+            "the session and the tester is told so. OpenProcessToken and GetTokenInformation are one read-only " +
+            "question about a process's token (docs/09 section 12.12): whether the application that loaded " +
+            "WebView2 runs elevated, because WebView2 then ignores that very variable and the report has to " +
+            "say why its pages were not reached. The standard library stopped importing this module when it " +
+            "moved its random seed to bcryptprimitives, so it arrives here for these calls. Measured " +
+            "2026-09-30 with dumpbin: three imports by name, on both bitnesses"
         ),
 
         (
@@ -285,17 +288,19 @@ public class BinaryImportsTests
     }
 
     /// <summary>
-    /// The same pin for the registry module: one read-only query, and a second registry function
-    /// arriving under the same entry would be a different grant than the one written down.
+    /// The same pin for the module the registry and token calls live in: three read-only questions, and a
+    /// fourth function arriving under the same entry would be a different grant than the one written down.
     /// </summary>
     [Fact]
-    public void The_registry_module_is_imported_for_exactly_the_one_query_the_register_allows()
+    public void The_advapi32_module_is_imported_for_exactly_the_calls_the_register_allows()
     {
         foreach (var triple in new[] { X64, X86 })
         {
             var table = PeImportTable.Read(RepoPaths.ReleaseBinary(RepoPaths.RepoRoot(), triple, "chrono.exe"));
             var entry = Assert.Single(table.Entries, e => SameModule(e.Name, "advapi32.dll"));
-            Assert.Equal(["RegGetValueW"], entry.Functions.Order(StringComparer.Ordinal));
+            Assert.Equal(
+                ["GetTokenInformation", "OpenProcessToken", "RegGetValueW"],
+                entry.Functions.Order(StringComparer.Ordinal));
         }
     }
 

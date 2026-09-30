@@ -109,6 +109,16 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **An application that runs as administrator and uses WebView2 is no longer reported as working
+  over pages that ran on the real clock.** WebView2 ignores the environment variable the session
+  reaches its web engine through when the application is elevated, so the session never reached the
+  pages of such an application and still said `works`. The session now looks for the WebView2 client
+  library in the application, and when it is there and no web engine was reached, the verdict is
+  `partial` (exit 10) with an explanation: the session never reached the engine and its pages may
+  have run on the real clock. When the application's token is elevated it adds the reason, that Chrono
+  Mock runs as administrator and so does the application. The same explanation now also covers an
+  application whose engine was not reached for any other reason that no other line names. A session
+  started with `--no-embedded` is not affected, since it leaves the pages on the real clock by request.
 - **An application the tool was still starting no longer stays behind, suspended, when the tool is
   stopped.** It is started suspended, the time library is put into it, and only then does it run. If
   the tool ended in that stretch - the window stopping it after two seconds without an answer, Ctrl+C,

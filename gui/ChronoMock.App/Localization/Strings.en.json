@@ -449,6 +449,8 @@
   "embedded.qt_port_taken": "The port reserved for the application's Qt web engine was taken by something else before the engine could use it. Its pages could not be reached and ran on the real clock.",
   "embedded.zone_is_host": "The pages inside this application read this computer's time zone, not the session's. A local time they show differs from the rest of the application by the zone offset.",
   "embedded.registry_arguments_hidden": "This application has WebView2 browser arguments set in the registry. The session hid them for its duration, so whatever they set up (a debugging port of your own, say) was not applied.",
+  "embedded.webview2_not_reached": "The application loaded WebView2, but the session never reached its web engine, so its pages may have run on the real clock.",
+  "embedded.elevated_host": "Chrono Mock is running as administrator, so the application is too, and WebView2 then ignores the setting that lets the session reach its pages. Run Chrono Mock without administrator rights.",
   "embedded.pages_not_released": "A page inside this application did not confirm it was handed back to the real clock when the session ended, so it may keep the session date until you reload or close it.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.

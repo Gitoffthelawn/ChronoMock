@@ -57,6 +57,7 @@ public class LocalizationTests
         "embedded.web_engine_reached", "embedded.debug_port_open", "embedded.engine_unreachable",
         "embedded.discovery_unavailable", "embedded.qt_port_taken", "embedded.zone_is_host",
         "embedded.registry_arguments_hidden", "embedded.pages_not_released",
+        "embedded.webview2_not_reached", "embedded.elevated_host",
         "time.fake_clock_clamped", "time.duration_axis_clamped",
         // The application outlived the session and was let go (docs/01 section 8.4), and the session
         // outlived the program it launched and went on for what that program started (ADR-16).
