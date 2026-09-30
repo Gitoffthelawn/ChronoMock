@@ -121,6 +121,11 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
             match chrono_mech::launch_plain(&target) {
                 Ok(child) => {
                     outln!("launched pid {}", child.pid);
+                    // Without its job the host outlives a probe that is killed, and so does whatever it
+                    // started (R4-N15) - said rather than left out (rule 6).
+                    if let Some(why) = child.job_note() {
+                        diag!("chrono: the host runs without a job ({why}) - a probe that is killed leaves it running");
+                    }
                     let pid = child.pid;
                     launched = Some(child);
                     pid
