@@ -109,6 +109,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A new session opens its live view and its result at the top.** The window keeps one of each for
+  as long as it is open, and each kept its scroll position, so a second session showed its result
+  wherever the first one had been read to - with the verdict out of sight above the edge. Both now
+  start at the top every time a session enters them. Switching to the calculator and back still keeps
+  the place, and the setup form still opens where it was left.
 - **The injected library no longer takes down an application that does nothing wrong.** Handing a
   clock or timer function a buffer at an odd address, which a packed structure does and Windows
   accepts, was undefined behaviour in the hook, and its debug build ended the application on the spot.
