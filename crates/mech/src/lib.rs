@@ -18,6 +18,7 @@ mod family;
 mod job;
 mod listeners;
 mod policy;
+mod process_facts;
 mod stdio;
 mod tree;
 
@@ -27,6 +28,7 @@ pub use environment::{current_environment, encode_block, environment_block, merg
 pub use family::FamilyMember;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
+pub use process_facts::{process_elevated, process_has_module, ModuleProbe};
 pub use stdio::TargetStdio;
 pub use tree::family_of;
 
