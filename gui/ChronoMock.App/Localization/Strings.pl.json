@@ -265,7 +265,7 @@
   "status.did_not_take_effect": "Nie zadziałało - aplikacja zniknęła",
   "status.core_stopped": "Chrono Mock nieoczekiwanie się zatrzymał - aplikacja wróciła do realnego zegara",
   "status.stopping": "Zatrzymywanie - aplikacja wraca do realnego zegara",
-  "status.refused": "Odmowa - podmiana nie zadziałała, więc aplikacja została zatrzymana",
+  "status.refused": "Odmowa - podmiana nie zadziałała, więc sesja zakończyła aplikację",
   "status.stopped": "Sesja zatrzymana - aplikacja wróciła do realnego zegara",
   "status.core_unresponsive": "Chrono Mock przestał odpowiadać - aplikacja wróciła do realnego zegara",
   "status.core_missing": "Nie udało się uruchomić Chrono Mock - instalacja może być niekompletna",
@@ -504,6 +504,8 @@
   "report.cleanup": "nie sprzątnięto do końca",
   // The processes the session went on for after the target closed, see the English file.
   "report.followed": "cel uruchomił te programy, a sesja trwała dalej dla nich",
+  // What a refusal could not end, see the English file.
+  "report.left_running": "nie udało się ich zakończyć - działają na realnym zegarze",
   // The processes the hook never got into, see the English file.
   "report.processes_uncovered": "procesy, które działały na prawdziwym zegarze",
   "report.process_line": "pid {0}: {1}, uruchomiony przez pid {2}",
@@ -536,6 +538,10 @@
   "result.exit_code": "Aplikacja zakończyła się sama, z kodem wyjścia",
   // The heading over the processes the session went on for, see the English file.
   "result.followed": "Sesja trwała dalej dla programów uruchomionych przez aplikację",
+  // The heading over the processes a refusal could not end, see the English file.
+  "result.left_running": "Tych programów nie udało się zakończyć - działają na realnym zegarze",
+  // Under the refused status when the search was not complete, see the English file.
+  "result.refusal_incomplete": "Nie każdy program uruchomiony przez aplikację udało się odnaleźć - część może nadal działać na realnym zegarze",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."
   "result.lived_before": "Aplikacja działała przez",
   "result.lived_after": "i zniknęła.",

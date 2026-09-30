@@ -262,6 +262,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     // could not remove (today only a CDP temp profile). Surfaced honestly, never dropped (rule 6).
     private int? _targetExitCode;
     private IReadOnlyList<string> _followedRows = [];
+    private IReadOnlyList<string> _leftRunningRows = [];
+    private bool _refusalIncomplete;
     private IReadOnlyList<string> _residueKeys = [];
     // Diagnostics captured when a session ends in anything but a clean success (RELEASE-012): the core's
     // stderr and parse errors, composed into a block the user can copy and that is also written to a log
@@ -1529,6 +1531,26 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
     public bool HasFollowed => _followedRows.Count > 0;
 
+    /// <summary>The processes of the application a refusal could not end, from <c>verdict.left_running</c>
+    /// (R4-S5), in the spelling of <see cref="FollowedRows"/>. They run on the real clock, which the status
+    /// line alone would hide - it says the application was ended. Empty for every session not refused.</summary>
+    public IReadOnlyList<string> LeftRunningRows
+    {
+        get => _leftRunningRows;
+        private set { if (Set(ref _leftRunningRows, value)) { RaisePropertyChanged(nameof(HasLeftRunning)); } }
+    }
+
+    public bool HasLeftRunning => _leftRunningRows.Count > 0;
+
+    /// <summary>Whether a refusal could not look for all of the application's processes, from
+    /// <c>verdict.family_search_incomplete</c> - some may run on the real clock unnamed, so the status that
+    /// says the application was ended must not stand alone. False for every session not refused.</summary>
+    public bool RefusalIncomplete
+    {
+        get => _refusalIncomplete;
+        private set => Set(ref _refusalIncomplete, value);
+    }
+
     /// <summary>Cleanup residue translation keys from <c>ended.residue_keys</c> - what a teardown could not
     /// remove (today only a CDP temp profile that stayed locked). Empty on a clean end - rendered as
     /// warnings so a session reports the mess it left rather than hiding it (rule 6).</summary>
@@ -1650,6 +1672,10 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             case VerdictEvent v:
                 // The per-process verdict, at start. It gates refuse_start and is the first indicator shown.
                 SetVerdict(VerdictKinds.Parse(v.Verdict), v.ReasonKey);
+                // Empty and false unless the core refused and could not end, or look for, all of the
+                // application (R4-S5).
+                LeftRunningRows = FollowedLines(v.LeftRunning);
+                RefusalIncomplete = v.FamilySearchIncomplete;
                 if (v.RefuseStart)
                 {
                     // The core stopped the target rather than hand back a session whose evidence would be
@@ -2024,6 +2050,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         _livedMs = 0;
         TargetExitCode = null;
         FollowedRows = [];
+        LeftRunningRows = [];
+        RefusalIncomplete = false;
         ResidueKeys = [];
         DiagnosticsText = string.Empty;
         DiagnosticsSavedPath = string.Empty;
@@ -2144,6 +2172,15 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             sb.Append("  ").Append(translate("report.verdict")).Append(": ")
               .Append(translate("report.no_verdict")).Append('\n');
         }
+
+        // What a refusal could not end, under the verdict it follows from - where the CLI report puts it -
+        // after the caveat that some of it may not have been found at all.
+        if (_refusalIncomplete)
+        {
+            sb.Append("  ").Append(translate("result.refusal_incomplete")).Append('\n');
+        }
+
+        AppendList(sb, translate, "report.left_running", _leftRunningRows, translateItems: false);
 
         if (_hasTiming)
         {
