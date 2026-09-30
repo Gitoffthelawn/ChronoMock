@@ -134,14 +134,28 @@ fn image_of(process: *mut c_void) -> Option<String> {
 /// Whether the process `pid`, started from `image`, is still there after `ms` milliseconds. A pid that
 /// now belongs to another executable is somebody else's, so the target is gone. One still there is ended
 /// here, so a failing run does not leave it behind on the machine that ran the test.
+///
+/// The executable is compared by file name, not by full path: the kernel and `current_exe` can spell one
+/// path two ways (a `subst` drive, a junction, a `\\?\` prefix), and a mismatch would read as "somebody
+/// else's" and pass over a target left suspended. A running process whose name cannot be read cannot be
+/// told apart either way, so that fails loudly instead of passing.
 fn outlives(pid: u32, image: &Path, ms: u32) -> bool {
+    let file = |path: &Path| path.file_name().map(|f| f.to_string_lossy().to_ascii_lowercase());
     // SAFETY: a handle opened here and closed on every path out.
     unsafe {
         let process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, 0, pid);
         if process.is_null() {
             return false;
         }
-        let ours = image_of(process).is_some_and(|name| name.eq_ignore_ascii_case(&image.display().to_string()));
+        let ours = match image_of(process) {
+            Some(name) => file(Path::new(&name)) == file(image),
+            None if WaitForSingleObject(process, 0) == WAIT_OBJECT_0 => false,
+            None => {
+                // Not ended: a process that cannot be named cannot be told from somebody else's.
+                CloseHandle(process);
+                panic!("pid {pid} is running and its executable cannot be read, so the check would prove nothing");
+            }
+        };
         let alive = ours && WaitForSingleObject(process, ms) != WAIT_OBJECT_0;
         if alive {
             TerminateProcess(process, 1);
