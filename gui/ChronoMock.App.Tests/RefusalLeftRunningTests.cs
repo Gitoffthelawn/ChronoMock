@@ -58,7 +58,36 @@ public class RefusalLeftRunningTests
         Assert.Equal(SessionStatusKind.Refused, vm.StatusKind);
         Assert.False(vm.HasLeftRunning);
         Assert.Empty(vm.LeftRunningRows);
-        Assert.DoesNotContain("report.left_running", vm.BuildSummary(Key), StringComparison.Ordinal);
+        Assert.False(vm.RefusalIncomplete);
+        var summary = vm.BuildSummary(Key);
+        Assert.DoesNotContain("report.left_running", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("result.refusal_incomplete", summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>A refusal that could not look for all of the application says so, on the screen and in the
+    /// summary, between the verdict and the list - the list alone would read as everything that was left.</summary>
+    [Fact]
+    public void An_incomplete_search_is_said_under_the_verdict_before_the_list()
+    {
+        var vm = PhaseStates.ResultRefusedIncomplete();
+        var summary = vm.BuildSummary(Key);
+
+        Assert.True(vm.RefusalIncomplete);
+        var verdict = summary.IndexOf("report.verdict", StringComparison.Ordinal);
+        var caveat = summary.IndexOf("  result.refusal_incomplete\n", StringComparison.Ordinal);
+        var header = summary.IndexOf("  report.left_running (1):\n", StringComparison.Ordinal);
+        Assert.True(verdict >= 0 && verdict < caveat && caveat < header, $"out of place:\n{summary}");
+    }
+
+    /// <summary>The next session starts without the last refusal's caveat either.</summary>
+    [Fact]
+    public void A_new_session_does_not_inherit_the_caveat()
+    {
+        var vm = PhaseStates.ResultRefusedIncomplete();
+
+        vm.BeginNewSession();
+
+        Assert.False(vm.RefusalIncomplete);
     }
 
     /// <summary>The next session starts without the last refusal's list - a list that outlived its session would
@@ -75,18 +104,22 @@ public class RefusalLeftRunningTests
         Assert.Empty(vm.LeftRunningRows);
     }
 
-    /// <summary>The field as the core writes it reaches the event, and a verdict without it - every verdict that
-    /// is not a refusal, and every core older than the field - reads as an empty list.</summary>
+    /// <summary>The fields as the core writes them reach the event, and a verdict without them - every verdict
+    /// that is not a refusal, and every core older than the fields - reads as an empty list and a complete
+    /// search.</summary>
     [Fact]
-    public void The_wire_field_is_read_and_its_absence_is_an_empty_list()
+    public void The_wire_fields_are_read_and_their_absence_is_empty_and_complete()
     {
         const string refused =
-            """{"type":"verdict","v":1,"id":1,"verdict":"fails","refuse_start":true,"reason_key":"coverage.time_channels_uncovered","left_running":[{"pid":5150,"image":"helper.exe"},{"pid":5151}]}""";
+            """{"type":"verdict","v":1,"id":1,"verdict":"fails","refuse_start":true,"reason_key":"coverage.time_channels_uncovered","left_running":[{"pid":5150,"image":"helper.exe"},{"pid":5151}],"family_search_incomplete":true}""";
         const string works =
             """{"type":"verdict","v":1,"id":1,"verdict":"works","refuse_start":false,"reason_key":"coverage.time_channels_covered"}""";
 
-        var left = Assert.IsType<VerdictEvent>(EventParser.Parse(refused)).LeftRunning;
-        Assert.Equal([new FollowedProcess { Pid = 5150, Image = "helper.exe" }, new FollowedProcess { Pid = 5151 }], left);
-        Assert.Empty(Assert.IsType<VerdictEvent>(EventParser.Parse(works)).LeftRunning);
+        var read = Assert.IsType<VerdictEvent>(EventParser.Parse(refused));
+        Assert.Equal([new FollowedProcess { Pid = 5150, Image = "helper.exe" }, new FollowedProcess { Pid = 5151 }], read.LeftRunning);
+        Assert.True(read.FamilySearchIncomplete);
+        var plain = Assert.IsType<VerdictEvent>(EventParser.Parse(works));
+        Assert.Empty(plain.LeftRunning);
+        Assert.False(plain.FamilySearchIncomplete);
     }
 }

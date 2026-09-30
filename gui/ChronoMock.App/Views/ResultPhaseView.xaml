@@ -163,6 +163,12 @@
             <!-- What a refusal could not end (R4-S5), right under the status that says the application was
                  ended - that line alone would hide processes still running on the real clock. Data rows, so
                  the fact list, as for the programs a session went on for. -->
+            <!-- When the refusal could not look for all of the application, the status above must not stand as a
+                 claim that all of it was ended - some may still run unnamed. -->
+            <TextBlock x:Name="RefusalIncompleteNote" Style="{StaticResource PartLabel}" TextWrapping="Wrap"
+                       Margin="{StaticResource StackGapSm}"
+                       Text="{DynamicResource result.refusal_incomplete}"
+                       Visibility="{Binding RefusalIncomplete, Converter={StaticResource BoolToVis}}" />
             <controls:TextNamedList x:Name="LeftRunningList" Style="{StaticResource PartFactList}"
                                     Header="{DynamicResource result.left_running}"
                                     ItemsSource="{Binding LeftRunningRows}"

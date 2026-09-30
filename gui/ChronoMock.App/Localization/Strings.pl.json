@@ -540,6 +540,8 @@
   "result.followed": "Sesja trwała dalej dla programów uruchomionych przez aplikację",
   // The heading over the processes a refusal could not end, see the English file.
   "result.left_running": "Tych programów nie udało się zakończyć - działają na realnym zegarze",
+  // Under the refused status when the search was not complete, see the English file.
+  "result.refusal_incomplete": "Nie każdy program uruchomiony przez aplikację udało się odnaleźć - część może nadal działać na realnym zegarze",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."
   "result.lived_before": "Aplikacja działała przez",
   "result.lived_after": "i zniknęła.",

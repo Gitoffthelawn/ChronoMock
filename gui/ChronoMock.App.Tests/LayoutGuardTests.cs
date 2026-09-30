@@ -847,7 +847,9 @@ public class LayoutGuardTests
                 && e.Bounds.Bottom <= left.Bounds.Bottom);
             var ended = new ResultPhaseView { DataContext = PhaseStates.ResultRefused() };
             LayoutProbe.Settle(ended);
-            var none = LayoutProbe.Walk(ended).Single(e => e.Name == "LeftRunningList").IsVisible;
+            var endedElements = LayoutProbe.Walk(ended);
+            var none = endedElements.Single(e => e.Name == "LeftRunningList").IsVisible
+                || endedElements.Single(e => e.Name == "RefusalIncompleteNote").IsVisible;
             return (elements.Single(e => e.Name == "ResultStatus"), left, elements.Single(e => e.Name == "CopyRow"), row, none);
         });
 
@@ -856,7 +858,31 @@ public class LayoutGuardTests
         Assert.True(status.Bounds.Bottom <= list.Bounds.Top, $"the list starts at {list.Bounds.Top:F0}, above the status's end at {status.Bounds.Bottom:F0}");
         Assert.True(list.Bounds.Bottom <= copy.Bounds.Top, $"the list ends at {list.Bounds.Bottom:F0}, below the copy row's top at {copy.Bounds.Top:F0}");
         Assert.True(rowInside, "the list is on the result without the process it names");
-        Assert.False(emptyShown, "a refusal that ended everything shows an empty list");
+        Assert.False(emptyShown, "a refusal that ended everything shows an empty list or a caveat");
+    }
+
+    /// <summary>
+    /// A refusal that could not look for all of the application says so between the status and the list, so the
+    /// status is never read alone as a claim that everything was ended (R4-S5). Measured on the arrange pass.
+    /// </summary>
+    [Fact]
+    public void An_incomplete_search_is_said_between_the_refused_status_and_the_list()
+    {
+        var (status, note, list) = WpfTestHost.InvokeSettled(() =>
+        {
+            var view = new ResultPhaseView { DataContext = PhaseStates.ResultRefusedIncomplete() };
+            LayoutProbe.Settle(view);
+            var elements = LayoutProbe.Walk(view);
+            return (
+                elements.Single(e => e.Name == "ResultStatus"),
+                elements.Single(e => e.Name == "RefusalIncompleteNote"),
+                elements.Single(e => e.Name == "LeftRunningList"));
+        });
+
+        Assert.True(note.IsVisible, "the incomplete search is not on the result");
+        Assert.False(string.IsNullOrEmpty(note.Text), "the caveat is on the result without its words");
+        Assert.True(status.Bounds.Bottom <= note.Bounds.Top, $"the caveat starts at {note.Bounds.Top:F0}, above the status's end at {status.Bounds.Bottom:F0}");
+        Assert.True(note.Bounds.Bottom <= list.Bounds.Top, $"the caveat ends at {note.Bounds.Bottom:F0}, below the list's top at {list.Bounds.Top:F0}");
     }
 
     /// <summary>The rebuilt phases in every state the sheet draws, with the section that holds the state opened.</summary>
@@ -878,6 +904,7 @@ public class LayoutGuardTests
         yield return ("result that partly worked", ResultView(PhaseStates.ResultPartial()));
         yield return ("result refused", ResultView(PhaseStates.ResultRefused()));
         yield return ("result refused, processes left running", ResultView(PhaseStates.ResultRefusedLeftRunning()));
+        yield return ("result refused, search incomplete", ResultView(PhaseStates.ResultRefusedIncomplete()));
         yield return ("result that did not take effect", ResultView(PhaseStates.ResultVanished()));
         yield return ("result that did not start", ResultView(PhaseStates.ResultNotStarted()));
         yield return ("result that went on for the programs the application started", ResultView(PhaseStates.ResultWorksAfterHandOff()));

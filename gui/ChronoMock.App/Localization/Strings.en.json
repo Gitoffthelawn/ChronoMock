@@ -565,6 +565,8 @@
   "result.followed": "The session went on for the programs the application had started",
   // The heading over the processes a refusal could not end (R4-S5), under the status that says the application was ended. The list composes the count after it.
   "result.left_running": "These could not be ended and run on the real clock",
+  // Under the refused status when the core could not look for all of the application (R4-S5): some of it may still run without being named.
+  "result.refusal_incomplete": "Not every program the application started could be found - some may still run on the real clock",
   // Around the milliseconds a vanished application lived: "The application ran for 180 ms and then vanished."
   "result.lived_before": "The application ran for",
   "result.lived_after": "and then vanished.",

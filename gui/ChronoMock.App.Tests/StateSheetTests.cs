@@ -202,6 +202,7 @@ public class StateSheetTests
             total += RenderResult("result-embedded", PhaseStates.ResultPartialWithEmbeddedPages(), "AuditSection").Count;
             total += RenderResult("result-refused", PhaseStates.ResultRefused()).Count;
             total += Shows(RenderResult("result-refused-left-running", PhaseStates.ResultRefusedLeftRunning()), "result.left_running");
+            total += Shows(RenderResult("result-refused-incomplete", PhaseStates.ResultRefusedIncomplete()), "result.refusal_incomplete");
             total += RenderResult("result-vanished", PhaseStates.ResultVanished()).Count;
             total += Shows(RenderResult("result-vanished-handoff", PhaseStates.ResultVanishedHandedOff()), "target.handed_off_uncovered");
             var followed = RenderResult("result-followed", PhaseStates.ResultWorksAfterHandOff(), "AuditSection");
