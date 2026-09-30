@@ -241,6 +241,13 @@ pub enum Event {
         verdict: String,
         refuse_start: bool,
         reason_key: String,
+        /// With `refuse_start`, the processes of the application the core could not end, so they are
+        /// still running on the real clock (R4-S5): ones it had no right to end, ones that did not end in
+        /// time, and children the hook named that could not be confirmed as the application's. Empty on
+        /// every other verdict and then absent from the message. Additive: an older message without it
+        /// reads as empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        left_running: Vec<FollowedProcess>,
     },
     /// Solicited reply that a command was applied (reflects the command's `id`).
     Ack {
@@ -454,9 +461,50 @@ mod tests {
             verdict: "undetermined".into(),
             refuse_start: false,
             reason_key: "mechanism.not_implemented".into(),
+            left_running: vec![],
         };
         let line = ev.to_ndjson();
         assert!(!line.contains("\"id\""), "null id must be omitted, got {line}");
+    }
+
+    /// R4-S5: a refusal names what it could not end, and every other verdict reads exactly as before -
+    /// no empty list on the wire, and a message from before the field reads as empty.
+    #[test]
+    fn a_refusal_names_what_it_left_running_and_other_verdicts_do_not_change() {
+        let refused = Event::Verdict {
+            v: PROTOCOL_VERSION,
+            id: Some(1),
+            verdict: "fails".into(),
+            refuse_start: true,
+            reason_key: "coverage.time_channels_uncovered".into(),
+            left_running: vec![
+                FollowedProcess { pid: 5150, image: Some("helper.exe".into()) },
+                FollowedProcess { pid: 5151, image: None },
+            ],
+        };
+        match parse_event(&refused.to_ndjson()).unwrap() {
+            Event::Verdict { left_running, refuse_start, .. } => {
+                assert!(refuse_start);
+                assert_eq!(left_running.len(), 2);
+                assert_eq!(left_running[0], FollowedProcess { pid: 5150, image: Some("helper.exe".into()) });
+                assert_eq!(left_running[1], FollowedProcess { pid: 5151, image: None });
+            }
+            other => panic!("expected a verdict, got {other:?}"),
+        }
+        let works = Event::Verdict {
+            v: PROTOCOL_VERSION,
+            id: Some(1),
+            verdict: "works".into(),
+            refuse_start: false,
+            reason_key: "coverage.time_channels_covered".into(),
+            left_running: vec![],
+        };
+        assert!(!works.to_ndjson().contains("left_running"), "an empty list went on the wire");
+        let older = r#"{"type":"verdict","v":1,"id":1,"verdict":"works","refuse_start":false,"reason_key":"x"}"#;
+        match parse_event(older).unwrap() {
+            Event::Verdict { left_running, .. } => assert!(left_running.is_empty()),
+            other => panic!("expected a verdict, got {other:?}"),
+        }
     }
 
     #[test]

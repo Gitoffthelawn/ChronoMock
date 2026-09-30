@@ -111,6 +111,10 @@ pub(crate) struct SessionReport {
     /// The processes the session went on for after the target closed, from `session_verdict.followed`
     /// (ADR-16). Empty when nothing outlived the target.
     pub(crate) followed: Vec<chrono_proto::FollowedProcess>,
+    /// Set when the opening verdict refused the session and the core ended the application, with the
+    /// processes of it that could not be ended, from `verdict.left_running` (R4-S5). `None` for every
+    /// session that was not refused.
+    pub(crate) refused: Option<Vec<chrono_proto::FollowedProcess>>,
     /// Session duration as the core states it in `ended`: (fake wall reached, real ms elapsed,
     /// fake ms elapsed), or None when `ended` carried no end wall (a session that never started).
     /// Authoritative, not sampled from the heartbeats - one source of truth (3d35a79).
@@ -677,6 +681,28 @@ fn render_followed(followed: &[chrono_proto::FollowedProcess]) -> String {
     out
 }
 
+/// What a refusal did to the application, or nothing when the session was not refused (R4-S5). The
+/// verdict above it says the substitution did not take effect, and this is what followed from that:
+/// the application was ended, except the processes named here, which could not be. The report used to
+/// say nothing of it, so a reader could not tell a refused run from one that went on.
+fn render_refusal(refused: Option<&[chrono_proto::FollowedProcess]>) -> String {
+    let Some(left) = refused else {
+        return String::new();
+    };
+    let mut out = String::from("  refused:  the substitution did not take effect, so the session ended the application\n");
+    if left.is_empty() {
+        return out;
+    }
+    out.push_str("            except these, which it could not end - they run on the REAL clock:\n");
+    for p in left {
+        match &p.image {
+            Some(image) => out.push_str(&format!("            - {image} (pid {})\n", p.pid)),
+            None => out.push_str(&format!("            - pid {}\n", p.pid)),
+        }
+    }
+    out
+}
+
 /// One heading plus its pid-tagged channel names, or nothing when the list is empty. Shared by the
 /// two name-only buckets so `render_report` stays under its pinned complexity ceiling - the ceiling
 /// asked for this, and lifting a repeated shape out is the cheaper of its two answers.
@@ -797,6 +823,8 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
     } else {
         out.push_str("  verdict:  <no verdict emitted>\n");
     }
+    // Right under the verdict it follows from.
+    out.push_str(&render_refusal(r.refused.as_deref()));
 
     // Errors the headline did not consume: a session that DID start and then had a command rejected
     // (an out-of-range set_multiplier, which by design does not end the session). Those used to be
@@ -993,6 +1021,7 @@ mod tests {
             context_count: 0,
             engines: vec![],
             followed: vec![],
+            refused: None,
             uncovered: vec![],
             unobserved: vec![],
             installed_late: vec![],
@@ -1202,6 +1231,32 @@ mod tests {
         assert!(!out.contains("closed:"), "got:\n{out}");
         // Nothing followed, no line.
         assert!(!render_report(&empty_report()).contains("followed:"));
+    }
+
+    /// R4-S5: a refused session says the application was ended, right under the verdict, and names what
+    /// could not be ended. A session that was not refused says nothing of the kind.
+    #[test]
+    fn a_refusal_says_the_application_was_ended_and_names_what_was_not() {
+        let refused = |left: Vec<chrono_proto::FollowedProcess>| SessionReport {
+            parent_verdict: Some(("fails".into(), "coverage.time_channels_uncovered".into())),
+            refused: Some(left),
+            ..empty_report()
+        };
+        let out = render_report(&refused(Vec::new()));
+        let verdict = out.find("verdict:").expect("the verdict line");
+        let line = out.find("refused:  the substitution did not take effect, so the session ended the application\n");
+        assert!(line.is_some_and(|at| verdict < at), "got:\n{out}");
+        assert!(!out.contains("except these"), "got:\n{out}");
+
+        let out = render_report(&refused(vec![
+            chrono_proto::FollowedProcess { pid: 5150, image: Some("helper.exe".into()) },
+            chrono_proto::FollowedProcess { pid: 5151, image: None },
+        ]));
+        assert!(out.contains("except these, which it could not end - they run on the REAL clock:\n"), "got:\n{out}");
+        assert!(out.contains("            - helper.exe (pid 5150)\n"), "got:\n{out}");
+        assert!(out.contains("            - pid 5151\n"), "got:\n{out}");
+
+        assert!(!render_report(&empty_report()).contains("refused:"));
     }
 
     #[test]

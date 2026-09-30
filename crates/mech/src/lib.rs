@@ -12,6 +12,7 @@
 //! processes stays on the VM or requires explicit consent.
 
 mod batch;
+mod ending;
 mod environment;
 mod family;
 mod job;
@@ -21,6 +22,7 @@ mod stdio;
 mod tree;
 
 pub use batch::{batch_launch_problem, is_batch_script};
+pub use ending::FamilyEnd;
 pub use environment::{current_environment, encode_block, environment_block, merge_entries};
 pub use family::FamilyMember;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
@@ -636,15 +638,32 @@ impl Session {
         uncovered_from_attempts(unsafe { read_pid_count(self.ctl()) })
     }
 
-    /// Stop the target, for the one case where letting it run would be worse than not running it: the
-    /// opening verdict says the substitution did not take effect, so every minute the tester spends in
-    /// that application produces evidence about the REAL clock while looking like a time-shifted run.
-    /// Coverage already gathered stays valid and is still reported - this ends the process, not the
-    /// audit. Best-effort: a target that exited on its own needs no stopping.
-    pub fn terminate_target(&self) {
-        unsafe {
-            let _ = TerminateProcess(self.hprocess, 1);
-        }
+    /// Stop the application, for the one case where letting it run would be worse than not running it:
+    /// the opening verdict says the substitution did not take effect, so every minute the tester spends
+    /// in it produces evidence about the REAL clock while looking like a time-shifted run. Coverage
+    /// already gathered stays valid and is still reported - this ends processes, not the audit.
+    ///
+    /// The whole family, not the launched process alone (R4-S5): whatever it had started in its first
+    /// moments used to run on. The registry and the ring are read here, while the block is mapped, and
+    /// `ending` confirms every process by its creation time before ending it. What is still running
+    /// afterwards is named in the answer, and a family that could be looked for only in part says why.
+    pub fn terminate_family(&self) -> FamilyEnd {
+        let ctl = self.ctl();
+        let slots: Vec<ending::Known> = (0..MAX_COV_PIDS)
+            .map(|slot| (slot, unsafe { read_pid(ctl, slot) }))
+            .filter(|&(_, pid)| pid != 0)
+            .map(|(slot, pid)| ending::Known { pid, born: unsafe { read_created(cov_at(ctl, slot)) } })
+            .collect();
+        let ring: Vec<u32> = (0..MAX_COV_PIDS)
+            .filter(|&slot| unsafe { read_pid(ctl, slot) } != 0)
+            .flat_map(|slot| {
+                let cov = unsafe { cov_at(ctl, slot) };
+                let named = unsafe { read_uncovered_children_count(cov) } as usize;
+                (0..named.min(chrono_ctl::UNCOVERED_CHILDREN_MAX)).map(move |i| unsafe { read_uncovered_child(cov, i) })
+            })
+            .filter(|&pid| pid != 0)
+            .collect();
+        ending::end_family(self.hprocess, self.pid, &slots, &ring)
     }
 
     /// Release our own handles. The target keeps its own mapped view of the control
@@ -1781,6 +1800,53 @@ mod tests {
         child.terminate();
         assert!(root_gone, "closing the job left the process we started running");
         assert!(grandchild_gone, "closing the job left the process it started running");
+    }
+
+    /// R4-S5: a refusal ends the family, not the launched process alone. A live tree started without the
+    /// hook stands in for it - `cmd.exe` and the `PING.EXE` it started - so the family can only be found
+    /// the way a process the hook never saw is found, through the process list. A process started beside
+    /// it, by the same parent, has to survive: it names this test process as its parent, as the tree's
+    /// root does, and ending it would be ending somebody else's work.
+    #[test]
+    fn a_refused_family_ends_with_what_it_started_and_nothing_beside_it() {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        let path = format!(r"{system_root}\System32\cmd.exe");
+        let ping = format!(r"{system_root}\System32\PING.EXE");
+        let args = ["/c".to_string(), ping.clone(), "-n".into(), "30".into(), "127.0.0.1".into()];
+        let target = super::Target { path: &path, args: &args, cwd: None, env: &[], stdio: super::TargetStdio::Discarded };
+        let child = super::launch_plain(&target).expect("cmd.exe launches");
+        let beside_args = ["-n".to_string(), "30".into(), "127.0.0.1".into()];
+        let beside_target =
+            super::Target { path: &ping, args: &beside_args, cwd: None, env: &[], stdio: super::TargetStdio::Discarded };
+        let beside = super::launch_plain(&beside_target).expect("ping launches");
+
+        let grandchild = (0..50).find_map(|_| {
+            let found = tree::process_entries()
+                .ok()?
+                .into_iter()
+                .find(|e| e.parent == child.pid && e.image.eq_ignore_ascii_case("PING.EXE"))
+                .map(|e| e.pid);
+            if found.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            found
+        });
+        let Some(grandchild) = grandchild else {
+            panic!("cmd.exe did not start ping within five seconds");
+        };
+        // The list shows a process from the moment its object exists, before its creator has let its
+        // first thread run. Ending the creator in that stretch makes the system end the half-made child
+        // too (exit status 0xC000010A, measured), so ending the root alone passed this test now and then.
+        // A second later the child runs on its own, and only what ends it on purpose can end it.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert!(super::process_is_alive(grandchild), "ping ended on its own before the family was ended");
+
+        let end = ending::end_family(child.handle, child.pid, &[], &[]);
+        assert!(end.note.is_none(), "{:?}", end.note);
+        assert!(end.left_running.is_empty(), "the refusal left these running: {:?}", end.left_running);
+        assert!(gone_soon(child.pid), "the launched process was not ended");
+        assert!(gone_soon(grandchild), "the process it started was not ended");
+        assert!(beside.is_alive(), "a process beside the family was ended");
     }
 
     #[test]

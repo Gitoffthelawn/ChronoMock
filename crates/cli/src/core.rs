@@ -194,15 +194,18 @@ pub(crate) fn core_mode() -> i32 {
             // launch never happens. `force` overrides and keeps the session, which every surface then
             // marks unreliable through the verdict it carries.
             let refuse = verdict == Verdict::Fails && !force;
+            // The family is ended BEFORE the verdict goes out, so the verdict can name what is still
+            // running (R4-S5).
+            let left_running = if refuse { end_refused_family(&prepared.session) } else { Vec::new() };
             emit(&Event::Verdict {
                 v: PROTOCOL_VERSION,
                 id: Some(1),
                 verdict: verdict.wire().into(),
                 refuse_start: refuse,
                 reason_key: reason_key.into(),
+                left_running,
             });
             if refuse {
-                prepared.session.terminate_target();
                 prepared.session.end();
                 emit(&ended_clean());
                 return verdict.exit_code();
@@ -627,6 +630,20 @@ const KEY_FOLLOWED_FAMILY: &str = "session.followed_family";
 /// The target vanished inside the guard window after starting a process the hook could not enter,
 /// usually one of the other bitness, which runs on the real clock (ADR-16).
 const KEY_HANDED_OFF_UNCOVERED: &str = "target.handed_off_uncovered";
+
+/// End the application a refusal will not let run, with everything it started (R4-S5), and name what
+/// is still running afterwards for the verdict. A family that could be looked for only in part is said
+/// on stderr, where the other human-side details of a start go.
+fn end_refused_family(session: &chrono_mech::Session) -> Vec<FollowedProcess> {
+    let end = session.terminate_family();
+    if let Some(note) = &end.note {
+        diag!("chrono core: {note}");
+    }
+    end.left_running
+        .into_iter()
+        .map(|m| FollowedProcess { pid: m.pid, image: m.image.as_deref().map(crate::cdp::sanitise_target_text) })
+        .collect()
+}
 
 /// Why a target vanished inside the guard window with nothing on the session clock left running.
 /// Asked only after the family was found gone, so a process it started is either one the hook never

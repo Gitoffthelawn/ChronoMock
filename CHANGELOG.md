@@ -120,6 +120,14 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **A browser started in the Chromium mode now ends with everything it started.** It was put in its
   job only after it had started, so processes it opened in between stayed out and could outlive the
   session. It is in the job from its first instruction now.
+- **A refused session now ends everything the application had started, not only the application.**
+  When the opening check finds that nothing the application read came from the session clock, the
+  tool ends it rather than let it run on the real date. Processes it had started in its first moments
+  were left running, on the real clock, and nothing said so. They are ended now, each one checked
+  against the time it was created, so a process that only shares a number with one of them is never
+  touched. The report says the application was ended, and any process the tool could not end - one
+  running with more rights than the tool, for example - is named there under `refused:` and in the new
+  `left_running` field of the `verdict` event.
 - **A new session opens its live view and its result at the top.** The window keeps one of each for
   as long as it is open, and each kept its scroll position, so a second session showed its result
   wherever the first one had been read to - with the verdict out of sight above the edge. Both now
