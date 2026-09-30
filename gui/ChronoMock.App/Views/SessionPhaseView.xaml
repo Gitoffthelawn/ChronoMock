@@ -89,7 +89,11 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
+    <!-- Every session enters this phase at the top. The phase is one instance for the life of the window,
+         so without this a second session opened wherever the tester had scrolled the first. Keyed to the
+         phase flag, not to visibility, so the module switch keeps the place (ScrollBehavior). -->
     <ScrollViewer x:Name="FormScroll" Grid.Row="0"
+                  app:ScrollBehavior.ToTopWhen="{Binding ShowsSessionPhase}"
                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="{StaticResource ScrollFormInset}">
 

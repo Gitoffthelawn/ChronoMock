@@ -1,6 +1,7 @@
 <UserControl x:Class="ChronoMock.App.Views.ResultPhaseView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:app="clr-namespace:ChronoMock.App"
              xmlns:controls="clr-namespace:ChronoMock.App.Controls"
              xmlns:views="clr-namespace:ChronoMock.App.Views"
              Background="{DynamicResource BrushBgBase}">
@@ -95,7 +96,12 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
+    <!-- Every result opens at the top, where its verdict is. This phase is one instance for the life of the
+         window, and a second session's result used to open wherever the tester had left the first one, with
+         the headline above the edge. Keyed to the phase flag, not to visibility, so coming back from the
+         calculator keeps the place (ScrollBehavior). -->
     <ScrollViewer x:Name="FormScroll" Grid.Row="0"
+                  app:ScrollBehavior.ToTopWhen="{Binding ShowsResultPhase}"
                   VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="{StaticResource ScrollFormInset}">
 
