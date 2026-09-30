@@ -109,6 +109,28 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **An application the tool was still starting no longer stays behind, suspended, when the tool is
+  stopped.** It is started suspended, the time library is put into it, and only then does it run. If
+  the tool ended in that stretch - the window stopping it after two seconds without an answer, Ctrl+C,
+  a crash - the application stayed in memory for good, invisible, holding its program file and the
+  library open, so the folder they sit in could not be deleted. It now starts in a job that ends it
+  with the tool until it runs, and is let out of it at once, so an application the tool leaves running
+  after a session keeps running as before. Where Windows will not start a program in a job, it starts
+  without one and the tool says so on its error stream.
+- **A browser started in the Chromium mode now ends with everything it started.** It was put in its
+  job only after it had started, so processes it opened in between stayed out and could outlive the
+  session. It is in the job from its first instruction now.
+- **A refused session now ends everything the application had started, not only the application.**
+  When the opening check finds that nothing the application read came from the session clock, the
+  tool ends it rather than let it run on the real date. Processes it had started in its first moments
+  were left running, on the real clock, and nothing said so. They are ended now, each one checked
+  against the time it was created, so a process that only shares a number with one of them is never
+  touched. The report says the application was ended, and any process the tool could not end - one
+  running with more rights than the tool, for example - is named there under `refused:` and in the new
+  `left_running` field of the `verdict` event. When the tool could not look for all of them - the
+  process list would not be read, or the application was still starting processes after the last of
+  three passes - the report says some may still run, and the `verdict` event carries
+  `family_search_incomplete`.
 - **A new session opens its live view and its result at the top.** The window keeps one of each for
   as long as it is open, and each kept its scroll position, so a second session showed its result
   wherever the first one had been read to - with the verdict out of sight above the edge. Both now

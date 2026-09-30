@@ -36,6 +36,10 @@ pub(super) struct Collector {
     engines: Vec<chrono_proto::ReachedEngine>,
     // The processes the session went on for after the target closed, from `session_verdict` (ADR-16).
     followed: Vec<chrono_proto::FollowedProcess>,
+    // Set when the opening verdict refused the session, with what the core could not end (R4-S5), and
+    // whether it could not look for all of the application's processes.
+    refused: Option<Vec<chrono_proto::FollowedProcess>>,
+    refusal_incomplete: bool,
     timing: Option<(String, i64, i64)>,  // (fake wall reached, real ms, fake ms) from `ended`
     // The target's own exit code and whatever teardown could not remove, both from `ended`. The wire
     // has carried them since the session report grew a duration, and the GUI panel has shown them
@@ -64,8 +68,10 @@ impl Collector {
             self.opened = true;
         }
         match event {
-            Event::Verdict { verdict, reason_key, .. } => {
+            Event::Verdict { verdict, reason_key, refuse_start, left_running, family_search_incomplete, .. } => {
                 self.verdict_line = Some((verdict, reason_key));
+                self.refused = refuse_start.then_some(left_running);
+                self.refusal_incomplete = refuse_start && family_search_incomplete;
             }
             Event::SessionVerdict {
                 verdict,
@@ -227,6 +233,8 @@ impl Collector {
             context_count: self.context_count,
             engines: self.engines,
             followed: self.followed,
+            refused: self.refused,
+            refusal_incomplete: self.refusal_incomplete,
             cdp,
             stopped_early,
         }
@@ -320,6 +328,8 @@ mod tests {
             verdict: "works".into(),
             refuse_start: false,
             reason_key: "verdict.works".into(),
+            left_running: Vec::new(),
+            family_search_incomplete: false,
         }));
         assert!(!c.record(Event::Vanished {
             v: 1,
@@ -345,10 +355,54 @@ mod tests {
         assert_eq!(report.timing, Some(("2038-01-19T03:15:07".to_string(), 1_000, 60_000)));
         assert_eq!(report.parent_verdict.map(|(v, _)| v), Some("works".to_string()));
         assert_eq!(report.vanished.map(|(_, ms)| ms), Some(12));
+        assert_eq!(report.refused, None, "a verdict that refused nothing reached the report as a refusal");
+    }
+
+    /// R4-S5: a refusal reaches the report with what the core could not end, and an empty list is still
+    /// a refusal - the application was ended, which the report says.
+    #[test]
+    fn a_refusal_reaches_the_report_with_what_it_left_running() {
+        let left = vec![chrono_proto::FollowedProcess { pid: 5150, image: Some("helper.exe".into()) }];
+        let mut c = Collector::default();
+        c.record(Event::Verdict {
+            v: 1,
+            id: Some(1),
+            verdict: "fails".into(),
+            refuse_start: true,
+            reason_key: "coverage.time_channels_uncovered".into(),
+            left_running: left.clone(),
+            family_search_incomplete: false,
+        });
+        let report = c.into_report("app.exe".into(), false, None);
+        assert_eq!(report.refused, Some(left));
+        assert!(!report.refusal_incomplete, "a complete search reached the report as an incomplete one");
+
+        // A search that could not look for everything reaches the report as that, whatever the list says.
+        let mut c = Collector::default();
+        c.record(Event::Verdict {
+            v: 1,
+            id: Some(1),
+            verdict: "fails".into(),
+            refuse_start: true,
+            reason_key: "coverage.time_channels_uncovered".into(),
+            left_running: Vec::new(),
+            family_search_incomplete: true,
+        });
+        let report = c.into_report("app.exe".into(), false, None);
+        assert_eq!(report.refused, Some(Vec::new()));
+        assert!(report.refusal_incomplete, "the incomplete search was lost before the report");
     }
 
     fn works() -> Event {
-        Event::Verdict { v: 1, id: None, verdict: "works".into(), refuse_start: false, reason_key: "verdict.works".into() }
+        Event::Verdict {
+            v: 1,
+            id: None,
+            verdict: "works".into(),
+            refuse_start: false,
+            reason_key: "verdict.works".into(),
+            left_running: Vec::new(),
+            family_search_incomplete: false,
+        }
     }
 
     fn error(key: &str) -> Event {

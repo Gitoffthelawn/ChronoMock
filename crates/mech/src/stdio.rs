@@ -13,6 +13,9 @@
 //! a console target is given copies either way, and the one other child the core starts, the
 //! Chromium mechanism's browser, runs in a job that ends with the core, so it cannot outlive it
 //! holding the pipe (measured with `tools/probes/r4-5/cdp-eof.ps1`, the core ending and killed).
+//!
+//! The same attribute list names the job a launch starts in, when it has one (`job`): the process is
+//! in it from before its first instruction, so nothing it starts can slip out in between.
 
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{
@@ -26,7 +29,8 @@ use windows::Win32::System::Console::{GetConsoleWindow, GetStdHandle, STD_ERROR_
 use windows::Win32::System::Threading::{
     DeleteProcThreadAttributeList, GetCurrentProcess, InitializeProcThreadAttributeList, UpdateProcThreadAttribute,
     CREATE_NEW_CONSOLE, CREATE_NO_WINDOW, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROCESS_CREATION_FLAGS, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW,
+    PROCESS_CREATION_FLAGS, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW, STARTUPINFOW,
 };
 
 /// How a target's standard handles are set up. None of the three hands it this process's stdin or
@@ -46,6 +50,9 @@ pub enum TargetStdio {
     /// A console window of its own (`CREATE_NEW_CONSOLE`). The flag gives a program with a window
     /// nothing (measured), so this one needs no subsystem.
     NewConsole,
+    /// Input, output and errors all on NUL: a process whose output nobody reads, the browser the
+    /// Chromium mechanism starts. What `std::process::Stdio::null` gave it before it was started here.
+    Discarded,
 }
 
 impl TargetStdio {
@@ -79,10 +86,11 @@ pub(crate) struct LaunchStdio {
     pub(crate) flags: PROCESS_CREATION_FLAGS,
     pub(crate) inherit: bool,
     owned: Vec<HANDLE>,
-    // The list the attribute points at, and the attribute list's own memory. Both are read by
-    // `CreateProcessW`, not copied by `UpdateProcThreadAttribute`, so they live here until the drop.
-    // `u64` for the list's memory, so it is aligned as the structure behind it expects.
+    // The handles and the job the attributes point at, and the attribute list's own memory. All three
+    // are read by `CreateProcessW`, not copied by `UpdateProcThreadAttribute`, so they live here until
+    // the drop. `u64` for the list's memory, so it is aligned as the structure behind it expects.
     list: Vec<HANDLE>,
+    jobs: Vec<HANDLE>,
     attrs: Vec<u64>,
     attrs_ready: bool,
 }
@@ -92,7 +100,16 @@ impl LaunchStdio {
     fn defaults(flags: PROCESS_CREATION_FLAGS) -> LaunchStdio {
         let mut si = STARTUPINFOEXW::default();
         si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-        LaunchStdio { si, flags, inherit: false, owned: Vec::new(), list: Vec::new(), attrs: Vec::new(), attrs_ready: false }
+        LaunchStdio {
+            si,
+            flags,
+            inherit: false,
+            owned: Vec::new(),
+            list: Vec::new(),
+            jobs: Vec::new(),
+            attrs: Vec::new(),
+            attrs_ready: false,
+        }
     }
 
     /// The startup information to hand `CreateProcessW`. With the extended flag set it reads the
@@ -117,17 +134,36 @@ impl Drop for LaunchStdio {
     }
 }
 
-/// Everything a launch needs for `stdio`, or why it could not be set up.
-pub(crate) fn launch_stdio(stdio: TargetStdio) -> Result<LaunchStdio, String> {
-    match stdio {
-        TargetStdio::Windowed => Ok(LaunchStdio::defaults(PROCESS_CREATION_FLAGS(0))),
-        TargetStdio::NewConsole => Ok(LaunchStdio::defaults(CREATE_NEW_CONSOLE)),
-        TargetStdio::Shared => shared_console(),
-    }
+/// Everything a launch needs for `stdio`, and to start in `job` when it names one, or why it could not
+/// be set up.
+pub(crate) fn launch_stdio(stdio: TargetStdio, job: Option<HANDLE>) -> Result<LaunchStdio, String> {
+    let mut launch = match stdio {
+        TargetStdio::Windowed => LaunchStdio::defaults(PROCESS_CREATION_FLAGS(0)),
+        TargetStdio::NewConsole => LaunchStdio::defaults(CREATE_NEW_CONSOLE),
+        TargetStdio::Shared => shared_console()?,
+        TargetStdio::Discarded => discarded()?,
+    };
+    launch.jobs.extend(job);
+    attach_attributes(&mut launch)?;
+    Ok(launch)
 }
 
-/// `TargetStdio::Shared`: the console's input or NUL, this process's stderr or NUL, and an attribute
-/// list holding exactly those two.
+/// `TargetStdio::Discarded`: one inheritable NUL for all three handles.
+fn discarded() -> Result<LaunchStdio, String> {
+    let mut launch = LaunchStdio::defaults(PROCESS_CREATION_FLAGS(0));
+    let nul = open_inheritable(w!("NUL")).ok_or_else(|| "cannot open NUL for the process's handles".to_string())?;
+    launch.owned.push(nul);
+    launch.si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    launch.si.StartupInfo.hStdInput = nul;
+    launch.si.StartupInfo.hStdOutput = nul;
+    launch.si.StartupInfo.hStdError = nul;
+    launch.list = vec![nul];
+    launch.inherit = true;
+    Ok(launch)
+}
+
+/// `TargetStdio::Shared`: the console's input or NUL, and this process's stderr or NUL - the two
+/// handles the attribute list will hold.
 fn shared_console() -> Result<LaunchStdio, String> {
     let mut launch = LaunchStdio::defaults(PROCESS_CREATION_FLAGS(0));
     // The console's input, when someone can type into it. Opening it is the first question: without a
@@ -163,41 +199,48 @@ fn shared_console() -> Result<LaunchStdio, String> {
     launch.si.StartupInfo.hStdOutput = output;
     launch.si.StartupInfo.hStdError = output;
     launch.list = vec![input, output];
-    attach_handle_list(&mut launch)?;
     launch.inherit = true;
+    Ok(launch)
+}
+
+/// Build the attribute list for what the launch carries - the handles it may inherit, which limits
+/// inheritance to exactly those, and the job it starts in - and point the startup information at it.
+/// A launch that carries neither keeps the plain startup information.
+fn attach_attributes(launch: &mut LaunchStdio) -> Result<(), String> {
+    let wanted = [(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, &launch.list), (PROC_THREAD_ATTRIBUTE_JOB_LIST, &launch.jobs)];
+    let count = wanted.iter().filter(|(_, handles)| !handles.is_empty()).count() as u32;
+    if count == 0 {
+        return Ok(());
+    }
+    let mut size: usize = 0;
+    // SAFETY: the first call only asks for the size (it fails with "insufficient buffer" by design),
+    // the second initialises memory of that size, and each attribute points at a vector of this
+    // launch, which stays where it is until the drop deletes the list.
+    unsafe {
+        let _ = InitializeProcThreadAttributeList(None, count, None, &mut size);
+        launch.attrs = vec![0u64; size.div_ceil(8)];
+        let list = LPPROC_THREAD_ATTRIBUTE_LIST(launch.attrs.as_mut_ptr().cast());
+        InitializeProcThreadAttributeList(Some(list), count, None, &mut size)
+            .map_err(|e| format!("InitializeProcThreadAttributeList failed: {e}"))?;
+        launch.attrs_ready = true;
+        for (attribute, handles) in wanted.iter().filter(|(_, handles)| !handles.is_empty()) {
+            UpdateProcThreadAttribute(
+                list,
+                0,
+                *attribute as usize,
+                Some(handles.as_ptr().cast()),
+                handles.len() * std::mem::size_of::<HANDLE>(),
+                None,
+                None,
+            )
+            .map_err(|e| format!("UpdateProcThreadAttribute failed: {e}"))?;
+        }
+        launch.si.lpAttributeList = list;
+    }
     launch.flags |= EXTENDED_STARTUPINFO_PRESENT;
     // With the extended flag the size has to be the extended structure's, or `CreateProcessW` fails
     // with "the parameter is incorrect" (0x80070057) - measured, the first build of this had it.
     launch.si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-    Ok(launch)
-}
-
-/// Build the attribute list that limits inheritance to `launch.list` and point the startup
-/// information at it.
-fn attach_handle_list(launch: &mut LaunchStdio) -> Result<(), String> {
-    let mut size: usize = 0;
-    // SAFETY: the first call only asks for the size (it fails with "insufficient buffer" by design),
-    // the second initialises memory of that size, and the attribute points at `launch.list`, which
-    // stays where it is until the drop deletes the list.
-    unsafe {
-        let _ = InitializeProcThreadAttributeList(None, 1, None, &mut size);
-        launch.attrs = vec![0u64; size.div_ceil(8)];
-        let list = LPPROC_THREAD_ATTRIBUTE_LIST(launch.attrs.as_mut_ptr().cast());
-        InitializeProcThreadAttributeList(Some(list), 1, None, &mut size)
-            .map_err(|e| format!("InitializeProcThreadAttributeList failed: {e}"))?;
-        launch.attrs_ready = true;
-        UpdateProcThreadAttribute(
-            list,
-            0,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
-            Some(launch.list.as_ptr().cast()),
-            launch.list.len() * std::mem::size_of::<HANDLE>(),
-            None,
-            None,
-        )
-        .map_err(|e| format!("UpdateProcThreadAttribute failed: {e}"))?;
-        launch.si.lpAttributeList = list;
-    }
     Ok(())
 }
 
@@ -264,7 +307,7 @@ mod tests {
     /// stdin or stdout - which is the whole point.
     #[test]
     fn a_shared_launch_hands_over_its_own_handles_and_nothing_of_the_protocol() {
-        let launch = launch_stdio(TargetStdio::Shared).expect("a shared launch");
+        let launch = launch_stdio(TargetStdio::Shared, None).expect("a shared launch");
         assert_eq!(launch.list.len(), 2);
         assert!(launch.inherit);
         assert!(launch.flags.contains(EXTENDED_STARTUPINFO_PRESENT));
@@ -283,12 +326,37 @@ mod tests {
     #[test]
     fn a_windowed_or_own_console_launch_inherits_nothing() {
         for (stdio, flags) in [(TargetStdio::Windowed, PROCESS_CREATION_FLAGS(0)), (TargetStdio::NewConsole, CREATE_NEW_CONSOLE)] {
-            let launch = launch_stdio(stdio).expect("a launch");
+            let launch = launch_stdio(stdio, None).expect("a launch");
             assert_eq!(launch.flags, flags, "{stdio:?}");
             assert!(!launch.inherit, "{stdio:?}");
             assert!(launch.list.is_empty() && launch.owned.is_empty(), "{stdio:?}");
             assert!(!launch.si.StartupInfo.dwFlags.contains(STARTF_USESTDHANDLES), "{stdio:?}");
             assert_eq!(launch.si.StartupInfo.cb as usize, std::mem::size_of::<STARTUPINFOW>(), "{stdio:?}");
         }
+    }
+
+    /// A launch into a job names it in the attribute list whatever its handles are - a windowed program
+    /// that inherits nothing included, which then needs the extended startup information all the same.
+    #[test]
+    fn a_launch_into_a_job_names_the_job_for_every_kind_of_handles() {
+        let job = crate::job::Job::ending_with_us(true).expect("a job");
+        for stdio in [TargetStdio::Windowed, TargetStdio::NewConsole, TargetStdio::Shared, TargetStdio::Discarded] {
+            let launch = launch_stdio(stdio, Some(job.handle())).expect("a launch");
+            assert_eq!(launch.jobs, vec![job.handle()], "{stdio:?}");
+            assert!(launch.attrs_ready && !launch.si.lpAttributeList.0.is_null(), "{stdio:?}");
+            assert!(launch.flags.contains(EXTENDED_STARTUPINFO_PRESENT), "{stdio:?}");
+            assert_eq!(launch.si.StartupInfo.cb as usize, std::mem::size_of::<STARTUPINFOEXW>(), "{stdio:?}");
+        }
+    }
+
+    /// A process whose output nobody reads gets one NUL for all three handles, and inherits only that.
+    #[test]
+    fn a_discarded_launch_puts_all_three_handles_on_one_nul() {
+        let launch = launch_stdio(TargetStdio::Discarded, None).expect("a discarded launch");
+        let si = &launch.si.StartupInfo;
+        assert!(si.dwFlags.contains(STARTF_USESTDHANDLES));
+        assert!(si.hStdInput == si.hStdOutput && si.hStdOutput == si.hStdError);
+        assert_eq!(launch.list, vec![si.hStdInput]);
+        assert!(launch.inherit && launch.flags.contains(EXTENDED_STARTUPINFO_PRESENT));
     }
 }
