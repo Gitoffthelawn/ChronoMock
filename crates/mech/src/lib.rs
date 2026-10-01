@@ -48,12 +48,12 @@ use std::time::Instant;
 
 use chrono_core::{ChannelCoverage, Coverage, SessionSpec, TimeMode};
 use chrono_ctl::{
-    cov_at, ctl_size, freeze_dur, freeze_qpc, header_is_ours, read_anchor, read_calls,
+    cov_at, ctl_size, header_is_ours, read_anchor, read_calls,
     find_pid_slot, read_core_pid, read_created, read_dur, read_ended, read_failed_channels, read_installed,
     read_late_installed, read_pid,
-    read_pid_count, read_qpc,
+    read_pid_count, rebase,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
-    mark_ended, write_anchor, write_anchor_full, write_core_created, write_header,
+    mark_ended, write_anchor, write_anchor_full, write_core_created, write_header, FullAnchor,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, IDX_TIMEGETTIME, MAX_COV_PIDS,
 };
@@ -448,7 +448,7 @@ impl Session {
         let fake_ft = project_fake_ft(a_fake, a_real, now_real, m);
         // Read from the SAME anchor snapshot and the same `now_real` as the projection above, so the
         // flag describes the numbers beside it rather than a moment slightly later.
-        let (_tick_c0, _quit_c0, dur_q0, dur_m) = unsafe { chrono_ctl::read_dur(self.ctl()) };
+        let dur = unsafe { read_dur(self.ctl()) };
         SessionState {
             fake_ft,
             real_ft: real_system_filetime(),
@@ -456,7 +456,7 @@ impl Session {
             tz_bias: self.tz_bias,
             elapsed_fake_ms: self.fake_elapsed_ticks(now_real, m) / 10_000,
             elapsed_real_ms: now_real.wrapping_sub(self.start_real) / 10_000,
-            duration_saturated: chrono_ctl::dur_axis_at_range_end(dur_q0, dur_m, now_real),
+            duration_saturated: chrono_ctl::dur_axis_at_range_end(dur.q0, dur.m, now_real),
         }
     }
 
@@ -530,42 +530,19 @@ impl Session {
     /// fake time is continuous across the change (ADR-5): the fake instant now becomes
     /// the new fake anchor and the real clock now the new real anchor.
     ///
-    /// The duration axis is re-anchored the SAME way, in the same seqlock transaction. Without it, a
+    /// The duration axes are re-anchored the SAME way, in the same seqlock transaction. Without it, a
     /// smaller multiplier would retroactively rescale the whole `(real_now - dur_q0)` history and rewind
-    /// GetTickCount64/QUIT (H-1) - a violation of untouchable rule 3. `freeze_dur` captures the axis at its
-    /// current value under the OLD multiplier, then it re-bases at `now`, so it continues from there at the
-    /// new speed without ever going backward.
+    /// GetTickCount64/QUIT (H-1) - a violation of untouchable rule 3. `chrono_ctl::rebase` freezes each
+    /// axis where it stands under the OLD multiplier and re-bases it at `now`, so it continues from there
+    /// at the new speed without ever going backward. It reads `now` and the QPC inside its own write
+    /// (R4-S3, F3): read here, before the write opened, they left a reader of the old anchor room to take
+    /// a later clock and answer above where the axis then carried on. The wall anchor goes through the
+    /// same clamped projection the hook serves and `state` reports (R4-S7a).
     pub fn set_multiplier(&self, m: i64) {
-        let now = quit_now();
-        let now_qpc = qpc_now();
-        let (a_fake, a_real, cur_m) = unsafe { read_anchor(self.ctl()) };
+        let done = unsafe { rebase(self.ctl_mut(), m, quit_now, qpc_now) };
         // Bank the fake time spent at the OLD rate before the new one starts, so elapsed stays an
         // integral over the whole session instead of being rescaled by whatever the latest rate is.
-        self.close_rate_segment(now, cur_m);
-        // The same clamped projection the hook serves and `state` reports (R4-S7a). A wrapping one
-        // here re-anchored a clock standing at the end of the range on a NEGATIVE instant once enough
-        // real time had passed at the maximum rate, and the projection then clamps that to 1601-01-01:
-        // the next rate change sent the target back sixteen centuries.
-        let fake_now = project_fake_ft(a_fake, a_real, now, cur_m);
-        let (dur_tick_c0, dur_quit_c0, dur_q0, _) = unsafe { read_dur(self.ctl()) };
-        let (frozen_tick, frozen_quit) = freeze_dur(dur_tick_c0, dur_quit_c0, dur_q0, cur_m, now);
-        // Freeze the QPC axis at the OLD multiplier too, then re-anchor at the current real QPC, so a
-        // speed change never rewinds it (H-1 applied to QPC, untouchable rule 3).
-        let (qpc_c0, qpc_q0, _) = unsafe { read_qpc(self.ctl()) };
-        let frozen_qpc = freeze_qpc(qpc_c0, qpc_q0, cur_m, now_qpc);
-        unsafe {
-            write_anchor_full(
-                self.ctl_mut(),
-                fake_now,
-                now,
-                m,
-                frozen_tick,
-                frozen_quit,
-                now,
-                frozen_qpc,
-                now_qpc,
-            )
-        };
+        self.close_rate_segment(done.now, done.old_m);
     }
 
     /// Jump the wall clock to `to_ft` (UTC FILETIME), keeping the current multiplier.
@@ -1478,14 +1455,25 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
 
         let start_real = quit_now();
         // Initialize the duration anchor from the REAL clock (the core is not hooked, so GetTickCount64 and
-        // QUIT are genuine). GetTickCount64 gives the millisecond base, so a target's GetTickCount64 starts
-        // near the real uptime - the fake-QUIT base and the real base both start at `start_real`. The axis is
-        // re-anchored on every set_multiplier so it never rewinds (H-1). Written in the wall anchor's seqlock.
-        // The QPC axis (ADR-2 reversal, opt-in) starts fake == real at the current QPC, so elapsed begins at 0.
-        let dur_tick0 = GetTickCount64();
+        // QUIT are genuine). The fake-QUIT base and the real base both start at `start_real`, and the tick
+        // count is that QUIT in milliseconds plus an offset chosen so it starts at the real GetTickCount64
+        // (R4/10a, F4) - a target's tick count starts near the real uptime. The axis is re-anchored on
+        // every set_multiplier so it never rewinds (H-1). Written in the wall anchor's seqlock. The QPC
+        // axis (ADR-2 reversal, opt-in) starts fake == real at the current QPC, so elapsed begins at 0.
+        let dur_tick_offset = (GetTickCount64() as i64).saturating_sub(start_real.div_euclid(10_000));
         let start_qpc = qpc_now();
         write_anchor_full(
-            ctl, a_fake, start_real, multiplier, dur_tick0, start_real, start_real, start_qpc, start_qpc,
+            ctl,
+            &FullAnchor {
+                a_fake,
+                a_real: start_real,
+                multiplier,
+                dur_tick_offset,
+                dur_quit_c0: start_real,
+                dur_q0: start_real,
+                dur_qpc_c0: start_qpc,
+                dur_qpc_q0: start_qpc,
+            },
         );
         write_tz_bias(ctl, tz_bias);
         write_scale_dur(ctl, spec.scale_duration);

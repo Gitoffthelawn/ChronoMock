@@ -59,14 +59,14 @@
 
 use std::cell::Cell;
 use std::ffi::{c_void, CString};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use chrono_ctl::{
-    anchor_write_in_progress, bump_calls, bump_uninjected_children, cov_at_mut, dur_qpc_at, dur_quit_at,
-    dur_tick_at, find_pid_slot,
-    header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, ReleasedAxes,
-    publish_pid, read_anchor, read_core_created, read_core_pid, read_dur, read_ended, read_qpc,
+    anchor_write_in_progress, bump_calls, bump_uninjected_children, clock_fence, cov_at_mut, find_pid_slot,
+    header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, release_margin_qpc, ReleasedAxes,
+    publish_pid, read_anchor, read_anchor_with, read_core_created, read_core_pid, read_dur, read_dur_with,
+    read_ended, read_qpc, read_qpc_with, RELEASE_MARGIN_QUIT,
     read_pid_count, read_scale_dur, read_scale_qpc, set_created, MAX_COV_PIDS,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
@@ -107,6 +107,7 @@ use windows::Win32::System::Threading::{
 use windows::Win32::System::Time::{
     FileTimeToSystemTime, SystemTimeToFileTime, DYNAMIC_TIME_ZONE_INFORMATION, TIME_ZONE_INFORMATION,
 };
+use windows::Win32::System::Performance::QueryPerformanceFrequency;
 use windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTime;
 
 type FtFn = unsafe extern "system" fn(*mut FILETIME);
@@ -492,8 +493,15 @@ fn pause_watcher(ms: u32) {
 /// read it - then the detours hand back the real value, as they all did before 2026-09-24.
 static RELEASED: OnceLock<ReleasedAxes> = OnceLock::new();
 
-/// Freeze the duration axes where they stand, for good, before the flag that sends every detour to its
-/// released branch goes up (untouchable rule 3, `chrono_ctl::release_axes`).
+/// The real QUIT from which this process's duration axes run at the real rate, 0 while the session holds
+/// it (R4/10a, F6). Published by the watcher the moment it reads the clock, before anything else.
+static RELEASE_AT_QUIT: AtomicI64 = AtomicI64::new(0);
+
+/// The real QPC counterpart of [`RELEASE_AT_QUIT`].
+static RELEASE_AT_QPC: AtomicI64 = AtomicI64::new(0);
+
+/// Let the duration axes go, for good, before the flag that sends every detour to its released branch
+/// goes up (untouchable rule 3, `chrono_ctl::release_axes`).
 ///
 /// Runs on the watcher, once, after the core is gone - so nothing writes the anchors any more and the
 /// read cannot race a rate change. What it can race is a NEW core reclaiming the block, which zeroes it:
@@ -501,18 +509,26 @@ static RELEASED: OnceLock<ReleasedAxes> = OnceLock::new();
 /// the detours fall back to the real value. Unreachable today by the measurement kept at `still_ours`,
 /// and stated because it is the one road left to the old snap-back.
 ///
-/// The order is the whole guarantee: `RELEASED` is set BEFORE `DETACHED` is raised, so a detour that
-/// sees the flag also sees where the axes stood. A detour that read the anchors just before the flag
-/// went up may still answer at the session rate for the few instructions between the watcher reading
-/// the clock and raising the flag. At a clean end the core has already put the rate to 1, which makes
-/// that window answer exactly what the release does.
+/// What it does race is a detour that found the session holding and is answering from the anchor. Each
+/// axis is let go at an instant a margin after the watcher's clock (`RELEASE_MARGIN_QUIT`), published
+/// right after that clock is read, and the detour reads the published instant after its own clock: an
+/// instant it sees, it obeys, computing the released line from its own snapshot of the anchor (which no
+/// one writes any more), and one it does not see yet lies more than the margin after its clock. Until
+/// 2026-10-01 the axes were let go at the watcher's clock itself, and a detour that had taken the session
+/// branch a moment before answered at the session rate past it - the next read, on the released line,
+/// was lower by that moment times the rate less one (R4/10a, F6). At a clean end the core has already
+/// put the rate to 1, so the two lines were one there, and only a core that died left the window open.
 fn release_duration_axes() {
     let Some(p) = ctl_ptr() else {
         return;
     };
     let p = p as *const Ctl;
-    let now_quit = real_quit();
-    let now_qpc = real_qpc();
+    let released_at = real_quit().saturating_add(RELEASE_MARGIN_QUIT);
+    RELEASE_AT_QUIT.store(released_at, Ordering::SeqCst);
+    let mut frequency: i64 = 0;
+    let _ = unsafe { QueryPerformanceFrequency(&mut frequency) };
+    let qpc_released_at = real_qpc().saturating_add(release_margin_qpc(frequency));
+    RELEASE_AT_QPC.store(qpc_released_at, Ordering::SeqCst);
     let (dur, qpc) = unsafe { (read_dur(p), read_qpc(p)) };
     if unsafe { anchor_write_in_progress(p) } {
         // The core died between the two halves of a rate change, so the reads above gave up waiting and
@@ -521,7 +537,7 @@ fn release_duration_axes() {
         log("[chrono_hook] the core stopped in the middle of an anchor write - axes released from a partly written anchor");
     }
     if still_ours(p) {
-        let _ = RELEASED.set(release_axes(dur, qpc, now_quit, now_qpc));
+        let _ = RELEASED.set(release_axes(dur, qpc, released_at, qpc_released_at));
     }
 }
 
@@ -934,7 +950,9 @@ fn fake_now_and_dur_m() -> Option<(i64, i64)> {
         return None; // core gone: wall detours fall through to the real value
     }
     let p = ctl_ptr()? as *const Ctl;
-    let (a_fake, a_real, m) = unsafe { read_anchor(p) };
+    // The clock inside the anchor's own window (R4-S3), so a rate change cannot land between them and
+    // pair the old anchor with an instant the new one covers - the wall would step back by that much.
+    let ((a_fake, a_real, m), now) = unsafe { read_anchor_with(p, real_quit) };
     if !still_ours(p) {
         return None; // the block was reclaimed by another session mid-read (R2-S6): real time
     }
@@ -942,7 +960,7 @@ fn fake_now_and_dur_m() -> Option<(i64, i64)> {
     // own `state` reporting. It used to be this formula written out twice, in two crates, with a
     // comment asking that the copies be kept in step - a guard in prose is not a guard (rule 12),
     // and a difference between them is the tool lying about its own clock.
-    Some((chrono_ctl::fake_wall_at(a_fake, a_real, real_quit(), m), m.max(1)))
+    Some((chrono_ctl::fake_wall_at(a_fake, a_real, now, m), m.max(1)))
 }
 
 fn cur_tz_bias() -> i32 {
@@ -1423,12 +1441,24 @@ unsafe extern "system" fn h_stslex(
 }}
 
 // --- Duration axis (opt-in) ----------------------------------------------------
-// Only installed when scale_duration is set. The anchor (`dur_tick_c0`, `dur_quit_c0`, `dur_q0`) lives
-// in the shared `Ctl`, initialized by the core in `prepare` and REBASED on every `set_multiplier` so a
-// speed change never rewinds the axis (H-1, untouchable rule 3). Each detour reads the base AND the
-// multiplier in one `read_dur` snapshot (they can never tear apart) and projects off the trampoline QUIT.
-// `m` is clamped to >= 1 inside `dur_tick_at`/`dur_quit_at`, so the axis keeps advancing even when the
-// wall clock is frozen. QPC and timeGetTime are left real (ADR-2).
+// Only installed when scale_duration is set. The anchor (`dur_tick_offset`, `dur_quit_c0`, `dur_q0`)
+// lives in the shared `Ctl`, initialized by the core in `prepare` and REBASED on every `set_multiplier`
+// so a speed change never rewinds the axis (H-1, untouchable rule 3). Each detour reads the base, the
+// multiplier AND the trampoline QUIT in one `read_dur_with` window (R4-S3), then asks where the watcher
+// let the process go (`RELEASE_AT_QUIT`, F6), in that order. The tick count is that QUIT in milliseconds
+// plus the session's offset (F4). `m` is clamped to >= 1 inside `dur_quit_at`, so the axis keeps
+// advancing even when the wall clock is frozen.
+
+/// The duration axes as the session answers them now: the anchor and the real QUIT read in one window,
+/// and the instant this process was let go at, read after that clock (0 while the session holds it).
+///
+/// # Safety
+/// `p` must be the session's mapped control block.
+#[inline]
+unsafe fn dur_now(p: *const Ctl) -> (chrono_ctl::DurAnchor, i64, i64) { unsafe {
+    let (dur, real) = read_dur_with(p, real_quit);
+    (dur, real, RELEASE_AT_QUIT.load(Ordering::Acquire))
+}}
 
 /// The scaled GetTickCount64, falling back to `original` (the body this detour replaced) once the
 /// session is gone. Shared by the kernel32 and the kernelbase detour, which differ only in that body.
@@ -1449,8 +1479,8 @@ unsafe fn tick64_or(original: &OnceLock<TickFn>) -> u64 { unsafe {
     }
     match ctl_ptr() {
         Some(p) => {
-            let (dur_tick_c0, _quit_c0, dur_q0, m) = read_dur(p as *const Ctl);
-            let fake = dur_tick_at(dur_tick_c0, dur_q0, m, real_quit());
+            let (dur, real, released_at) = dur_now(p as *const Ctl);
+            let fake = dur.tick_at(real, released_at);
             // Ownership checked after the read (R2-S6): a reclaimed block would hand this target
             // another session's duration base, which reads as the axis jumping.
             if still_ours(p as *const Ctl) {
@@ -1464,7 +1494,7 @@ unsafe fn tick64_or(original: &OnceLock<TickFn>) -> u64 { unsafe {
 }}
 
 /// GetTickCount (32-bit): the low 32 bits of the SAME scaled millisecond count as
-/// GetTickCount64 (shares the dur_tick_c0 base), so a target comparing the two sees them
+/// GetTickCount64 (the same QUIT and offset), so a target comparing the two sees them
 /// agree. Wraps at 2^32 ms like the real one - and sooner under acceleration - which is the
 /// honest behavior of a fast 32-bit counter - callers handle the wrap with unsigned deltas.
 ///
@@ -1479,8 +1509,8 @@ unsafe fn tick32_or(original: &OnceLock<Tick32Fn>) -> u32 { unsafe {
     }
     match ctl_ptr() {
         Some(p) => {
-            let (dur_tick_c0, _quit_c0, dur_q0, m) = read_dur(p as *const Ctl);
-            let fake = dur_tick_at(dur_tick_c0, dur_q0, m, real_quit()) as u32;
+            let (dur, real, released_at) = dur_now(p as *const Ctl);
+            let fake = dur.tick_at(real, released_at) as u32;
             if still_ours(p as *const Ctl) {
                 fake
             } else {
@@ -1519,8 +1549,8 @@ unsafe extern "system" fn h_quit(lp: *mut u64) -> i32 { unsafe {
     if !lp.is_null() {
         match ctl_ptr() {
             Some(p) => {
-                let (_tick_c0, dur_quit_c0, dur_q0, m) = read_dur(p as *const Ctl);
-                let fake = dur_quit_at(dur_quit_c0, dur_q0, m, real_quit()) as u64;
+                let (dur, real, released_at) = dur_now(p as *const Ctl);
+                let fake = dur.quit_at(real, released_at) as u64;
                 if !still_ours(p as *const Ctl) {
                     return quit_after_session(lp);
                 }
@@ -1577,10 +1607,22 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
     }
     match ctl_ptr() {
         Some(p) if !detached() => {
-            let mut real: i64 = 0;
-            o(&mut real); // real QPC via the trampoline (bypasses this hook, no recursion)
-            let (qpc_c0, qpc_q0, m) = read_qpc(p as *const Ctl);
-            let fake = dur_qpc_at(qpc_c0, qpc_q0, m, real);
+            // The real counter inside the anchor's window, like every other reader (R4-S3). What a seqlock
+            // reader needs is its clock read before the second look at `seq`, and the fence after it keeps
+            // the time-stamp read from running past that look. Until R4/10a the counter came before the
+            // anchor, which is as good on that count - but a speed-up that landed between the two paired
+            // an early counter with the faster anchor, and with no floor under the elapsed time (R4-N4)
+            // the answer fell below the anchor's base. Measured: 1 627 steps back in 20 s of rate changes
+            // on x64, up to 0.18 s each. The floor and a rate change that reads its instant inside its
+            // own write (F3) are what closed it - a mutation back to the old order stays clean.
+            let clock = || {
+                let mut real: i64 = 0;
+                o(&mut real); // real QPC via the trampoline (bypasses this hook, no recursion)
+                clock_fence();
+                real
+            };
+            let (qpc, real) = read_qpc_with(p as *const Ctl, clock);
+            let fake = qpc.at(real, RELEASE_AT_QPC.load(Ordering::Acquire));
             if !still_ours(p as *const Ctl) {
                 return qpc_after_session(o, lp); // reclaimed mid-read (R2-S6)
             }
@@ -2048,7 +2090,7 @@ unsafe extern "system" fn h_timesetevent(
 }}
 
 // timeGetTime (winmm, duration axis, partial ADR-2 reversal of 2026-09-07): the SAME scaled millisecond
-// count as GetTickCount, sharing its dur_tick_c0 base on purpose. Both exports answer "milliseconds since
+// count as GetTickCount, from the same QUIT and offset on purpose. Both exports answer "milliseconds since
 // the system started", so a target reading one against the other has to see them agree - they differ by
 // less than one tick in reality, and inventing that difference would need a second anchor for no gain.
 // Wraps at 2^32 ms like the real one, and sooner under acceleration, which is the honest behaviour of a
@@ -2068,8 +2110,8 @@ unsafe extern "system" fn h_timegettime() -> u32 { unsafe {
     }
     match ctl_ptr() {
         Some(p) => {
-            let (dur_tick_c0, _quit_c0, dur_q0, m) = read_dur(p as *const Ctl);
-            let fake = dur_tick_at(dur_tick_c0, dur_q0, m, real_quit()) as u32;
+            let (dur, real_now, released_at) = dur_now(p as *const Ctl);
+            let fake = dur.tick_at(real_now, released_at) as u32;
             // Ownership checked after the read (R2-S6), exactly as the tick detours do.
             if still_ours(p as *const Ctl) { fake } else { after() }
         }

@@ -4,10 +4,11 @@
 //!
 //! ONE section, `Ctl` in `Local\ChronoCtl`, holding three kinds of field:
 //!
-//! - The ANCHOR fields (`a_fake`, `a_real`, `multiplier`, and the duration anchor `dur_tick_c0` /
+//! - The ANCHOR fields (`a_fake`, `a_real`, `multiplier`, and the duration anchor `dur_tick_offset` /
 //!   `dur_quit_c0` / `dur_q0`) are written by the mechanism under a seqlock and read by every hook
 //!   (parent and children share ONE fake clock - ADR-3). The duration anchor rides the same seqlock
-//!   as the wall anchor, so a hook reads the multiplier and the duration base as one snapshot. The
+//!   as the wall anchor, so a hook reads the multiplier and the duration base as one snapshot, with
+//!   the real clock it projects from read inside the same window (`read_dur_with`, R4-S3). The
 //!   stable config fields (`tz_bias`, `scale_dur`, `core_created`, `core_pid`) are written once before
 //!   the target exists. `ended` is the one written later, once, when the core ends the session.
 //!
@@ -631,7 +632,11 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 /// 8: `Cov` gained `failed_channels`, which widens every slot for the same reason version 3 did. The
 /// hook now says which channels it could not switch on, so a failed detour in an optional module is
 /// reported instead of reading as a module the application never loaded.
-pub const CTL_LAYOUT_VERSION: u32 = 8;
+///
+/// 9: the millisecond tick base became an offset from the fake QUIT (`dur_tick_offset`, R4/10a). Same
+/// offset and size, a different meaning: a hook of the old build would read the offset as a base and
+/// hand the application a tick count near zero.
+pub const CTL_LAYOUT_VERSION: u32 = 9;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -664,10 +669,17 @@ pub struct Ctl {
     /// mixed the new multiplier with the old base would dip the axis (untouchable rule 3). The mechanism
     /// REBASES it on every `set_multiplier` (freezes the axis at the switch, then re-anchors), so a
     /// speed change never rewinds it, and leaves it untouched on `jump` (a wall jump must not move the
-    /// duration axis). Fake `GetTickCount64` base, in milliseconds (also feeds `GetTickCount` 32-bit).
-    pub dur_tick_c0: u64,
-    /// Fake `QueryUnbiasedInterruptTime` base, in 100 ns units (full resolution, kept separate from the
-    /// millisecond tick base so QUIT does not lose precision across rebases).
+    /// duration axis).
+    ///
+    /// The fake `GetTickCount64` is the fake QUIT in milliseconds plus this offset (`tick_from_quit`),
+    /// set once when the session starts and never rebased (R4/10a, F4). The tick count used to have a
+    /// base of its own, rebased with every rate change, and each rebase rounded the elapsed time down to
+    /// a whole millisecond: the count fell behind QUIT a little at every change, and a reader that came
+    /// in late saw it step back. QUIT rebases exactly (whole 100 ns units), so the tick count that
+    /// follows it neither drifts nor rounds. Also feeds `GetTickCount` and `timeGetTime`.
+    pub dur_tick_offset: i64,
+    /// Fake `QueryUnbiasedInterruptTime` base, in 100 ns units. The one duration axis that is rebased,
+    /// and the tick count is derived from it.
     pub dur_quit_c0: i64,
     /// Real QUIT base (100 ns) the duration elapsed is measured from. Distinct from `a_real`: a `jump`
     /// re-anchors `a_real` but must leave `dur_q0` (and so the whole duration axis) alone.
@@ -890,7 +902,7 @@ pub unsafe fn write_anchor(p: *mut Ctl, a_fake: i64, a_real: i64, multiplier: i6
 enum AnchorStore {
     AFake(i64),
     AReal(i64),
-    DurTickC0(u64),
+    DurTickOffset(i64),
     DurQuitC0(i64),
     DurQpcC0(i64),
     DurQ0(i64),
@@ -908,12 +920,13 @@ enum AnchorStore {
 /// continuous (the base was frozen at the old rate), and only the last store changes the rate. Each
 /// base before its origin, because an origin moved to now under an old base is behind where the axis
 /// stood. The rate went first until R4/7, which projected the OLD bases at the NEW rate - after a
-/// slowdown, behind where the axis stood, and released there for good.
+/// slowdown, behind where the axis stood, and released there for good. The tick offset never changes
+/// after the session starts (`rebase` writes back what stands there), so its place is free.
 fn full_anchor_stores(a: &FullAnchor) -> [AnchorStore; 8] {
     [
         AnchorStore::AFake(a.a_fake),
         AnchorStore::AReal(a.a_real),
-        AnchorStore::DurTickC0(a.dur_tick_c0),
+        AnchorStore::DurTickOffset(a.dur_tick_offset),
         AnchorStore::DurQuitC0(a.dur_quit_c0),
         AnchorStore::DurQpcC0(a.dur_qpc_c0),
         AnchorStore::DurQ0(a.dur_q0),
@@ -923,16 +936,25 @@ fn full_anchor_stores(a: &FullAnchor) -> [AnchorStore; 8] {
 }
 
 /// The eight fields `write_anchor_full` stores, named, so the order above is a list of names and not
-/// a list of positions.
-struct FullAnchor {
-    a_fake: i64,
-    a_real: i64,
-    multiplier: i64,
-    dur_tick_c0: u64,
-    dur_quit_c0: i64,
-    dur_q0: i64,
-    dur_qpc_c0: i64,
-    dur_qpc_q0: i64,
+/// a list of positions. The mechanism builds one for the anchor a session starts from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FullAnchor {
+    /// Fake wall anchor, 100 ns FILETIME units.
+    pub a_fake: i64,
+    /// Real QUIT the wall anchor is measured from.
+    pub a_real: i64,
+    /// The rate.
+    pub multiplier: i64,
+    /// Fake `GetTickCount64` minus the fake QUIT in milliseconds (see `Ctl::dur_tick_offset`).
+    pub dur_tick_offset: i64,
+    /// Fake QUIT base.
+    pub dur_quit_c0: i64,
+    /// Real QUIT the duration axes are measured from.
+    pub dur_q0: i64,
+    /// Fake QPC base.
+    pub dur_qpc_c0: i64,
+    /// Real QPC the QPC axis is measured from.
+    pub dur_qpc_q0: i64,
 }
 
 /// Store one field of the full anchor.
@@ -943,7 +965,7 @@ unsafe fn store_anchor_field(p: *mut Ctl, store: AnchorStore) { unsafe {
     match store {
         AnchorStore::AFake(v) => write_volatile(addr_of_mut!((*p).a_fake), v),
         AnchorStore::AReal(v) => write_volatile(addr_of_mut!((*p).a_real), v),
-        AnchorStore::DurTickC0(v) => write_volatile(addr_of_mut!((*p).dur_tick_c0), v),
+        AnchorStore::DurTickOffset(v) => write_volatile(addr_of_mut!((*p).dur_tick_offset), v),
         AnchorStore::DurQuitC0(v) => write_volatile(addr_of_mut!((*p).dur_quit_c0), v),
         AnchorStore::DurQpcC0(v) => write_volatile(addr_of_mut!((*p).dur_qpc_c0), v),
         AnchorStore::DurQ0(v) => write_volatile(addr_of_mut!((*p).dur_q0), v),
@@ -953,35 +975,115 @@ unsafe fn store_anchor_field(p: *mut Ctl, store: AnchorStore) { unsafe {
 }}
 
 /// Write the FULL anchor (wall triple plus the duration anchor) under the seqlock, in one transaction
-/// so a reader never sees a new multiplier against an old duration base. This is the `prepare` (initial)
-/// and `set_multiplier` (rebase) writer - `jump` uses `write_anchor` to leave the duration axis alone.
-/// The order of the stores is `full_anchor_stores`, and it matters only to a writer killed mid-write.
+/// so a reader never sees a new multiplier against an old duration base. This is the anchor a session
+/// starts from, written by `prepare` before the target exists - a rate change goes through `rebase`,
+/// and `jump` uses `write_anchor` to leave the duration axis alone. The order of the stores is
+/// `full_anchor_stores`, and it matters only to a writer killed mid-write.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Ctl`.
-#[allow(clippy::too_many_arguments)]
-pub unsafe fn write_anchor_full(
-    p: *mut Ctl,
-    a_fake: i64,
-    a_real: i64,
-    multiplier: i64,
-    dur_tick_c0: u64,
-    dur_quit_c0: i64,
-    dur_q0: i64,
-    dur_qpc_c0: i64,
-    dur_qpc_q0: i64,
-) { unsafe {
+pub unsafe fn write_anchor_full(p: *mut Ctl, anchor: &FullAnchor) { unsafe {
     let sp = addr_of_mut!((*p).seq);
     let s = read_volatile(sp).wrapping_add(1);
     write_volatile(sp, s); // odd - write in progress
     fence(Ordering::Release);
-    let anchor = FullAnchor { a_fake, a_real, multiplier, dur_tick_c0, dur_quit_c0, dur_q0, dur_qpc_c0, dur_qpc_q0 };
-    for store in full_anchor_stores(&anchor) {
+    for store in full_anchor_stores(anchor) {
         store_anchor_field(p, store);
     }
     fence(Ordering::Release);
     write_volatile(sp, s.wrapping_add(1)); // even - write done
 }}
+
+/// What a rate change did: the real QUIT it was made at, and the rate it replaced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rebased {
+    /// The real QUIT of the change, read while the write was open.
+    pub now: i64,
+    /// The rate before the change.
+    pub old_m: i64,
+}
+
+/// Change the rate, keeping every axis continuous (H-1, untouchable rule 3): freeze each one where it
+/// stands under the OLD rate and carry on from there at the new one, in one seqlock transaction.
+///
+/// The instant of the change is read INSIDE the write, after the odd `seq` is visible (R4-S3, F3). Read
+/// before it, as `set_multiplier` did until R4/10a, it left a window: a reader that took the old anchor
+/// and then its own clock later than that instant answered from the old rate for a moment the new
+/// anchor also covers - after a slowdown, above where the axis carries on, so the next read stepped
+/// back (measured: `tools/probes/r4-7/f3.ps1`, 1 406 ms on the tick count). Read inside, the instant
+/// comes after every clock a reader of the old anchor took (that reader saw `seq` unchanged after its
+/// clock) and before every clock a reader of the new anchor takes (that reader saw the even `seq` this
+/// write ends with). So every value from the old anchor is at most the new base, and every value from
+/// the new one at least that - across threads and processes alike.
+///
+/// The full fence is what puts the odd `seq` before the clocks: a store may wait in the store buffer
+/// while a later load runs, and a clock read IS a load (QUIT) or a time-stamp read (QPC, `clock_fence`).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`, and the caller must be its only writer.
+pub unsafe fn rebase(p: *mut Ctl, multiplier: i64, quit: impl Fn() -> i64, qpc: impl Fn() -> i64) -> Rebased { unsafe {
+    let sp = addr_of_mut!((*p).seq);
+    let s = read_volatile(sp).wrapping_add(1);
+    write_volatile(sp, s); // odd - write in progress
+    fence(Ordering::SeqCst);
+    clock_fence();
+    let now = quit();
+    let now_qpc = qpc();
+    // The writer is the only one, so the fields stand still while it reads them.
+    let old = full_anchor_fields(p);
+    let anchor = FullAnchor {
+        a_fake: fake_wall_at(old.a_fake, old.a_real, now, old.multiplier),
+        a_real: now,
+        multiplier,
+        dur_tick_offset: old.dur_tick_offset,
+        dur_quit_c0: dur_quit_at(old.dur_quit_c0, old.dur_q0, old.multiplier, now),
+        dur_q0: now,
+        dur_qpc_c0: dur_qpc_at(old.dur_qpc_c0, old.dur_qpc_q0, old.multiplier, now_qpc),
+        dur_qpc_q0: now_qpc,
+    };
+    for store in full_anchor_stores(&anchor) {
+        store_anchor_field(p, store);
+    }
+    fence(Ordering::Release);
+    write_volatile(sp, s.wrapping_add(1)); // even - write done
+    Rebased { now, old_m: old.multiplier }
+}}
+
+/// The eight anchor fields as they stand, read without the seqlock.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`, and nothing may be writing it.
+unsafe fn full_anchor_fields(p: *const Ctl) -> FullAnchor { unsafe {
+    FullAnchor {
+        a_fake: read_volatile(addr_of!((*p).a_fake)),
+        a_real: read_volatile(addr_of!((*p).a_real)),
+        multiplier: read_volatile(addr_of!((*p).multiplier)),
+        dur_tick_offset: read_volatile(addr_of!((*p).dur_tick_offset)),
+        dur_quit_c0: read_volatile(addr_of!((*p).dur_quit_c0)),
+        dur_q0: read_volatile(addr_of!((*p).dur_q0)),
+        dur_qpc_c0: read_volatile(addr_of!((*p).dur_qpc_c0)),
+        dur_qpc_q0: read_volatile(addr_of!((*p).dur_qpc_q0)),
+    }
+}}
+
+/// Hold every later instruction until everything before it has finished (`LFENCE`). A clock that reads
+/// the processor's time-stamp counter, which `QueryPerformanceCounter` may, is not ordered with the loads
+/// around it: Intel's manual says neither that it waits for earlier instructions nor that later ones
+/// wait for it. Called before such a clock where its reading has to come after something, and after it
+/// where its reading has to come before something - a seqlock reader's second look at `seq`.
+#[inline(always)]
+pub fn clock_fence() {
+    // SAFETY: LFENCE needs SSE2, which every x86-64 processor has.
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        core::arch::x86_64::_mm_lfence()
+    };
+    // SAFETY: SSE2 is in the baseline of the 32-bit Windows target this library builds for.
+    #[cfg(target_arch = "x86")]
+    unsafe {
+        core::arch::x86::_mm_lfence()
+    };
+}
 
 /// Whether an anchor write is in progress - `seq` is odd. Read once, after a seqlock reader has given
 /// up, it means the writer stopped in the middle for good and the fields are a mix of old and new.
@@ -999,34 +1101,61 @@ pub unsafe fn anchor_write_in_progress(p: *const Ctl) -> bool { unsafe {
 /// writes, which would otherwise leave a reader spinning at 100% CPU forever.
 const SEQLOCK_READ_TRIES: usize = 1_000_000;
 
-/// Read the anchor triple under the seqlock, retrying on a concurrent write.
+/// Run `read` between two looks at `seq` that agree and are even, so what it returns belongs to one
+/// complete write, retrying while a write is in progress. Every reader of the anchor goes through here.
+///
+/// Acquire fences put `read` after the first look and before the second, so a torn read racing a
+/// writer is caught by the comparison. See `write_anchor` for why Release/Acquire costs nothing on x86
+/// and x64 yet is correct on a weakly ordered processor.
+///
+/// The seqlock never settles within the bound only when the writer (the core) was force-killed in the
+/// middle of a write, leaving `seq` odd for good (RELEASE-009). Spinning at 100% CPU for ever is not
+/// the answer to that, so `read` runs once more and its answer stands - a dead writer's fields hold
+/// still, and the watcher lets the process go right after the core dies.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Ctl`.
-pub unsafe fn read_anchor(p: *const Ctl) -> (i64, i64, i64) { unsafe {
+#[inline]
+unsafe fn read_consistent<T>(p: *const Ctl, read: impl Fn() -> T) -> T { unsafe {
     for _ in 0..SEQLOCK_READ_TRIES {
         let s1 = read_volatile(addr_of!((*p).seq));
         if s1 & 1 == 0 {
-            // Acquire fences: the data reads are ordered after the s1 (seq) read and before the s2 read,
-            // so a torn read racing a concurrent writer is caught by the s1 == s2 check below. See
-            // write_anchor for why Release/Acquire is zero-cost on x86/x64 yet correct on a weak ISA.
             fence(Ordering::Acquire);
-            let a_fake = read_volatile(addr_of!((*p).a_fake));
-            let a_real = read_volatile(addr_of!((*p).a_real));
-            let multiplier = read_volatile(addr_of!((*p).multiplier));
+            let value = read();
             fence(Ordering::Acquire);
             if s1 == read_volatile(addr_of!((*p).seq)) {
-                return (a_fake, a_real, multiplier);
+                return value;
             }
         }
         std::hint::spin_loop();
     }
-    // The seqlock never settled within the bound: the writer (the core) was force-killed mid-write, leaving
-    // `seq` odd forever (RELEASE-009). Do not spin at 100% CPU - read the fields once and return them. A
-    // dead writer's fields are stable (a rare one-time tear is far better than a permanent hang) - the
-    // self-detach watcher flips DETACHED right after the core dies, so the detour stops reading this block
-    // on its next call and the target falls back to real time.
     fence(Ordering::Acquire);
+    read()
+}}
+
+/// Read the anchor triple `(a_fake, a_real, multiplier)` under the seqlock, retrying on a concurrent write.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+pub unsafe fn read_anchor(p: *const Ctl) -> (i64, i64, i64) { unsafe {
+    read_consistent(p, || wall_fields(p))
+}}
+
+/// The wall anchor triple and the real clock, read in ONE seqlock window (R4-S3): the clock a projection
+/// runs from belongs to the anchor it projects. See `rebase` for why it has to be inside. `clock` returns
+/// the real QUIT.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+#[inline]
+pub unsafe fn read_anchor_with(p: *const Ctl, clock: impl Fn() -> i64) -> ((i64, i64, i64), i64) { unsafe {
+    read_consistent(p, || (wall_fields(p), clock()))
+}}
+
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+#[inline]
+unsafe fn wall_fields(p: *const Ctl) -> (i64, i64, i64) { unsafe {
     (
         read_volatile(addr_of!((*p).a_fake)),
         read_volatile(addr_of!((*p).a_real)),
@@ -1034,38 +1163,62 @@ pub unsafe fn read_anchor(p: *const Ctl) -> (i64, i64, i64) { unsafe {
     )
 }}
 
-/// Read the duration anchor plus the multiplier under the seqlock, as ONE consistent snapshot, retrying
-/// on a concurrent write. Returns `(dur_tick_c0, dur_quit_c0, dur_q0, multiplier)`. The duration detours
-/// (`GetTickCount64` / `GetTickCount` / `QueryUnbiasedInterruptTime`) call this so the multiplier they
-/// scale by and the base they scale from can never tear apart across a `set_multiplier` (untouchable
-/// rule 3 - a mismatched pair would dip the monotonic axis).
+/// The duration anchor with its rate, as one snapshot: what the tick count, `timeGetTime` and QUIT are
+/// projected from. The multiplier rides along so the rate and the base it scales can never tear apart
+/// across a rate change (untouchable rule 3, a mismatched pair would dip the axis).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DurAnchor {
+    /// See `Ctl::dur_tick_offset`.
+    pub tick_offset: i64,
+    /// Fake QUIT base.
+    pub quit_c0: i64,
+    /// Real QUIT the base is measured from.
+    pub q0: i64,
+    /// The rate, clamped to at least 1 where it is used.
+    pub m: i64,
+}
+
+impl DurAnchor {
+    /// The fake QUIT at real QUIT `real`. `released_at` is where the session let this process go, 0 while
+    /// it holds it: the session's rate up to that instant and the real rate after it (`released_line`).
+    pub fn quit_at(&self, real: i64, released_at: i64) -> i64 {
+        released_line(real, released_at, |r| dur_quit_at(self.quit_c0, self.q0, self.m, r))
+    }
+
+    /// The fake `GetTickCount64` at real QUIT `real`: the fake QUIT in milliseconds plus the offset.
+    pub fn tick_at(&self, real: i64, released_at: i64) -> u64 {
+        tick_from_quit(self.tick_offset, self.quit_at(real, released_at))
+    }
+}
+
+/// Read the duration anchor under the seqlock, retrying on a concurrent write.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Ctl`.
-pub unsafe fn read_dur(p: *const Ctl) -> (u64, i64, i64, i64) { unsafe {
-    for _ in 0..SEQLOCK_READ_TRIES {
-        let s1 = read_volatile(addr_of!((*p).seq));
-        if s1 & 1 == 0 {
-            fence(Ordering::Acquire);
-            let dur_tick_c0 = read_volatile(addr_of!((*p).dur_tick_c0));
-            let dur_quit_c0 = read_volatile(addr_of!((*p).dur_quit_c0));
-            let dur_q0 = read_volatile(addr_of!((*p).dur_q0));
-            let multiplier = read_volatile(addr_of!((*p).multiplier));
-            fence(Ordering::Acquire);
-            if s1 == read_volatile(addr_of!((*p).seq)) {
-                return (dur_tick_c0, dur_quit_c0, dur_q0, multiplier);
-            }
-        }
-        std::hint::spin_loop();
+pub unsafe fn read_dur(p: *const Ctl) -> DurAnchor { unsafe {
+    read_consistent(p, || dur_fields(p))
+}}
+
+/// The duration anchor and the real QUIT, read in ONE seqlock window (R4-S3, see `rebase`). Every
+/// duration detour reads through this, so the clock it projects from belongs to the anchor it projects.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+#[inline]
+pub unsafe fn read_dur_with(p: *const Ctl, clock: impl Fn() -> i64) -> (DurAnchor, i64) { unsafe {
+    read_consistent(p, || (dur_fields(p), clock()))
+}}
+
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+#[inline]
+unsafe fn dur_fields(p: *const Ctl) -> DurAnchor { unsafe {
+    DurAnchor {
+        tick_offset: read_volatile(addr_of!((*p).dur_tick_offset)),
+        quit_c0: read_volatile(addr_of!((*p).dur_quit_c0)),
+        q0: read_volatile(addr_of!((*p).dur_q0)),
+        m: read_volatile(addr_of!((*p).multiplier)),
     }
-    // A force-killed writer left `seq` odd forever - fall back rather than hang (see read_anchor, RELEASE-009).
-    fence(Ordering::Acquire);
-    (
-        read_volatile(addr_of!((*p).dur_tick_c0)),
-        read_volatile(addr_of!((*p).dur_quit_c0)),
-        read_volatile(addr_of!((*p).dur_q0)),
-        read_volatile(addr_of!((*p).multiplier)),
-    )
 }}
 
 /// The fake wall instant at `now_real`, from the anchor and the rate.
@@ -1142,14 +1295,32 @@ pub fn shift_ticks_by_bias(ticks: i64, bias_min: i32, add: bool) -> Option<i64> 
     }
 }
 
-/// Project the duration tick (milliseconds, `GetTickCount64` scale) at real time `real_now` (QUIT, 100 ns)
-/// from the anchor: `dur_tick_c0 + (real_now - dur_q0) * M / 10_000`. Monotonic in `real_now` for a fixed
-/// anchor - `freeze_dur` keeps it continuous across a multiplier change. `m` is clamped to >= 1, so a frozen
-/// wall clock (M = 0) still advances the duration axis at real speed (untouchable rule 3). Pure so the
-/// monotonicity is unit-tested without injection.
-pub fn dur_tick_at(dur_tick_c0: u64, dur_q0: i64, m: i64, real_now: i64) -> u64 {
+/// The fake `GetTickCount64` (milliseconds) for a fake QUIT (100 ns): the QUIT in whole milliseconds plus
+/// the session's offset (R4/10a, F4). Monotonic in the QUIT, so the tick count runs back exactly when
+/// QUIT does, which is never. Below zero only for an offset no session writes, held at 0 there.
+pub fn tick_from_quit(dur_tick_offset: i64, fake_quit: i64) -> u64 {
+    dur_tick_offset.saturating_add(fake_quit.div_euclid(10_000)).max(0) as u64
+}
+
+/// The fake `GetTickCount64` at real QUIT `real_now`, from the duration anchor - `dur_quit_at` in
+/// milliseconds plus the offset. Kept as one call because the tick count, `GetTickCount` and
+/// `timeGetTime` all answer it.
+pub fn dur_tick_at(dur_tick_offset: i64, dur_quit_c0: i64, dur_q0: i64, m: i64, real_now: i64) -> u64 {
+    tick_from_quit(dur_tick_offset, dur_quit_at(dur_quit_c0, dur_q0, m, real_now))
+}
+
+/// Project the fake `QueryUnbiasedInterruptTime` (100 ns) at real time `real_now` from the anchor:
+/// `dur_quit_c0 + (real_now - dur_q0) * M`. Monotonic in `real_now` for a fixed anchor, and `rebase`
+/// keeps it continuous across a rate change. `m` is clamped to >= 1, so a frozen wall clock (M = 0)
+/// still advances the duration axis at real speed (untouchable rule 3). Pure so the monotonicity is
+/// unit-tested without injection.
+pub fn dur_quit_at(dur_quit_c0: i64, dur_q0: i64, m: i64, real_now: i64) -> i64 {
     let dm = m.max(1);
-    let dq = real_now.saturating_sub(dur_q0);
+    // Never before the base (R4-N4). A reader whose clock came from a time-stamp counter can, by a few
+    // nanoseconds, hold a clock earlier than the anchor it read (`clock_fence`), and a negative elapsed
+    // time would put the answer under the base - for the tick count, cast to unsigned, at the top of
+    // its range.
+    let dq = real_now.saturating_sub(dur_q0).max(0);
     // Saturating, not wrapping, and the difference is untouchable rule 3. `dq * M` overflows i64
     // roughly 10.6 days into a session at the maximum multiplier, and WRAPPING there sent the axis
     // BACKWARDS by centuries in one step - a monotonic clock that is not monotonic. Saturating holds
@@ -1159,18 +1330,18 @@ pub fn dur_tick_at(dur_tick_c0: u64, dur_q0: i64, m: i64, real_now: i64) -> u64 
     //
     // The wall axis has had a clamp and a warning since R2-X2. The three duration axes, which are the
     // ones rule 3 is actually about, had neither.
-    dur_tick_c0.saturating_add((dq.saturating_mul(dm) / 10_000) as u64)
+    dur_quit_c0.saturating_add(dq.saturating_mul(dm))
 }
 
-/// Project the fake `QueryUnbiasedInterruptTime` (100 ns) at real time `real_now` from the anchor:
-/// `dur_quit_c0 + (real_now - dur_q0) * M`. The 100 ns companion of `dur_tick_at` (QUIT keeps full
-/// resolution). `m` clamped to >= 1 (rule 3, like `dur_tick_at`).
-pub fn dur_quit_at(dur_quit_c0: i64, dur_q0: i64, m: i64, real_now: i64) -> i64 {
-    let dm = m.max(1);
-    let dq = real_now.saturating_sub(dur_q0);
-    // Saturating for the reason `dur_tick_at` gives: a wrap here rewinds a clock rule 3 says never
-    // rewinds, and it cannot be seen from outside. This holds instead, and is detectable.
-    dur_quit_c0.saturating_add(dq.saturating_mul(dm))
+/// An axis after its process was let go at `released_at` (0 = not let go): the session's line up to
+/// that instant, then the real rate from where it stood (ADR-14, R4/10a F6). Continuous at the release
+/// and monotonic on both sides, so a reader that computes it from its own snapshot of the anchor and the
+/// watcher that computes it once give the same answer for the same clock.
+pub fn released_line(real: i64, released_at: i64, session: impl Fn(i64) -> i64) -> i64 {
+    if released_at == 0 || real < released_at {
+        return session(real);
+    }
+    session(released_at).saturating_add(real.saturating_sub(released_at))
 }
 
 /// Whether a duration axis has reached the end of what an i64 can hold and is therefore STANDING
@@ -1187,51 +1358,57 @@ pub fn dur_quit_at(dur_quit_c0: i64, dur_q0: i64, m: i64, real_now: i64) -> i64 
 /// stops while the session goes on counting, which is the shape of R2-X2 on the wall axis.
 pub fn dur_axis_at_range_end(dur_q0: i64, m: i64, real_now: i64) -> bool {
     let dm = m.max(1);
-    let dq = real_now.saturating_sub(dur_q0);
+    let dq = real_now.saturating_sub(dur_q0).max(0);
     dq.checked_mul(dm).is_none()
 }
 
-/// Freeze the duration axis at real time `now` under the OLD multiplier, returning the new
-/// `(dur_tick_c0, dur_quit_c0)` bases to re-anchor at `now` (the caller sets `dur_q0 = now`). Called by
-/// `set_multiplier` so the axis stays CONTINUOUS across a speed change - the value right after the switch
-/// equals the value right before (`dur_tick_at`/`dur_quit_at` at `now`), so it never rewinds (untouchable
-/// rule 3). `old_m` is clamped to >= 1 (a frozen wall clock froze the axis at real speed, not stopped).
-/// Pure and unit-tested.
-pub fn freeze_dur(dur_tick_c0: u64, dur_quit_c0: i64, dur_q0: i64, old_m: i64, now: i64) -> (u64, i64) {
-    (
-        dur_tick_at(dur_tick_c0, dur_q0, old_m, now),
-        dur_quit_at(dur_quit_c0, dur_q0, old_m, now),
-    )
+/// The QPC anchor with its rate, as one snapshot (a torn read mixing a new rate with an old base would
+/// dip the axis, rule 3). The companion of `DurAnchor` for the QPC detour (opt-in `scale_qpc`, ADR-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QpcAnchor {
+    /// Fake QPC base, raw ticks.
+    pub c0: i64,
+    /// Real QPC the base is measured from.
+    pub q0: i64,
+    /// The rate, clamped to at least 1 where it is used.
+    pub m: i64,
 }
 
-/// Read the QPC anchor plus the multiplier under the seqlock, as ONE consistent snapshot (a torn read
-/// mixing a new multiplier with an old QPC base would dip the axis - rule 3). Returns `(dur_qpc_c0,
-/// dur_qpc_q0, multiplier)`. Companion of `read_dur` for the QPC detour (opt-in `scale_qpc`, ADR-2).
+impl QpcAnchor {
+    /// The fake QPC at real QPC `real`, released at `released_at` (0 = not released, `released_line`).
+    pub fn at(&self, real: i64, released_at: i64) -> i64 {
+        released_line(real, released_at, |r| dur_qpc_at(self.c0, self.q0, self.m, r))
+    }
+}
+
+/// Read the QPC anchor under the seqlock, retrying on a concurrent write.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Ctl`.
-pub unsafe fn read_qpc(p: *const Ctl) -> (i64, i64, i64) { unsafe {
-    for _ in 0..SEQLOCK_READ_TRIES {
-        let s1 = read_volatile(addr_of!((*p).seq));
-        if s1 & 1 == 0 {
-            fence(Ordering::Acquire);
-            let dur_qpc_c0 = read_volatile(addr_of!((*p).dur_qpc_c0));
-            let dur_qpc_q0 = read_volatile(addr_of!((*p).dur_qpc_q0));
-            let multiplier = read_volatile(addr_of!((*p).multiplier));
-            fence(Ordering::Acquire);
-            if s1 == read_volatile(addr_of!((*p).seq)) {
-                return (dur_qpc_c0, dur_qpc_q0, multiplier);
-            }
-        }
-        std::hint::spin_loop();
+pub unsafe fn read_qpc(p: *const Ctl) -> QpcAnchor { unsafe {
+    read_consistent(p, || qpc_fields(p))
+}}
+
+/// The QPC anchor and the real counter, read in ONE seqlock window (R4-S3, see `rebase`). `clock` is
+/// the real `QueryPerformanceCounter` followed by `clock_fence`, so the counter is read before the
+/// second look at `seq` and not after it.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+#[inline]
+pub unsafe fn read_qpc_with(p: *const Ctl, clock: impl Fn() -> i64) -> (QpcAnchor, i64) { unsafe {
+    read_consistent(p, || (qpc_fields(p), clock()))
+}}
+
+/// # Safety
+/// `p` must point to a live, correctly aligned `Ctl`.
+#[inline]
+unsafe fn qpc_fields(p: *const Ctl) -> QpcAnchor { unsafe {
+    QpcAnchor {
+        c0: read_volatile(addr_of!((*p).dur_qpc_c0)),
+        q0: read_volatile(addr_of!((*p).dur_qpc_q0)),
+        m: read_volatile(addr_of!((*p).multiplier)),
     }
-    // A force-killed writer left `seq` odd forever - fall back rather than hang (see read_dur, RELEASE-009).
-    fence(Ordering::Acquire);
-    (
-        read_volatile(addr_of!((*p).dur_qpc_c0)),
-        read_volatile(addr_of!((*p).dur_qpc_q0)),
-        read_volatile(addr_of!((*p).multiplier)),
-    )
 }}
 
 /// Project the fake QueryPerformanceCounter (raw QPC ticks) at real QPC `real_now` from the anchor:
@@ -1240,72 +1417,74 @@ pub unsafe fn read_qpc(p: *const Ctl) -> (i64, i64, i64) { unsafe {
 /// monotonicity is unit-tested without injection.
 pub fn dur_qpc_at(dur_qpc_c0: i64, dur_qpc_q0: i64, m: i64, real_now: i64) -> i64 {
     let dm = m.max(1);
-    let dq = real_now.saturating_sub(dur_qpc_q0);
+    // Never before the base (R4-N4), as in `dur_quit_at` - and this is the axis whose clock is the
+    // time-stamp counter the note there is about.
+    let dq = real_now.saturating_sub(dur_qpc_q0).max(0);
     // Saturating, like the other two axes. QPC is the one a target is most likely to read as elapsed
     // time (Stopwatch, nanoTime, perf_counter), so a rewind here is the most visible of the three.
     dur_qpc_c0.saturating_add(dq.saturating_mul(dm))
 }
 
-/// Freeze the QPC axis at real QPC `now` under the OLD multiplier, returning the new `dur_qpc_c0` to
-/// re-anchor at `now` (the caller sets `dur_qpc_q0 = now`). Called by `set_multiplier` so the QPC axis
-/// stays CONTINUOUS across a speed change - the value right after the switch equals the value right
-/// before, so it never rewinds (untouchable rule 3). Pure and unit-tested.
-pub fn freeze_qpc(dur_qpc_c0: i64, dur_qpc_q0: i64, old_m: i64, now: i64) -> i64 {
-    dur_qpc_at(dur_qpc_c0, dur_qpc_q0, old_m, now)
+/// How long after the watcher reads the clock the session lets a process go (R4/10a, F6): 100 ms, in
+/// QUIT units. Until then the axes keep the session's rate, as they would had the watcher noticed the
+/// core's end that much later.
+///
+/// Why there is a margin at all: a detour that found the session holding reads the anchor and its clock
+/// and answers from them, and the watcher may choose its instant meanwhile. The detour looks at the
+/// published instant AFTER its clock (`released_line`), so an instant it can see is one it obeys. One
+/// published after that look was read by the watcher after the detour's clock, so the detour answered
+/// for a moment still on the session's line - unless the watcher stood between reading the clock and
+/// publishing the instant for longer than the margin, two instructions apart. That is the bound this
+/// keeps, and ADR-14 says it.
+pub const RELEASE_MARGIN_QUIT: i64 = 1_000_000;
+
+/// The QPC counterpart of [`RELEASE_MARGIN_QUIT`] for a counter running at `frequency` ticks a second:
+/// a tenth of a second, at least one tick.
+pub fn release_margin_qpc(frequency: i64) -> i64 {
+    (frequency / 10).max(1)
 }
 
-/// Where the three duration axes stood when the session let go of a process, and the real instants
-/// they carry on from at rate 1. Built by [`release_axes`], read by the hook once its core is gone.
+/// The three duration axes after the session let a process go: the anchor they ran on and the instants
+/// from which they run at the real rate. Built by [`release_axes`], read by the hook once its core is
+/// gone - and the same line a detour computes for itself from its own snapshot of the anchor while the
+/// watcher is still on its way (`DurAnchor::quit_at`, `QpcAnchor::at`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReleasedAxes {
-    tick_c0: u64,
-    quit_c0: i64,
-    q0: i64,
-    qpc_c0: i64,
-    qpc_q0: i64,
+    dur: DurAnchor,
+    released_at: i64,
+    qpc: QpcAnchor,
+    qpc_released_at: i64,
 }
 
-/// Freeze every duration axis at the instant the session lets go of a process, so that it carries on
-/// from there at rate 1 instead of snapping back to the real value.
+/// Let every duration axis go at `released_at` (QUIT) and `qpc_released_at` (QPC), so that it carries on
+/// from where it stood at rate 1 instead of snapping back to the real value.
 ///
 /// Snapping back is what the hook did until 2026-09-24, and it was measured rather than supposed: a
 /// session at x60 that ended after 5.4 s while its target kept running sent GetTickCount64,
 /// GetTickCount, timeGetTime, QueryUnbiasedInterruptTime and QPC back by 316 s in one step, on x64 and
 /// x86 alike. The axis untouchable rule 3 says never rewinds was rewound by the tool leaving.
 ///
-/// This is `freeze_dur` and `freeze_qpc` applied one last time, with rate 1 for good: the value right
-/// after equals the value right before, and from then on it moves at the real speed. The wall clock is
-/// not part of it - it goes back to the real one, which a wall may do and the report says it did.
-///
-/// `dur` and `qpc` are exactly what [`read_dur`] and [`read_qpc`] return, and `now_quit` / `now_qpc`
-/// the real clocks at the instant of the release.
-pub fn release_axes(dur: (u64, i64, i64, i64), qpc: (i64, i64, i64), now_quit: i64, now_qpc: i64) -> ReleasedAxes {
-    let (tick_c0, quit_c0, dur_q0, dur_m) = dur;
-    let (qpc_c0, qpc_q0, qpc_m) = qpc;
-    let (tick, quit) = freeze_dur(tick_c0, quit_c0, dur_q0, dur_m, now_quit);
-    ReleasedAxes {
-        tick_c0: tick,
-        quit_c0: quit,
-        q0: now_quit,
-        qpc_c0: freeze_qpc(qpc_c0, qpc_q0, qpc_m, now_qpc),
-        qpc_q0: now_qpc,
-    }
+/// The line is `released_line`: the session's rate up to the instant and the real rate after it, so the
+/// value right after equals the value right before. The wall clock is not part of it - it goes back to
+/// the real one, which a wall may do and the report says it did.
+pub fn release_axes(dur: DurAnchor, qpc: QpcAnchor, released_at: i64, qpc_released_at: i64) -> ReleasedAxes {
+    ReleasedAxes { dur, released_at, qpc, qpc_released_at }
 }
 
 impl ReleasedAxes {
     /// `GetTickCount64` after the release, in milliseconds, from the real QUIT.
     pub fn tick_at(&self, real_quit: i64) -> u64 {
-        dur_tick_at(self.tick_c0, self.q0, 1, real_quit)
+        self.dur.tick_at(real_quit, self.released_at)
     }
 
     /// `QueryUnbiasedInterruptTime` after the release, in 100 ns, from the real QUIT.
     pub fn quit_at(&self, real_quit: i64) -> i64 {
-        dur_quit_at(self.quit_c0, self.q0, 1, real_quit)
+        self.dur.quit_at(real_quit, self.released_at)
     }
 
     /// `QueryPerformanceCounter` after the release, in raw ticks, from the real QPC.
     pub fn qpc_at(&self, real_qpc: i64) -> i64 {
-        dur_qpc_at(self.qpc_c0, self.qpc_q0, 1, real_qpc)
+        self.qpc.at(real_qpc, self.qpc_released_at)
     }
 }
 
@@ -1900,7 +2079,7 @@ mod tests {
             a_fake: 0,
             a_real: 0,
             multiplier: 0,
-            dur_tick_c0: 0,
+            dur_tick_offset: 0,
             dur_quit_c0: 0,
             dur_q0: 0,
             dur_qpc_c0: 0,
@@ -2019,69 +2198,200 @@ mod tests {
         let p = &mut *ctl as *mut Ctl;
         unsafe {
             // write_anchor_full writes the wall triple AND the duration anchor (tick/quit + QPC).
-            write_anchor_full(p, 134_000_000_000_000_000, 42, 60, 5_000, 42, 42, 700, 700);
+            write_anchor_full(
+                p,
+                &FullAnchor {
+                    a_fake: 134_000_000_000_000_000,
+                    a_real: 42,
+                    multiplier: 60,
+                    dur_tick_offset: 5_000,
+                    dur_quit_c0: 42,
+                    dur_q0: 42,
+                    dur_qpc_c0: 700,
+                    dur_qpc_q0: 700,
+                },
+            );
             let (af, ar, m) = read_anchor(p);
             assert_eq!((af, ar, m), (134_000_000_000_000_000, 42, 60));
-            let (tick_c0, quit_c0, q0, dm) = read_dur(p);
-            assert_eq!((tick_c0, quit_c0, q0, dm), (5_000, 42, 42, 60));
-            let (qpc_c0, qpc_q0, qm) = read_qpc(p);
-            assert_eq!((qpc_c0, qpc_q0, qm), (700, 700, 60));
+            assert_eq!(read_dur(p), DurAnchor { tick_offset: 5_000, quit_c0: 42, q0: 42, m: 60 });
+            assert_eq!(read_qpc(p), QpcAnchor { c0: 700, q0: 700, m: 60 });
 
             // write_anchor (the jump writer) moves the wall clock but must NOT touch the duration anchor.
             write_anchor(p, 999, 77, 60);
             let (af2, ar2, _) = read_anchor(p);
             assert_eq!((af2, ar2), (999, 77));
-            let (tick_c0b, quit_c0b, q0b, _) = read_dur(p);
-            assert_eq!((tick_c0b, quit_c0b, q0b), (5_000, 42, 42), "jump must leave the duration axis alone");
-            let (qpc_c0b, qpc_q0b, _) = read_qpc(p);
-            assert_eq!((qpc_c0b, qpc_q0b), (700, 700), "jump must leave the QPC axis alone");
+            let d = read_dur(p);
+            assert_eq!((d.tick_offset, d.quit_c0, d.q0), (5_000, 42, 42), "jump must leave the duration axis alone");
+            let q = read_qpc(p);
+            assert_eq!((q.c0, q.q0), (700, 700), "jump must leave the QPC axis alone");
         }
+    }
+
+    /// A session's starting anchor at rate `m`: both duration axes start where the real clocks stand
+    /// (`q0` for QUIT, `qpc_q0` for QPC), the tick count `offset` above QUIT in milliseconds.
+    fn started(m: i64, offset: i64, q0: i64, qpc_q0: i64) -> Box<Ctl> {
+        let mut ctl = zeroed_ctl();
+        let start = FullAnchor {
+            a_fake: 0,
+            a_real: q0,
+            multiplier: m,
+            dur_tick_offset: offset,
+            dur_quit_c0: q0,
+            dur_q0: q0,
+            dur_qpc_c0: qpc_q0,
+            dur_qpc_q0: qpc_q0,
+        };
+        unsafe { write_anchor_full(&mut *ctl, &start) };
+        ctl
     }
 
     #[test]
     fn duration_axis_never_rewinds_across_multiplier_changes() {
         // H-1 regression guard: a multiplier change must re-anchor the duration axis so it stays
-        // continuous, never dips (untouchable rule 3). Replays the mechanism's rebase math (freeze_dur
-        // then re-anchor at `now`) against a rising real clock, sampling GetTickCount64 densely.
-        let mut tick_c0: u64 = 1_000_000; // ms
-        let mut quit_c0: i64 = 10_000_000; // 100 ns
-        let mut q0: i64 = 10_000_000; // real QUIT base, 100 ns
-        let mut m: i64 = 60;
+        // continuous, never dips (untouchable rule 3). Drives `rebase` itself against a rising real
+        // clock, sampling GetTickCount64 and QUIT densely.
+        let q0 = 10_000_000i64; // real QUIT base, 100 ns
+        let mut ctl = started(60, 0, q0, q0);
+        let p = &mut *ctl as *mut Ctl;
+        let at = |now: i64| {
+            let d = unsafe { read_dur(p) };
+            (d.tick_at(now, 0), d.quit_at(now, 0))
+        };
 
-        // Real QUIT (100 ns) advances by 1 ms each sample. The multiplier drops (x60 -> x10 -> freeze
-        // -> x1) then jumps back up (-> x1440) - the down-steps are the ones that used to rewind.
+        // Real QUIT (100 ns) advances by 1 ms each sample, off the millisecond grid. The multiplier
+        // drops (x60 -> x10 -> freeze -> x1) then jumps back up (-> x1440) - the down-steps are the ones
+        // that used to rewind.
         let changes: &[(i64, i64)] = &[(500, 10), (900, 0), (1300, 1), (1700, 1440)]; // (sample index, new m)
-        let mut last_tick: u64 = dur_tick_at(tick_c0, q0, m, q0);
-        let mut last_quit: i64 = dur_quit_at(quit_c0, q0, m, q0);
+        let mut last = at(q0);
         let mut change_i = 0;
         for step in 0..2_500i64 {
-            let now = 10_000_000 + step * 10_000; // +1 ms per step, in 100 ns units
-
+            let now = q0 + step * 10_000 + 3_333;
             if change_i < changes.len() && step == changes[change_i].0 {
-                let new_m = changes[change_i].1;
-                let (frozen_tick, frozen_quit) = freeze_dur(tick_c0, quit_c0, q0, m, now);
+                let before = at(now);
+                let done = unsafe { rebase(p, changes[change_i].1, || now, || now) };
+                assert_eq!(done.now, now);
                 // Continuity: the value right after the switch equals the value right before it.
-                assert_eq!(frozen_tick, dur_tick_at(tick_c0, q0, m, now), "tick jumped at the switch");
-                assert_eq!(frozen_quit, dur_quit_at(quit_c0, q0, m, now), "quit jumped at the switch");
-                tick_c0 = frozen_tick;
-                quit_c0 = frozen_quit;
-                q0 = now;
-                m = new_m;
+                assert_eq!(at(now), before, "an axis jumped at the switch to x{}", changes[change_i].1);
                 change_i += 1;
             }
-
-            let tick = dur_tick_at(tick_c0, q0, m, now);
-            let quit = dur_quit_at(quit_c0, q0, m, now);
-            assert!(tick >= last_tick, "GetTickCount64 rewound: {last_tick} -> {tick} at step {step}");
-            assert!(quit >= last_quit, "QUIT rewound: {last_quit} -> {quit} at step {step}");
-            last_tick = tick;
-            last_quit = quit;
+            let value = at(now);
+            assert!(value.0 >= last.0, "GetTickCount64 rewound: {} -> {} at step {step}", last.0, value.0);
+            assert!(value.1 >= last.1, "QUIT rewound: {} -> {} at step {step}", last.1, value.1);
+            last = value;
         }
 
         // Frozen wall (M = 0) still advances the axis at real speed (clamp to >= 1).
-        let a = dur_tick_at(1_000, 0, 0, 5_000_000);
-        let b = dur_tick_at(1_000, 0, 0, 6_000_000);
+        let a = dur_tick_at(0, 1_000, 0, 0, 5_000_000);
+        let b = dur_tick_at(0, 1_000, 0, 0, 6_000_000);
         assert!(b > a, "a frozen wall clock must not stop the monotonic duration axis (rule 3)");
+    }
+
+    /// The tick count follows QUIT, so an anchor rewritten at the rate it already had moves no axis at all
+    /// (R4/10a, F4). The tick count used to have a base of its own, rounded down to a whole millisecond
+    /// at every rewrite - measured as steps back of 1 ms with no change of rate, and a count that fell
+    /// behind QUIT a little each time.
+    #[test]
+    fn rewriting_the_anchor_at_the_same_rate_moves_no_axis() {
+        let q0 = 10_000_000i64;
+        let straight = started(1440, 7, q0, q0);
+        let mut ctl = started(1440, 7, q0, q0);
+        let p = &mut *ctl as *mut Ctl;
+        for i in 1..=1_000i64 {
+            let now = q0 + i * 12_345; // 1.2345 ms apart, never on the millisecond grid
+            unsafe { rebase(p, 1440, || now, || now) };
+            let (d, s) = unsafe { (read_dur(p), read_dur(&*straight)) };
+            let (q, sq) = unsafe { (read_qpc(p), read_qpc(&*straight)) };
+            for later in [now, now + 4_321] {
+                assert_eq!(d.tick_at(later, 0), s.tick_at(later, 0), "the tick count drifted after {i} rewrites");
+                assert_eq!(d.quit_at(later, 0), s.quit_at(later, 0), "QUIT drifted after {i} rewrites");
+                assert_eq!(q.at(later, 0), sq.at(later, 0), "QPC drifted after {i} rewrites");
+            }
+        }
+    }
+
+    /// A rate change reads the instant it is made at while its write is open (R4-S3, F3): every reader
+    /// of the old anchor took its clock before that instant, every reader of the new one after it.
+    #[test]
+    fn a_rate_change_reads_its_clocks_while_its_write_is_open() {
+        let mut ctl = started(1440, 0, 1_000, 2_000);
+        let p = &mut *ctl as *mut Ctl;
+        let open = || unsafe { read_volatile(addr_of!((*p).seq)) } & 1 == 1;
+        let seen = std::cell::Cell::new((false, false));
+        let done = unsafe {
+            rebase(
+                p,
+                60,
+                || {
+                    seen.set((open(), seen.get().1));
+                    5_000
+                },
+                || {
+                    seen.set((seen.get().0, open()));
+                    7_000
+                },
+            )
+        };
+        assert_eq!(seen.get(), (true, true), "a clock was read outside the write");
+        assert_eq!(done, Rebased { now: 5_000, old_m: 1440 });
+        assert_eq!(ctl.seq & 1, 0, "the write was left open");
+        let d = unsafe { read_dur(&*ctl) };
+        assert_eq!((d.q0, d.m, d.quit_c0), (5_000, 60, 1_000 + 4_000 * 1440));
+        let q = unsafe { read_qpc(&*ctl) };
+        assert_eq!((q.q0, q.c0), (7_000, 2_000 + 5_000 * 1440));
+    }
+
+    /// A reader takes its clock inside the window it validates (R4-S3). The clock here IS a rate change
+    /// landing while the reader holds the old anchor: the first read of it runs a whole `rebase` and then
+    /// answers an instant after it. Read inside the window, the reader sees `seq` move, reads again, and
+    /// returns the NEW anchor with a clock taken after it. Read after the window, it returned the OLD
+    /// anchor with that later clock, which is the reader that stepped the axis back.
+    #[test]
+    fn a_reader_takes_its_clock_inside_the_window_it_validates() {
+        for axis in ["dur", "qpc", "wall"] {
+            let mut ctl = started(1440, 0, 1_000, 1_000);
+            let p = &mut *ctl as *mut Ctl;
+            let reads = std::cell::Cell::new(0i64);
+            let clock = || {
+                let n = reads.get();
+                reads.set(n + 1);
+                if n == 0 {
+                    unsafe { rebase(p, 1, || 2_000, || 2_000) };
+                }
+                2_000 + n
+            };
+            let (rate, base, real) = unsafe {
+                match axis {
+                    "dur" => {
+                        let (d, real) = read_dur_with(p, clock);
+                        (d.m, d.q0, real)
+                    }
+                    "qpc" => {
+                        let (q, real) = read_qpc_with(p, clock);
+                        (q.m, q.q0, real)
+                    }
+                    _ => {
+                        let ((_, a_real, m), real) = read_anchor_with(p, clock);
+                        (m, a_real, real)
+                    }
+                }
+            };
+            assert_eq!(rate, 1, "{axis}: the reader kept the anchor the write replaced");
+            assert_eq!(base, 2_000, "{axis}");
+            assert!(real >= base, "{axis}: a clock from before the anchor it was paired with");
+        }
+    }
+
+    /// A clock read before its anchor answers the anchor's base, never less (R4-N4). A reader whose clock
+    /// is the time-stamp counter can hold one a few nanoseconds older than the anchor it read, and a
+    /// negative elapsed time used to put the answer under the base - for the tick count, cast to
+    /// unsigned, at the very top of its range.
+    #[test]
+    fn a_clock_read_before_its_anchor_answers_the_base() {
+        assert_eq!(dur_quit_at(500, 1_000, 60, 999), 500);
+        assert_eq!(dur_qpc_at(500, 1_000, 60, 990), 500);
+        assert_eq!(dur_tick_at(3, 50_000, 60_000, 60, 59_999), 8, "5 ms of QUIT plus the offset of 3");
+        assert!(!dur_axis_at_range_end(1_000, i64::MAX, 0), "an elapsed time below zero is no overflow");
+        assert_eq!(tick_from_quit(-10, 0), 0, "held at zero rather than wrapped to the top");
     }
 
     #[test]
@@ -2090,16 +2400,18 @@ mod tests {
         // lives on. Before the release the axes ran at the session rate, after it they must carry on
         // from the same value at the real rate. The real value itself stands 5.4 s x 59 = 318.6 s behind
         // by then (the measured run lasted 5.36 s, hence the 316 s on record).
-        let tick_c0: u64 = 1_000_000; // ms
+        // QUIT starts at 1 000 000 ms, so with an offset of 0 the tick count starts there too.
         let quit_c0: i64 = 10_000_000_000; // 100 ns
         let q0: i64 = 10_000_000_000; // real QUIT base, 100 ns
         let qpc_c0: i64 = 50_000_000; // raw ticks, a 10 MHz counter
         let qpc_q0: i64 = 50_000_000;
         let end = q0 + 54_000_000; // 5.4 s later
         let end_qpc = qpc_q0 + 54_000_000;
+        let dur = |m: i64| DurAnchor { tick_offset: 0, quit_c0, q0, m };
+        let qpc = |m: i64| QpcAnchor { c0: qpc_c0, q0: qpc_q0, m };
         for m in [60i64, 1, 0, 1440] {
-            let r = release_axes((tick_c0, quit_c0, q0, m), (qpc_c0, qpc_q0, m), end, end_qpc);
-            assert_eq!(r.tick_at(end), dur_tick_at(tick_c0, q0, m, end), "tick jumped at the release (x{m})");
+            let r = release_axes(dur(m), qpc(m), end, end_qpc);
+            assert_eq!(r.tick_at(end), dur_tick_at(0, quit_c0, q0, m, end), "tick jumped at the release (x{m})");
             assert_eq!(r.quit_at(end), dur_quit_at(quit_c0, q0, m, end), "quit jumped at the release (x{m})");
             assert_eq!(
                 r.qpc_at(end_qpc),
@@ -2114,61 +2426,73 @@ mod tests {
                 10_000_000,
                 "qpc rate after the release (x{m})"
             );
+            // Before the instant it is the session's own line, so a detour that answered from the
+            // session just before the release answered what the release answers (R4/10a, F6).
+            assert_eq!(r.quit_at(end - 1), dur_quit_at(quit_c0, q0, m, end - 1), "quit before the release (x{m})");
+            assert_eq!(r.qpc_at(end_qpc - 1), dur_qpc_at(qpc_c0, qpc_q0, m, end_qpc - 1), "qpc before the release (x{m})");
         }
 
-        // Dense sampling across the release at x60, 1 ms of real time a step: never a step down.
-        let r = release_axes((tick_c0, quit_c0, q0, 60), (qpc_c0, qpc_q0, 60), end, end_qpc);
+        // Dense sampling across the release at x60, 1 ms of real time a step: never a step down. The
+        // value comes from the line a detour computes for itself out of its own snapshot (the anchor and
+        // the published instant), and the watcher's line has to agree with it at every step.
+        let r = release_axes(dur(60), qpc(60), end, end_qpc);
         let mut last_tick = 0u64;
         let mut last_quit = i64::MIN;
         let mut last_qpc = i64::MIN;
         for step in 0..10_800i64 {
             let now = q0 + step * 10_000;
             let now_qpc = qpc_q0 + step * 10_000;
-            let (tick, quit, qpc) = if now < end {
-                (dur_tick_at(tick_c0, q0, 60, now), dur_quit_at(quit_c0, q0, 60, now), dur_qpc_at(qpc_c0, qpc_q0, 60, now_qpc))
-            } else {
-                (r.tick_at(now), r.quit_at(now), r.qpc_at(now_qpc))
-            };
+            let (tick, quit, qpc_value) = (dur(60).tick_at(now, end), dur(60).quit_at(now, end), qpc(60).at(now_qpc, end_qpc));
+            assert_eq!((tick, quit, qpc_value), (r.tick_at(now), r.quit_at(now), r.qpc_at(now_qpc)), "a detour and the watcher disagree (step {step})");
             assert!(tick >= last_tick, "GetTickCount64 rewound at the release: {last_tick} -> {tick} (step {step})");
             assert!(quit >= last_quit, "QUIT rewound at the release: {last_quit} -> {quit} (step {step})");
-            assert!(qpc >= last_qpc, "QPC rewound at the release: {last_qpc} -> {qpc} (step {step})");
-            (last_tick, last_quit, last_qpc) = (tick, quit, qpc);
+            assert!(qpc_value >= last_qpc, "QPC rewound at the release: {last_qpc} -> {qpc_value} (step {step})");
+            (last_tick, last_quit, last_qpc) = (tick, quit, qpc_value);
         }
         // What the old behaviour handed back instead: the base started at the real tick, so the real
         // value at the end is the base plus 5.4 s, which is 318.6 s under what the target had just read.
-        let real_at_end = tick_c0 + 5_400;
+        let real_at_end = 1_000_000 + 5_400;
         assert_eq!(r.tick_at(end) - real_at_end, 318_600, "the gap the release closes (5.4 s x 59)");
 
-        // An axis already standing at the end of its range stays where it stood and moves on at rate 1,
-        // rather than wrapping or dropping (see `dur_axis_at_range_end`).
-        let far = release_axes((tick_c0, quit_c0, 0, i64::MAX), (qpc_c0, 0, i64::MAX), end, end_qpc);
-        assert!(far.tick_at(end + 10_000_000) > far.tick_at(end), "a saturated tick axis must keep moving after the release");
+        // An axis already standing at the end of its range stays where it stood rather than wrapping or
+        // dropping (see `dur_axis_at_range_end`, which the session warns on). The tick count follows QUIT
+        // since R4/10a, so it stands there with QUIT instead of moving on alone at rate 1 as it used to.
+        let far = release_axes(
+            DurAnchor { tick_offset: 0, quit_c0, q0: 0, m: i64::MAX },
+            QpcAnchor { c0: qpc_c0, q0: 0, m: i64::MAX },
+            end,
+            end_qpc,
+        );
+        assert!(far.tick_at(end + 10_000_000) >= far.tick_at(end), "a saturated tick axis must not drop after the release");
         assert!(far.quit_at(end + 10_000_000) >= far.quit_at(end), "a saturated quit axis must not drop after the release");
+
+        // The margins: a tenth of a second on both clocks, and never no margin at all.
+        assert_eq!(RELEASE_MARGIN_QUIT, 1_000_000);
+        assert_eq!(release_margin_qpc(10_000_000), 1_000_000);
+        assert_eq!(release_margin_qpc(0), 1);
     }
 
     #[test]
     fn qpc_axis_never_rewinds_across_multiplier_changes() {
         // ADR-2 reversal (A1): a multiplier change must re-anchor the QPC axis so it stays continuous,
-        // never dips (rule 3) - exactly what the spike's lazy anchor got WRONG. Replays freeze_qpc then
-        // re-anchor at `now` against a rising real QPC, with the multiplier dropping then jumping up.
-        let mut qpc_c0: i64 = 5_000_000; // raw QPC ticks
-        let mut q0: i64 = 5_000_000; // real QPC base
-        let mut m: i64 = 60;
+        // never dips (rule 3) - exactly what the spike's lazy anchor got WRONG. Drives `rebase` against a
+        // rising real QPC, with the multiplier dropping then jumping up.
+        let q0 = 5_000_000i64; // real QPC base, raw ticks
+        let mut ctl = started(60, 0, 1_000, q0);
+        let p = &mut *ctl as *mut Ctl;
+        let at = |now: i64| unsafe { read_qpc(p) }.at(now, 0);
         let changes: &[(i64, i64)] = &[(500, 10), (900, 0), (1300, 1), (1700, 1440)];
-        let mut last: i64 = dur_qpc_at(qpc_c0, q0, m, q0);
+        let mut last = at(q0);
         let mut ci = 0;
         for step in 0..2_500i64 {
-            let now = 5_000_000 + step * 100; // real QPC advances 100 ticks per step
+            let now = q0 + step * 100; // real QPC advances 100 ticks per step
             if ci < changes.len() && step == changes[ci].0 {
-                let new_m = changes[ci].1;
-                let frozen = freeze_qpc(qpc_c0, q0, m, now);
-                assert_eq!(frozen, dur_qpc_at(qpc_c0, q0, m, now), "qpc jumped at the switch");
-                qpc_c0 = frozen;
-                q0 = now;
-                m = new_m;
+                let before = at(now);
+                unsafe { rebase(p, changes[ci].1, || 1_000, || now) };
+                assert_eq!(at(now), before, "qpc jumped at the switch");
                 ci += 1;
             }
-            let qpc = dur_qpc_at(qpc_c0, q0, m, now);
+            let qpc = at(now);
             assert!(qpc >= last, "QPC rewound: {last} -> {qpc} at step {step}");
             last = qpc;
         }
@@ -2238,34 +2562,22 @@ mod tests {
         const QPC_Q0: i64 = 2_000_000_000;
         const T: i64 = Q0 + 36_000_000_000; // an hour of real 100 ns units after the last anchor
         const QPC_T: i64 = QPC_Q0 + 36_000_000_000;
-        let (tick_c0, quit_c0, qpc_c0) = (5_000u64, 50_000_000i64, 7_000_000i64);
         for (old_m, new_m) in [(1440, 1), (1, 1440), (60, 2), (2, 60)] {
             let at = |c: &Ctl, t: i64, qt: i64| {
                 let p = c as *const Ctl;
-                let (tc, qc, q0, m) = unsafe { read_dur(p) };
-                let (pc, pq0, pm) = unsafe { read_qpc(p) };
-                (dur_tick_at(tc, q0, m, t), dur_quit_at(qc, q0, m, t), dur_qpc_at(pc, pq0, pm, qt))
+                let (d, q) = unsafe { (read_dur(p), read_qpc(p)) };
+                (d.tick_at(t, 0), d.quit_at(t, 0), q.at(qt, 0))
             };
-            let mut before = zeroed_ctl();
-            unsafe { write_anchor_full(&mut *before, 0, Q0, old_m, tick_c0, quit_c0, Q0, qpc_c0, QPC_Q0) };
+            let before = started(old_m, 5_000, Q0, QPC_Q0);
             let last = at(&before, T, QPC_T);
-            let (frozen_tick, frozen_quit) = freeze_dur(tick_c0, quit_c0, Q0, old_m, T);
-            let frozen_qpc = freeze_qpc(qpc_c0, QPC_Q0, old_m, QPC_T);
-            let stores = full_anchor_stores(&FullAnchor {
-                a_fake: 9,
-                a_real: T,
-                multiplier: new_m,
-                dur_tick_c0: frozen_tick,
-                dur_quit_c0: frozen_quit,
-                dur_q0: T,
-                dur_qpc_c0: frozen_qpc,
-                dur_qpc_q0: QPC_T,
-            });
+            // The fields the complete change ends with, exactly as `rebase` writes them.
+            let mut after = started(old_m, 5_000, Q0, QPC_Q0);
+            unsafe { rebase(&mut *after, new_m, || T, || QPC_T) };
+            let stores = full_anchor_stores(&unsafe { full_anchor_fields(&*after) });
             for k in 0..=stores.len() {
-                let mut ctl = zeroed_ctl();
+                let mut ctl = started(old_m, 5_000, Q0, QPC_Q0);
                 let p = &mut *ctl as *mut Ctl;
                 unsafe {
-                    write_anchor_full(p, 0, Q0, old_m, tick_c0, quit_c0, Q0, qpc_c0, QPC_Q0);
                     for store in &stores[..k] {
                         store_anchor_field(p, *store);
                     }
@@ -2281,8 +2593,6 @@ mod tests {
                     );
                 }
             }
-            let mut after = zeroed_ctl();
-            unsafe { write_anchor_full(&mut *after, 9, T, new_m, frozen_tick, frozen_quit, T, frozen_qpc, QPC_T) };
             assert_eq!(at(&after, T, QPC_T), last, "x{old_m} to x{new_m}: the complete write is not continuous");
         }
     }
@@ -2530,10 +2840,10 @@ mod tests {
         let qpc = dur_qpc_at(0, 0, m, huge);
         assert_eq!(qpc, i64::MAX);
 
-        // The tick axis divides by 10_000 after the multiply, so its saturation shows up as the
-        // largest millisecond count the same product can express - still held, still never backwards.
-        let tick = dur_tick_at(0, 0, m, huge);
-        assert!(tick >= dur_tick_at(0, 0, m, huge - 1_000_000));
+        // The tick count is QUIT in milliseconds, so its saturation shows up as the largest millisecond
+        // count a held QUIT expresses - still held, still never backwards.
+        let tick = dur_tick_at(0, 0, 0, m, huge);
+        assert!(tick >= dur_tick_at(0, 0, 0, m, huge - 1_000_000));
 
         // Monotonic across the boundary itself: sample either side of the overflow point and the
         // later reading is never the smaller one.
