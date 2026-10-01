@@ -1,0 +1,116 @@
+<!-- Changer la date système pour tester, français. Structure, classes et jetons comme dans en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Changer la date système pour tester une application</h1>
+    <p class="sub">
+      C'est la plus vieille astuce qui soit&nbsp;: régler l'horloge de Windows sur la date que vous voulez
+      tester, lancer le programme, la remettre. Ça marche - et tant que l'horloge est déplacée, elle
+      déplace aussi tout le reste de la machine.
+    </p>
+  </section>
+
+  <section>
+    <h2>Ce qui bouge réellement avec l'horloge</h2>
+    <div class="prose">
+      <p>
+        L'horloge système n'appartient pas au seul programme que vous testez. Chaque processus, chaque
+        service et chaque conversation réseau de la machine lit la même, si bien qu'un changement fait
+        pour un test est un changement fait pour tous.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Ce qui lit l'horloge</th><th>Ce qui se passe quand vous la déplacez</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>La connexion au domaine et les dossiers partagés</td><td>Kerberos tolère par défaut un écart d'horloge de cinq minutes. Au-delà, ses tickets sont refusés, et l'ouverture de session ou l'accès à un partage échoue.</td></tr>
+          <tr><td>Les certificats et HTTPS</td><td>La validité d'un certificat se décide d'après l'horloge. Réglez-la après la date de fin d'un certificat et toute connexion qui s'y appuie est refusée comme expirée&nbsp;; reculez-la assez et le certificat n'est pas encore valide.</td></tr>
+          <tr><td>Le service Windows Time</td><td>Une machine jointe à un domaine prend l'heure auprès d'un contrôleur de domaine, et par défaut le service corrige l'horloge quelle que soit la taille de l'écart. La date que vous avez réglée peut être annulée pendant que vous testez encore.</td></tr>
+          <tr><td>Tout ce qui enregistre une heure</td><td>Les fichiers, journaux, lignes de base de données et courriels envoyés pendant que l'horloge est déplacée portent la date du test, et la gardent après que vous avez remis l'horloge.</td></tr>
+          <tr><td>Les logiciels qui retiennent la date la plus tardive vue</td><td>Certains programmes lisent une horloge qui recule comme une falsification - et c'est exactement ce qui se passe quand vous rétablissez la vraie date.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Plus la date est lointaine, plus vous en rencontrez. Une machine réglée sur 2038 voit tous les
+        certificats émis aujourd'hui comme expirés.
+        <a href="/fr/tester-le-bug-de-l-an-2038/">Tester 2038 sans cela &rarr;</a>
+      </p>
+      <p>
+        Il faut aussi un droit que la plupart des comptes n'ont pas&nbsp;: modifier l'heure système est un
+        privilège d'administrateur, et sur une machine gérée il n'est souvent pas à vous.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quand changer l'horloge est la bonne réponse</h2>
+    <div class="prose">
+      <p>
+        Une machine virtuelle que personne d'autre n'utilise, avec sa propre synchronisation d'horloge
+        désactivée, est un banc d'essai tout à fait correct. Vous la jetez ensuite, donc rien de ce
+        qu'elle a enregistré n'a d'importance. Si vous en avez une et que le test porte sur une seule
+        date, c'est la solution la plus simple qui fonctionne.
+      </p>
+      <p>
+        Les ennuis commencent quand c'est la machine sur laquelle vous travaillez, celle qui est dans le
+        domaine, ou celle qui fait tourner en même temps quelque chose qui ne doit rien remarquer.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Déplacer plutôt l'horloge d'un seul programme</h2>
+    <div class="prose">
+      <p>
+        L'heure décalée n'est visible que par <strong>un processus et les enfants qu'il lance</strong>.
+        Votre connexion au domaine, vos certificats et Windows Update ne la voient jamais, donc rien du
+        tableau ci-dessus ne bouge - et il n'y a rien à remettre ensuite.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># L'application voit le 31 décembre 2027, 23:59:50. Tout le reste garde la vraie date.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Démarrer dix minutes avant minuit et tourner à vitesse x60 - le changement d'année arrive en dix secondes</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Qu'une date décalée pour un programme l'ait réellement atteint n'est pas à présumer. Chaque session
+        se termine par un verdict et la liste des canaux de temps que le programme a réellement lus.
+        <a href="/fr/audit-des-sources-de-temps/">Comment savoir si cela a fonctionné &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce que cela ne remplace pas</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Un programme qui demande l'heure à un serveur</strong> est hors de portée d'une
+          substitution locale. La session le signale quand elle voit le programme ouvrir une connexion
+          réseau, plutôt que de vous laisser croire que le test est passé.</li>
+        <li><strong>Tester le système lui-même</strong> - un service qui réagit à un changement de la
+          vraie horloge, une tâche planifiée, le comportement de Windows autour d'un changement
+          d'horloge - n'a pas d'autre solution que de changer l'horloge, sur une machine que vous pouvez
+          vous permettre de sacrifier.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/scenarios-de-test-de-dates/">Dates à tester</a>
+    </div>
+  </section>
+
+</div>

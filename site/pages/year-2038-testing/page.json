@@ -25,6 +25,12 @@
       "link_text": "Jahr 2038",
       "title": "Jahr-2038-Problem: Windows-App über 03:14:07 UTC testen",
       "description": "Die Windows-Uhr läuft über 2038 hinaus. Die Fehler stecken in 32-Bit-Zeitfeldern. So führen Sie eine App über den 19. Januar 2038, ohne das Systemdatum zu ändern."
+    },
+    "fr": {
+      "slug": "tester-le-bug-de-l-an-2038",
+      "link_text": "An 2038",
+      "title": "Bug de l'an 2038 : tester une appli Windows après 03:14:07 UTC",
+      "description": "L'horloge de Windows passe 2038 ; les champs de temps sur 32 bits, non. Faire franchir le 19 janvier 2038 à une appli, sans toucher à la date système."
     }
   }
 }

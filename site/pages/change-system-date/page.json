@@ -25,6 +25,12 @@
       "link_text": "Systemuhr nicht ändern",
       "title": "Systemdatum zum Testen ändern: Was unter Windows kaputtgeht",
       "description": "Wer die Windows-Uhr zum Testen umstellt, verstellt den ganzen Rechner: Anmeldung, Zertifikate, Zeitsync. Was kaputtgeht und wie nur eine App umgestellt wird."
+    },
+    "fr": {
+      "slug": "changer-la-date-systeme-pour-tester",
+      "link_text": "Sans changer l'horloge",
+      "title": "Date système changée pour tester : ce qui casse sous Windows",
+      "description": "Changer l'horloge de Windows pour tester une date décale toute la machine : domaine, certificats, synchro. Ce qui casse, et comment ne décaler qu'une appli."
     }
   }
 }
