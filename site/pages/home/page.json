@@ -45,6 +45,12 @@
       "link_text": "Início",
       "title": "Chrono Mock - execute qualquer app do Windows com outra data",
       "description": "Ferramenta gratuita e de código aberto para Windows. Execute um aplicativo em qualquer data, congele ou acelere o relógio dele sem mexer na hora do sistema. E ele diz se funcionou."
+    },
+    "it": {
+      "slug": "",
+      "link_text": "Home",
+      "title": "Chrono Mock - esegui qualsiasi app Windows con un'altra data",
+      "description": "Strumento gratuito e open source per Windows. Esegui un'applicazione a qualsiasi data, congela o accelera il suo orologio senza toccare l'ora di sistema. E ti dice se ha funzionato."
     }
   }
 }

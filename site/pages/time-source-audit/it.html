@@ -1,0 +1,194 @@
+<!-- L'audit delle fonti di tempo, italiano. Struttura, classi e segnaposto come in en.html.
+
+     Il report di sessione qui sotto è output reale e resta in inglese: il programma è in inglese.
+     L'avviso di rete al suo interno è autentico - quella sonda apre una connessione di proposito, ed è
+     esattamente il caso per cui l'avviso esiste. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Come fai a sapere che ha funzionato?</h1>
+    <p class="sub">
+      Con qualsiasi altro strumento di questo tipo, non lo sai. L'applicazione parte, mostra una data
+      qualsiasi e tu dai per scontato che sia giusta. Ma può leggere l'orologio da una via che nulla ha
+      intercettato - e allora <em>«il test è passato»</em> non significa niente.
+    </p>
+  </section>
+
+  <section>
+    <h2>Il fallimento che non ha sintomi</h2>
+    <div class="prose">
+      <p>
+        Uno strumento di spostamento del tempo che manca un canale non si blocca e non avvisa.
+        L'applicazione legge semplicemente la data reale attraverso l'unica funzione che nessuno ha
+        intercettato, e si comporta esattamente come si sarebbe comportata in un qualsiasi pomeriggio
+        normale. Il test diventa verde. Il bug va in produzione.
+      </p>
+      <p>
+        RunAsDate è onesto su questo nella propria documentazione - dice che
+        <strong>«non influirà sulle applicazioni che ricavano la data e l'ora correnti da un'altra
+        fonte»</strong> - e poi ti lascia scoprire se la tua è una di quelle. Questo strumento tratta
+        quella stessa frase come qualcosa da misurare.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Che cosa riporta davvero una sessione</h2>
+    <div class="prose">
+      <p>
+        Output reale, ottenuto eseguendo lo strumento contro una delle sonde di test di questo progetto -
+        una che apre deliberatamente una connessione di rete:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Gli ultimi due blocchi sono il punto. Qui nulla è fallito - il verdetto è
+        <strong>funziona</strong> - e il report dice comunque, senza che glielo si chieda, che questa
+        applicazione ha parlato con la rete prima di finire, quindi un hook locale potrebbe non essere
+        tutta la storia. Quella frase è la differenza tra un test di cui ti puoi fidare e uno di cui
+        no.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="La schermata dei risultati di Chrono Mock con What the application read aperto: una tabella con Function, Read from e Reads. NtCreateUserProcess è indicata come letta dall'orologio reale per progetto e connect come letta dall'orologio reale per progetto e agganciata in ritardo, mentre le altre righe - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation e le altre - leggono dall'orologio finto, ciascuna con il proprio conteggio. Due avvisi stanno sotto la tabella.">
+      <figcaption>La stessa risposta nella finestra. Ogni funzione che l'applicazione avrebbe potuto
+        interrogare, da che cosa ha davvero letto e quante volte - comprese quelle lasciate di proposito
+        sull'orologio reale, che sono nominate invece di essere contate in silenzio come un
+        successo.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Quattro verdetti, e un codice di uscita per ciascuno</h2>
+    <div class="prose">
+      <p>
+        Il verdetto si raggiunge dall'interno del processo in esecuzione, prima che tu inizi a lavorare, ed
+        è il codice di uscita stesso dello strumento, così una pipeline può diramare su di esso.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Verdetto</th><th>Uscita</th><th>Significato</th></tr></thead>
+        <tbody>
+          <tr><td class="y">funziona</td><td>0</td><td>ogni processo che ha letto l'ora ha visto l'orologio della sessione</td></tr>
+          <tr><td>funziona in parte</td><td>10</td><td>alcuni canali coperti, altri no - quelli non coperti sono elencati</td></tr>
+          <tr><td class="n">non funziona</td><td>11</td><td>la sostituzione non ha raggiunto i canali chiave</td></tr>
+          <tr><td>indeterminato</td><td>4</td><td>non è stato possibile stabilire la copertura - un onesto «non lo so»</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Quando il verdetto è «non funziona», il processo viene fermato subito</strong>, prima che tu
+        possa interagire con esso. Il verdetto non può precedere l'avvio, perché l'unica fonte di verità è
+        una lettura presa dall'interno del processo in esecuzione. Ciò che è garantito è che scopri la verità
+        prima di cominciare a lavorare - non che un avvio destinato a fallire non avvenga mai. Puoi forzare
+        e proseguire, e la sessione viene allora contrassegnata come inaffidabile ovunque compaia, comprese
+        le prove che esporti.
+      </p>
+      <p>
+        Esistono altri tre codici per cose che non sono affatto verdetti: <code>1</code> per un errore
+        d'uso, <code>2</code> quando il target non è stato possibile avviarlo o iniettarlo e <code>12</code>
+        quando il target è scomparso in un modo che fa pensare a un'applicazione a istanza singola che ha
+        passato il testimone a una copia già in esecuzione.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Coperti, osservati, non coperti</h2>
+    <div class="prose">
+      <p>I canali si dividono in tre gruppi, e quello di mezzo è il più interessante.</p>
+      <ul>
+        <li><strong>Coperti</strong> - intercettati e sostituiti. L'applicazione ha chiesto e ha ottenuto
+          l'orologio della sessione. Il conteggio delle chiamate dice quante volte.</li>
+        <li><strong>Osservati</strong> - intercettati, contati e lasciati deliberatamente a dire la
+          verità. Il contatore ad alta risoluzione è qui per impostazione predefinita perché scalarlo ha
+          destabilizzato il rendering. I timer multimediali sono qui perché scalarli sposterebbe la
+          temporizzazione di audio e MIDI. Le connessioni di rete e un percorso di creazione di processi
+          sono qui perché sono indizi, non orologi.</li>
+        <li><strong>Non coperti</strong> - un canale che l'applicazione ha letto e che la sostituzione non
+          ha raggiunto. È ciò che trasforma un verdetto in <em>funziona in parte</em>, ed è elencato per
+          nome invece di essere riassunto.</li>
+      </ul>
+      <p>
+        Anche un conteggio pari a zero è un'informazione: il canale era intercettato e l'applicazione non
+        ha mai chiesto. Per questo il report li elenca invece di nasconderli.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Che cosa l'audit non può vedere</h2>
+    <div class="prose">
+      <p>
+        Il report è onesto sulla copertura, il che significa essere onesti sui propri limiti. Queste
+        letture avvengono senza alcuna chiamata di funzione da intercettare, oppure del tutto fuori dal
+        processo:
+      </p>
+      <ul>
+        <li>letture dirette della pagina dati condivisa in modalità utente - il valore è in memoria,
+          quindi non c'è nulla da agganciare. Rare nelle applicazioni normali, comuni nel codice di
+          licenza e anti-manomissione</li>
+        <li>chiamate di sistema dirette che aggirano le esportazioni standard - stesso schema</li>
+        <li>ora ottenuta fuori dal processo, tramite WMI, un server COM fuori processo o RPC</li>
+        <li>ora dalla rete - un'intestazione HTTP <code>Date</code>, NTP, la risposta di un'API o
+          l'orologio stesso di un server di database</li>
+        <li>ora proveniente da driver del kernel</li>
+      </ul>
+      <p>
+        Il caso della rete è quello che l'audit può almeno <em>notare</em>, ed è per questo che esiste
+        l'avviso nel report qui sopra. Per il resto, un verdetto <em>funziona</em> significa che i canali che
+        questo strumento può vedere sono stati coperti - non che non esista nessun'altra via.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>In una pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> emette gli stessi fatti in forma leggibile da una macchina, <code>--report</code>
+        scrive la versione per le persone in un file, e una sessione il cui verdetto sia qualsiasi cosa
+        diversa da <em>funziona</em> apre quel file con un avviso di prova inaffidabile invece di
+        seppellirlo in fondo.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Provalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/it/scarica/">Scarica per Windows</a>
+      <a class="btn btn-ghost" href="/it/alternativa-a-runasdate/">Confronto con RunAsDate</a>
+    </div>
+  </section>
+
+</div>

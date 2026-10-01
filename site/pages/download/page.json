@@ -42,6 +42,12 @@
       "link_text": "Baixar",
       "title": "Baixar o Chrono Mock para Windows - grátis, sem instalador",
       "description": "Baixe a versão gratuita para Windows: um aplicativo de desktop e uma ferramenta de linha de comando. Sem instalador, sem direitos de administrador e sem gravar nada no registro."
+    },
+    "it": {
+      "slug": "scarica",
+      "link_text": "Scarica",
+      "title": "Scarica Chrono Mock per Windows - gratis, senza installer",
+      "description": "Ottieni la versione gratuita per Windows: un'applicazione desktop e uno strumento da riga di comando. Nessun installer, nessun diritto di amministratore e nulla scritto nel registro."
     }
   }
 }

@@ -42,6 +42,12 @@
       "link_text": "Datas para testar",
       "title": "Datas para testar - fim de mês, 29 de fevereiro, 2038",
       "description": "As datas que quebram software: limites de período, dia bissexto, epoch zero, o limite de 32 bits, bordas de testes e defasagem de relógio. {{preset_count}} acompanham o programa como cenários nomeados."
+    },
+    "it": {
+      "slug": "scenari-di-test-delle-date",
+      "link_text": "Date da testare",
+      "title": "Date da testare - fine mese, 29 febbraio, 2038",
+      "description": "Le date che rompono il software: confini di periodo, giorno bisestile, epoch zero, il limite a 32 bit, bordi delle prove e sfasamento dell'orologio. {{preset_count}} sono fornite come scenari con nome."
     }
   }
 }

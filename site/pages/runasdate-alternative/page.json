@@ -44,6 +44,12 @@
       "link_text": "vs RunAsDate",
       "title": "Alternativa ao RunAsDate para QA no Windows - código aberto",
       "description": "Como o Chrono Mock difere do RunAsDate: {{channel_count}} canais de tempo em vez de cinco, velocidade de relógio ajustável, fuso horário próprio, processos filhos - e um veredito se funcionou."
+    },
+    "it": {
+      "slug": "alternativa-a-runasdate",
+      "link_text": "vs RunAsDate",
+      "title": "Alternativa a RunAsDate per il QA su Windows - open source",
+      "description": "In che cosa Chrono Mock differisce da RunAsDate: {{channel_count}} canali temporali invece di cinque, velocità dell'orologio regolabile, fuso orario proprio, processi figlio - e un verdetto se ha funzionato."
     }
   }
 }

@@ -1,0 +1,26 @@
+{
+  "//": "Testi italiani del sito - stesse chiavi di en.json (una chiave mancante interrompe la compilazione).",
+
+  "html_lang": "it",
+  "dir": "ltr",
+  "og_locale": "it_IT",
+
+  "social_image_alt": "Chrono Mock - esegui un'applicazione Windows a qualsiasi data e ora, senza cambiare l'orologio di sistema",
+
+  "skip_to_content": "Vai al contenuto",
+  "nav_label": "Navigazione principale",
+
+  "language_name": "Italiano",
+  "language_title": "Questa pagina in italiano",
+  "language_menu_label": "Lingua",
+
+  "footer_nav_label": "Mappa del sito",
+  "footer_group_start": "Da dove iniziare",
+  "footer_group_tools": "Alternative e ambienti di esecuzione",
+  "footer_group_features": "Cosa fa",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Nessun account, nessuna telemetria, e non si connette mai a internet.",
+  "footer_source": "Codice su GitHub",
+  "footer_releases": "Rilasci",
+  "footer_license": "Licenza"
+}

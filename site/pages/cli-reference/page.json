@@ -42,6 +42,12 @@
       "link_text": "Referência da CLI",
       "title": "Referência da CLI do Chrono Mock - todas as opções e códigos de saída",
       "description": "Referência completa de chrono run e chrono calc: cada opção da linha de comando, as duas tabelas de códigos de saída e como ler o relatório de sessão."
+    },
+    "it": {
+      "slug": "riferimento-cli",
+      "link_text": "Riferimento CLI",
+      "title": "Riferimento CLI di Chrono Mock - ogni opzione e codice di uscita",
+      "description": "Riferimento completo di chrono run e chrono calc: ogni opzione da riga di comando, le due tabelle dei codici di uscita e come leggere il report di sessione."
     }
   }
 }
