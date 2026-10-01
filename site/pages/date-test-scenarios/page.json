@@ -72,6 +72,12 @@
       "link_text": "Test edilecek tarihler",
       "title": "Test edilecek tarihler - ay sonu, 29 Şubat, 2038",
       "description": "Yazılımı bozan tarihler: dönem sınırları, artık gün, epoch sıfır, 32 bit sınırı, deneme süresi kenarları ve saat sapması. {{preset_count}} tanesi adlandırılmış senaryolar olarak gelir."
+    },
+    "id": {
+      "slug": "skenario-uji-tanggal",
+      "link_text": "Tanggal yang diuji",
+      "title": "Tanggal yang layak diuji - akhir bulan, 29 Februari, 2038",
+      "description": "Tanggal yang merusak perangkat lunak: batas periode, hari kabisat, epoch nol, batas 32-bit, tepi masa percobaan, dan selisih jam. {{preset_count}} di antaranya tersedia sebagai skenario bernama."
     }
   }
 }

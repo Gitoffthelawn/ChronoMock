@@ -72,6 +72,12 @@
       "link_text": "Saat dilimleri",
       "title": "Bir uygulamayı başka bir saat diliminde çalıştırın",
       "description": "Tek bir sürece kendi saat dilimi kaymasını verin; sistem dilimi olduğu yerde kalsın. Yalnızca beş saat dilimi ötedeki müşteride görülen hatayı yeniden üretin."
+    },
+    "id": {
+      "slug": "pengujian-zona-waktu",
+      "link_text": "Zona waktu",
+      "title": "Jalankan aplikasi di zona waktu lain tanpa mengubah Windows",
+      "description": "Beri satu proses selisih zona waktunya sendiri sementara zona sistem tetap di tempatnya. Reproduksi bug yang hanya muncul pada pelanggan lima zona waktu jauhnya."
     }
   }
 }

@@ -1,0 +1,127 @@
+<!-- Electron dan Chromium, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Memalsukan tanggal di aplikasi Electron</h1>
+    <p class="sub">
+      Cari hal ini dan setiap jawaban adalah tentang mengubah kode Anda sendiri - me-mock objek
+      <code>Date</code>, memakai timer palsu dari framework pengujian Anda. Semua itu tidak membantu
+      ketika yang Anda miliki adalah aplikasi yang sudah jadi. Ini menjalankan aplikasi yang sudah Anda
+      punya.
+    </p>
+  </section>
+
+  <section>
+    <h2>Mengapa injeksi tidak menjangkaunya</h2>
+    <div class="prose">
+      <p>
+        Mode ini ada karena sebuah kegagalan tertentu. Timer Pomodoro yang dibangun di atas Electron
+        dijalankan dalam sesi <code>x60</code> dan hitung mundurnya sama sekali tidak bergerak. Membongkar
+        bundel aplikasi itu menunjukkan dua alasan yang saling bebas, dan tak satu pun punya solusi di
+        sisi native:
+      </p>
+      <ul>
+        <li>Hitung mundur itu tidak membaca jam. Ia adalah <strong>penghitung yang ditambah oleh
+          <code>setInterval</code></strong>, berjalan di dalam Web Worker. Tidak ada panggilan waktu
+          yang dapat dicegat, karena aplikasi tidak pernah bertanya jam berapa sekarang.</li>
+        <li>Worker itu hidup di <strong>proses renderer yang terisolasi</strong>, yang justru tempat
+          pustaka yang disuntikkan dari luar tidak dapat masuk.</li>
+      </ul>
+      <p>
+        Jadi mekanisme sisi Windows tidak dapat membantu di sini, dan jawabannya adalah berbicara langsung
+        dengan mesin JavaScript milik aplikasi itu.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Apa yang terjadi sebagai gantinya</h2>
+    <div class="prose">
+      <p>
+        Aplikasi diluncurkan dengan port debug dan profil bersih sekali pakai, dan API waktunya sendiri
+        dipasang ke jam sesi melalui protokol DevTools - <code>Date.now</code>, konstruktor
+        <code>new Date()</code>, <code>performance.now</code>, <code>setTimeout</code>, dan
+        <code>setInterval</code>.
+      </p>
+      <p>
+        Penggantian dipasang ke setiap konteks yang dibuka aplikasi, <strong>termasuk Web Worker-nya</strong>
+        - tempat timer biasanya ternyata berada, dan satu-satunya tempat yang tidak akan pernah dijangkau
+        injeksi native.
+      </p>
+      <p>
+        Tidak ada yang berubah pada cara Anda mengendalikannya. Perintah yang sama, jendela yang sama,
+        panel sesi yang sama dengan dua jam dan putusannya.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Perintah yang sama seperti untuk aplikasi native - modenya terdeteksi sendiri</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Dua batasan yang perlu diketahui sebelum Anda mulai</h2>
+
+    <div class="note warning">
+      <p><strong>Peluncurannya invasif, dan sengaja dibuat terang-terangan soal itu.</strong></p>
+      <p>
+        Aplikasi dimulai dengan port debugging jarak jauh terbuka dan profil baru yang terisolasi di
+        <code>%TEMP%</code> - ia tidak berjalan pada profil asli Anda, dan bukan salinan yang sudah ada di
+        system tray Anda. Profil dihapus ketika sesi berakhir, dan jika tidak dapat dihapus, ringkasan
+        sesi menyatakannya, bukan membiarkannya diam-diam tertinggal.
+      </p>
+      <p>
+        Meneruskan <code>--user-data-dir</code> atau <code>--remote-debugging-port</code> milik Anda
+        sendiri ditolak, bukan ditimpa, karena kecelakaan yang paling jelas - mengarahkan sesi ke profil
+        peramban asli Anda - bukan sesuatu yang layak diizinkan.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Zona waktu sesi mengikuti host.</strong></p>
+      <p>
+        Dalam mode ini instan dipalsukan, tetapi getter waktu lokal tidak, sehingga
+        <a href="/id/pengujian-zona-waktu/">zona waktu mandiri</a> hanyalah fitur mode native. Itu adalah
+        keterbatasan versi ini, bukan keputusan.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Satu hal lagi yang mengejutkan orang: interval yang <em>sudah dijadwalkan</em> mempertahankan laju
+        lamanya ketika Anda mengubah kecepatan di tengah sesi. <code>Date.now</code>,
+        <code>new Date()</code>, dan <code>performance.now</code> bereaksi seketika,
+        <code>setInterval</code> yang sedang berjalan tidak, dan sesi memperingatkannya, bukan
+        membiarkan Anda menyimpulkan bahwa perubahan itu tidak berbuat apa-apa.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Seberapa baik pengujiannya</h2>
+    <div class="prose">
+      <p>
+        <strong>Eksperimental</strong>, dan kata itu punya arti yang ditetapkan di sini: ia berfungsi pada
+        target tempat ia dibangun, belum diuji secara luas, dan audit bawaan adalah sumber kebenaran Anda,
+        bukan halaman ini. Ia diverifikasi secara manual, bukan dengan rangkaian otomatis, pada aplikasi
+        Electron nyata di Windows 64-bit.
+      </p>
+      <p>
+        Cakupan dilaporkan per konteks JavaScript, bukan per proses, karena itulah unit yang ada di sini.
+        Aplikasi yang diam dan tidak pernah menanyakan waktu dengan jujur menghasilkan
+        <em>tidak dapat ditentukan</em> - ia tidak membaca jam, sehingga tidak ada yang dapat diklaim
+        tentang apakah ia akan melihat yang benar.
+        <a href="/id/audit-sumber-waktu/">Arti setiap putusan &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/faq/">Baca FAQ</a>
+    </div>
+  </section>
+
+</div>

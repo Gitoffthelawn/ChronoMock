@@ -1,0 +1,26 @@
+{
+  "//": "Teks situs dalam bahasa Indonesia - kunci yang sama dengan en.json (kunci yang hilang menghentikan build).",
+
+  "html_lang": "id",
+  "dir": "ltr",
+  "og_locale": "id_ID",
+
+  "social_image_alt": "Chrono Mock - jalankan aplikasi Windows pada tanggal dan jam apa pun, tanpa mengubah jam sistem",
+
+  "skip_to_content": "Lompat ke konten",
+  "nav_label": "Navigasi utama",
+
+  "language_name": "Bahasa Indonesia",
+  "language_title": "Halaman ini dalam bahasa Indonesia",
+  "language_menu_label": "Bahasa",
+
+  "footer_nav_label": "Peta situs",
+  "footer_group_start": "Mulai di sini",
+  "footer_group_tools": "Alternatif dan runtime",
+  "footer_group_features": "Apa yang dilakukannya",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Tanpa akun, tanpa telemetri, dan tidak pernah terhubung ke internet.",
+  "footer_source": "Kode sumber di GitHub",
+  "footer_releases": "Rilis",
+  "footer_license": "Lisensi"
+}

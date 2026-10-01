@@ -72,6 +72,12 @@
       "link_text": "İndir",
       "title": "Chrono Mock’u Windows için indirin - ücretsiz, kurulumsuz",
       "description": "Ücretsiz Windows sürümünü indirin: bir masaüstü uygulaması ve bir komut satırı aracı. Yükleyici yok, yönetici hakkı yok ve kayıt defterinde hiçbir şey yok."
+    },
+    "id": {
+      "slug": "unduh",
+      "link_text": "Unduh",
+      "title": "Unduh Chrono Mock untuk Windows - gratis, tanpa instalasi",
+      "description": "Unduh versi Windows gratis: aplikasi desktop dan alat baris perintah. Tanpa installer, tanpa hak administrator, dan tidak ada yang ditulis ke registry."
     }
   }
 }

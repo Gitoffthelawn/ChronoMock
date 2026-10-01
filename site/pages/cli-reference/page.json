@@ -72,6 +72,12 @@
       "link_text": "CLI başvurusu",
       "title": "Chrono Mock CLI başvurusu - her seçenek ve çıkış kodu",
       "description": "chrono run ve chrono calc için tam başvuru: her komut satırı seçeneği, her iki çıkış kodu tablosu ve oturum raporunun nasıl okunacağı."
+    },
+    "id": {
+      "slug": "referensi-cli",
+      "link_text": "Referensi CLI",
+      "title": "Referensi CLI Chrono Mock - setiap opsi dan kode keluar",
+      "description": "Referensi lengkap chrono run dan chrono calc: setiap opsi baris perintah, kedua tabel kode keluar, dan cara membaca laporan sesi."
     }
   }
 }

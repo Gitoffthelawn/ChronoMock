@@ -72,6 +72,12 @@
       "link_text": "Zamanı hızlandırma",
       "title": "Sistem saatini değil, tek bir Windows uygulamasını hızlandırın",
       "description": "Tek bir uygulamanın saatini bir milyon kata kadar hızlı akıtın: 30 günlük deneme yarım saatte dolar. Yönetici hakkı gerekmez ve diğer programlar gerçek zamanı korur."
+    },
+    "id": {
+      "slug": "mempercepat-waktu",
+      "link_text": "Mempercepat waktu",
+      "title": "Percepat waktu untuk satu aplikasi Windows, bukan jam sistem",
+      "description": "Biarkan jam satu aplikasi berjalan hingga sejuta kali lebih cepat: masa percobaan 30 hari habis dalam setengah jam. Tanpa hak administrator, program lain tetap memakai waktu nyata."
     }
   }
 }

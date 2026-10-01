@@ -72,6 +72,12 @@
       "link_text": "Hesap makinesi",
       "title": "QA için tarih hesaplayıcı - iş günleri ve sınır durumlar",
       "description": "Hangi tarihi test edeceğinizi bulun: ay sonu, çeyrek kapanışı, gerçek tatillerle N iş günü, 2038 sınırı. Tüm biçimler bir arada ve her tarihin neyi test ettiği."
+    },
+    "id": {
+      "slug": "kalkulator-tanggal",
+      "link_text": "Kalkulator",
+      "title": "Kalkulator tanggal untuk QA - hari kerja dan kasus tepi",
+      "description": "Cari tahu tanggal mana yang diuji: akhir bulan, penutupan kuartal, N hari kerja dengan hari libur nyata, batas 2038. Semua format sekaligus dan apa yang diuji tiap tanggal."
     }
   }
 }

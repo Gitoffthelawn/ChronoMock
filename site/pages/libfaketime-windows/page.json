@@ -74,6 +74,12 @@
       "link_text": "Windows’ta libfaketime",
       "title": "Windows için libfaketime - en yakın eşdeğeri",
       "description": "libfaketime, Windows’ta olmayan LD_PRELOAD’a ihtiyaç duyar. Onun yerini ne aldığı ve FAKETIME seçeneklerinin tek tek Windows karşılıklarına eşlenmesi burada."
+    },
+    "id": {
+      "slug": "libfaketime-windows",
+      "link_text": "libfaketime di Windows",
+      "title": "libfaketime untuk Windows - padanan terdekatnya",
+      "description": "libfaketime membutuhkan LD_PRELOAD, yang tidak ada di Windows. Inilah penggantinya, dengan opsi FAKETIME dipetakan satu per satu ke padanannya di Windows."
     }
   }
 }

@@ -75,6 +75,12 @@
       "link_text": "Ana sayfa",
       "title": "Chrono Mock - Windows uygulamasını farklı bir tarihte çalıştırın",
       "description": "Ücretsiz, açık kaynak Windows aracı. Bir uygulamayı istediğiniz tarihte çalıştırın, saatini durdurun ya da hızlandırın; sistem saatine dokunmayın. İşe yarayıp yaramadığını söyler."
+    },
+    "id": {
+      "slug": "",
+      "link_text": "Beranda",
+      "title": "Chrono Mock - jalankan aplikasi Windows pada tanggal lain",
+      "description": "Alat Windows gratis dan open source. Jalankan aplikasi pada tanggal apa pun, bekukan atau percepat jamnya tanpa menyentuh jam sistem. Ia memberi tahu apakah berhasil."
     }
   }
 }

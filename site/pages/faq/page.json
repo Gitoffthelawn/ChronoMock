@@ -74,6 +74,12 @@
       "link_text": "SSS",
       "title": "Chrono Mock SSS - Windows’ta sahte tarih hakkında sorular",
       "description": "Sistem saatini değiştiriyor mu? Yönetici hakkı gerekir mi? Uygulamamla, .NET, Java ya da Electron ile çalışır mı? Yapmadıkları dahil kısa cevaplar."
+    },
+    "id": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ Chrono Mock - tanya jawab tentang tanggal palsu di Windows",
+      "description": "Apakah mengubah jam sistem? Perlu hak administrator? Cocok dengan aplikasi saya, .NET, Java, atau Electron? Jawaban singkat, termasuk tentang yang tidak dilakukannya."
     }
   }
 }

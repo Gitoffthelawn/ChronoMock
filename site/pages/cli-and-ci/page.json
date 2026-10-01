@@ -72,6 +72,12 @@
       "link_text": "CLI ve CI",
       "title": "CI’da tarih testi - çıkış kodları ve JSON çıktısı",
       "description": "Çalışma zamanı gerektirmeyen 1,6 MB’lık bir komut satırı derlemesi. Çıkış kodu hedefin değil kapsama kararıdır: değişiklik tutmadıysa pipeline başarısız olur."
+    },
+    "id": {
+      "slug": "cli-dan-ci",
+      "link_text": "CLI dan CI",
+      "title": "Pengujian tanggal di CI - kode keluar dan keluaran JSON",
+      "description": "Build baris perintah 1,6 MB tanpa runtime. Kode keluarnya adalah putusan cakupan, bukan milik target: pipeline gagal jika penggantian waktu tidak berlaku."
     }
   }
 }

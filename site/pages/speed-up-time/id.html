@@ -1,0 +1,136 @@
+<!-- Mempercepat jam, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Buat jam satu aplikasi berjalan lebih cepat</h1>
+    <p class="sub">
+      Masa percobaan 30 hari butuh 30 hari untuk habis, kecuali Anda dapat memindahkan waktu. Saran yang
+      biasa adalah memajukan jam sistem, yang memerlukan hak administrator dan menyeret semua program lain
+      di mesin ikut serta. Ini menggeser satu proses saja.
+    </p>
+  </section>
+
+  <section>
+    <h2>Secepat apa</h2>
+    <div class="prose">
+      <p>
+        Pilih pengali bilangan bulat. Jam aplikasi maju sekian kali lebih cepat dari jam nyata, dari momen
+        mana pun sesi dimulai.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Pengali</th><th>Satu menit nyata menjadi</th><th>Berguna untuk</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>satu jam</td><td>job per jam, batas waktu sesi, umur token</td></tr>
+          <tr><td><code>x1440</code></td><td>satu hari</td><td>pergantian harian, masa percobaan 30 hari dalam setengah jam</td></tr>
+          <tr><td><code>x43200</code></td><td>masa percobaan 30 hari</td><td>menyaksikan seluruh masa percobaan berakhir selagi Anda membaca ini</td></tr>
+          <tr><td><code>x525600</code></td><td>satu tahun</td><td>perpanjangan tahunan, masa berlaku sertifikat</td></tr>
+          <tr><td><code>x1000000</code></td><td>sekitar 1,9 tahun</td><td>batas atas</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Mulai dari waktu nyata sekarang, dan jalankan sehari per menit</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Mulai pada tanggal pilihan dan percepat dari sana</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Atau tahan jam sepenuhnya</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Rekaman sesi yang mengendalikan aplikasi Windows lain. Jendela kiri adalah Chrono Mock dengan jam aplikasi pada 2038-01-19 yang naik dengan kecepatan enam puluh kali kecepatan nyata, sementara jam nyata di sampingnya hanya bergerak beberapa detik. Jendela kanan adalah aplikasi yang diuji, yang catatan sesinya sendiri menunjukkan ia mulai pada 2038-01-19 dan telah berjalan selama beberapa menit, dibandingkan baru setengah menit di ruangan.">
+      <figcaption>Sesi nyata yang mengendalikan aplikasi nyata. Perhatikan jendela sebelah kanan: program
+        yang diuji mencatat awal jalannya sendiri sebagai <strong>19 Januari 2038</strong>, dan sesinya
+        telah berlangsung selama beberapa menit sementara jam di ruangan bergerak beberapa detik.
+        Kecepatannya diubah selagi berjalan, tanpa memulai ulang apa pun.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Bagian yang menjebak orang: ada dua jam</h2>
+    <div class="prose">
+      <p>
+        Mempercepat <strong>jam dinding</strong> - yang dikembalikan <code>DateTime.Now</code> dan
+        padanannya - tidak dengan sendirinya mempercepat <strong>hitung mundur</strong>. Itu dua pertanyaan
+        berbeda yang dapat diajukan aplikasi kepada sistem operasi, dan banyak perangkat lunak mengukur
+        “tiga puluh hari” dengan yang kedua, bukan yang pertama.
+      </p>
+      <p>
+        Maka sumbu durasi - hitungan tick, sleep, wait, dan timer - adalah switch yang terpisah:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> memasang sleep, wait, dan timer ke jam sesi juga. Tanpanya,
+          <code>x1440</code> memacu kalender ke depan sementara timer lima detik tetap memakan lima detik
+          nyata.</li>
+        <li><code>--scale-qpc</code> juga menskalakan penghitung beresolusi tinggi. Di situlah
+          <code>monotonic</code> Python 3.13+, <code>Stopwatch</code> .NET, dan <code>nanoTime</code> Java
+          membaca waktu berlalu, dan ia nonaktif secara bawaan karena menskalakannya mengacaukan
+          stabilitas rendering dalam pengujian.</li>
+      </ul>
+      <p>
+        Jika pengali tampak tidak berbuat apa-apa pada hitung mundur, hampir selalu inilah sebabnya.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aplikasi timer: percepat kalender DAN hitung mundurnya</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Aplikasi Python atau .NET yang mengukur waktu berlalu pada penghitung beresolusi tinggi</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Mengubah kecepatan tanpa memulai ulang</h2>
+    <div class="prose">
+      <p>
+        Pengali dapat berubah di tengah sesi, dan jam diberi jangkar baru, bukan dilompatkan, sehingga ia
+        tidak pernah mundur ketika kecepatan turun. Anda juga dapat langsung melompatkan jam - maju, atau
+        mundur seperti yang dilakukan laptop setelah menyinkronkan ulang dengan server waktu, kasus yang
+        merusak apa pun yang mengukur waktu berlalu tanpa pengaman.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Jalankan pada x60, lalu beralih ke x1440 dua detik kemudian</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Jalankan, lalu lompatkan jam ke momen pilihan lima detik kemudian</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Apa yang tidak dilakukannya</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Tidak menyentuh jam sistem.</strong> Itu intinya, bukan keterbatasan - tetapi artinya
+          apa pun yang membaca waktu dari server, database, atau mesin lain tidak terpengaruh, dan audit
+          akan memberi tahu ketika itu terjadi.</li>
+        <li><strong>Lompatan mengubah apa yang dilihat aplikasi, bukan kapan ia terbangun.</strong> Timer
+          yang sudah diserahkan ke kernel berjalan pada waktu nyata. Kebanyakan aplikasi melakukan polling
+          jam, sehingga lompatan berfungsi dalam praktik - tetapi tidak semuanya.</li>
+        <li><strong>Tidak memperlambat waktu.</strong> Pengali adalah bilangan bulat satu ke atas, ditambah
+          jam beku pada nol.</li>
+      </ul>
+      <p>
+        Apakah semua itu sampai ke aplikasi Anda bukan sesuatu yang perlu diasumsikan.
+        <a href="/id/audit-sumber-waktu/">Sesi menyatakannya &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/faq/">Baca FAQ</a>
+    </div>
+  </section>
+
+</div>

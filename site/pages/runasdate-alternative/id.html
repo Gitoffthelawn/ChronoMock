@@ -1,0 +1,145 @@
+<!-- Perbandingan dengan RunAsDate, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Alternatif RunAsDate, dengan bagian yang tadinya tidak ada</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> sudah bertahun-tahun menjadi
+      jawaban untuk <em>“jalankan program ini pada tanggal yang berbeda di Windows”</em>, dan ia jawaban
+      yang bagus. Halaman ini membahas di mana keduanya berbeda, dan di mana RunAsDate tetap menjadi
+      pilihan yang lebih baik.
+    </p>
+  </section>
+
+  <section>
+    <h2>Berdampingan</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Menjalankan satu aplikasi pada tanggal palsu</td><td class="y">ya</td><td class="y">ya</td></tr>
+          <tr><td>Tidak menyentuh jam sistem</td><td class="y">ya</td><td class="y">ya</td></tr>
+          <tr><td>Fungsi waktu yang dicegat</td><td class="n">5</td><td class="y">{{channel_count}} kanal</td></tr>
+          <tr><td>Jam lebih cepat dari waktu nyata</td><td class="n">tidak ditawarkan</td><td class="y">pengali bilangan bulat apa pun</td></tr>
+          <tr><td>Membekukan jam</td><td class="n">tidak ditawarkan</td><td class="y">ya</td></tr>
+          <tr><td>Melompat saat aplikasi berjalan</td><td class="n">tidak ditawarkan</td><td class="y">maju dan mundur</td></tr>
+          <tr><td>Zona waktu hanya untuk proses itu</td><td class="n">tidak terdokumentasi</td><td class="y">ya, selisih tetap</td></tr>
+          <tr><td>Proses anak mewarisi sesi</td><td class="n">tidak terdokumentasi</td><td class="y">ya</td></tr>
+          <tr><td>Memberi tahu apakah berhasil</td><td class="n">tidak</td><td class="y">putusan, per kanal, dengan jumlah panggilan</td></tr>
+          <tr><td>Aplikasi Electron dan Chromium</td><td class="n">tidak ditawarkan</td><td class="y">mekanisme terpisah</td></tr>
+          <tr><td>Baris perintah untuk CI</td><td class="y">ya</td><td class="y">ya, dengan kode keluar dan JSON</td></tr>
+          <tr><td>Kode sumber</td><td class="n">freeware, tertutup</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Ukuran</td><td class="y">di bawah 40 KB</td><td class="n">CLI 1,6 MB, 69 MB dengan jendela</td></tr>
+          <tr><td>Versi Windows lama</td><td class="y">sampai Windows 2000</td><td class="n">Windows 10 dan 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>“Tidak terdokumentasi”</em> berarti fitur itu tidak disebutkan di halaman RunAsDate.
+      Itu bukan klaim bahwa alatnya tidak memilikinya.
+    </p>
+  </section>
+
+  <section>
+    <h2>Perbedaan yang paling penting</h2>
+    <div class="prose">
+      <p>
+        Bukan jumlah kanalnya. Melainkan bahwa RunAsDate, dalam dokumentasinya sendiri, dengan jujur
+        menyatakan bahwa ia <strong>“tidak akan memengaruhi aplikasi yang mengambil tanggal/waktu saat ini
+        dari sumber lain”</strong> - lalu membiarkan Anda mencari tahu sendiri apakah aplikasi Anda salah
+        satunya.
+      </p>
+      <p>
+        Chrono Mock memperlakukan kalimat yang sama itu sebagai sesuatu yang <strong>diukur</strong>.
+        Setiap sesi berakhir dengan putusan, kanal yang benar-benar dibaca aplikasi beserta hitungan untuk
+        masing-masing, kanal yang terlewat, dan peringatan ketika aplikasi terlihat membuka koneksi
+        jaringan sebelum sempat menanyakan jam.
+      </p>
+      <p>
+        Aplikasi yang tampak bergeser waktunya padahal tidak lebih buruk daripada yang tidak pernah
+        diluncurkan - ia menghasilkan pengujian lulus yang tidak berarti apa-apa.
+        <a href="/id/audit-sumber-waktu/">Cara kerja audit &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lima fungsi, atau {{channel_count}} kanal</h2>
+    <div class="prose">
+      <p>
+        RunAsDate mencegat <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code>, dan
+        <code>GetSystemTimePreciseAsFileTime</code>. Untuk sangat banyak aplikasi itu benar-benar cukup,
+        karena di sanalah jam dinding dibaca.
+      </p>
+      <p>
+        Sisa permukaannya adalah tempat kode yang bergantung pada tanggal cenderung bersembunyi:
+      </p>
+      <ul>
+        <li><strong>zona waktu</strong> - empat fungsi, ditambah seluruh keluarga yang mengonversi antarzona,
+          yang menjadi cara sebuah laporan jatuh pada hari yang salah</li>
+        <li><strong>sumbu waktu berlalu</strong> - hitungan tick dan interrupt time tanpa bias, yang biasanya
+          diukur oleh hitung mundur masa percobaan</li>
+        <li><strong>sleep dan wait</strong>, sehingga penundaan adalah penundaan pada jam sesi, bukan pada
+          jam nyata</li>
+        <li><strong>timer</strong> - waitable, jendela, thread-pool, dan multimedia</li>
+        <li><strong>pembuatan proses</strong>, sehingga proses anak installer berjalan di sesi yang sama,
+          bukan di hari ini</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kapan RunAsDate adalah pilihan yang lebih baik</h2>
+    <div class="prose">
+      <p>Sungguh-sungguh, dan tidak jarang:</p>
+      <ul>
+        <li><strong>Anda hanya perlu satu tanggal, pada kecepatan normal, sekarang juga.</strong> RunAsDate
+          berukuran di bawah 40 KB, tidak punya jendela yang perlu dipelajari, dan sudah melakukan persis
+          ini selama bertahun-tahun.</li>
+        <li><strong>Anda memakai Windows yang lebih lama.</strong> RunAsDate menjangkau sampai Windows 2000.
+          Alat ini menargetkan Windows 10 dan 11 dan tidak diuji di versi yang lebih lama.</li>
+        <li><strong>Ukuran penting.</strong> 40 KB dibandingkan 1,6 MB untuk baris perintah, atau 69 MB
+          dengan jendela, bukan perbandingan yang sepadan.</li>
+        <li><strong>Anda tidak menginginkan putusan.</strong> Mengukur cakupan berarti membaca hasilnya.
+          Jika pengujiannya sekali pakai, itu beban yang tidak Anda minta.</li>
+      </ul>
+      <p>
+        Keduanya juga dapat hidup berdampingan. Tidak ada yang menghalangi Anda mempertahankan RunAsDate
+        untuk kasus cepat.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Untuk apa keduanya tidak dibuat</h2>
+    <div class="prose">
+      <p>
+        Kedua alat muncul dalam pencarian tentang memperpanjang masa percobaan. <strong>Alat ini tidak
+        dibuat untuk itu</strong>, dan tidak ada contoh, skenario, atau halaman di sini yang akan pernah
+        mendemonstrasikannya. Chrono Mock untuk menguji perangkat lunak yang menjadi tanggung jawab Anda -
+        masa berlaku lisensi Anda sendiri, logika perpanjangan Anda sendiri, laporan akhir bulan Anda
+        sendiri.
+      </p>
+      <p>
+        Itu juga kasus yang paling kecil kemungkinannya berhasil. Perlindungan lisensi rutin membaca waktu
+        lewat jalur yang dipilih agar sulit dicegat - halaman data bersama mode pengguna, system call
+        langsung, sebuah server - dan jam yang bergerak mundur adalah kondisi yang ditulis untuk dideteksi
+        kode semacam itu. Audit akan memberi tahu bahwa ia tidak berhasil, yang merupakan jawaban jujur,
+        bukan jawaban yang berguna.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/faq/">Baca FAQ dulu</a>
+    </div>
+  </section>
+
+</div>

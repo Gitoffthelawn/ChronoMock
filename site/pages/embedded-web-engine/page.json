@@ -74,6 +74,12 @@
       "link_text": "WebView2 ve Qt WebEngine",
       "title": "Yerel bir uygulamadaki web sayfaları için tarihi sahtelemek",
       "description": "Yerleşik web motoru olan yerel bir uygulama, sayfalarını enjeksiyonun giremediği bir süreçte çalıştırır; bu yüzden gerçek tarihi korurlar. Oturum onlara motorun hata ayıklama portundan ulaşır."
+    },
+    "id": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 dan Qt WebEngine",
+      "title": "Memalsukan tanggal untuk halaman web di aplikasi native",
+      "description": "Aplikasi native dengan web engine bawaan menjalankan halamannya di proses yang tidak dapat dimasuki injeksi, sehingga halaman tetap memakai tanggal asli. Sesi menjangkaunya lewat port debug engine."
     }
   }
 }

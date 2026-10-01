@@ -1,0 +1,114 @@
+<!-- Zona waktu, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Jalankan aplikasi di zona waktu lain</h1>
+    <p class="sub">
+      Laporan yang jatuh pada hari yang salah, pengingat yang berbunyi satu jam lebih awal, stempel waktu
+      yang terbaca sebagai besok - sebagian besar hanya muncul di zona tempat Anda tidak berada. Ini
+      memberi satu proses selisihnya sendiri, sementara zona sistem Anda tetap persis di tempatnya.
+    </p>
+  </section>
+
+  <section>
+    <h2>Mengapa jawaban yang biasa tidak membantu</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Mengubah zona waktu Windows</strong> mengubahnya untuk semuanya - kalender, log, rapat
+          Anda - dan pada mesin yang dikelola, mengubahnya mungkin bukan hak Anda.</li>
+        <li><strong>Menyetel <code>TZ</code></strong> berfungsi untuk sebagian runtime dan tidak untuk
+          yang lain. Aplikasi Windows native yang membaca <code>GetTimeZoneInformation</code> sama sekali
+          tidak akan menyadarinya.</li>
+        <li><strong>Alat pengembang peramban</strong> menimpa zona untuk halaman web, yang sangat bagus,
+          dan tidak relevan untuk aplikasi desktop.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Satu proses, satu selisih</h2>
+    <div class="prose">
+      <p>
+        Sesi membawa selisihnya sendiri. Aplikasi menanyakan kepada Windows di zona mana ia berada dan
+        mendapat jawaban itu, sementara setiap program lain di mesin mendapat yang asli.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Momen yang sama, dilihat dari pantai barat Amerika</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Hanya zonanya - tanggal asli hari ini, jam milik orang lain</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        Kalkulator menjawab separuh lain dari pertanyaan itu - bagaimana sebuah momen sebenarnya terbaca
+        di tempat lain. Konversi mempertahankan instan dan hanya mengubah jam dinding, yang persis
+        merupakan cara sebuah tanggal jatuh pada hari yang salah:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Pukul sembilan pagi di Eropa tengah adalah <strong>tengah malam</strong> di pantai barat Amerika.
+        Instan yang sama, dan laporan harian yang mengelompokkan berdasarkan tanggal lokal akan
+        menempatkannya pada hari yang berbeda tergantung di mana ia berjalan.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Batasan yang jujur, dan di sini batasan itu penting</h2>
+
+    <div class="note warning">
+      <p><strong>Zona sesi adalah selisih tetap tanpa waktu musim panas.</strong></p>
+      <p>
+        Sesi yang disetel ke <code>+01:00</code> tetap pada <code>+01:00</code> entah jamnya menunjukkan
+        Januari atau Juli. Eksekusi yang melintasi transisi nyata karenanya menyimpang satu jam dari apa
+        yang sebenarnya akan ditunjukkan zona itu, dan memaksa aplikasi melewati transisi waktu musim
+        panas belum dilakukan alat ini. Kalkulator tanggal menyatakannya, bukan menebak.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>Zona itu melaporkan dirinya sebagai “Chrono Session”</strong>, nama yang tidak dikenal
+          registry Windows mana pun. Apa pun yang memetakan nama itu kembali ke zona - termasuk
+          <code>TimeZoneInfo.Local</code> milik .NET - akan beralih ke selisihnya, yang merupakan jawaban
+          yang benar. Aplikasi yang bersikeras pada nama registry tidak akan menemukannya.</li>
+        <li><strong>Java mengambil zona sesi sebagai selisih.</strong> Zona sesi tidak punya waktu musim
+          panas dan tidak ada kota di baliknya, sehingga Java menamainya menurut selisihnya -
+          <code>GMT+05:30</code> untuk sesi pada +05:30.</li>
+        <li><strong>Dalam mode Chromium dan Electron, zona mengikuti host.</strong> Instan dipalsukan,
+          getter waktu lokal tidak.</li>
+        <li><strong>Selisih berkisar dari -14:00 sampai +14:00</strong> dalam menit penuh. Apa pun di luar
+          itu ditolak, bukan diam-diam dililitkan.</li>
+      </ul>
+      <p>
+        Mana dari semua itu yang berlaku untuk aplikasi Anda dapat diukur, bukan ditebak.
+        <a href="/id/audit-sumber-waktu/">Sesi melaporkan cakupannya sendiri &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/faq/">Baca FAQ</a>
+    </div>
+  </section>
+
+</div>

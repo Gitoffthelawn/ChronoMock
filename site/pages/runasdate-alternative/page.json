@@ -74,6 +74,12 @@
       "link_text": "RunAsDate ile",
       "title": "Windows QA için RunAsDate alternatifi - açık kaynak",
       "description": "Chrono Mock’un RunAsDate’ten farkı: beş yerine {{channel_count}} zaman kanalı, ayarlanabilir saat hızı, kendi saat dilimi, alt süreçler - ve işe yarayıp yaramadığına dair bir karar."
+    },
+    "id": {
+      "slug": "alternatif-runasdate",
+      "link_text": "vs RunAsDate",
+      "title": "Alternatif RunAsDate untuk QA Windows - open source",
+      "description": "Perbedaan Chrono Mock dan RunAsDate: {{channel_count}} kanal waktu, bukan lima, kecepatan jam yang dapat diatur, zona waktu sendiri, proses anak - dan putusan apakah berhasil."
     }
   }
 }

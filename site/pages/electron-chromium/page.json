@@ -74,6 +74,12 @@
       "link_text": "Electron ve Chromium",
       "title": "Bir Electron ya da Chromium uygulamasında tarihi sahtelemek",
       "description": "Saatleri enjeksiyonun ulaşmadığı yalıtılmış bir renderer’da yaşar. Farklı bir mekanizma, uygulamanın JavaScript zaman API’lerini Worker’lar dahil oturum saatine alır."
+    },
+    "id": {
+      "slug": "electron-chromium",
+      "link_text": "Electron dan Chromium",
+      "title": "Memalsukan tanggal di aplikasi Electron atau Chromium",
+      "description": "Jam mereka berada di renderer terisolasi yang tidak dijangkau injeksi. Mekanisme lain memasang API waktu JavaScript aplikasi ke jam sesi, termasuk di dalam worker."
     }
   }
 }
