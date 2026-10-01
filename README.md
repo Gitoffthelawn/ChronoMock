@@ -63,8 +63,10 @@ Grab the latest build from the **[Releases page](https://github.com/donislawdev/
 | `ChronoMock-app-win-x64.zip` | The desktop app, self-contained - no .NET install needed | ~69 MB |
 | `ChronoMock-cli-win.zip` | Just the command-line tool, for CI and scripts | ~1.6 MB |
 
-Unzip anywhere and run `ChronoMock.exe` (or `chrono.exe` for the CLI). There is no installer, nothing
-is written to the registry, and no administrator rights are needed.
+Unzip anywhere and run `ChronoMock.exe` (or `chrono.exe` for the CLI). There is no installer and no
+administrator rights are needed. Nothing is written to the registry either, with one exception you
+have to ask for: reaching the web pages of an application that itself runs as administrator (the
+paragraph on elevated applications, further down, says what it writes and what it costs).
 
 **Checking what you downloaded.** From v0.2.0 onward, each release also carries `SHA256SUMS`,
 a bill of materials per package (`*.spdx.json`, SPDX 2.3), and an attestation of that bill of
@@ -309,7 +311,9 @@ invalidated" is a standard industry pattern, and it will do exactly what it was 
 
 **Back up the application's data directory before your first future-dated session.**
 
-Chrono Mock leaves nothing behind in your system - no persistent hooks, no registry entries, and
+Chrono Mock leaves nothing behind in your system - no persistent hooks, no registry entries (bar the
+opt-in described further down for an application that runs as administrator, which writes one value
+for the length of the session, removes it before the verdict and names it in the report), and
 nothing outside its own folder except three things it will name for you: the session history and the
 diagnostics log, which move to `%LOCALAPPDATA%\ChronoMock\` when the tool's own folder is not writable
 (a USB stick, or Program Files without admin), and, for an Electron or Chromium target, a throwaway
@@ -350,10 +354,33 @@ session's request (two environment variables the target inherits) and stays open
 this computer, for as long as the engine runs - the report says so, names the port, and `--no-embedded`
 (or the checkbox in the window) leaves the pages on the real clock and opens nothing. The engine's
 helper processes and the renderer's own native reads stay on the real clock, so such a session is
-reported as PARTIAL with the reason spelled out. An application running elevated is out of reach: the
-engine ignores the variables there, so its pages stay on the real clock. The session says so instead
-of reporting success - it is PARTIAL, with the reason spelled out, and running Chrono Mock without
-administrator rights is what reaches those pages.
+reported as PARTIAL with the reason spelled out. An application running elevated is out of reach by
+default: the engine ignores the variables there, so its pages stay on the real clock. The session says
+so instead of reporting success - it is PARTIAL, with the reason spelled out - and running Chrono Mock
+without administrator rights reaches those pages. So does the opt-in below, for the case where the
+application has to run as administrator.
+
+**Reaching the pages of an application that runs as administrator (opt-in, off by default).**
+`chrono run app.exe --elevated-embedded`, or the checkbox "Reach the web pages of an application that
+runs as administrator" in the window, from a Chrono Mock that runs as administrator too. WebView2
+honours the machine registry in such an application, so for the length of the session Chrono Mock
+writes ONE value under `HKLM\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`,
+named after the application's file (it opens a debugging port on loopback and carries a marker naming
+the session), and removes it before the verdict. It is the one thing in this tool that writes the
+registry, and the cost is worth weighing first. While the application runs, any program on this
+computer can reach its pages through that port, and the application has administrator rights. Any
+program started under the same file name, by anybody, gets the port too for as long as the session
+lasts, and the port of an application that outlives the session stays open until it exits.
+
+Chrono Mock never overwrites a value it did not write: a value of yours under the same name is left
+as it is, and a `*` value of yours is carried into its own, because a value under the file name
+replaces `*` for that application. It removes only the keys it created, and only when they are empty.
+If a session ends abruptly, the value it left carries the marker of its dead owner: the next session
+says it is there, and the next one started with this option removes it and says so. Every step is
+named in the report, and a value that could not be removed is its first warning. Some security
+products flag a write under `Policies\Microsoft\Edge`. A script (`.bat`, `.cmd`) as the target is not
+covered, because the value is named after the `.exe` that is started, and a launcher whose WebView2
+application is another program is reported with the name of the program to start instead.
 
 ---
 
@@ -370,7 +397,7 @@ column says which is which._
 | Java (JVM) | experimental | measured on x64, x86 | Wall clock, elapsed time and the session time zone are covered. The zone arrives as a fixed offset named after it, like `GMT+05:30`. nanoTime stays on the real high-resolution counter unless you opt in with Scale QPC (`--scale-qpc`) |
 | Python (CPython, incl. PyInstaller) | experimental | measured by hand on x64, not by the suite | Wall clock (time.time, datetime) and the session time zone (time.localtime) are covered. perf_counter, and monotonic on Python 3.13+, are on the high-resolution counter - real by default, accelerated when you opt in with Scale QPC (`--scale-qpc`) |
 | Applications reading time from the network | out of scope by definition | measured on x64, x86 | The audit detects it - every connection attempt made through Windows' own socket layer is observed and warned about, whichever function made it (Winsock, WinHTTP, WinINet, and the .NET, Node.js, Go, Java and Python runtimes). A datagram sent without a connection is not a connection and is not counted. A third-party Winsock provider, rare on current Windows, is not watched |
-| Embedded web engine inside a native app (WebView2, Qt WebEngine) | experimental | measured by hand on a WebView2 host and a Qt WebEngine host (x64), not by the suite | The native hook covers the application and the pages inside it are reached over the engine's debugging port, opened for the session through two environment variables the application inherits. The pages read the session clock at the session rate and follow a speed change and a jump. The engine's helper processes and the renderer's native reads stay on the real clock, so the verdict is PARTIAL and says why. The pages keep the machine's time zone. An elevated application is out of reach - the engine ignores the variables |
+| Embedded web engine inside a native app (WebView2, Qt WebEngine) | experimental | measured by hand on a WebView2 host and a Qt WebEngine host (x64), not by the suite | The native hook covers the application and the pages inside it are reached over the engine's debugging port, opened for the session through two environment variables the application inherits. The pages read the session clock at the session rate and follow a speed change and a jump. The engine's helper processes and the renderer's native reads stay on the real clock, so the verdict is PARTIAL and says why. The pages keep the machine's time zone. An elevated application is out of reach unless you opt in with `--elevated-embedded`, which writes one registry value for the session and removes it (see above) |
 | Batch script (`.bat`, `.cmd`) as the target | experimental (command line) | measured on x64 by the test suite, on x86 by hand | Started through the command interpreter from the system folder, which is the process the session covers, together with everything the script starts. Arguments arrive as given, including spaces, `&`, an empty argument and `%` (`%OS%` stays those four characters). A quote inside an argument arrives doubled, and so does the trailing backslash of an argument that needs quotes, which keeps a script that passes `%*` on to a program correct. A command line longer than the interpreter's 8191 characters is refused before anything starts. The window takes an `.exe` only |
 | Electron / Chromium | experimental (Chromium mode) | measured by hand on an Electron app (x64), not by the suite | A separate mechanism, not injection: the app is launched with a debug port and a clean isolated profile, and its own JS time APIs are put on the session clock over the DevTools protocol - reaching the sandboxed renderer and its Web Workers, where the timer often lives. The session zone follows the host zone (the instant is faked, not the local-time getters) |
 | UWP / MSIX (Store apps) | not supported | declared (not exercised) | Packaging and launch model |
