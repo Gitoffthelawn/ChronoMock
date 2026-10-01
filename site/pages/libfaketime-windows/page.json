@@ -98,6 +98,12 @@
       "link_text": "libfaketime у Windows",
       "title": "libfaketime для Windows — найближчий аналог",
       "description": "libfaketime потрібен LD_PRELOAD, якого у Windows немає. Ось що його замінює, з параметрами FAKETIME, по одному зіставленими з аналогами для Windows."
+    },
+    "ja": {
+      "slug": "libfaketime-windows",
+      "link_text": "Windows の libfaketime",
+      "title": "Windows 向け libfaketime - 最も近い代替",
+      "description": "libfaketime には Windows にない LD_PRELOAD が必要です。その代わりになるものを、FAKETIME のオプションを Windows の対応する設定に 1 つずつ対応づけて紹介します。"
     }
   }
 }

@@ -1,0 +1,141 @@
+<!-- 日付電卓（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>どの日付をテストすべきか</h1>
+    <p class="sub">
+      日付テストの半分は時計を動かすことです。もう半分は、どこへ動かすかを知ることです。オンラインの電卓なら、今日から 90 日後がいつかは教えてくれます。しかし、その日が銀行の休業日だとか、四半期の最終日だとかは教えてくれません。
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock の電卓。左には検索できるシナリオの一覧とその説明、中央には日付ビルダー、右の結果列にはすべての形式がコピーボタン付きで並び、その下に Use this date があります。ビルダーの下では、貼り付けられた 04/08/2008 が曖昧と判定され、アメリカ式とポーランド式の両方の読みが表示されています。">
+      <figcaption>ビルダーの下には逆方向の機能があります。<code>04/08/2008</code> を貼り付けると、1 つに決め打ちせず、両方の読みを表示します。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>実際の祝日を考慮した営業日</h2>
+    <div class="prose">
+      <p>
+        「10 営業日後」は単純な算術ではありません。どの国のカレンダーで数えるかによって変わります。同じ開始日、同じ 10 日間で、答えが 2 通りになります。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        1 日違います。間の日付について尋ねれば、電卓がその理由を教えてくれます。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        アメリカとポーランドは参照用のカレンダーとして同梱されています。この 2 つで、固定日、月の第 n 週の曜日、復活祭から計算される日付、土曜日に当たる祝日が前の金曜日に振り替えられるアメリカの規則と、存在するあらゆる種類の規則を網羅できるからです。国を追加するのはデータファイルの追加であり、コードの変更ではありません。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>すべての形式を一度に</h2>
+    <div class="prose">
+      <p>
+        テスト対象のアプリは、期待する形式で日付を求めます。変換の手間をかけさせる代わりに、電卓はすべての形式を出力します。標準的な形式に合わないものには、独自のマスクも使えます。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        このエポック値は偶然ではありません。<code>2147483647</code> は符号付き 32 ビット整数が保持できる最大の数であり、この日付が重要である理由のすべてです。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>日付を逆向きに読む</h2>
+    <div class="prose">
+      <p>
+        逆方向も同じくらい役に立ちます。ログから日付を貼り付けて、それが何かを調べます。形式が曖昧なとき（<code>04/08</code> は世界の半分で曖昧です）、<strong>1 つに決め打ちせず、両方の読みを表示します</strong>。もともとのバグ報告は、決め打ちから生まれたものだからです。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        4 か月も離れており、曜日も違います。ISO 形式の日付は曖昧さがなく、そのとおりに読まれます。日付ですらないものは、推測されずに拒否されます。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>文ではなく、ステップで組み立てる</h2>
+    <div class="prose">
+      <p>
+        時点とは、起点にステップを加えたものです。途中の結果は各ステップのあとに表示されるので、意外な答えを出す式でも、どこで曲がったかが分かります。ステップは 5 種類。単位によるずらし、時刻の設定、期間の境界へのスナップ、最も近い営業日への移動、別のタイムゾーンでの表し直しです。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 年が変わる直前の最後の 1 秒</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># 90 営業日後、アメリカの銀行カレンダーで</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># 18 年と 1 日前、年齢確認のため</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        計算した日付はそのまま置き換えセッションに渡せます。<code>--json</code> なら同じ結果を機械向けの形式で出力します。<a href="/ja/date-test-scenarios/">テストする価値のある日付 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/date-test-scenarios/">シナリオを見る</a>
+      <a class="btn btn-ghost" href="/ja/cli-reference/">電卓のすべてのフラグ</a>
+    </div>
+  </section>
+
+</div>

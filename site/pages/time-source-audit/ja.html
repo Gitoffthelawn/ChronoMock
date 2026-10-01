@@ -1,0 +1,147 @@
+<!-- 時刻ソース監査（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>効いたかどうか、どうやって分かるのか</h1>
+    <p class="sub">
+      この種のほかのツールでは分かりません。アプリが起動して何かの日付を表示し、あなたは「効いているのだろう」と思い込みます。ところがアプリは、何もフックしていない経路から時計を読むことがあり、そうなると<em>「テストに合格した」</em>という結果にはまったく意味がありません。
+    </p>
+  </section>
+
+  <section>
+    <h2>症状のない失敗</h2>
+    <div class="prose">
+      <p>
+        チャネルを 1 つ取りこぼした時間ずらしツールは、クラッシュもしなければ警告もしません。アプリは、誰もフックしていない 1 つの関数を通じて本当の日付を読み、ごく普通の午後とまったく同じように動作します。テストは緑になり、バグはそのまま出荷されます。
+      </p>
+      <p>
+        RunAsDate はこの点について自身のドキュメントで正直であり、<strong>「現在の日付と時刻を別のソースから取得するアプリには影響しません」</strong>と述べています。そしてそのうえで、自分のアプリがそれに該当するかどうかは、利用者が突き止めるしかありません。このツールは、同じ一文を測定すべきものとして扱います。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>セッションが実際に報告する内容</h2>
+    <div class="prose">
+      <p>
+        このプロジェクト自身のテスト用プローブの 1 つに対してツールを実行した、本物の出力です。このプローブは、意図的にネットワーク接続を開きます。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        最後の 2 つのブロックが要点です。ここでは何も失敗していません。判定は<strong>有効</strong>です。それでもレポートは、尋ねられなくても、このアプリが終了する前にネットワークと通信したこと、つまりローカルのフックだけでは全体像にならないかもしれないことを伝えています。この一文が、信頼できるテストと信頼できないテストとの違いです。
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock の結果画面で、What the application read が開いています。Function、Read from、Reads の列を持つ表で、NtCreateUserProcess は設計上実際の時計から読むもの、connect は設計上実際の時計から読み、フックが遅れたものとして示され、そのほかの行 - GetSystemTimeAsFileTime、NtQuerySystemTime、GetTimeZoneInformation など - は偽の時計から読み、それぞれに独自の回数が付いています。表の下には 2 つの警告があります。">
+      <figcaption>同じ答えをウィンドウで見たところです。アプリが尋ねた可能性のあるすべての関数、実際にどこから読んだか、そして何回か。意図的に実際の時計のままにしてあるものも含まれ、それらは黙って合格に数えられず、名前を挙げて示されます。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>4 つの判定と、それぞれの終了コード</h2>
+    <div class="prose">
+      <p>
+        判定は、作業を始める前に、実行中のプロセスの内側から下されます。これがそのままツールの終了コードなので、パイプラインはそれに応じて分岐できます。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>判定</th><th>終了コード</th><th>意味</th></tr></thead>
+        <tbody>
+          <tr><td class="y">有効</td><td>0</td><td>時刻を読んだすべてのプロセスがセッションの時計を見た</td></tr>
+          <tr><td>一部有効</td><td>10</td><td>カバーできたチャネルとできなかったチャネルがある - カバーされなかったものは列挙される</td></tr>
+          <tr><td class="n">無効</td><td>11</td><td>置き換えが主要なチャネルに届かなかった</td></tr>
+          <tr><td>判定不能</td><td>4</td><td>カバレッジを確定できなかった - 正直な「分かりません」</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>判定が「無効」の場合、プロセスはあなたが操作できるようになる前に直ちに停止されます。</strong>判定を起動より前に出すことはできません。唯一の真実の源は、実行中のプロセスの内側で取った読み取り値だからです。保証されるのは、作業を始める前に真実が分かることであって、失敗が確定している起動がそもそも起こらないことではありません。上書きして続行することもでき、その場合そのセッションは、エクスポートした証拠を含め、現れるあらゆる場所で信頼できないものとして印が付けられます。
+      </p>
+      <p>
+        判定ではないものに対して、さらに 3 つのコードがあります。使い方の誤りを表す <code>1</code>、対象を起動できなかった、またはインジェクトできなかった場合の <code>2</code>、そして単一インスタンスのアプリがすでに実行中のコピーに処理を引き渡したことを示唆する形で対象が消えた場合の <code>12</code> です。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>カバー済み、観測のみ、未カバー</h2>
+    <div class="prose">
+      <p>チャネルは 3 つの区分に分かれ、真ん中の区分が興味深いものです。</p>
+      <ul>
+        <li><strong>カバー済み</strong> - フックされ、置き換えられたもの。アプリが尋ね、セッションの時計を得ました。呼び出し回数がその回数を示します。</li>
+        <li><strong>観測のみ</strong> - フックされ、数えられ、意図的に本当のことを答えるままにしたもの。高分解能カウンターは、スケールすると描画が不安定になるため、既定でここに入ります。マルチメディアタイマーは、スケールすると音声や MIDI のタイミングがずれるため、ここに入ります。ネットワーク接続と 1 つのプロセス作成経路は、時計ではなく証拠であるため、ここに入ります。</li>
+        <li><strong>未カバー</strong> - アプリが読んだのに、置き換えが届かなかったチャネル。判定を<em>一部有効</em>にするのはこれであり、要約されて消えることなく、名前を挙げて列挙されます。</li>
+      </ul>
+      <p>
+        回数ゼロもまた情報です。チャネルはフックされていて、アプリは一度も尋ねなかった。だからレポートはそれらを隠さずに列挙します。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>監査に見えないもの</h2>
+    <div class="prose">
+      <p>
+        レポートはカバレッジについて正直であり、それは自分自身の限界についても正直であるということです。以下は、フックできる関数呼び出しなしで読まれるか、プロセスの完全に外で読まれるものです。
+      </p>
+      <ul>
+        <li>共有ユーザーモードデータページの直接読み取り - 値はメモリ上にあるので、フックするものがありません。通常のアプリではまれですが、ライセンスや改ざん対策のコードではよく見られます</li>
+        <li>標準のエクスポートを迂回する直接のシステムコール - 同じパターンです</li>
+        <li>プロセス外で、WMI、プロセス外 COM サーバー、RPC を通じて取得される時刻</li>
+        <li>ネットワークからの時刻 - HTTP の <code>Date</code> ヘッダー、NTP、API の応答、データベースサーバー自身の時計</li>
+        <li>カーネルドライバーからの時刻</li>
+      </ul>
+      <p>
+        ネットワークの場合は、監査が少なくとも<em>気づく</em>ことができるもので、だからこそ上のレポートに警告があります。それ以外については、判定が<em>有効</em>とは、このツールが見ることのできるチャネルがカバーされたという意味であり、ほかに経路が存在しないという意味ではありません。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>パイプラインで</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> は同じ事実を機械向けの形式で出力し、<code>--report</code> は人間向けの版をファイルに書き出します。判定が<em>有効</em>以外のセッションでは、注意書きを末尾に埋もれさせず、ファイルの先頭に「信頼できない証拠」の警告バナーが付きます。
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/runasdate-alternative/">RunAsDate との比較</a>
+    </div>
+  </section>
+
+</div>

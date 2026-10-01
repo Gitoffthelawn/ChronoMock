@@ -1,0 +1,111 @@
+<!-- CLI と CI（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>パイプラインでの日付テスト</h1>
+    <p class="sub">
+      ウィンドウは探索のためのものです。こちらはもう一方、約 <strong>1.6 MB</strong> のコマンドライン版で、インストールするランタイムは不要です。終了コードは対象アプリ自身のものではなく、カバレッジの判定を表します。
+    </p>
+  </section>
+
+  <section>
+    <h2>終了コードが判定です</h2>
+    <div class="prose">
+      <p>
+        スクリプトから扱えるようにするための設計判断です。セッションが終わると、終了コードは<em>「アプリが何を返したか」</em>ではなく<em>「時刻の置き換えが効いたか」</em>に答えます。そのためパイプラインは、静かに失敗した置き換えで失敗させることができます。失敗させる価値があるのはまさにこの失敗です。それ以降のテストは、何も証明していないものになるからです。
+      </p>
+      <p>
+        対象アプリ自身の終了コードも、セッションデータの中で引き続き報告されます。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>コード</th><th>意味</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>有効 - 時刻を読んだすべてのプロセスがセッションの時計を見た</td></tr>
+          <tr><td>10</td><td>一部有効 - カバーできたチャネルとできなかったチャネルがある</td></tr>
+          <tr><td class="n">11</td><td>無効 - 置き換えが主要なチャネルに届かなかった</td></tr>
+          <tr><td>4</td><td>判定不能 - カバレッジを確定できなかった</td></tr>
+          <tr><td>1</td><td>使い方の誤り - フラグまたは式が不正</td></tr>
+          <tr><td>2</td><td>対象を起動できなかった、またはインジェクトできなかった</td></tr>
+          <tr><td>12</td><td>対象が消えた。単一インスタンスのアプリであることを示唆している</td></tr>
+          <tr><td>3</td><td>内部エラー - エンジンを起動できなかった、予期しない状態に陥った、またはセッションを閉じる前に停止した（エンジン自身の終了コードにかかわらず）。このような実行には判定がありません</td></tr>
+          <tr><td>5</td><td>この版ではその操作はビルドされていない</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        2 つのコマンドのすべてのフラグと、電卓向けの同様の表は<a href="/ja/cli-reference/">コマンドラインリファレンス</a>にあります。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>実行時間を区切る</h2>
+    <div class="prose">
+      <p>
+        パイプラインは、人間がデスクトップアプリを閉じるのを待てません。<code>--ticks N</code> は N 回のハートビート（1 回が実時間で 1 秒）でセッションを終了し、その時点までに分かったことを報告します。カバレッジはどのみちプロセスの最初の数瞬で確定するので、たいていは短い上限で十分です。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 10 秒だけ実行して、停止して報告する</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>機械可読な出力と証拠</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> は、人間向けのレポートではなく機械可読なレコードとしてセッションを出力します。チャネルごとのカバレッジを含め、内容は同じです。</li>
+        <li><code>--report &lt;path&gt;</code> は人間向けのレポートをファイルに書き出します。ビルドの成果物として手頃です。判定が<em>有効</em>以外のセッションでは、注意書きを末尾に埋もれさせず、ファイルの先頭に「信頼できない証拠」の警告バナーが付きます。</li>
+        <li>電卓も <code>--json</code> を話せるので、パイプラインが必要な日付を計算し、それを渡し直すことができます。</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># 日付を求めてから、その日付で実行する</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>ステップの例</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># ここで 0 以外の終了コードが返るなら、置き換えが効いていないということなので、</span>
+    <span class="c"># 以降のテストは何も証明しないことになる</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>ランナーに関する正直な注意点 2 つ</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows のランナーが必要です。</strong>Linux 版や macOS 版はありませんし、今後も作りません。Linux では <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> がすでにこの役目を果たしています。</li>
+        <li><strong>ホスト型ランナーのウイルス対策ソフトがインジェクションをブロックすることがあります。</strong>時刻をずらすには対象プロセスにライブラリをインジェクトする必要があり、これは文書化された Windows の手法ですが、マルウェアも使います。ブロックされた場合は、偽の合格ではなくその旨を示す終了コードが返ります。ただし、頼る前に確かめておくべき点です。</li>
+      </ul>
+      <p>
+        同じ理由で、このプロジェクト自身のエンドツーエンドのテスト一式は、ホスト型ランナーではなく実機で動かしています。継続的インテグレーションですべてをビルドしてユニットテストし、置き換えそのものはリリース前に、32 ビット版と 64 ビット版の両方で実際のアプリを使って手作業で確認しています。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/time-source-audit/">判定の意味</a>
+    </div>
+  </section>
+
+</div>

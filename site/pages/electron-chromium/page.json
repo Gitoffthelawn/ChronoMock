@@ -98,6 +98,12 @@
       "link_text": "Electron і Chromium",
       "title": "Підміна дати в застосунку на Electron або Chromium",
       "description": "Їхній годинник живе в ізольованому рендерері, куди впровадження не сягає. Інший механізм переводить API часу JavaScript застосунку на годинник сесії, зокрема й воркери."
+    },
+    "ja": {
+      "slug": "electron-chromium",
+      "link_text": "Electron と Chromium",
+      "title": "Electron / Chromium アプリで日付を偽装する",
+      "description": "これらの時計はインジェクションが届かないサンドボックス化されたレンダラー内にあります。別の仕組みで、Worker を含むアプリの JavaScript の時間 API をセッションの時計に載せ替えます。"
     }
   }
 }

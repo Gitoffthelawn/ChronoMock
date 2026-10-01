@@ -1,0 +1,102 @@
+<!-- ダウンロードページ（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Chrono Mock をダウンロード</h1>
+    <p class="sub">
+      同じエンジンの 2 つのビルドがあります。探索用のウィンドウと、CI 用のコマンドラインです。どちらも好きな場所に展開して実行するだけで、インストーラーはなく、レジストリには何も書き込まれず、管理者権限も不要です。
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">最新リリースを入手</a>
+      <a class="btn btn-ghost" href="{{repo}}">GitHub でコードを見る</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>ファイル</th><th>内容</th><th>サイズ</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>デスクトップアプリ。自己完結型で、.NET のインストールは不要</td>
+            <td>約 69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>コマンドラインツールのみ。CI やスクリプト向け</td>
+            <td>約 1.6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>必要なもの</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 または Windows 11。</strong>macOS 版や Linux 版はありません。Linux では <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> がすでにこの役目をよく果たしています。</li>
+        <li><strong>ほかには何も要りません。</strong>デスクトップ版は独自のランタイムを内蔵し、コマンドライン版は何も必要としません。</li>
+        <li><strong>32 ビットと 64 ビットの両方のアプリに対応しています。</strong>パッケージには両方が含まれ、指定したアプリに合うほうが自動的に選ばれます。</li>
+      </ul>
+      <p>
+        ARM64 はバージョン 1.0 までは対象外で、パッケージ化されたストアアプリ（UWP と MSIX）も、起動モデルの都合でサポートされません。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>実行方法</h2>
+    <div class="prose">
+      <p>
+        展開して、ウィンドウなら <code>ChronoMock.exe</code>、コマンドラインなら <code>chrono.exe</code> を実行します。最初のセッションで決めることは 3 つ、どのアプリか、どの時点か、時計をどのくらいの速さで進めるかです。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># アプリを 2027 年の最後の 1 秒であるかのように実行する</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># 同じことを、時計を 1 分で 1 日の速さで進めながら</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>先に読んでおくべき 2 点</h2>
+
+    <div class="note warning">
+      <p><strong>未来の日付で最初にセッションを実行する前に、アプリのデータディレクトリをバックアップしてください。</strong></p>
+      <p>
+        2028 年で動いているアプリは、データを保存するあらゆる場所、つまりデータベース、設定、キャッシュ、ライセンスファイルに 2028 年の日付を書き込みます。それらの値は、実時間に戻ったあとも残ります。ライセンス保護のあるソフトウェアでは、これは恒久的になりえます。<em>「clock rollback detected, licence invalidated」</em>は業界で標準的な手口であり、設計されたとおりの動作をします。
+      </p>
+      <p>
+        Chrono Mock は自分の後始末をします。ただし、テストしたアプリの後始末まではできません。
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>ウイルス対策ソフトが検知することがありますが、想定内です。</strong></p>
+      <p>
+        時刻は、対象プロセスに小さなライブラリをインジェクトすることでずらします。これは文書化された正当な Windows の手法ですが、マルウェアも使う手法なので、Microsoft Defender などがインジェクトされるライブラリを検知したり、インジェクションそのものをブロックしたりすることがあります。これは手法に反応した誤検知です。
+      </p>
+      <p>
+        セッションが開始を拒否し、Defender が脅威を報告した場合は、フォルダーではなくライブラリを除外してください。Windows セキュリティで<strong>ファイル</strong>を選び、<code>chrono_hook.dll</code> のフルパスを指定します。フォルダーを除外すると、ツールがインジェクトする元のディレクトリそのものでスキャンが行われなくなってしまいます。または、許可されているマシンで実行してください。インジェクトされるライブラリはこのリポジトリのコードから GPL-3.0 のもとでビルドされており、自分で再ビルドすることもできます。Chromium と Electron のモードはインジェクションをまったく行わないため、影響を受けません。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>あとに残るもの</h2>
+    <div class="prose">
+      <p>
+        システムには何も残りません。永続的なフックも、レジストリのエントリも、ツール自身のフォルダー以外のものも残しません。例外として、ツールが名前を挙げる 3 つのものがあります。ツール自身のフォルダーに書き込めない場合に <code>%LOCALAPPDATA%\ChronoMock\</code> へ移るセッション履歴と診断ログ、そして Electron や Chromium を対象にしたときの <code>%TEMP%</code> 下の使い捨てブラウザープロファイルです。このプロファイルはセッション終了時に削除され、削除できなかった場合はセッションの概要で報告されます。
+      </p>
+      <p>
+        インターネットには一切接続せず、アカウントも持たず、テレメトリも送信しません。
+      </p>
+    </div>
+  </section>
+
+</div>

@@ -98,6 +98,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ — запитання про підміну дати у Windows",
       "description": "Чи змінює він системний годинник? Чи потрібні права адміністратора? Чи підійде моєму застосунку, .NET, Java або Electron? Короткі відповіді, зокрема про те, чого він не робить."
+    },
+    "ja": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Windows での日付偽装に関する質問",
+      "description": "システム時計は変わる? 管理者権限は必要? 自分のアプリや .NET、Java、Electron で動く? できないことも含めた短い回答です。"
     }
   }
 }

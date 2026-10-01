@@ -98,6 +98,12 @@
       "link_text": "vs RunAsDate",
       "title": "Альтернатива RunAsDate для QA у Windows — з відкритим кодом",
       "description": "Чим Chrono Mock відрізняється від RunAsDate: {{channel_count}} каналів часу замість п’яти, регульована швидкість годинника, власний часовий пояс, дочірні процеси — і вердикт, чи спрацювало."
+    },
+    "ja": {
+      "slug": "runasdate-alternative",
+      "link_text": "RunAsDate との比較",
+      "title": "Windows QA 向け RunAsDate の代替 - オープンソース",
+      "description": "Chrono Mock が RunAsDate と違う点。5 つではなく {{channel_count}} 個の時刻チャネル、調整できる時計の速度、独自のタイムゾーン、子プロセス対応、そして効いたかどうかの判定。"
     }
   }
 }
