@@ -55,6 +55,12 @@
       "link_text": "Jaar 2038",
       "title": "Jaar-2038-probleem: een Windows-app testen na 03:14:07 UTC",
       "description": "De Windows-klok loopt door na 2038; 32-bits tijdvelden niet. Zo laat je één app 19 januari 2038 passeren zonder de systeemdatum te wijzigen."
+    },
+    "ro": {
+      "slug": "testarea-problemei-anului-2038",
+      "link_text": "Anul 2038",
+      "title": "Problema anului 2038: testează o aplicație Windows (03:14:07 UTC)",
+      "description": "Ceasul Windows trece de 2038; câmpurile de timp pe 32 de biți, nu. Cum treci o aplicație peste 19 ianuarie 2038 fără să atingi data sistemului."
     }
   }
 }

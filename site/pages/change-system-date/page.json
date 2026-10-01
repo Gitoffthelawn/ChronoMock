@@ -55,6 +55,12 @@
       "link_text": "Verander de klok niet",
       "title": "Systeemdatum wijzigen om te testen: wat breekt er in Windows",
       "description": "De Windows-klok verzetten om een datum te testen verzet de hele machine: domein, certificaten, tijdsync. Wat er breekt en hoe je alleen één app verzet."
+    },
+    "ro": {
+      "slug": "modificarea-datei-sistemului-pentru-teste",
+      "link_text": "Nu schimba ceasul",
+      "title": "Schimbarea datei sistemului la teste: ce se strică în Windows",
+      "description": "Schimbarea ceasului Windows pentru a testa o dată mută toată mașina: domeniu, certificate, sincronizare. Ce se strică și cum muți ceasul unei singure aplicații."
     }
   }
 }

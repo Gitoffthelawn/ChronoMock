@@ -1,0 +1,128 @@
+<!-- Problema anului 2038 pe Windows, română. Structura, clasele și tokenii ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testarea problemei anului 2038 pe Windows</h1>
+    <p class="sub">
+      Pe 19 ianuarie 2038, la 03:14:07 UTC, se termină un contor cu semn pe 32 de biți al secundelor de
+      la 1970. Ceasul Windows merge mai departe - programele, formatele de fișiere și bibliotecile care
+      și-au păstrat propria copie pe 32 de biți, nu. Iată cum le găsești într-o singură aplicație, fără
+      să pui pe 2038 data întregii mașini.
+    </p>
+  </section>
+
+  <section>
+    <h2>Unde mai poate sta bug-ul</h2>
+    <div class="prose">
+      <p>
+        Ceasul Windows este un contor pe 64 de biți de pași de 100 de nanosecunde de la 1601, deci nu are
+        un 2038. Tipul <code>time_t</code> din biblioteca de execuție C este implicit pe 64 de biți încă
+        de la Visual Studio 2005. Rămâne codul care a ales o oră pe 32 de biți sau a pierdut jumătatea
+        superioară pe drum:
+      </p>
+      <ul>
+        <li><strong>Build-urile pe 32 de biți compilate cu <code>_USE_32BIT_TIME_T</code></strong>, sau
+          care apelează direct <code>_time32</code> și <code>__time32_t</code>. Documentația Microsoft
+          avertizează că o asemenea aplicație poate cădea după 18 ianuarie 2038.</li>
+        <li><strong>O oră pe 64 de biți stocată într-un <code>int</code> sau <code>long</code>.</strong>
+          Pe Windows ambele au 32 de biți, chiar și într-un program pe 64 de biți.</li>
+        <li><strong>Bibliotecile, formatele de fișiere, protocoalele de rețea și coloanele din baze de
+          date</strong> care țin secundele de la 1970 pe 32 de biți.</li>
+        <li><strong>Codul care adună ani.</strong> O licență de douăzeci de ani, un grafic de rambursare
+          pe treizeci de ani sau un certificat valabil până în 2040 trec de limită cu mult înainte să
+          vină 2038.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Trecerea limitei într-o singură aplicație</h2>
+    <div class="prose">
+      <p>
+        Limita este definită în UTC, iar <code>--at</code> se citește în fusul sesiunii, așa că fixează
+        fusul pe UTC când scrii tu momentul. Scenariul gata făcut poartă deja un moment UTC absolut și nu
+        are nevoie de fus.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Scenariul: sesiunea pornește chiar de la limită, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Pornește cu șaptesprezece secunde înainte și lasă aplicația să treacă limita în direct</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Pornește mai devreme și rulează la viteza x60 - limita vine în vreo 14 secunde</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Sau rulează cu data de azi și sari peste ea cât timp aplicația e deschisă</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        La o secundă după limită, un contor cu semn pe 32 de biți devine -2.147.483.648, ceea ce se
+        citește <strong>13 decembrie 1901, 20:45:52 UTC</strong>. O dată din 1901, un număr negativ, un
+        element care a expirat deodată sau a ajuns primul la sortare, o excepție aruncată din codul de
+        date - așa arată depășirea văzută din exterior.
+      </p>
+      <p>
+        Setarea ceasului real pe 2038 este cealaltă cale de a ajunge aici, și cea care strică cel mai
+        mult.
+        <a href="/ro/modificarea-datei-sistemului-pentru-teste/">Ce se întâmplă când schimbi data sistemului &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Verificarea că a ajuns la program</h2>
+    <div class="prose">
+      <p>
+        Un test care trece pentru că programul n-a văzut niciodată 2038 e mai rău decât niciun test.
+        Raportul de la sfârșitul fiecărei sesiuni spune ce ceas a citit programul și de câte ori:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        Linia <strong>session</strong> confirmă că ceasul aplicației a trecut de limită. Un verdict
+        <em>works</em> cu numărul de apeluri înseamnă că programul a citit ceasul și a primit data din
+        2038; <em>works partially</em> numește canalele pe care le-a citit pe altă cale.
+        <a href="/ro/auditul-surselor-de-timp/">Ce înseamnă verdictele &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce nu dovedește un test trecut</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>S-a mutat doar ceasul programului însuși.</strong> O dată pe care o încarcă dintr-un
+          fișier sau dintr-o bază de date este cea stocată acolo, așa că o dată din 2038 în date este un
+          alt test. Calculatorul de date calculează astfel de date pentru tine:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Un server cu care vorbește programul rulează în continuare pe data reală.</strong> O
+          limită de 32 de biți de acea parte este în afara razei, iar sesiunea avertizează când vede
+          programul deschizând o conexiune de rețea.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/scenarii-de-testare-a-datelor/">Alte date de testat</a>
+    </div>
+  </section>
+
+</div>
