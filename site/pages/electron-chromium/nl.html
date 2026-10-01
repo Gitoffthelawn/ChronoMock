@@ -1,0 +1,125 @@
+<!-- Electron en Chromium, Nederlands. Structuur, klassen en tokens zoals in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>De datum vervalsen in een Electron-app</h1>
+    <p class="sub">
+      Zoek ernaar en elk antwoord gaat over het veranderen van je eigen code - het <code>Date</code>-object
+      mocken, de nep-timers van je testframework gebruiken. Niets daarvan helpt als wat je hebt een
+      kant-en-klare applicatie is. Dit draait de applicatie die je al hebt.
+    </p>
+  </section>
+
+  <section>
+    <h2>Waarom injectie er niet bij komt</h2>
+    <div class="prose">
+      <p>
+        Deze modus bestaat vanwege een specifiek falen. Een op Electron gebouwde pomodoro-timer werd onder
+        een <code>x60</code>-sessie gedraaid en zijn afteltijd bewoog helemaal niet. Het uit elkaar halen
+        van de bundel van de applicatie liet twee onafhankelijke redenen zien, en voor geen van beide was
+        er een oplossing aan de native kant:
+      </p>
+      <ul>
+        <li>De aftelling las geen klok. Het was een <strong>teller die door <code>setInterval</code>
+          werd opgehoogd</strong>, draaiend in een Web Worker. Er was geen tijdaanroep om te
+          onderscheppen, omdat de applicatie nooit vroeg hoe laat het was.</li>
+        <li>Die worker leeft in een <strong>afgeschermd renderer-proces</strong>, en dat is precies de
+          plek waar een van buiten geïnjecteerde bibliotheek niet binnenkomt.</li>
+      </ul>
+      <p>
+        Het mechanisme aan de Windows-kant kan hier dus niet helpen, en het antwoord is om in plaats
+        daarvan tegen de eigen JavaScript-engine van de applicatie te praten.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat er in plaats daarvan gebeurt</h2>
+    <div class="prose">
+      <p>
+        De applicatie wordt gestart met een debugpoort en een schoon wegwerpprofiel, en haar eigen
+        tijd-API's worden via het DevTools-protocol op de sessieklok gezet - <code>Date.now</code>, de
+        constructor <code>new Date()</code>, <code>performance.now</code>, <code>setTimeout</code> en
+        <code>setInterval</code>.
+      </p>
+      <p>
+        De overschrijving wordt geïnstalleerd in elke context die de applicatie opent, <strong>inclusief
+        haar Web Workers</strong> - waar de timer meestal blijkt te zitten, en de ene plek die native
+        injectie nooit kon bereiken.
+      </p>
+      <p>
+        Aan hoe je het bedient verandert niets. Hetzelfde commando, hetzelfde venster, hetzelfde
+        sessiepaneel met de twee klokken en het oordeel.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Hetzelfde commando als voor een native applicatie - de modus wordt gedetecteerd</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Twee beperkingen om te kennen voordat je begint</h2>
+
+    <div class="note warning">
+      <p><strong>De start is ingrijpend, en bewust luid daarover.</strong></p>
+      <p>
+        De applicatie wordt gestart met een open remote-debugpoort en een vers, geïsoleerd profiel onder
+        <code>%TEMP%</code> - ze draait niet op je echte profiel, en het is niet de kopie die al in je
+        systeemvak zit. Het profiel wordt aan het einde van de sessie verwijderd, en als dat niet lukte,
+        zegt de sessiesamenvatting dat in plaats van het stilletjes te laten liggen.
+      </p>
+      <p>
+        Je eigen <code>--user-data-dir</code> of <code>--remote-debugging-port</code> doorgeven wordt
+        geweigerd in plaats van overschreven, omdat het voor de hand liggende ongeluk - de sessie op je
+        echte browserprofiel richten - er niet een is dat het waard is toe te staan.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>De sessietijdzone volgt de host.</strong></p>
+      <p>
+        In deze modus wordt het moment vervalst, maar de getters voor de lokale tijd niet, dus een
+        <a href="/nl/tijdzones-testen/">onafhankelijke tijdzone</a> is alleen een functie van de native
+        modus. Dat is een beperking van deze versie, geen beslissing.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Nog iets wat mensen verrast: een interval dat <em>al is ingepland</em> behoudt zijn oude tempo als
+        je de snelheid midden in de sessie wijzigt. <code>Date.now</code>, <code>new Date()</code> en
+        <code>performance.now</code> reageren meteen, een lopende <code>setInterval</code> niet, en de
+        sessie waarschuwt daarvoor in plaats van je te laten concluderen dat de wijziging niets deed.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Hoe goed is het getest</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimenteel</strong>, en dat woord heeft hier een vaste betekenis: het werkt op de
+        doelen waarvoor het is gebouwd, het is niet breed getest, en de ingebouwde audit is jouw bron van
+        waarheid, niet deze pagina. Het is met de hand geverifieerd en niet met de geautomatiseerde suite,
+        tegen een echte Electron-applicatie op 64-bits Windows.
+      </p>
+      <p>
+        De dekking wordt per JavaScript-context gerapporteerd en niet per proces, omdat dat de eenheid is
+        die hier bestaat. Een applicatie die stilzit en nooit naar de tijd vraagt, levert eerlijk
+        <em>onbepaald</em> op - ze las geen klok, dus er valt niets te beweren over of ze de juiste zou
+        hebben gezien.
+        <a href="/nl/tijdbronnen-audit/">Wat de oordelen betekenen &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/faq/">Lees de FAQ</a>
+    </div>
+  </section>
+
+</div>

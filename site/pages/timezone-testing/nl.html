@@ -1,0 +1,119 @@
+<!-- Tijdzones, Nederlands. Structuur, klassen en tokens zoals in en.html.
+
+     Het gedeelte over eerlijke grenzen weegt hier zwaarder dan op elke andere pagina: de sessiezone is een
+     vaste offset zonder zomertijd, en wie dat achteraf ontdekt, heeft uit een test al een verkeerde
+     conclusie getrokken. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Draai een app in een andere tijdzone</h1>
+    <p class="sub">
+      Het rapport dat op de verkeerde dag belandt, de herinnering die een uur te vroeg afgaat, de
+      tijdstempel die als morgen leest - het meeste daarvan komt alleen voor in een zone waarin je niet
+      zit. Dit geeft één proces zijn eigen offset, terwijl je systeemzone precies blijft waar hij was.
+    </p>
+  </section>
+
+  <section>
+    <h2>Waarom de gebruikelijke antwoorden niet helpen</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>De Windows-tijdzone wijzigen</strong> wijzigt hem voor alles - je agenda, je
+          logboeken, je vergaderingen - en op een beheerde machine is het misschien niet aan jou om dat te
+          doen.</li>
+        <li><strong><code>TZ</code> instellen</strong> werkt voor sommige runtimes en voor andere niet. Een
+          native Windows-applicatie die <code>GetTimeZoneInformation</code> leest, merkt er helemaal niets
+          van.</li>
+        <li><strong>De ontwikkelaarstools van de browser</strong> overschrijven de zone voor een webpagina,
+          wat uitstekend is, en irrelevant voor een desktopapplicatie.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Eén proces, één offset</h2>
+    <div class="prose">
+      <p>
+        De sessie draagt haar eigen offset. De applicatie vraagt Windows in welke zone ze zit en krijgt dat
+        antwoord, terwijl elk ander programma op de machine de echte krijgt.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Hetzelfde moment, gezien vanaf de Amerikaanse westkust</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Alleen de zone - de echte datum van vandaag, de klok van iemand anders</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        De calculator beantwoordt de andere helft van de vraag - wat een gegeven moment elders werkelijk
+        aangeeft. Omrekenen behoudt het moment en verandert alleen de wandklok, en zo belandt een datum op
+        de verkeerde dag:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Negen uur 's ochtends in Midden-Europa is <strong>middernacht</strong> aan de Amerikaanse westkust.
+        Hetzelfde moment, en een dagrapport dat op lokale datum groepeert, plaatst het op een andere dag,
+        afhankelijk van waar het draait.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Eerlijke grenzen, en ze tellen hier</h2>
+
+    <div class="note warning">
+      <p><strong>De sessiezone is een vaste offset zonder zomertijd.</strong></p>
+      <p>
+        Een sessie die op <code>+01:00</code> is gezet, blijft op <code>+01:00</code>, of haar klok nu
+        januari of juli aangeeft. Een run die een echte overgang passeert, wijkt daarom een uur af van wat
+        die zone werkelijk zou tonen, en een applicatie door een zomertijdovergang sturen is iets wat dit
+        gereedschap nog niet doet. De datumcalculator zegt dat in plaats van te gokken.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>De zone meldt zichzelf als “Chrono Session”</strong>, een naam die geen Windows-register
+          kent. Alles wat die naam terugvertaalt naar een zone - waaronder .NET's
+          <code>TimeZoneInfo.Local</code> - valt in plaats daarvan terug op de offset, wat het juiste
+          antwoord is. Een applicatie die op een registernaam staat, zal er geen vinden.</li>
+        <li><strong>Java neemt de sessiezone over als offset.</strong> De sessiezone heeft geen zomertijd en
+          geen stad erachter, dus Java noemt haar naar haar offset - <code>GMT+05:30</code> voor een sessie
+          op +05:30.</li>
+        <li><strong>In de Chromium- en Electron-modus volgt de zone de host.</strong> Het moment wordt
+          vervalst, de getters voor de lokale tijd niet.</li>
+        <li><strong>Offsets lopen van -14:00 tot +14:00</strong> in hele minuten. Alles daarbuiten wordt
+          geweigerd in plaats van stilletjes omgeslagen.</li>
+      </ul>
+      <p>
+        Welke daarvan voor je applicatie geldt, is meetbaar en niet te raden.
+        <a href="/nl/tijdbronnen-audit/">De sessie rapporteert haar eigen dekking &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/faq/">Lees de FAQ</a>
+    </div>
+  </section>
+
+</div>

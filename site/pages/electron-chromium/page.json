@@ -50,6 +50,12 @@
       "link_text": "Electron e Chromium",
       "title": "Falsificare la data in un'app Electron o Chromium",
       "description": "Il loro orologio vive in un renderer isolato che l'iniezione non raggiunge. Un altro meccanismo porta le API di tempo JavaScript dell'app sull'orologio di sessione, worker compresi."
+    },
+    "nl": {
+      "slug": "electron-chromium",
+      "link_text": "Electron en Chromium",
+      "title": "De datum vervalsen in een Electron- of Chromium-app",
+      "description": "Hun klok leeft in een afgeschermde renderer die injectie niet bereikt. Een ander mechanisme zet de JavaScript-tijd-API's van de app op de sessieklok, workers inbegrepen."
     }
   }
 }

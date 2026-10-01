@@ -50,6 +50,12 @@
       "link_text": "L'audit",
       "title": "Come sapere se la data falsa è davvero arrivata alla tua app",
       "description": "Ogni sessione termina con un verdetto, i canali di tempo realmente letti con il conteggio delle chiamate, quelli mancati e gli avvisi. Un fallimento silenzioso è l'unico esito rifiutato."
+    },
+    "nl": {
+      "slug": "tijdbronnen-audit",
+      "link_text": "De audit",
+      "title": "Zo weet je of de valse datum je app echt bereikte",
+      "description": "Elke sessie eindigt met een oordeel, de tijdkanalen die werkelijk zijn gelezen met aantal aanroepen, de gemiste en waarschuwingen. Een stil falen is de enige uitkomst die wordt geweigerd."
     }
   }
 }

@@ -1,0 +1,234 @@
+<!-- Startpagina, Nederlands. Structuur, klassen en tokens zoals in en.html. -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>Draai een Windows-app op <span class="hl">elke datum</span> - zonder de systeemklok aan te raken</h1>
+
+        <p class="lede">
+          Zet de klok van één applicatie op volgend jaar, bevries hem, of
+          <strong>versnel hem zodat een proefperiode van 30 dagen verloopt terwijl je koffie zet</strong>.
+          De rest van de machine houdt de echte tijd: je domeinaanmelding, je certificaten en alle andere
+          programma's gaan gewoon door.
+        </p>
+        <p class="lede">
+          Daarna vertelt het je of de vervanging <strong>echt gewerkt heeft</strong>.
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+          <a class="btn btn-ghost" href="{{repo}}">Bekijk de code op GitHub</a>
+        </div>
+
+        <p class="trust">
+          <span>Gratis en open source, GPL-3.0</span>
+          <span>Geen installatieprogramma</span>
+          <span>Geen beheerdersrechten</span>
+          <span>Maakt nooit verbinding met internet</span>
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="panel-cap">Zo ziet een sessie eruit</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">De applicatie ziet</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">sessiezone -05:00</div>
+          </div>
+          <div class="clock">
+            <div class="who">De machine ziet nog steeds</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">hostzone +02:00</div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>Werkt</b> - de vervanging heeft dit proces bereikt</span>
+        </div>
+        <div class="chan">
+          <span>Gedekte tijdkanalen</span>
+          <span class="n">26 van {{channel_count}} &middot; met aantal aanroepen</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Het sessiepaneel van Chrono Mock. De klok van de applicatie staat op 2038-01-19 03:14:14 en de echte klok ernaast op 2026-09-22 15:50:30, elk met zijn eigen verstreken tijd. Daaronder lopen de snelheden van x1 tot x1440 met een knop Freeze, dan de relatieve sprongen en een sprong naar een ingetypte datum; in de voettekst staat een groen vinkje met het woord Works naast een rode knop om de sessie te stoppen.">
+      <figcaption>Een lopende sessie. De applicatie zit in 2038, de machine niet, en het oordeel zegt dat de
+        vervanging haar heeft bereikt.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">Waarom dit bestaat</p>
+    <h2>Alles testen wat van de datum afhangt betekent de tijd verplaatsen. Beide gebruikelijke opties zijn slecht.</h2>
+    <p class="sub">
+      Verlopende licenties, proefperiodes, abonnementsverlengingen, geldigheid van certificaten, levensduur
+      van tokens, maand- en jaarafsluitingen, renteberekening, herinneringen.
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">Optie 1 - de systeemklok veranderen</p>
+        <p>
+          Het breekt domeinaanmelding en Kerberos, maakt TLS-certificaten ongeldig zodat de browser niet
+          meer werkt, brengt Windows Update in de war en laat elke andere applicatie op de machine
+          verkeerde tijdstempels schrijven. Op een machine in een domein blokkeert het groepsbeleid de
+          wijziging meestal of draait die na enkele minuten terug, dus de test is niet eens herhaalbaar.
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">Optie 2 - wachten</p>
+        <p>
+          Wat betekent: niet testen. De datumafhankelijke gevallen worden overgeslagen, en
+          <em>“de licentie verloopt nooit”</em> gaat naar de klant.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat het doet</h2>
+    <p class="sub">Eén proces beweegt door de tijd. De rest van de machine niet.</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>Elk moment</h3>
+        <p>Een specifieke datum en tijd, of een relatieve - <code>+30 days</code>, <code>-1 year</code>.</p>
+      </div>
+      <div class="feat">
+        <h3>Lopend, bevroren of versneld</h3>
+        <p>Normale snelheid, een stilgezette klok of een geheel getal als vermenigvuldiger.
+          <code>x1440</code> maakt van een dag een minuut.</p>
+      </div>
+      <div class="feat">
+        <h3>Een eigen tijdzone</h3>
+        <p>Een vaste offset alleen voor dat proces, terwijl de systeemzone precies blijft waar hij was.</p>
+      </div>
+      <div class="feat">
+        <h3>Kindprocessen gaan mee</h3>
+        <p>Installatieprogramma's en launchers starten kindprocessen. Zonder dat dekt de test maar de helft
+          van wat er draaide.</p>
+      </div>
+      <div class="feat">
+        <h3>Springen tijdens de sessie</h3>
+        <p>Vooruit of achteruit - ook de sprong terug die een laptop maakt na synchronisatie met een
+          tijdserver.</p>
+      </div>
+      <div class="feat">
+        <h3>Ook Electron en Chromium</h3>
+        <p>Via een ander mechanisme, omdat hun klok in een afgeschermde renderer leeft waar injectie niet
+          bij komt.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">Wat niemand anders doet</p>
+      <h2>Hoe weet je dat het gewerkt heeft?</h2>
+      <p class="sub">
+        Bij elk ander gereedschap weet je het niet. De applicatie start, toont een datum, en jij gaat ervan
+        uit dat het klopt. Maar ze kan de klok lezen via een kanaal dat het gereedschap nooit heeft
+        onderschept - van een server, uit een database, via een runtimelaag - en dan betekent
+        <em>“de test is geslaagd”</em> helemaal niets.
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&rarr;</span><span>Een oordeel voordat de echte test begint:
+          <b>werkt / werkt gedeeltelijk / werkt niet</b></span></li>
+        <li><span class="tick">&rarr;</span><span>Welke van de <b>{{channel_count}} tijdkanalen</b>
+          gedekt waren en hoe vaak de applicatie elk ervan heeft opgevraagd</span></li>
+        <li><span class="tick">&rarr;</span><span><b>Welke kanalen niet gedekt waren</b> - duidelijk
+          benoemd, nooit weggelaten</span></li>
+        <li><span class="tick">&rarr;</span><span>Waarschuwingen met de gevolgen erbij: <em>“deze
+          applicatie leest de tijd van het netwerk - lokale vervanging is mogelijk niet genoeg”</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/nl/tijdbronnen-audit/">Hoe de audit van tijdbronnen werkt &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Twee minuten ermee</h2>
+    <p class="sub">Een venster om te verkennen, een opdrachtregel voor CI. Dezelfde engine achter beide.</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># Een applicatie draaien alsof het de laatste seconde van 2027 is</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Een proefperiode van 30 dagen zien verlopen terwijl je koffie zet: x1440 is een dag per minuut</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Een benoemd scenario gebruiken in plaats van een datum en het bewijs in een bestand schrijven</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        De calculator beantwoordt de andere helft van datumtesten - <em>welke</em> datum je moet gebruiken:
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Vergeleken met wat je waarschijnlijk gebruikt</p>
+    <h2>Zoals RunAsDate, met de onderdelen die ontbraken</h2>
+    <p class="sub">
+      RunAsDate onderschept vijf wandklokfuncties en doet dat goed. Hier zie je waar de twee verschillen -
+      en de volledige pagina zegt ook waar RunAsDate nog steeds de betere keuze is.
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Draait een app op een valse datum</td><td class="y">ja</td><td class="y">ja</td></tr>
+          <tr><td>Onderschepte tijdkanalen</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>De klok versnellen</td><td class="n">nee</td><td class="y">ja</td></tr>
+          <tr><td>Onafhankelijke tijdzone</td><td class="n">niet gedocumenteerd</td><td class="y">ja</td></tr>
+          <tr><td>Volgt kindprocessen</td><td class="n">niet gedocumenteerd</td><td class="y">ja</td></tr>
+          <tr><td>Zegt of het gewerkt heeft</td><td class="n">nee</td><td class="y">ja, per kanaal</td></tr>
+          <tr><td>Broncode beschikbaar</td><td class="n">freeware, gesloten</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/nl/runasdate-alternatief/">De volledige vergelijking, inclusief waar RunAsDate wint &rarr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>Haal het binnen</h2>
+    <p class="sub">
+      Pak het ergens uit en start het. Geen installatieprogramma, niets in het register, geen
+      beheerdersrechten.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="{{repo}}">Bekijk de code op GitHub</a>
+    </div>
+  </section>
+
+</div>

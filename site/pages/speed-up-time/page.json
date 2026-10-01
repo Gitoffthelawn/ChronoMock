@@ -48,6 +48,12 @@
       "link_text": "Accelerare il tempo",
       "title": "Accelerare il tempo di un'app Windows, non l'orologio di sistema",
       "description": "Fai correre l'orologio di un'applicazione fino a un milione di volte più veloce: una prova di 30 giorni scade in mezz'ora. Nessun diritto di amministratore, e gli altri programmi mantengono l'ora reale."
+    },
+    "nl": {
+      "slug": "tijd-versnellen",
+      "link_text": "Tijd versnellen",
+      "title": "Tijd versnellen voor één Windows-app, niet de systeemklok",
+      "description": "Laat de klok van één applicatie tot een miljoen keer sneller lopen: een proefperiode van 30 dagen verloopt in een half uur. Geen beheerdersrechten, en alle andere programma's houden de echte tijd."
     }
   }
 }

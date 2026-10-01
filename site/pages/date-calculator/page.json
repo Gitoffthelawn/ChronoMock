@@ -48,6 +48,12 @@
       "link_text": "Calcolatore",
       "title": "Calcolatore di date per il QA - giorni lavorativi e casi limite",
       "description": "Scopri quale data testare: fine mese, chiusura del trimestre, N giorni lavorativi con i festivi veri, il limite del 2038. Tutti i formati insieme e che cosa testa ogni data."
+    },
+    "nl": {
+      "slug": "datumcalculator",
+      "link_text": "Calculator",
+      "title": "Datumcalculator voor QA - werkdagen en randgevallen",
+      "description": "Bereken welke datum je moet testen: maandeinde, kwartaalafsluiting, N werkdagen met echte feestdagen, de grens van 2038. Alle formaten tegelijk en wat elke datum test."
     }
   }
 }

@@ -1,0 +1,172 @@
+<!-- WebView2 en Qt WebEngine, Nederlands. Structuur, klassen en tokens zoals in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>De webpagina's binnen een native app</h1>
+    <p class="sub">
+      Een desktopapplicatie met een ingebouwde webengine draait haar pagina's in een apart, afgeschermd
+      proces. Het native mechanisme dekt de applicatie en stopt bij die grens - dus het venster gaat naar de
+      datum die je vroeg en het paneel erin niet. Dit dicht die kloof.
+    </p>
+  </section>
+
+  <section>
+    <h2>Het falen dat op succes lijkt</h2>
+    <div class="prose">
+      <p>
+        Veel Windows-applicaties zijn aan de buitenkant native en aan de binnenkant een webpagina. Een
+        instellingenscherm, een dashboard, een rapportweergave, een licentiepaneel - eenmaal als HTML
+        gebouwd en gehost in <strong>WebView2</strong> of <strong>Qt WebEngine</strong> in plaats van
+        tweemaal geschreven.
+      </p>
+      <p>
+        De engine draait die pagina's in een eigen proces, en dat proces is afgeschermd. Een in de
+        applicatie geïnjecteerde bibliotheek komt er niet in. Alles wat de applicatie aan Windows vraagt,
+        gaat naar de datum van de sessie, en alles wat de pagina aan JavaScript vraagt niet:
+      </p>
+      <ul>
+        <li>De titelbalk, de logboeken en de bestanden zeggen <strong>2038</strong>.</li>
+        <li>Het paneel in hetzelfde venster zegt <strong>vandaag</strong>.</li>
+        <li>Niets geeft een fout, niets waarschuwt, en beide helften lijken even zelfverzekerd.</li>
+      </ul>
+      <p>
+        Dat is de dure variant van deze bug, omdat de test lijkt te zijn uitgevoerd. Het oudere gedrag
+        meldde zo'n sessie als een schoon slagen, een bewering die het gereedschap niet kon onderbouwen.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat de sessie in plaats daarvan doet</h2>
+    <div class="prose">
+      <p>
+        De sessie draait <strong>beide mechanismen tegelijk</strong>. De native hook gaat zoals altijd in
+        de applicatie, en de pagina's worden bereikt op de enige manier waarop je een afgeschermde renderer
+        bereikt: door de engine zelf te vragen.
+      </p>
+      <p>
+        Bij het starten erft de applicatie twee omgevingsvariabelen die haar engine vragen een lokale
+        debugpoort te openen. Ze worden toegevoegd aan de schakelaars die de applicatie al doorgeeft in
+        plaats van ze te vervangen. De sessie let vervolgens op haar eigen processen tot die poort
+        verschijnt, en wanneer dat gebeurt, gaan elke pagina en elke worker erachter op dezelfde klok als de
+        applicatie.
+      </p>
+      <p>
+        Eén start, één snelheid, één tijdlijn. Een snelheidswijziging of een sprong bereikt de applicatie en
+        haar pagina's samen, en de timers van de pagina's lopen op het tempo van de applicatie in plaats
+        van op een eigen tempo.
+      </p>
+      <p>
+        Het staat standaard aan en gaat uit met één schakelaar, die helemaal geen poort opent en de
+        pagina's op de echte klok laat.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Niets te configureren - de engine wordt gevonden als hij er is</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Of de pagina's met rust laten en geen poort openen</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Wat het rapport over de pagina's zegt</h2>
+    <div class="prose">
+      <p>
+        De pagina's worden niet opgenomen in de eigen cijfers van de applicatie. Ze worden als aparte
+        eenheden geteld, omdat een proces en een pagina verschillende dingen zijn en ze optellen een getal
+        zou verzinnen dat niets betekent:
+      </p>
+      <ul>
+        <li>De kop telt beide - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Elke pagina krijgt eigen rijen, zoals <code>context 1: page Date.now (12 calls)</code> op de
+          opdrachtregel en <em>page Date.now - fake clock</em> in de audittabel van het venster.</li>
+        <li>De bereikte engine wordt met zijn poort genoemd, zodat je je eigen DevTools precies kunt
+          richten op de pagina's die de sessie aanstuurt.</li>
+      </ul>
+      <p>
+        Een proefrun zegt of de pagina's bereikt zouden worden voordat er iets wordt gestart.
+        <a href="/nl/tijdbronnen-audit/">Wat de oordelen betekenen &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Drie beperkingen om te kennen voordat je begint</h2>
+
+    <div class="note warning">
+      <p><strong>Er staat een debugpoort open zolang de engine draait.</strong></p>
+      <p>
+        Hij luistert alleen op deze computer, maar staat open voor <em>elk</em> programma op deze computer
+        zolang de engine draait, en alles wat hem kan bereiken kan die pagina's aansturen. De sessie
+        waarschuwt er elke keer voor dat er een is geopend, en noemt de poort in plaats van hem in het
+        abstracte te vermelden. Gebruik op een gedeelde of onbetrouwbare machine de schakelaar die niets
+        opent.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Een applicatie die met verhoogde rechten draait, is buiten bereik.</strong></p>
+      <p>
+        Een engine die door een verhoogde applicatie wordt gehost, negeert de variabelen die de sessie
+        instelt, dus haar pagina's blijven op de echte klok. Dit is de eigen regel van de engine, geen
+        instelling, en er is van buitenaf geen manier omheen.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Zo'n sessie meldt PARTIAL, en dat is het eerlijke antwoord.</strong></p>
+      <p>
+        De hulpprocessen van de engine, en de eigen native tijdaanroepen van de renderer, blijven op de
+        echte klok. De pagina's zitten op de sessieklok en de rest van die familie niet, dus het oordeel
+        zegt <em>gedeeltelijk</em> en noemt wat is weggelaten in plaats van naar een slagen af te
+        ronden.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Twee kleinere, duidelijk gezegd. De pagina's behouden <strong>de tijdzone van deze machine</strong>,
+        dus een onafhankelijke sessiezone is alleen een functie van de native modus. En een timer die al
+        was ingepland <em>voordat</em> de sessie de pagina bereikte, behoudt zijn oude tempo, op dezelfde
+        manier als in een zuivere Chromium-sessie - de sessie waarschuwt in plaats van je te laten
+        concluderen dat er niets gebeurde.
+      </p>
+      <p>
+        Als de engine is geconfigureerd via een browserargumentenbeleid in het register, heeft de variabele
+        van de sessie voor de duur ervan voorrang, en het rapport zegt dat - omdat een debugpoort die je
+        daar had ingesteld niet zou zijn toegepast.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Hoe goed is het getest</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimenteel</strong>, met dezelfde vaste betekenis als elders hier: het werkt op de
+        doelen waarvoor het is gebouwd, het is niet breed getest, en de ingebouwde audit is jouw bron van
+        waarheid, niet deze pagina. Het is met de hand gemeten tegen een WebView2-host en een
+        Qt-WebEngine-host op 64-bits Windows, niet met de geautomatiseerde suite. In die runs lazen de
+        pagina's het jaar van de sessie in het tempo van de sessie en volgden ze een sprong.
+      </p>
+      <p>
+        Op 32-bits Windows is er een kronkel die je beter kunt kennen dan ontdekken: de WebView2-runtime is
+        64-bits, ook als de applicatie die hem host 32-bits is, dus een 32-bits sessie kan de processen van
+        de engine en hun rollen niet benoemen. Het kanaal naar de pagina's werkt nog steeds. Het rapport is
+        alleen minder specifiek over wat het niet kon identificeren, en zegt welk van de twee gevallen het
+        is.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/faq/">Lees de FAQ</a>
+    </div>
+  </section>
+
+</div>

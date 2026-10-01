@@ -1,0 +1,135 @@
+<!-- CLI en CI, Nederlands. Structuur, klassen en tokens zoals in en.html. De tabel met afsluitcodes is het
+     contract en komt overeen met de auditpagina. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Datumtesten in een pipeline</h1>
+    <p class="sub">
+      Het venster is om te verkennen. Dit is de andere helft: een opdrachtregelbuild van ongeveer
+      <strong>1,6 MB</strong> zonder runtime om te installeren, waarvan de afsluitcode het
+      dekkingsoordeel is en niet die van het doel zelf.
+    </p>
+  </section>
+
+  <section>
+    <h2>De afsluitcode is het oordeel</h2>
+    <div class="prose">
+      <p>
+        Dit is de ontwerpkeuze die het gereedschap scriptbaar maakt. Als een sessie eindigt, beantwoordt de
+        afsluitcode <em>“heeft de tijdvervanging gewerkt”</em>, niet <em>“wat gaf de applicatie
+        terug”</em>. Een pipeline kan dus falen op een vervanging die stilzwijgend niet heeft
+        plaatsgevonden - en dat is het falen waar het de moeite waard is om op te falen, want alles wat
+        daarna komt is een test die niets heeft bewezen.
+      </p>
+      <p>
+        De eigen afsluitcode van het doel wordt nog steeds gemeld, in de sessiegegevens.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Code</th><th>Betekenis</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>werkt - elk proces dat de tijd las, zag de sessieklok</td></tr>
+          <tr><td>10</td><td>werkt gedeeltelijk - sommige kanalen gedekt, andere niet</td></tr>
+          <tr><td class="n">11</td><td>werkt niet - de vervanging heeft de belangrijkste kanalen niet bereikt</td></tr>
+          <tr><td>4</td><td>onbepaald - de dekking kon niet worden vastgesteld</td></tr>
+          <tr><td>1</td><td>gebruiksfout - een foute optie of een foute expressie</td></tr>
+          <tr><td>2</td><td>het doel kon niet worden gestart of geïnjecteerd</td></tr>
+          <tr><td>12</td><td>het doel verdween, wat wijst op een applicatie met één instantie</td></tr>
+          <tr><td>3</td><td>interne fout - de engine kon niet starten, kwam in een onverwachte toestand of stopte voordat de sessie werd afgesloten (wat haar eigen afsluitcode ook was). Zo'n run draagt geen oordeel</td></tr>
+          <tr><td>5</td><td>de bewerking is niet opgenomen in deze release</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Elke optie van beide commando's, en dezelfde tabel voor de calculator, staan in de
+        <a href="/nl/cli-referentie/">opdrachtregelreferentie</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Begrensde runs</h2>
+    <div class="prose">
+      <p>
+        Een pipeline kan er niet op wachten dat een mens een desktopapplicatie sluit.
+        <code>--ticks N</code> beëindigt de sessie na N hartslagen - elk één echte seconde - en meldt wat
+        het tot dat moment heeft gevonden. De dekking wordt toch al in de eerste ogenblikken van het
+        proces vastgesteld, dus een korte grens is meestal genoeg.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Tien seconden, dan stoppen en rapporteren</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Machine-uitvoer en bewijs</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> geeft de sessie als machineleesbare records in plaats van het rapport voor
+          mensen - dezelfde feiten, inclusief de dekking per kanaal.</li>
+        <li><code>--report &lt;path&gt;</code> schrijft het rapport voor mensen naar een bestand, wat een
+          redelijk buildartefact is. Een sessie waarvan het oordeel iets anders is dan <em>werkt</em>
+          opent dat bestand met een banner over onbetrouwbaar bewijs, in plaats van het voorbehoud
+          onderaan te begraven.</li>
+        <li>Ook de calculator begrijpt <code>--json</code>, zodat een pipeline de datum kan berekenen die
+          ze nodig heeft en terugvoeren.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># De datum berekenen en dan op die datum draaien</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Een stap, ongeveer</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># een afsluitcode ongelijk aan nul betekent dat de vervanging niet is aangeslagen, dus de</span>
+    <span class="c"># test hierna zou niets hebben bewezen</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Twee eerlijke kanttekeningen over runners</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Het heeft een Windows-runner nodig.</strong> Er is geen Linux- of macOS-build, en die
+          komt er niet - op Linux dekt <a href="https://github.com/wolfcw/libfaketime">libfaketime</a>
+          dit al.</li>
+        <li><strong>Antivirus op een gehoste runner kan de injectie blokkeren.</strong> De tijd verschuiven
+          betekent een bibliotheek in het doelproces injecteren, een gedocumenteerde Windows-techniek die
+          ook malware gebruikt. Een runner die dat blokkeert, levert een afsluitcode op die dat zegt in
+          plaats van een vals slagen - maar het is iets om uit te zoeken voordat je erop vertrouwt.</li>
+      </ul>
+      <p>
+        Om dezelfde reden draait de end-to-end-suite van dit project op echte machines en niet op een
+        gehoste runner. De continuous integration bouwt en unit-test alles, en de vervanging zelf wordt
+        voor elke release met de hand beproefd op echte applicaties, zowel in 32-bits- als in
+        64-bitsbuilds.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/tijdbronnen-audit/">Wat de oordelen betekenen</a>
+    </div>
+  </section>
+
+</div>

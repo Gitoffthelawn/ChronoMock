@@ -1,0 +1,138 @@
+<!-- De klok versnellen, Nederlands. Structuur, klassen en tokens zoals in en.html.
+
+     De vermenigvuldigertabel is rekenwerk, gecontroleerd en niet geschat: x1440 is 1440 nepminuten per
+     echte minuut, precies een dag. Het plafond van een miljoen is chrono_core::MULTIPLIER_MAX. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Laat de klok van één app sneller lopen</h1>
+    <p class="sub">
+      Een proefperiode van 30 dagen duurt 30 dagen om te verlopen, tenzij je de tijd kunt verplaatsen. Het
+      gebruikelijke advies is de systeemklok vooruit te zetten, wat beheerdersrechten vraagt en elk ander
+      programma op de machine meesleept. Dit verplaatst één proces.
+    </p>
+  </section>
+
+  <section>
+    <h2>Hoe snel</h2>
+    <div class="prose">
+      <p>
+        Kies een geheel getal als vermenigvuldiger. De klok van de applicatie loopt zoveel keer sneller dan
+        de echte, vanaf het moment waarop de sessie begint.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Vermenigvuldiger</th><th>Eén echte minuut wordt</th><th>Handig voor</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>een uur</td><td>uurlijkse taken, sessietime-outs, levensduur van tokens</td></tr>
+          <tr><td><code>x1440</code></td><td>een dag</td><td>dagelijkse overgangen, een proefperiode van 30 dagen in een half uur</td></tr>
+          <tr><td><code>x43200</code></td><td>een proefperiode van 30 dagen</td><td>de hele proefperiode zien eindigen terwijl je dit leest</td></tr>
+          <tr><td><code>x525600</code></td><td>een jaar</td><td>jaarlijkse verlengingen, verlopen certificaten</td></tr>
+          <tr><td><code>x1000000</code></td><td>ongeveer 1,9 jaar</td><td>het plafond</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Beginnen op de echte tijd van nu en een dag per minuut lopen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Beginnen op een gekozen datum en vanaf daar versnellen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># De klok in plaats daarvan helemaal stil houden</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Een opname van een sessie die een andere Windows-applicatie aanstuurt. Het linkervenster is Chrono Mock, met de klok van de applicatie op 2038-01-19 die oploopt met zestig keer de echte snelheid terwijl de echte klok ernaast maar een paar seconden verder gaat. Het rechtervenster is de geteste applicatie, wiens eigen sessielogboek laat zien dat ze op 2038-01-19 startte en al minuten draait tegen nauwelijks een halve minuut in de kamer.">
+      <figcaption>Een echte sessie, die een echte applicatie aanstuurt. Let op het rechtervenster: het
+        geteste programma registreerde zijn eigen start op <strong>19 januari 2038</strong>, en zijn sessie
+        duurde minuten terwijl de klok in de kamer seconden verder ging. De snelheid wordt gewijzigd terwijl
+        het draait, zonder iets opnieuw te starten.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Waar mensen over struikelen: er zijn twee klokken</h2>
+    <div class="prose">
+      <p>
+        De <strong>wandklok</strong> versnellen - wat <code>DateTime.Now</code> en zijn equivalenten
+        teruggeven - versnelt op zichzelf geen <strong>aftelling</strong>. Dat zijn twee verschillende
+        vragen die een applicatie aan het besturingssysteem kan stellen, en veel software meet “dertig
+        dagen” met de tweede in plaats van de eerste.
+      </p>
+      <p>
+        Dus de duuras - tickteller, sleeps, wachten en timers - is een aparte schakelaar:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> zet ook sleeps, wachten en timers op de sessieklok. Zonder die
+          schakelaar jaagt <code>x1440</code> de kalender vooruit terwijl een timer van vijf seconden nog
+          steeds vijf echte seconden duurt.</li>
+        <li><code>--scale-qpc</code> schaalt bovendien de high-resolution teller. Daar lezen Python 3.13+
+          <code>monotonic</code>, .NET <code>Stopwatch</code> en Java <code>nanoTime</code> de verstreken
+          tijd, en hij staat standaard uit omdat schalen de rendering in tests destabiliseerde.</li>
+      </ul>
+      <p>
+        Als de vermenigvuldiger niets lijkt te doen met een aftelling, is dit bijna altijd de reden.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Een timer-app: de kalender EN de aftellingen versnellen</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Een Python- of .NET-app die verstreken tijd meet op de high-resolution teller</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>De snelheid wijzigen zonder opnieuw te starten</h2>
+    <div class="prose">
+      <p>
+        De vermenigvuldiger kan midden in de sessie veranderen, en de klok wordt opnieuw verankerd in
+        plaats van gesprongen, zodat hij nooit achteruit gaat als de snelheid daalt. Je kunt de klok ook
+        rechtstreeks laten springen - vooruit, of achteruit zoals een laptop doet na synchronisatie met een
+        tijdserver, het geval dat alles breekt wat verstreken tijd zonder beveiliging meet.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Draaien op x60 en na twee seconden overschakelen naar x1440</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Draaien en na vijf seconden de klok naar een gekozen moment laten springen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Wat het niet doet</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Het raakt de systeemklok niet aan.</strong> Dat is het punt, geen beperking - maar het
+          betekent dat alles wat de tijd van een server, een database of een andere machine leest
+          onaangetast blijft, en de audit zegt het als dat gebeurt.</li>
+        <li><strong>Een sprong verandert wat de applicatie ziet, niet wanneer ze wakker wordt.</strong>
+          Timers die al aan de kernel zijn doorgegeven, lopen op echte tijd. De meeste applicaties peilen
+          de klok, dus sprongen werken in de praktijk - niet alle.</li>
+        <li><strong>Het vertraagt de tijd niet.</strong> Vermenigvuldigers zijn gehele getallen van één en
+          hoger, plus een bevroren klok op nul.</li>
+      </ul>
+      <p>
+        Of iets hiervan je applicatie bereikte, is niet iets om aan te nemen.
+        <a href="/nl/tijdbronnen-audit/">De sessie zegt het &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/faq/">Lees de FAQ</a>
+    </div>
+  </section>
+
+</div>

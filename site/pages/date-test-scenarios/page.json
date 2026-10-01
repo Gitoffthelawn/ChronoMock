@@ -48,6 +48,12 @@
       "link_text": "Date da testare",
       "title": "Date da testare - fine mese, 29 febbraio, 2038",
       "description": "Le date che rompono il software: confini di periodo, giorno bisestile, epoch zero, il limite a 32 bit, bordi delle prove e sfasamento dell'orologio. {{preset_count}} sono fornite come scenari con nome."
+    },
+    "nl": {
+      "slug": "datum-testscenarios",
+      "link_text": "Datums om te testen",
+      "title": "Datums om te testen - maandeinde, 29 februari, 2038",
+      "description": "De datums die software breken: periodegrenzen, de schrikkeldag, epoch nul, de 32-bitsgrens, randen van proefperiodes en klokafwijking. {{preset_count}} ervan worden meegeleverd als benoemde scenario's."
     }
   }
 }

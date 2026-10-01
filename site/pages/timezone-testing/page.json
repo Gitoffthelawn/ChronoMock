@@ -48,6 +48,12 @@
       "link_text": "Fusi orari",
       "title": "Esegui un'app in un altro fuso orario - Windows non cambia",
       "description": "Dai a un processo il proprio scostamento di fuso orario mentre il fuso di sistema resta dov'è. Riproduci il bug che compare solo per il cliente a cinque fusi orari di distanza."
+    },
+    "nl": {
+      "slug": "tijdzones-testen",
+      "link_text": "Tijdzones",
+      "title": "Draai een app in een andere tijdzone - Windows blijft staan",
+      "description": "Geef één proces zijn eigen tijdzone-offset terwijl de systeemzone blijft waar hij is. Reproduceer de bug die alleen optreedt bij de klant vijf tijdzones verderop."
     }
   }
 }

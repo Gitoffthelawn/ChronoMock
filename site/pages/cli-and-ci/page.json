@@ -48,6 +48,12 @@
       "link_text": "CLI e CI",
       "title": "Test sulle date in CI - codici di uscita e output JSON",
       "description": "Una build da riga di comando di 1,6 MB, senza runtime. Il codice di uscita è il verdetto di copertura, non quello del target: la pipeline fallisce se la sostituzione non ha attecchito."
+    },
+    "nl": {
+      "slug": "cli-en-ci",
+      "link_text": "CLI en CI",
+      "title": "Datumtesten in CI - afsluitcodes en JSON-uitvoer",
+      "description": "Een opdrachtregelbuild van 1,6 MB zonder runtime. De afsluitcode is het dekkingsoordeel, niet dat van het doel: de pipeline faalt als de vervanging niet is aangeslagen."
     }
   }
 }
