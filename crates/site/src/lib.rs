@@ -1,7 +1,7 @@
 //! Generator for the Chrono Mock website.
 //!
 //! The site is plain static HTML: no framework, no JavaScript, no webfonts. What it
-//! does need is a way to keep twenty-four pages consistent, because the parts that
+//! does need is a way to keep three hundred pages consistent, because the parts that
 //! rot are never the prose - they are the head elements, the navigation, the language
 //! pairs and the numbers. So the content lives in fragments under `site/pages/` and
 //! everything repeated is composed here.

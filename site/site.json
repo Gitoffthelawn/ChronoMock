@@ -1,5 +1,5 @@
 {
-  "//": "Global facts about the website. Everything that appears on more than one page lives here rather than in the page fragments, because a value repeated across twenty-four pages drifts on the day one of them is edited alone. The generator (crates/site) refuses to emit a page that still contains an unresolved {{token}}, so a name removed from this file breaks the build instead of leaving a hole on a published page.",
+  "//": "Global facts about the website. Everything that appears on more than one page lives here rather than in the page fragments, because a value repeated across three hundred pages drifts on the day one of them is edited alone. The generator (crates/site) refuses to emit a page that still contains an unresolved {{token}}, so a name removed from this file breaks the build instead of leaving a hole on a published page.",
 
   "host": "https://chronomock.donislawdev.com",
   "cname": "chronomock.donislawdev.com",

@@ -114,6 +114,37 @@ Two things worth knowing if you translate anyway:
   Polish format is a formatting choice for the application under test, not a
   statement about the language of the window.
 
+## Website translations
+
+The website in `site/` is built by `crates/site` and is published in 22 languages.
+Unlike the window, every one of them is reachable by a visitor today, so a correction
+to a page is worth more than a new language: read yours as a native speaker would and
+open a pull request for anything that sounds machine-made. That includes the
+marketing wording, which is the part most likely to read wrongly.
+
+To add a language, copy a finished one and keep its structure:
+
+- `site/i18n/<code>.json` - the interface strings, with the `html_lang`, `dir`
+  and `og_locale` values.
+- `site/pages/<page>/<code>.html` for every page, plus a matching entry under
+  `languages` in each `page.json` (slug, link text, title, description).
+- The code in the `languages` list of `site/site.json`, which is also the order of
+  the language menu.
+
+Translate the prose and the `#` comments inside the terminal blocks, and leave
+commands, flags, code and program output exactly as they are - the program is
+English only. Internal links name their own language, so a page links to
+`/<code>/<slug>/`, never to the English one.
+
+**Slugs are permanent.** GitHub Pages cannot redirect, so a published address that
+is renamed later is a dead link for everybody who saved it. The existing languages
+use a translated ASCII slug where the language is written in the Latin alphabet and
+the English slug everywhere else; follow that rather than choosing again.
+
+`cargo run -p chrono-site -- --strict` fails on an untranslated page, an unresolved
+`{{token}}`, a dead link or a page nothing links to, and `cargo test -p chrono-site`
+checks the hreflang pairs, the sitemap and the language menu.
+
 ## Something else that helps, and costs nothing
 
 The support matrix in the README marks .NET, Java, Python and Electron as
