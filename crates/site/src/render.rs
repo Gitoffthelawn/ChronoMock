@@ -650,7 +650,7 @@ fn render_footer(ctx: &Ctx, page: &Page, lang: &str) -> Result<String> {
 
     // Every language, visibly, on every page. The header menu is closed until somebody opens
     // it, and a visitor who scrolled to the end of a page is exactly the one looking for
-    // another language; it is also a plain list of links to a crawler that renders nothing.
+    // another language - it is also a plain list of links to a crawler that renders nothing.
     h.push_str(&format!(
         "<nav class=\"flangs\" aria-label=\"{}\">\n<h2>{}</h2>\n",
         esc(ctx.s(lang, "language_menu_label")?),
@@ -684,7 +684,7 @@ fn render_footer(ctx: &Ctx, page: &Page, lang: &str) -> Result<String> {
 /// not redundant, though: it is the form a crawler can read for every address from one file
 /// without fetching all of them, and the two are expected to agree - which they do, because
 /// both come from `Page::url_path`. A page with twenty-two versions is twenty-two `<url>`
-/// entries of twenty-three links each; the protocol's limit is fifty thousand addresses.
+/// entries of twenty-three links each - the protocol's limit is fifty thousand addresses.
 fn write_sitemap(ctx: &Ctx, out: &Path) -> Result<()> {
     let host = &ctx.cfg.host;
     let mut entries: BTreeMap<String, String> = BTreeMap::new();

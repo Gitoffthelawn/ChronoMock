@@ -139,7 +139,7 @@ English only. Internal links name their own language, so a page links to
 **Slugs are permanent.** GitHub Pages cannot redirect, so a published address that
 is renamed later is a dead link for everybody who saved it. The existing languages
 use a translated ASCII slug where the language is written in the Latin alphabet and
-the English slug everywhere else; follow that rather than choosing again.
+the English slug everywhere else - follow that rather than choosing again.
 
 `cargo run -p chrono-site -- --strict` fails on an untranslated page, an unresolved
 `{{token}}`, a dead link or a page nothing links to, and `cargo test -p chrono-site`

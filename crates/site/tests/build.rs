@@ -314,7 +314,7 @@ fn every_language_page_announces_the_whole_set_and_every_member_announces_it_bac
         html_files(&out.join(lang_dir(lang)), &mut files);
         for file in files {
             let rel = file.strip_prefix(&out).expect("under out").to_string_lossy().replace('\\', "/");
-            // Other languages' directories live under the root language's; only look at this
+            // Other languages' directories live under the root language's - only look at this
             // language's own pages.
             if lang == "en" && cfg.languages.iter().any(|l| l != "en" && rel.starts_with(&format!("{l}/"))) {
                 continue;

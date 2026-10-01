@@ -318,7 +318,7 @@ fn is_language_code(code: &str) -> bool {
 /// * The code in `site.json` is a directory name AND the thing hreflang is generated from.
 ///   If `pt-br` were paired with `html_lang` `pt-PT`, every page would announce one language
 ///   to search engines and live under the address of another, and nothing would fail.
-/// * `dir` is the only thing that turns the layout around for Arabic; a typo there would
+/// * `dir` is the only thing that turns the layout around for Arabic - a typo there would
 ///   silently publish a left-to-right Arabic site.
 /// * An `og_locale` that is not `ll_CC` is dropped by the crawlers that read it, without a
 ///   message.
