@@ -26,6 +26,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - Fragen zum Datum-Fälschen unter Windows",
       "description": "Ändert es die Systemuhr? Braucht es Adminrechte? Funktioniert es mit meiner App, mit .NET, Java oder Electron? Kurze Antworten, auch dazu, was es nicht kann."
+    },
+    "fr": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ Chrono Mock - questions sur la falsification de date sous Windows",
+      "description": "Cela change-t-il l'horloge système ? Faut-il être administrateur ? Cela marche-t-il avec mon appli, .NET, Java ou Electron ? Des réponses courtes, y compris sur ce qu'il ne fait pas."
     }
   }
 }

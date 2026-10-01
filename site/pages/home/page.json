@@ -27,6 +27,12 @@
       "link_text": "Start",
       "title": "Chrono Mock - Windows-Programme mit anderem Datum starten",
       "description": "Kostenloses Open-Source-Tool für Windows: eine Anwendung mit beliebigem Datum starten, ihre Uhr einfrieren oder beschleunigen - ohne die Systemzeit zu ändern. Mit Erfolgsprüfung."
+    },
+    "fr": {
+      "slug": "",
+      "link_text": "Accueil",
+      "title": "Chrono Mock - lancer une appli Windows à une autre date",
+      "description": "Outil Windows gratuit et open source : lancez une application à n'importe quelle date, figez ou accélérez son horloge, sans toucher à l'heure système. Avec vérification du résultat."
     }
   }
 }

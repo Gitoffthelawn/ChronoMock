@@ -1,0 +1,122 @@
+<!-- Fuseaux horaires, français. Structure, classes et jetons comme dans en.html.
+
+     La section sur les limites honnêtes pèse ici plus que sur toute autre page : le fuseau de la session
+     est un décalage fixe sans heure d'été, et un lecteur qui le découvre après coup a déjà tiré une
+     mauvaise conclusion d'un test. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Exécuter une appli dans un autre fuseau horaire</h1>
+    <p class="sub">
+      Le rapport qui tombe le mauvais jour, le rappel qui se déclenche une heure trop tôt, l'horodatage
+      qui se lit comme demain - la plupart de ces bugs n'apparaissent que dans un fuseau où vous n'êtes
+      pas. Ceci donne à un processus son propre décalage, pendant que votre fuseau système reste
+      exactement où il était.
+    </p>
+  </section>
+
+  <section>
+    <h2>Pourquoi les réponses habituelles n'aident pas</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Changer le fuseau horaire de Windows</strong> le change pour tout - votre calendrier,
+          vos journaux, vos réunions - et sur une machine gérée, ce n'est peut-être pas à vous de le
+          faire.</li>
+        <li><strong>Définir <code>TZ</code></strong> marche pour certains environnements d'exécution et
+          pas pour d'autres. Une application Windows native qui lit <code>GetTimeZoneInformation</code>
+          ne le remarquera pas du tout.</li>
+        <li><strong>Les outils de développement du navigateur</strong> remplacent le fuseau pour une page
+          web, ce qui est excellent, et sans rapport avec une application de bureau.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Un processus, un décalage</h2>
+    <div class="prose">
+      <p>
+        La session porte son propre décalage. L'application demande à Windows dans quel fuseau elle se
+        trouve et reçoit cette réponse, pendant que tous les autres programmes de la machine reçoivent la
+        vraie.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Le même moment, vu de la côte ouest américaine</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Seulement le fuseau - la vraie date du jour, l'horloge de quelqu'un d'autre</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        Le calculateur répond à l'autre moitié de la question - ce qu'un moment donné indique réellement
+        ailleurs. Convertir conserve l'instant et ne change que l'horloge murale, ce qui est exactement
+        comment une date atterrit le mauvais jour :
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Neuf heures du matin en Europe centrale, c'est <strong>minuit</strong> sur la côte ouest
+        américaine. Même instant, et un rapport quotidien qui regroupe par date locale le range un jour
+        différent selon l'endroit où il s'exécute.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Des limites honnêtes, et elles comptent ici</h2>
+
+    <div class="note warning">
+      <p><strong>Le fuseau de la session est un décalage fixe sans heure d'été.</strong></p>
+      <p>
+        Une session réglée sur <code>+01:00</code> reste à <code>+01:00</code> que son horloge indique
+        janvier ou juillet. Une exécution qui franchit un vrai changement d'heure dérive donc d'une heure
+        par rapport à ce que ce fuseau afficherait réellement, et faire traverser à une application un
+        changement d'heure d'été n'est pas encore possible avec cet outil. Le calculateur de dates le dit
+        plutôt que de deviner.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>Le fuseau se déclare sous le nom «&nbsp;Chrono Session&nbsp;»</strong>, un nom
+          qu'aucun registre Windows ne connaît. Tout ce qui rapproche ce nom d'un fuseau - dont
+          <code>TimeZoneInfo.Local</code> de .NET - se rabat sur le décalage, ce qui est la bonne
+          réponse. Une application qui exige un nom de registre n'en trouvera pas.</li>
+        <li><strong>Java prend le fuseau de la session sous forme de décalage.</strong> Le fuseau de la
+          session n'a ni heure d'été ni ville derrière lui, si bien que Java le nomme d'après son
+          décalage - <code>GMT+05:30</code> pour une session à +05:30.</li>
+        <li><strong>En mode Chromium et Electron, le fuseau suit l'hôte.</strong> L'instant est falsifié,
+          pas les accesseurs d'heure locale.</li>
+        <li><strong>Les décalages vont de -14:00 à +14:00</strong> par minutes entières. Tout ce qui est en
+          dehors est refusé plutôt que replié discrètement.</li>
+      </ul>
+      <p>
+        Lequel de ces points s'applique à votre application se mesure plutôt qu'il ne se devine.
+        <a href="/fr/audit-des-sources-de-temps/">La session rapporte sa propre couverture &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/faq/">Lire la FAQ</a>
+    </div>
+  </section>
+
+</div>

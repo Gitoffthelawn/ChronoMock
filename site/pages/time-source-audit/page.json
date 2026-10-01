@@ -26,6 +26,12 @@
       "link_text": "Die Prüfung",
       "title": "So erkennen Sie, ob das gefälschte Datum Ihre App erreicht hat",
       "description": "Jede Sitzung endet mit einem Urteil, den tatsächlich gelesenen Zeitkanälen samt Aufrufzahlen, den verfehlten Kanälen und Warnungen. Ein stiller Fehlschlag ist das einzige ausgeschlossene Ergebnis."
+    },
+    "fr": {
+      "slug": "audit-des-sources-de-temps",
+      "link_text": "L'audit",
+      "title": "Savoir si la fausse date a vraiment atteint votre appli",
+      "description": "Chaque session se termine par un verdict, les canaux de temps réellement lus avec leur nombre d'appels, ceux qui ont été manqués, et des avertissements. Un échec silencieux est le seul résultat refusé."
     }
   }
 }

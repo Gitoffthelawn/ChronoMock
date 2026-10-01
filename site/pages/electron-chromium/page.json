@@ -26,6 +26,12 @@
       "link_text": "Electron und Chromium",
       "title": "Datum in einer Electron- oder Chromium-App fälschen",
       "description": "Ihre Uhr liegt in einem abgeschotteten Renderer, den keine Injektion erreicht. Ein anderer Mechanismus legt die JavaScript-Zeit-APIs der App auf die Sitzungsuhr, Worker eingeschlossen."
+    },
+    "fr": {
+      "slug": "electron-chromium",
+      "link_text": "Electron et Chromium",
+      "title": "Falsifier la date dans une application Electron ou Chromium",
+      "description": "Leur horloge vit dans un moteur de rendu isolé que l'injection n'atteint pas. Un autre mécanisme place les API de temps JavaScript de l'appli sur l'horloge de session, workers compris."
     }
   }
 }

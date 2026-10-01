@@ -1,0 +1,131 @@
+<!-- Page de téléchargement, français. Structure, classes et jetons comme dans en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Télécharger Chrono Mock</h1>
+    <p class="sub">
+      Deux versions du même moteur : une fenêtre pour explorer, une ligne de commande pour la CI.
+      Décompressez l'une ou l'autre où vous voulez et lancez-la - il n'y a pas d'installateur, rien n'est
+      écrit dans le registre, et aucun droit d'administrateur n'est nécessaire.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Obtenir la dernière version</a>
+      <a class="btn btn-ghost" href="{{repo}}">Voir le code sur GitHub</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Fichier</th><th>Ce que c'est</th><th>Taille</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>L'application de bureau, autonome - aucune installation de .NET nécessaire</td>
+            <td>~69 Mo</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Uniquement l'outil en ligne de commande, pour la CI et les scripts</td>
+            <td>~1,6 Mo</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce qu'il vous faut</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 ou Windows 11.</strong> Il n'existe pas de version pour macOS ou Linux -
+          sous Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> couvre déjà bien ce
+          besoin.</li>
+        <li><strong>Rien d'autre.</strong> La version de bureau embarque son propre environnement
+          d'exécution, et la version en ligne de commande n'embarque rien du tout.</li>
+        <li><strong>Les applications 32 bits et 64 bits sont prises en charge.</strong> Le paquet contient
+          les deux et choisit celle qui correspond à l'application que vous visez.</li>
+      </ul>
+      <p>
+        ARM64 est hors périmètre jusqu'à la version 1.0, et les applications du Store empaquetées (UWP et
+        MSIX) ne sont pas prises en charge - leur modèle de lancement ne le permet pas.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Le lancer</h2>
+    <div class="prose">
+      <p>
+        Décompressez, puis lancez <code>ChronoMock.exe</code> pour la fenêtre ou <code>chrono.exe</code>
+        pour la ligne de commande. Une première session, ce sont trois décisions : quelle application,
+        quel moment, et à quelle vitesse l'horloge doit s'écouler.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Exécuter une application comme si c'était la dernière seconde de 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># La même chose, avec une horloge qui avance d'un jour par minute</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Deux choses à lire d'abord</h2>
+
+    <div class="note warning">
+      <p><strong>Sauvegardez le répertoire de données de l'application avant votre première session datée
+        dans le futur.</strong></p>
+      <p>
+        Une application qui tourne en 2028 écrit des dates de 2028 partout où elle stocke des données :
+        sa base de données, sa configuration, son cache, son fichier de licence. Ces valeurs y restent
+        quand vous revenez à l'heure réelle. Pour un logiciel protégé par licence, cela peut être
+        définitif - <em>«&nbsp;retour en arrière de l'horloge détecté, licence invalidée&nbsp;»</em> est
+        un schéma courant du secteur, et il fera exactement ce pour quoi il a été conçu.
+      </p>
+      <p>
+        Chrono Mock nettoie derrière lui. Il ne peut pas nettoyer derrière l'application que vous avez
+        testée.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Votre antivirus peut le signaler, et c'est normal.</strong></p>
+      <p>
+        Le temps est décalé en injectant une petite bibliothèque dans le processus cible. C'est une
+        technique Windows légitime et documentée - et aussi une technique qu'utilisent les logiciels
+        malveillants, si bien que Microsoft Defender et d'autres peuvent signaler la bibliothèque injectée
+        ou bloquer purement et simplement l'injection. C'est un faux positif déclenché par la technique.
+      </p>
+      <p>
+        Si une session refuse de démarrer et que Defender signale une menace, excluez la bibliothèque et
+        non le dossier : choisissez <strong>Fichier</strong> dans Sécurité Windows et donnez le chemin
+        complet de <code>chrono_hook.dll</code>. Une exclusion de dossier empêcherait d'analyser quoi que
+        ce soit dans le répertoire même d'où l'outil injecte. Ou lancez-le sur une machine où vous en
+        avez le droit. La bibliothèque injectée est construite à partir du code de ce dépôt sous GPL-3.0 -
+        vous pouvez la reconstruire vous-même. Le mode Chromium et Electron n'injecte rien du tout et n'est
+        pas concerné.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce qu'il laisse derrière lui</h2>
+    <div class="prose">
+      <p>
+        Rien dans votre système : aucun hook persistant, aucune entrée de registre, et rien en dehors de
+        son propre dossier, sauf trois choses qu'il vous nomme - l'historique des sessions et le journal de
+        diagnostic, qui passent dans <code>%LOCALAPPDATA%\ChronoMock\</code> quand le dossier de l'outil
+        n'est pas accessible en écriture, et, pour une cible Electron ou Chromium, un profil de navigateur
+        jetable sous <code>%TEMP%</code>, supprimé à la fin de la session et signalé dans le résumé de la
+        session s'il n'a pas pu l'être.
+      </p>
+      <p>
+        Il ne se connecte jamais à Internet, ne tient aucun compte et n'envoie aucune télémétrie.
+      </p>
+    </div>
+  </section>
+
+</div>

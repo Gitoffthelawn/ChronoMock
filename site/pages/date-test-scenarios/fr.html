@@ -1,0 +1,153 @@
+<!-- Dates à tester, français. Structure, classes et jetons comme dans en.html. Les noms et explications
+     suivent presets/*.json ; le nombre est un jeton. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Les dates qui valent la peine d'être testées</h1>
+    <p class="sub">
+      Les logiciels ne plantent pas un mardi ordinaire. Ils plantent le dernier jour du trimestre, le
+      29 février, à l'instant où une année bascule, et une seconde après l'expiration d'une licence. Ce
+      sont les dates qui trouvent ces bugs - <strong>{{preset_count}}</strong> d'entre elles sont livrées
+      comme scénarios nommés.
+    </p>
+  </section>
+
+  <section>
+    <h2>Limites de période</h2>
+    <div class="prose">
+      <p>
+        Tout ce qui clôt une période, numérote un document par année ou cumule jusqu'à une date butoir se
+        trompe ici en premier.
+      </p>
+      <ul>
+        <li><strong>Dernier jour du mois</strong> - la clôture mensuelle et les écritures de
+          rattachement se comportent-elles bien le dernier jour du mois ?</li>
+        <li><strong>Dernier jour du trimestre</strong> - la clôture trimestrielle et le reporting se
+          comportent-ils bien le dernier jour du trimestre ?</li>
+        <li><strong>Dernier jour de l'exercice fiscal</strong> - l'application clôt-elle l'exercice le bon
+          jour, la veille du début de l'exercice suivant ?</li>
+        <li><strong>Passage d'année, en direct</strong> - la numérotation des documents, l'année dans le
+          nom et le reporting annuel gèrent-ils le basculement <em>pendant qu'il se produit</em>, plutôt
+          que d'être redémarrés après coup ?</li>
+      </ul>
+      <p>
+        Le dernier est celui que l'on ne peut généralement pas tester du tout, car il faut que l'horloge
+        franchisse minuit le 31 décembre pendant que l'application tourne. C'est l'affaire de dix secondes
+        avec une horloge accélérée.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limites du calendrier et de la représentation</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29 février</strong> - le jour bissextile qui n'existe que tous les quatre ans et que
+          bien du code de validation rejette purement et simplement.</li>
+        <li><strong>Epoch Unix zéro</strong> - l'application traite-t-elle le 1er janvier 1970
+          comme une vraie date, ou comme une valeur vide qu'elle aurait dû refuser de stocker ?</li>
+        <li><strong>Limite de 2038</strong> - le moment où un <code>time_t</code> signé de 32 bits est
+          épuisé, à <code>2038-01-19T03:14:07Z</code>. Une seconde plus tard, le compteur déborde jusqu'en
+          1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Licences, essais et installation</h2>
+    <div class="prose">
+      <p>
+        Ceux-ci servent à tester <em>votre propre</em> gestion des licences, ce pour quoi ils ont été
+        écrits.
+      </p>
+      <ul>
+        <li><strong>Dernier jour d'essai</strong> - l'application fonctionne-t-elle encore à tout
+          dernier moment de l'essai ?</li>
+        <li><strong>Premier jour après l'expiration de l'essai</strong> - refuse-t-elle l'accès à
+          l'instant où l'essai se termine, et comment ? Un message sensé, ou une trace de pile ?</li>
+        <li><strong>Licence expirée il y a un an</strong> - gère-t-elle une licence expirée depuis
+          longtemps, et pas seulement depuis hier ?</li>
+        <li><strong>Date antérieure à l'installation</strong> - se comporte-t-elle bien quand l'horloge est
+          réglée avant sa propre date d'installation ? Celui-ci lit la date du fichier de la cible
+          elle-même, il n'a donc besoin d'aucun paramètre.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Règles métier et comportement de l'horloge</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Paiement dû, +N jours ouvrés</strong> - un paiement dû dans N jours ouvrés tombe-t-il
+          le bon jour, en sautant les week-ends et les jours fériés du bon pays ? Le seul scénario qui
+          exige un calendrier, et la réponse diffère d'un marché à l'autre.</li>
+        <li><strong>Limite de la majorité</strong> - l'application admet-elle quelqu'un exactement à la
+          limite, et refuse-t-elle quelqu'un à un jour près ?</li>
+        <li><strong>Dérive d'horloge, +90 s</strong> - l'application s'en sort-elle quand son horloge
+          avance de quatre-vingt-dix secondes sur le temps réel ? C'est le cas qui casse les mots de passe
+          à usage unique basés sur le temps et la validation des jetons.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>En utiliser un</h2>
+    <div class="prose">
+      <p>
+        Un scénario est une expression de date nommée. Le calculateur détermine ce qu'elle signifie, et la
+        substitution exécute une application à cette date - le même nom aux deux endroits.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Quelle date est-ce, et que teste cette date ?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Exécuter une application à cette date</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Les scénarios d'essai prennent la date de début dans la date de fichier de la cible</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        Dans la fenêtre, ce sont des pastilles au-dessus du champ de date - un clic le remplit. Chacune
+        porte sa propre phrase qui dit ce qu'elle détecte, ce qu'un calculateur de dates en ligne ne peut
+        pas vous donner.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="L'écran de configuration de Chrono Mock avec la section Scenarios ouverte : un champ de recherche au-dessus de la liste, puis chaque date toute prête avec la question à laquelle elle répond - la limite de 2038, le 29 février, une horloge qui avance de quatre-vingt-dix secondes, le dernier jour du mois - et sous la liste une ligne disant que trois autres demandent une valeur de votre choix. Le pied de page relit le moment en langage clair au-dessus du bouton Start.">
+      <figcaption>Chaque scénario porte la question à laquelle il répond, et pas seulement une date. Les
+        trois qui demandent une valeur de votre choix sont nommés sous la liste plutôt que cachés.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Ce qui n'est pas là</h2>
+    <div class="prose">
+      <p>
+        <strong>Les changements d'heure d'été.</strong> Faire traverser à une application la limite du
+        passage à l'heure d'été ou du retour à l'heure d'hiver est un test réellement utile, et il est
+        <em>volontairement absent</em>, car le fuseau horaire de la session est un décalage fixe sans heure
+        d'été - il n'y a pas encore de transition à simuler. Livrer un scénario qui ne ferait
+        discrètement rien serait pire que de ne pas le livrer.
+      </p>
+      <p>
+        Il reviendra avec un modèle des règles de fuseau horaire.
+        <a href="/fr/tester-les-fuseaux-horaires/">Ce que le fuseau horaire fait et ne fait pas &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/calculateur-de-dates/">Le calculateur</a>
+    </div>
+  </section>
+
+</div>

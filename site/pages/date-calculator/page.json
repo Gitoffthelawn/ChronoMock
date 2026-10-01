@@ -24,6 +24,12 @@
       "link_text": "Rechner",
       "title": "Datumsrechner für QA - Werktage und Sonderfälle",
       "description": "Ermitteln Sie, welches Datum Sie testen sollten: Monatsende, Quartalsabschluss, N Werktage mit echten Feiertagen, die 2038-Grenze. Alle Formate auf einmal und was jedes Datum prüft."
+    },
+    "fr": {
+      "slug": "calculateur-de-dates",
+      "link_text": "Calculateur",
+      "title": "Calculateur de dates pour la QA - jours ouvrés et cas limites",
+      "description": "Trouvez la date à tester : fin de mois, clôture de trimestre, N jours ouvrés avec les vrais jours fériés, la limite de 2038. Tous les formats d'un coup, et ce que teste chaque date."
     }
   }
 }

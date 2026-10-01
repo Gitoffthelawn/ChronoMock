@@ -24,6 +24,12 @@
       "link_text": "Zeit beschleunigen",
       "title": "Zeit beschleunigen - für eine Windows-App, nicht für die Systemuhr",
       "description": "Die Uhr einer einzelnen Anwendung bis zu einer Million Mal schneller laufen lassen: Eine 30-Tage-Testversion läuft in einer halben Stunde ab. Keine Adminrechte, alle anderen Programme behalten die echte Zeit."
+    },
+    "fr": {
+      "slug": "accelerer-le-temps",
+      "link_text": "Accélérer le temps",
+      "title": "Accélérer le temps d'une appli Windows, pas l'horloge système",
+      "description": "Faites tourner l'horloge d'une application jusqu'à un million de fois plus vite : un essai de 30 jours expire en une demi-heure. Sans droits d'administrateur, les autres programmes gardent l'heure réelle."
     }
   }
 }

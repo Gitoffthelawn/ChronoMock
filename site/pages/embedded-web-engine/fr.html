@@ -1,0 +1,175 @@
+<!-- WebView2 et Qt WebEngine, français. Structure, classes et jetons comme dans en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Les pages web à l'intérieur d'une application native</h1>
+    <p class="sub">
+      Une application de bureau dotée d'un moteur web intégré exécute ses pages dans un processus séparé
+      et isolé. Le mécanisme natif couvre l'application et s'arrête à cette frontière - la fenêtre passe
+      donc à la date demandée, et le panneau qu'elle contient non. Ceci comble cet écart.
+    </p>
+  </section>
+
+  <section>
+    <h2>L'échec qui ressemble à un succès</h2>
+    <div class="prose">
+      <p>
+        De nombreuses applications Windows sont natives à l'extérieur et une page web à l'intérieur. Un
+        écran de réglages, un tableau de bord, une vue de rapport, un panneau de licence - construits une
+        seule fois en HTML et hébergés dans <strong>WebView2</strong> ou <strong>Qt WebEngine</strong>
+        plutôt qu'écrits deux fois.
+      </p>
+      <p>
+        Le moteur exécute ces pages dans son propre processus, et ce processus est isolé. Une bibliothèque
+        injectée dans l'application n'y entre pas. Tout ce que l'application demande à Windows passe à la
+        date de la session, et tout ce que la page demande à JavaScript, non :
+      </p>
+      <ul>
+        <li>La barre de titre, les journaux et les fichiers disent <strong>2038</strong>.</li>
+        <li>Le panneau de la même fenêtre dit <strong>aujourd'hui</strong>.</li>
+        <li>Rien ne signale d'erreur, rien n'avertit, et les deux moitiés paraissent également
+          sûres d'elles.</li>
+      </ul>
+      <p>
+        C'est la version coûteuse de ce bug, parce que le test semble avoir tourné. L'ancien comportement
+        rapportait une telle session comme un succès net, ce qui était une affirmation que l'outil ne
+        pouvait pas étayer.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce que fait la session à la place</h2>
+    <div class="prose">
+      <p>
+        La session fait fonctionner <strong>les deux mécanismes à la fois</strong>. Le hook natif entre dans
+        l'application comme toujours, et les pages sont atteintes de la seule façon dont on atteint un
+        moteur de rendu isolé : en le demandant au moteur lui-même.
+      </p>
+      <p>
+        Au lancement, l'application hérite de deux variables d'environnement qui demandent à son moteur
+        d'ouvrir un port de débogage local. Elles sont ajoutées aux options que l'application passe déjà,
+        sans les remplacer. La session surveille ensuite ses propres processus jusqu'à l'apparition de ce
+        port, et quand il apparaît, chaque page et chaque worker derrière lui passent sur la même
+        horloge que l'application.
+      </p>
+      <p>
+        Un seul départ, une seule vitesse, une seule chronologie. Un changement de vitesse ou un saut
+        atteint l'application et ses pages ensemble, et les minuteurs des pages tournent au rythme de
+        l'application plutôt qu'à un rythme propre.
+      </p>
+      <p>
+        C'est activé par défaut et désactivé par une seule option, qui n'ouvre aucun port et laisse les
+        pages sur l'horloge réelle.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Rien à configurer - le moteur est trouvé s'il est là</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Ou laisser les pages tranquilles, et n'ouvrir aucun port</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Ce que le rapport dit des pages</h2>
+    <div class="prose">
+      <p>
+        Les pages ne sont pas fondues dans les chiffres de l'application. Elles sont comptées comme des
+        unités à part, car un processus et une page sont deux choses différentes et les additionner
+        inventerait un nombre qui ne veut rien dire :
+      </p>
+      <ul>
+        <li>L'en-tête compte les deux - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Chaque page a ses propres lignes, comme <code>context 1: page Date.now (12 calls)</code> en
+          ligne de commande et <em>page Date.now - fake clock</em> dans le tableau d'audit de la
+          fenêtre.</li>
+        <li>Le moteur atteint est nommé avec son port, pour que vous puissiez diriger vos propres DevTools
+          exactement sur les pages que la session pilote.</li>
+      </ul>
+      <p>
+        Une exécution à blanc dit si les pages seraient atteintes avant que quoi que ce soit démarre.
+        <a href="/fr/audit-des-sources-de-temps/">Ce que signifient les verdicts &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Trois limites à connaître avant de commencer</h2>
+
+    <div class="note warning">
+      <p><strong>Un port de débogage reste ouvert tant que le moteur tourne.</strong></p>
+      <p>
+        Il n'écoute que sur cet ordinateur, mais il est ouvert à <em>n'importe quel</em> programme de cet
+        ordinateur tant que le moteur fonctionne, et tout ce qui peut l'atteindre peut piloter ces pages.
+        La session vous en avertit chaque fois qu'un port a été ouvert, et nomme ce port plutôt que de le
+        mentionner en l'air. Sur une machine partagée ou non fiable, utilisez l'option qui n'ouvre
+        rien.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Une application exécutée avec des droits élevés est hors de portée.</strong></p>
+      <p>
+        Un moteur hébergé par une application élevée ignore les variables que la session définit, si bien
+        que ses pages restent sur l'horloge réelle. C'est la règle propre au moteur, pas un réglage, et il
+        n'y a aucun moyen de la contourner de l'extérieur.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Une telle session rapporte PARTIAL, et c'est la réponse honnête.</strong></p>
+      <p>
+        Les processus auxiliaires du moteur, et les propres appels de temps natifs du moteur de rendu,
+        restent sur l'horloge réelle. Les pages sont sur l'horloge de la session et le reste de cette
+        famille ne l'est pas, si bien que le verdict dit <em>partiel</em> et nomme ce qui a été laissé de
+        côté plutôt que d'arrondir à un succès.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Deux limites plus petites, dites simplement. Les pages gardent <strong>le fuseau horaire de cette
+        machine</strong>, un fuseau de session indépendant est donc une fonctionnalité du mode natif
+        uniquement. Et un minuteur déjà planifié <em>avant</em> que la session atteigne la page garde son
+        ancien rythme, comme dans une session Chromium pure - la session avertit plutôt que de vous laisser
+        conclure qu'il ne s'est rien passé.
+      </p>
+      <p>
+        Si le moteur est configuré par une stratégie d'arguments de navigateur dans le registre, la
+        variable de la session prend le pas pendant sa durée, et le rapport le dit - car un port de
+        débogage que vous auriez configuré là n'aurait pas été appliqué.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>À quel point est-il testé</h2>
+    <div class="prose">
+      <p>
+        <strong>Expérimental</strong>, avec le même sens défini qu'ailleurs ici : il fonctionne sur les
+        cibles pour lesquelles il a été construit, il n'a pas été testé largement, et l'audit intégré est
+        votre source de vérité, pas cette page. Il a été mesuré à la main sur un hôte WebView2 et un hôte
+        Qt WebEngine sous Windows 64 bits, et non par la suite automatisée. Dans ces essais, les pages ont
+        lu l'année de la session au rythme de la session et ont suivi un saut.
+      </p>
+      <p>
+        Sous Windows 32 bits, il y a une subtilité qu'il vaut mieux connaître que découvrir : le runtime
+        WebView2 est en 64 bits même quand l'application qui l'héberge est en 32 bits, si bien qu'une
+        session 32 bits ne peut pas nommer les processus du moteur ni leurs rôles. Le canal vers les
+        pages fonctionne quand même. Le rapport est simplement moins précis sur ce qu'il n'a pas pu
+        identifier, et dit lequel des deux cas c'est.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/faq/">Lire la FAQ</a>
+    </div>
+  </section>
+
+</div>
