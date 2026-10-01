@@ -66,6 +66,12 @@
       "link_text": "CLI a CI",
       "title": "Testování dat v CI - návratové kódy a výstup JSON",
       "description": "Sestavení pro příkazový řádek o velikosti 1,6 MB bez běhového prostředí. Návratový kód je verdikt o pokrytí, ne kód cíle: pipeline selže, pokud náhrada času nezabrala."
+    },
+    "tr": {
+      "slug": "cli-ve-ci",
+      "link_text": "CLI ve CI",
+      "title": "CI’da tarih testi - çıkış kodları ve JSON çıktısı",
+      "description": "Çalışma zamanı gerektirmeyen 1,6 MB’lık bir komut satırı derlemesi. Çıkış kodu hedefin değil kapsama kararıdır: değişiklik tutmadıysa pipeline başarısız olur."
     }
   }
 }

@@ -66,6 +66,12 @@
       "link_text": "Kalkulačka",
       "title": "Kalkulačka dat pro QA - pracovní dny a hraniční případy",
       "description": "Zjistěte, které datum testovat: konec měsíce, čtvrtletní uzávěrka, N pracovních dnů se skutečnými svátky, hranice roku 2038. Všechny formáty najednou a co každé datum testuje."
+    },
+    "tr": {
+      "slug": "tarih-hesaplayici",
+      "link_text": "Hesap makinesi",
+      "title": "QA için tarih hesaplayıcı - iş günleri ve sınır durumlar",
+      "description": "Hangi tarihi test edeceğinizi bulun: ay sonu, çeyrek kapanışı, gerçek tatillerle N iş günü, 2038 sınırı. Tüm biçimler bir arada ve her tarihin neyi test ettiği."
     }
   }
 }

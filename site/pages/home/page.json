@@ -69,6 +69,12 @@
       "link_text": "Úvod",
       "title": "Chrono Mock - spusťte aplikaci pro Windows v jiném datu",
       "description": "Bezplatný open source nástroj pro Windows. Spusťte aplikaci v libovolném datu, zastavte nebo zrychlete její hodiny a nesahejte na systémový čas. Řekne vám, jestli to zabralo."
+    },
+    "tr": {
+      "slug": "",
+      "link_text": "Ana sayfa",
+      "title": "Chrono Mock - Windows uygulamasını farklı bir tarihte çalıştırın",
+      "description": "Ücretsiz, açık kaynak Windows aracı. Bir uygulamayı istediğiniz tarihte çalıştırın, saatini durdurun ya da hızlandırın; sistem saatine dokunmayın. İşe yarayıp yaramadığını söyler."
     }
   }
 }

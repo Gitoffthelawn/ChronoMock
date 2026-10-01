@@ -66,6 +66,12 @@
       "link_text": "Data k testování",
       "title": "Data k testování - konec měsíce, 29. únor, rok 2038",
       "description": "Data, na kterých se software rozbíjí: hranice období, přestupný den, nulová epocha, 32bitová hranice, okraje zkušebních dob a odchylka hodin. {{preset_count}} z nich je v balení jako pojmenované scénáře."
+    },
+    "tr": {
+      "slug": "tarih-test-senaryolari",
+      "link_text": "Test edilecek tarihler",
+      "title": "Test edilecek tarihler - ay sonu, 29 Şubat, 2038",
+      "description": "Yazılımı bozan tarihler: dönem sınırları, artık gün, epoch sıfır, 32 bit sınırı, deneme süresi kenarları ve saat sapması. {{preset_count}} tanesi adlandırılmış senaryolar olarak gelir."
     }
   }
 }

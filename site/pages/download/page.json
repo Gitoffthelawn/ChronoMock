@@ -66,6 +66,12 @@
       "link_text": "Stažení",
       "title": "Stáhnout Chrono Mock pro Windows - zdarma, bez instalace",
       "description": "Stáhněte si bezplatnou verzi pro Windows: desktopovou aplikaci a nástroj pro příkazový řádek. Bez instalátoru, bez práv správce a bez zásahu do registru."
+    },
+    "tr": {
+      "slug": "indir",
+      "link_text": "İndir",
+      "title": "Chrono Mock’u Windows için indirin - ücretsiz, kurulumsuz",
+      "description": "Ücretsiz Windows sürümünü indirin: bir masaüstü uygulaması ve bir komut satırı aracı. Yükleyici yok, yönetici hakkı yok ve kayıt defterinde hiçbir şey yok."
     }
   }
 }

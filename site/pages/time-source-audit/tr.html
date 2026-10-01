@@ -1,0 +1,182 @@
+<!-- Zaman kaynağı denetimi, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>İşe yaradığını nereden bileceksiniz?</h1>
+    <p class="sub">
+      Bu türden başka her araçta bilemezsiniz. Uygulama açılır, bir tarih gösterir ve siz varsayarsınız.
+      Oysa saati hiçbir şeyin yakalamadığı bir yoldan okuyabilir - ve o zaman
+      <em>“test geçti”</em> hiçbir şey ifade etmez.
+    </p>
+  </section>
+
+  <section>
+    <h2>Belirtisi olmayan başarısızlık</h2>
+    <div class="prose">
+      <p>
+        Bir kanalı kaçıran bir zaman kaydırma aracı çökmez ve uyarmaz. Uygulama gerçek tarihi, kimsenin
+        yakalamadığı tek işlev üzerinden okur ve sıradan herhangi bir öğleden sonra nasıl davranacaksa
+        öyle davranır. Test yeşile döner. Hata yayına çıkar.
+      </p>
+      <p>
+        RunAsDate bu konuda kendi belgelerinde dürüsttür - geçerli tarih/saati
+        <strong>“başka bir kaynaktan alan uygulamaları etkilemeyeceğini”</strong> söyler - ve sonra
+        sizinkinin bunlardan biri olup olmadığını kendiniz bulmanıza bırakır. Bu araç aynı cümleyi ölçülecek
+        bir şey olarak ele alır.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bir oturum gerçekte ne bildirir</h2>
+    <div class="prose">
+      <p>
+        Gerçek çıktı; aracın bu projenin kendi test problarından birine karşı çalıştırılmasından -
+        bilerek bir ağ bağlantısı açan bir prob:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Son iki blok asıl noktadır. Burada hiçbir şey başarısız olmadı - karar <strong>çalışıyor</strong> -
+        ve rapor yine de, sorulmadan, bu uygulamanın işini bitirmeden önce ağla konuştuğunu, dolayısıyla
+        yerel bir hook’un hikâyenin tamamı olmayabileceğini söylüyor. O cümle, güvenebileceğiniz bir test
+        ile güvenemeyeceğiniz bir test arasındaki farktır.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock sonuç ekranı, What the application read açık: Function, Read from ve Reads sütunlu bir tablo. NtCreateUserProcess tasarım gereği gerçek saatten okunan olarak, connect ise tasarım gereği gerçek saatten okunan ve geç yakalanan olarak işaretli; kalan satırlar - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation ve diğerleri - sahte saatten okuyor, her birinin kendi sayısıyla. Tablonun altında iki uyarı var.">
+      <figcaption>Aynı cevap pencerede. Uygulamanın sorabileceği her işlev, gerçekte neyden okuduğu ve
+        kaç kez - bilerek gerçek saatte bırakılanlar dahil; onlar adlarıyla belirtilir, sessizce başarı
+        olarak sayılmaz.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Dört karar ve her biri için bir çıkış kodu</h2>
+    <div class="prose">
+      <p>
+        Karar, siz çalışmaya başlamadan önce, çalışan sürecin içinden verilir ve aracın kendi çıkış kodudur;
+        böylece bir pipeline buna göre dallanabilir.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Karar</th><th>Çıkış</th><th>Anlamı</th></tr></thead>
+        <tbody>
+          <tr><td class="y">çalışıyor</td><td>0</td><td>zamanı okuyan her süreç oturum saatini gördü</td></tr>
+          <tr><td>kısmen çalışıyor</td><td>10</td><td>bazı kanallar kapsandı, bazıları kapsanmadı - kapsanmayanlar listelenir</td></tr>
+          <tr><td class="n">çalışmıyor</td><td>11</td><td>değişiklik kilit kanallara ulaşmadı</td></tr>
+          <tr><td>belirsiz</td><td>4</td><td>kapsama belirlenemedi - dürüst bir “bilmiyorum”</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Karar “çalışmıyor” olduğunda süreç hemen durdurulur</strong>; siz onunla
+        etkileşime girmeden önce. Karar başlatmadan önce gelemez, çünkü tek gerçek kaynağı çalışan sürecin
+        içinden alınan bir okumadır. Garanti edilen, çalışmaya başlamadan önce gerçeği öğrenmenizdir -
+        mahkûm bir başlatmanın hiç olmayacağı değil. Geçersiz kılıp devam edebilirsiniz ve oturum, dışa
+        aktardığınız her kanıt dahil göründüğü her yerde güvenilmez olarak işaretlenir.
+      </p>
+      <p>
+        Hiç karar olmayan şeyler için üç kod daha var: kullanım hatası için <code>1</code>, hedef
+        başlatılamadığında ya da içine enjekte edilemediğinde <code>2</code> ve hedef, tek örnekli bir
+        uygulamanın zaten çalışan bir kopyaya devrettiğini düşündüren bir şekilde ortadan kaybolduğunda
+        <code>12</code>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kapsanan, gözlemlenen, kapsanmayan</h2>
+    <div class="prose">
+      <p>Kanallar üç kovaya ayrılır ve ortadaki ilginç olanıdır.</p>
+      <ul>
+        <li><strong>Kapsanan</strong> - yakalanmış ve değiştirilmiş. Uygulama sordu ve oturum saatini aldı.
+          Çağrı sayısı kaç kez olduğunu söyler.</li>
+        <li><strong>Gözlemlenen</strong> - yakalanmış, sayılmış ve bilerek doğruyu söylemeye bırakılmış.
+          Yüksek çözünürlüklü sayaç, onu ölçeklemek render’ı kararsızlaştırdığı için varsayılan olarak
+          burada. Çok ortamlı zamanlayıcılar, ölçeklemenin ses ve MIDI zamanlamasını kaydıracağı için
+          burada. Ağ bağlantıları ve bir süreç oluşturma yolu, saat değil kanıt oldukları için burada.</li>
+        <li><strong>Kapsanmayan</strong> - uygulamanın okuduğu ve değişikliğin ulaşmadığı bir kanal. Bir
+          kararı <em>kısmen çalışıyor</em> yapan budur ve özetlenip geçilmek yerine adıyla listelenir.</li>
+      </ul>
+      <p>
+        Sıfır sayısı da bir bilgidir: kanal yakalandı ve uygulama hiç sormadı. Bu yüzden rapor onları
+        saklamak yerine listeler.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Denetimin göremediği şeyler</h2>
+    <div class="prose">
+      <p>
+        Rapor kapsama konusunda dürüsttür; bu da kendi sınırları konusunda dürüst olmak demektir. Bunlar
+        yakalanacak bir işlev çağrısı olmadan ya da tümüyle süreç dışında okunur:
+      </p>
+      <ul>
+        <li>paylaşılan kullanıcı modu veri sayfasının doğrudan okunması - değer bellekte durur, yani
+          yakalanacak bir şey yoktur. Sıradan uygulamalarda nadir, lisanslama ve kurcalama karşıtı kodda
+          yaygın</li>
+        <li>standart dışa aktarımları atlayan doğrudan sistem çağrıları - aynı örüntü</li>
+        <li>süreç dışında, WMI, süreç dışı bir COM sunucusu ya da RPC ile elde edilen zaman</li>
+        <li>ağdan gelen zaman - bir HTTP <code>Date</code> başlığı, NTP, bir API yanıtı ya da bir
+          veritabanı sunucusunun kendi saati</li>
+        <li>çekirdek sürücülerinden gelen zaman</li>
+      </ul>
+      <p>
+        Ağ durumu, denetimin en azından <em>fark edebildiği</em> durumdur; yukarıdaki raporda uyarının
+        var olmasının nedeni budur. Geri kalanı için <em>çalışıyor</em> kararı, bu aracın görebildiği
+        kanalların kapsandığı anlamına gelir - başka hiçbir yolun var olmadığı anlamına değil.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bir pipeline’da</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> aynı bilgileri makine biçiminde verir, <code>--report</code> insan sürümünü bir
+        dosyaya yazar ve kararı <em>çalışıyor</em> dışında bir şey olan bir oturum, uyarıyı en alta gömmek
+        yerine dosyaya güvenilmez-kanıt başlığıyla başlar.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/runasdate-alternatifi/">RunAsDate ile karşılaştırma</a>
+    </div>
+  </section>
+
+</div>

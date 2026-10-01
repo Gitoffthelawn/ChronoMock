@@ -1,0 +1,159 @@
+<!-- Tarih hesaplayıcı, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Hangi tarihi test etmelisiniz?</h1>
+    <p class="sub">
+      Tarih testinin yarısı saati oynatmaktır. Diğer yarısı onu nereye oynatacağınızı bilmektir. Bir
+      çevrimiçi hesap makinesi bugünden doksan gün sonrasının ne olduğunu söyler. Cevabın bir resmî
+      tatil olduğunu ya da çeyreğin son günü olduğunu söylemez.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock hesap makinesi. Solda açıklamalarıyla birlikte aranabilir bir senaryo listesi iniyor, ortada tarih oluşturucu var ve sağdaki sonuç sütunu her biçimi, yanında bir kopyala düğmesiyle ve altında Use this date ile listeliyor. Oluşturucunun altında, yapıştırılan 04/08/2008 belirsiz olarak bildiriliyor; hem Amerikan hem Polonya okuması gösteriliyor.">
+      <figcaption>Oluşturucunun altında ters yön var: <code>04/08/2008</code> yapıştırılıyor ve
+        biri tahmin edilmek yerine her iki okuma da gösteriliyor.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Gerçek tatillerle iş günleri</h2>
+    <div class="prose">
+      <p>
+        “On iş günü sonrası” aritmetik değildir - hangi ülkenin takvimine göre saydığınıza bağlıdır.
+        Aynı başlangıç tarihi, aynı on gün, iki farklı cevap:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        Bir gün fark var ve aradaki tarihi sorarsanız hesap makinesi nedenini söyler:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        Amerika Birleşik Devletleri ve Polonya referans takvimleri olarak gelir; ikisi birlikte var olan
+        her kural türünü işletir: sabit tarihler, ayın n’inci belirli hafta günü (örneğin üçüncü Pazartesi), Paskalya’dan
+        hesaplanan tarihler ve Cumartesi’ye denk gelen bir tatilin önceki Cuma gözlemlendiği Amerikan
+        kuralı. Bir ülke eklemek bir veri dosyasıdır, kod değişikliği değil.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tüm biçimler bir arada</h2>
+    <div class="prose">
+      <p>
+        Test edilen uygulama tarihi beklediği biçimde ister. Sizi dönüştürmeye zorlamak yerine hesap
+        makinesi hepsini yazdırır - ve hiçbir standarda uymayanlar için özel bir maske sunar.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        O epoch değeri tesadüf değil - <code>2147483647</code>, işaretli 32 bitlik bir tam sayının
+        tutabileceği en büyük sayıdır; bu tarihin önemli olmasının bütün nedeni de budur.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bir tarihi geriye doğru okumak</h2>
+    <div class="prose">
+      <p>
+        Ters yön de aynı derecede yararlıdır: bir günlükten bir tarih yapıştırın ve ne olduğunu öğrenin.
+        Biçim belirsiz olduğunda - ve <code>04/08</code> dünyanın yarısında belirsizdir -
+        <strong>biri tahmin edilmek yerine her iki okuma da gösterilir</strong>, çünkü ilk hata raporu
+        tam da tahminden doğmuştu.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        Dört ay arayla ve farklı haftanın günlerinde. Bir ISO tarihi belirsiz değildir ve öyle okunur;
+        hiç tarih olmayan bir şey ise tahmin edilmek yerine reddedilir.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bir cümleden değil, adımlardan kurulur</h2>
+    <div class="prose">
+      <p>
+        Bir an, bir başlangıç noktası artı adımlardır ve ara sonuç her birinden sonra gösterilir; böylece
+        şaşırtıcı bir sonuç üreten bir ifade size nerede saptığını gösterir. Beş tür adım: bir birimle
+        kaydırma, günün saatini ayarlama, bir dönem sınırına atlama, en yakın iş gününe geçme ve başka bir
+        saat diliminde yeniden ifade etme.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Bir yıl dönmeden önceki son saniye</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Doksan iş günü sonrası, Amerikan bankacılık takviminde</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># On sekiz yıl ve bir gün geriye, bir yaş kontrolü için</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Hesaplanan herhangi bir tarih doğrudan bir değişiklik oturumuna girer ve
+        <code>--json</code> aynı sonucu makine biçiminde verir.
+        <a href="/tr/tarih-test-senaryolari/">Test etmeye değer tarihler &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/tarih-test-senaryolari/">Senaryolara bakın</a>
+      <a class="btn btn-ghost" href="/tr/cli-basvuru/">Hesap makinesinin tüm bayrakları</a>
+    </div>
+  </section>
+
+</div>

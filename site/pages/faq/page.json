@@ -68,6 +68,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - otázky o falešném datu ve Windows",
       "description": "Mění systémové hodiny? Jsou potřeba práva správce? Funguje s mou aplikací, s .NET, Javou nebo Electronem? Krátké odpovědi, i o tom, co nedělá."
+    },
+    "tr": {
+      "slug": "sss",
+      "link_text": "SSS",
+      "title": "Chrono Mock SSS - Windows’ta sahte tarih hakkında sorular",
+      "description": "Sistem saatini değiştiriyor mu? Yönetici hakkı gerekir mi? Uygulamamla, .NET, Java ya da Electron ile çalışır mı? Yapmadıkları dahil kısa cevaplar."
     }
   }
 }

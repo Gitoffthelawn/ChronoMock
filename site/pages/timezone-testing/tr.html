@@ -1,0 +1,113 @@
+<!-- Saat dilimleri, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Bir uygulamayı başka bir saat diliminde çalıştırın</h1>
+    <p class="sub">
+      Yanlış güne düşen rapor, bir saat erken çalan hatırlatma, yarın gibi okunan zaman damgası - çoğu
+      yalnızca oturmadığınız bir saat diliminde ortaya çıkar. Bu, tek bir sürece kendi kaymasını verir; sistem
+      diliminiz ise tam olarak olduğu yerde kalır.
+    </p>
+  </section>
+
+  <section>
+    <h2>Olağan cevaplar neden işe yaramaz</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows saat dilimini değiştirmek</strong> onu her şey için değiştirir - takviminiz,
+          günlükleriniz, toplantılarınız - ve yönetilen bir makinede değiştirmek size ait olmayabilir.</li>
+        <li><strong><code>TZ</code> ayarlamak</strong> bazı çalışma zamanları için işe yarar, bazıları için
+          yaramaz. <code>GetTimeZoneInformation</code> okuyan yerel bir Windows uygulaması bunu hiç
+          fark etmez.</li>
+        <li><strong>Tarayıcı geliştirici araçları</strong> bir web sayfası için dilimi geçersiz kılar; bu
+          mükemmeldir ve bir masaüstü uygulaması için ilgisizdir.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bir süreç, bir kayma</h2>
+    <div class="prose">
+      <p>
+        Oturum kendi kaymasını taşır. Uygulama Windows’a hangi dilimde olduğunu sorar ve o cevabı alır;
+        makinedeki diğer her program ise gerçeğini alır.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aynı an, Amerika batı kıyısından görüldüğü gibi</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Yalnızca dilim - bugünün gerçek tarihi, başkasının saati</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        Hesap makinesi sorunun diğer yarısını yanıtlar - belirli bir anın başka bir yerde gerçekte nasıl
+        okunduğunu. Dönüştürme anı korur ve yalnızca duvar saatini değiştirir; bir tarihin yanlış güne
+        düşmesinin yolu tam olarak budur:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Orta Avrupa’da sabah dokuz, Amerika batı kıyısında <strong>gece yarısıdır</strong>. Aynı an ve yerel
+        tarihe göre gruplayan günlük bir rapor, nerede çalıştığına bağlı olarak onu farklı bir güne koyar.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dürüst sınırlar ve burada önem taşırlar</h2>
+
+    <div class="note warning">
+      <p><strong>Oturum dilimi, yaz saati uygulaması olmayan sabit bir kaymadır.</strong></p>
+      <p>
+        <code>+01:00</code>’a ayarlanmış bir oturum, saati Ocak’ı da gösterse Temmuz’u da gösterse
+        <code>+01:00</code>’da kalır. Gerçek bir geçişi aşan bir çalıştırma bu yüzden o dilimin gerçekte
+        göstereceği saatten bir saat sapar ve bir uygulamayı yaz saati geçişinden geçirmeye zorlamak bu
+        aracın henüz yaptığı bir şey değildir. Tarih hesaplayıcı tahmin etmek yerine bunu söyler.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>Dilim kendini “Chrono Session” olarak bildirir</strong>, hiçbir Windows kayıt defterinin
+          bilmediği bir ad. Bu adı bir dilime geri eşleyen her şey - .NET’in
+          <code>TimeZoneInfo.Local</code>’ı dahil - bunun yerine kaymaya döner; bu doğru cevaptır. Bir
+          kayıt defteri adında ısrar eden bir uygulama onu bulamaz.</li>
+        <li><strong>Java oturum dilimini bir kayma olarak alır.</strong> Oturum diliminin yaz saati
+          uygulaması ve arkasında bir şehir yoktur; bu yüzden Java ona kaymasından bir ad verir -
+          +05:30’daki bir oturum için <code>GMT+05:30</code>.</li>
+        <li><strong>Chromium ve Electron kipinde dilim ana makineyi izler.</strong> An sahtelenir, yerel
+          saat getter’ları sahtelenmez.</li>
+        <li><strong>Kaymalar -14:00 ile +14:00 arasındadır</strong>, tam dakikalar halinde. Bunun dışındaki
+          her şey sessizce sarılmak yerine reddedilir.</li>
+      </ul>
+      <p>
+        Bunlardan hangisinin uygulamanız için geçerli olduğu tahmin edilemez, ölçülebilir.
+        <a href="/tr/zaman-kaynagi-denetimi/">Oturum kendi kapsamasını bildirir &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/sss/">SSS’yi okuyun</a>
+    </div>
+  </section>
+
+</div>

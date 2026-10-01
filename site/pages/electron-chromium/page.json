@@ -68,6 +68,12 @@
       "link_text": "Electron a Chromium",
       "title": "Falšování data v aplikaci Electron nebo Chromium",
       "description": "Jejich hodiny žijí v izolovaném rendereru, kam injektáž nedosáhne. Jiný mechanismus přepne časová API JavaScriptu aplikace na hodiny sezení, včetně workerů."
+    },
+    "tr": {
+      "slug": "electron-chromium",
+      "link_text": "Electron ve Chromium",
+      "title": "Bir Electron ya da Chromium uygulamasında tarihi sahtelemek",
+      "description": "Saatleri enjeksiyonun ulaşmadığı yalıtılmış bir renderer’da yaşar. Farklı bir mekanizma, uygulamanın JavaScript zaman API’lerini Worker’lar dahil oturum saatine alır."
     }
   }
 }

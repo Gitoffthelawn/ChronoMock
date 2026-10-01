@@ -68,6 +68,12 @@
       "link_text": "WebView2 a Qt WebEngine",
       "title": "Falšování data pro webové stránky v nativní aplikaci",
       "description": "Nativní aplikace s vestavěným webovým enginem spouští své stránky v procesu, do kterého injektáž nevstoupí, takže si drží skutečné datum. Sezení se k nim dostane přes ladicí port enginu."
+    },
+    "tr": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 ve Qt WebEngine",
+      "title": "Yerel bir uygulamadaki web sayfaları için tarihi sahtelemek",
+      "description": "Yerleşik web motoru olan yerel bir uygulama, sayfalarını enjeksiyonun giremediği bir süreçte çalıştırır; bu yüzden gerçek tarihi korurlar. Oturum onlara motorun hata ayıklama portundan ulaşır."
     }
   }
 }

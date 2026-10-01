@@ -1,0 +1,141 @@
+<!-- RunAsDate ile karşılaştırma, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Eksik olan kısımlarıyla bir RunAsDate alternatifi</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a>, yıllardır
+      <em>“Windows’ta bu programı farklı bir tarihte çalıştır”</em> sorusunun cevabı oldu ve iyi bir
+      cevap. Bu sayfa ikisinin nerede ayrıldığı ve RunAsDate’in hâlâ daha iyi seçim olduğu yerler
+      hakkında.
+    </p>
+  </section>
+
+  <section>
+    <h2>Yan yana</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Bir uygulamayı sahte bir tarihte çalıştırır</td><td class="y">evet</td><td class="y">evet</td></tr>
+          <tr><td>Sistem saatine dokunmaz</td><td class="y">evet</td><td class="y">evet</td></tr>
+          <tr><td>Yakalanan zaman işlevleri</td><td class="n">5</td><td class="y">{{channel_count}} kanal</td></tr>
+          <tr><td>Gerçek zamandan hızlı saat</td><td class="n">sunulmuyor</td><td class="y">herhangi bir tam sayı çarpan</td></tr>
+          <tr><td>Saati dondurma</td><td class="n">sunulmuyor</td><td class="y">evet</td></tr>
+          <tr><td>Uygulama çalışırken atlama</td><td class="n">sunulmuyor</td><td class="y">ileri ve geri</td></tr>
+          <tr><td>Yalnızca o süreç için saat dilimi</td><td class="n">belgelenmemiş</td><td class="y">evet, sabit kayma</td></tr>
+          <tr><td>Alt süreçler oturumu devralır</td><td class="n">belgelenmemiş</td><td class="y">evet</td></tr>
+          <tr><td>İşe yarayıp yaramadığını söyler</td><td class="n">hayır</td><td class="y">karar, kanal kanal, çağrı sayılarıyla</td></tr>
+          <tr><td>Electron ve Chromium uygulamaları</td><td class="n">sunulmuyor</td><td class="y">ayrı mekanizma</td></tr>
+          <tr><td>CI için komut satırı</td><td class="y">evet</td><td class="y">evet, çıkış kodları ve JSON ile</td></tr>
+          <tr><td>Kaynak kodu</td><td class="n">freeware, kapalı</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Boyut</td><td class="y">40 KB’ın altında</td><td class="n">1,6 MB CLI, pencereyle 69 MB</td></tr>
+          <tr><td>Eski Windows sürümleri</td><td class="y">Windows 2000’e kadar</td><td class="n">Windows 10 ve 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>“Belgelenmemiş”</em>, özelliğin RunAsDate sayfasında anılmadığı anlamına gelir.
+      Aracın buna sahip olmadığı iddiası değildir.
+    </p>
+  </section>
+
+  <section>
+    <h2>En çok önem taşıyan fark</h2>
+    <div class="prose">
+      <p>
+        Kanal sayısı değil. RunAsDate’in kendi belgelerinde size dürüstçe,
+        <strong>“geçerli tarih/saati başka bir kaynaktan alan uygulamaları etkilemeyeceğini”</strong>
+        söylemesi - ve sonra sizinkinin bunlardan biri olup olmadığını kendiniz bulmanıza bırakması.
+      </p>
+      <p>
+        Chrono Mock aynı cümleyi <strong>ölçülecek</strong> bir şey olarak ele alır. Her oturum bir
+        kararla, uygulamanın gerçekten okuduğu kanalların her biri için bir sayıyla, kaçırılan kanallarla
+        ve uygulamanın saati hiç sormadan önce bir ağ bağlantısı açarken görüldüğünde bir uyarıyla biter.
+      </p>
+      <p>
+        Zamanı kaymış gibi görünen ama kaymamış bir uygulama, hiç başlamamış olandan daha kötüdür - hiçbir
+        şey ifade etmeyen, geçen bir test üretir.
+        <a href="/tr/zaman-kaynagi-denetimi/">Denetim nasıl çalışır &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Beş işlev ya da {{channel_count}} kanal</h2>
+    <div class="prose">
+      <p>
+        RunAsDate <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code> ve
+        <code>GetSystemTimePreciseAsFileTime</code>’ı yakalar. Çok sayıda uygulama için bu gerçekten
+        yeterlidir, çünkü duvar saati orada okunur.
+      </p>
+      <p>
+        Yüzeyin geri kalanı, tarihe bağlı kodun saklanma eğiliminde olduğu yerdir:
+      </p>
+      <ul>
+        <li><strong>saat dilimi</strong> - dört işlev, artı dilimler arası dönüşümü yapan bütün aile;
+          bir raporun yanlış güne düşmesinin yolu budur</li>
+        <li><strong>geçen zaman ekseni</strong> - tick sayıları ve yanlılıksız kesinti zamanı; bir deneme
+          geri sayımının genellikle ölçtüğü şey</li>
+        <li><strong>uykular ve beklemeler</strong>; böylece bir gecikme gerçek saatte değil oturum
+          saatinde bir gecikme olur</li>
+        <li><strong>zamanlayıcılar</strong> - waitable, pencere, thread-pool ve çok ortamlı</li>
+        <li><strong>süreç oluşturma</strong>; böylece bir yükleyicinin alt süreçleri bugünde değil aynı
+          oturumda çalışır</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>RunAsDate’in daha iyi seçim olduğu durumlar</h2>
+    <div class="prose">
+      <p>Gerçekten, ve nadiren değil:</p>
+      <ul>
+        <li><strong>Normal hızda, hemen şimdi tek bir tarihe ihtiyacınız var.</strong> RunAsDate 40 KB’ın
+          altındadır, öğrenilecek bir penceresi yoktur ve tam olarak bunu uzun yıllardır yapıyor.</li>
+        <li><strong>Eski bir Windows’tasınız.</strong> RunAsDate Windows 2000’e kadar gider. Bu araç Windows
+          10 ve 11’i hedefler ve daha eskisinde test edilmemiştir.</li>
+        <li><strong>Boyut önemli.</strong> Komut satırı için 40 KB’a karşı 1,6 MB ya da pencereyle 69 MB,
+          yakın bir karşılaştırma değil.</li>
+        <li><strong>Karar istemiyorsunuz.</strong> Kapsamayı ölçmek sonucu okumak demektir. Test tek
+          kullanımlıksa, bu istemediğiniz bir yüktür.</li>
+      </ul>
+      <p>
+        İkisi bir arada da var olabilir. Burada hiçbir şey hızlı durum için RunAsDate’i tutmanızı
+        engellemez.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>İkisinin de amacı olmayan şey</h2>
+    <div class="prose">
+      <p>
+        Her iki araç da deneme sürelerini uzatmakla ilgili aramalarda çıkar. <strong>Bu araç bunun için
+        yapılmadı</strong> ve buradaki hiçbir örnek, senaryo ya da sayfa bunu asla göstermeyecek. Chrono Mock,
+        sorumlu olduğunuz yazılımı test etmek içindir - kendi lisans süresi dolumunuz, kendi yenileme
+        mantığınız, kendi ay sonu raporunuz.
+      </p>
+      <p>
+        Bu aynı zamanda çalışma ihtimalinin en düşük olduğu durumdur. Lisans koruması rutin olarak zamanı
+        yakalaması zor olacak şekilde seçilmiş yollardan okur - paylaşılan kullanıcı modu veri sayfası,
+        doğrudan sistem çağrıları, bir sunucu - ve geriye giden bir saat, bu tür kodun tespit etmek üzere
+        yazıldığı bir durumdur. Denetim size çalışmadığını söyleyecektir; bu dürüst cevaptır, yararlı olan
+        değil.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/sss/">Önce SSS’yi okuyun</a>
+    </div>
+  </section>
+
+</div>

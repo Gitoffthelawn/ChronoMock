@@ -1,0 +1,144 @@
+<!-- Test etmeye değer tarihler, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Test etmeye değer tarihler</h1>
+    <p class="sub">
+      Yazılım sıradan bir Salı günü bozulmaz. Çeyreğin son gününde, 29 Şubat’ta, bir yılın döndüğü anda
+      ve bir lisansın bitmesinden bir saniye sonra bozulur. Bu hataları bulan tarihler bunlar -
+      <strong>{{preset_count}}</strong> tanesi adlandırılmış senaryolar olarak gelir.
+    </p>
+  </section>
+
+  <section>
+    <h2>Dönem sınırları</h2>
+    <div class="prose">
+      <p>
+        Bir dönemi kapatan, bir belgeyi yıla göre numaralandıran ya da bir kesim tarihine kadar tahakkuk
+        eden her şey bunlarda ilk önce yanlış yapar.
+      </p>
+      <ul>
+        <li><strong>Ayın son günü</strong> - ay sonu kapanışı ve dönem tahakkuku ayın son gününde doğru
+          çalışıyor mu?</li>
+        <li><strong>Çeyreğin son günü</strong> - çeyrek sonu kapanışı ve raporlaması çeyreğin son gününde
+          doğru çalışıyor mu?</li>
+        <li><strong>Mali yılın son günü</strong> - uygulama mali yılı doğru günde, mali yılın başlamasından
+          önceki günde kapatıyor mu?</li>
+        <li><strong>Canlı yıl dönümü</strong> - belge numaralandırması, addaki yıl ve yıllık raporlama,
+          yıl dönümünü sonradan yeniden başlatılmak yerine <em>olurken</em> doğru ele alıyor mu?</li>
+      </ul>
+      <p>
+        Sonuncusu insanların çoğunlukla hiç test edemediği olandır; çünkü uygulama çalışırken saatin 31
+        Aralık gece yarısını geçmesini gerektirir. Hızlandırılmış bir saatle bu on saniyelik bir iştir.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Takvim ve gösterim sınırları</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29 Şubat</strong> - yalnızca dört yılda bir var olan artık gün; şaşırtıcı miktarda
+          doğrulama kodu onu doğrudan reddeder.</li>
+        <li><strong>Unix epoch sıfır</strong> - uygulama 1 Ocak 1970’i gerçek bir tarih olarak mı, yoksa
+          saklamayı reddetmesi gereken boş bir değer olarak mı ele alıyor?</li>
+        <li><strong>2038 sınırı</strong> - işaretli 32 bitlik bir <code>time_t</code>’nin tükendiği an,
+          <code>2038-01-19T03:14:07Z</code>’de. Bir saniye sonra sayaç taşar ve 1901’e düşer.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lisanslar, denemeler ve kurulum</h2>
+    <div class="prose">
+      <p>
+        Bunlar <em>kendi</em> lisanslamanızı test etmek içindir; yazıldıkları durum da budur.
+      </p>
+      <ul>
+        <li><strong>Denemenin son günü</strong> - uygulama denemenin tam son anında hâlâ çalışıyor mu?</li>
+        <li><strong>Deneme bitişinden sonraki ilk gün</strong> - deneme biter bitmez erişimi reddediyor
+          mu ve nasıl? Anlamlı bir mesajla mı, yoksa bir yığın izi ile mi?</li>
+        <li><strong>Lisansı bir yıl önce dolmuş</strong> - yalnızca dün değil, çoktan dolmuş bir lisansı
+          ele alıyor mu?</li>
+        <li><strong>Kurulumdan önceki tarih</strong> - saat kendi kurulum tarihinden önceye ayarlandığında
+          doğru davranıyor mu? Bu, hedefin kendi dosya tarihini okur; bu yüzden parametre gerektirmez.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>İş kuralları ve saat davranışı</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Vadesi gelen ödeme, +N iş günü</strong> - N iş günü sonrası vadeli bir ödeme, hafta
+          sonlarını ve doğru ülkenin tatillerini atlayarak doğru güne düşüyor mu? Takvim gerektiren tek
+          senaryo ve cevap pazarlar arasında değişir.</li>
+        <li><strong>Reşit olma sınırı</strong> - uygulama tam sınırdaki birini kabul ediyor, bir gün
+          eksik olanı reddediyor mu?</li>
+        <li><strong>Saat sapması, +90 s</strong> - saati gerçek zamandan doksan saniye ileri giden bir
+          uygulama başa çıkabiliyor mu? Zamana dayalı tek kullanımlık parolaları ve belirteç doğrulamasını
+          bozan durum budur.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Birini kullanmak</h2>
+    <div class="prose">
+      <p>
+        Bir senaryo, adlandırılmış bir tarih ifadesidir. Hesap makinesi ne anlama geldiğini hesaplar,
+        değişiklik de bir uygulamayı o tarihte çalıştırır - iki yerde de aynı ad.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Tarih ne ve bu tarih neyi test ediyor?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Bir uygulamayı o tarihte çalıştırın</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Deneme senaryoları başlangıç tarihini hedefin kendi dosya tarihinden alır</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        Pencerede bunlar tarih alanının üzerinde çiplerdir - bir tıklama onu doldurur. Her biri neyi
+        yakaladığını söyleyen kendi cümlesini taşır; çevrimiçi bir tarih hesaplayıcının size veremeyeceği
+        kısım budur.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock kurulum ekranı, Scenarios bölümü açık: listenin üzerinde bir arama alanı, ardından yanıtladığı soruyla birlikte her hazır tarih - 2038 sınırı, 29 Şubat, doksan saniye ileri giden bir saat, ayın son günü - ve listenin altında, üç tanesinin sizin seçeceğiniz bir değere ihtiyaç duyduğunu söyleyen bir satır. Alt çubuk, Start düğmesinin üzerinde anı sade bir dille geri okuyor.">
+      <figcaption>Her senaryo yalnızca bir tarih değil, yanıtladığı soruyu da taşır. Sizin seçeceğiniz bir
+        değere ihtiyaç duyan üç tanesi gizlenmek yerine listenin altında adlarıyla belirtilir.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Burada olmayanlar</h2>
+    <div class="prose">
+      <p>
+        <strong>Yaz saati uygulaması geçişleri.</strong> Bir uygulamayı ileri ya da geri saat geçişinden
+        geçirmek gerçekten yararlı bir testtir ve <em>bilerek yoktur</em>; çünkü oturum saat dilimi, yaz
+        saati uygulaması olmayan sabit bir kaymadır - henüz simüle edilecek bir geçiş yok. Sessizce hiçbir
+        şey yapmayan bir senaryo sunmak, hiç sunmamaktan daha kötü olurdu.
+      </p>
+      <p>
+        Saat dilimi kurallarının bir modeliyle geri gelecek.
+        <a href="/tr/saat-dilimi-testi/">Saat diliminin ne yapıp ne yapmadığı &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/tarih-hesaplayici/">Hesap makinesi</a>
+    </div>
+  </section>
+
+</div>

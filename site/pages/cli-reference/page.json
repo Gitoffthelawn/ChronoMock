@@ -66,6 +66,12 @@
       "link_text": "Reference CLI",
       "title": "Reference CLI Chrono Mock - každý přepínač a návratový kód",
       "description": "Úplná reference pro chrono run a chrono calc: každý přepínač příkazového řádku, obě tabulky návratových kódů a jak číst zprávu o sezení."
+    },
+    "tr": {
+      "slug": "cli-basvuru",
+      "link_text": "CLI başvurusu",
+      "title": "Chrono Mock CLI başvurusu - her seçenek ve çıkış kodu",
+      "description": "chrono run ve chrono calc için tam başvuru: her komut satırı seçeneği, her iki çıkış kodu tablosu ve oturum raporunun nasıl okunacağı."
     }
   }
 }

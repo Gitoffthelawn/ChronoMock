@@ -1,0 +1,122 @@
+<!-- Electron ve Chromium, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Bir Electron uygulamasında tarihi sahtelemek</h1>
+    <p class="sub">
+      Bunu aratın ve her yanıt kendi kodunuzu değiştirmekle ilgili - <code>Date</code> nesnesini
+      mock’lamak, test çerçevenizin sahte zamanlayıcılarını kullanmak. Elinizde derlenmiş bir uygulama
+      olduğunda bunların hiçbiri işe yaramaz. Bu, zaten sahip olduğunuz uygulamayı çalıştırır.
+    </p>
+  </section>
+
+  <section>
+    <h2>Enjeksiyon ona neden ulaşmaz</h2>
+    <div class="prose">
+      <p>
+        Bu kip belirli bir başarısızlık yüzünden vardır. Electron üzerine kurulu bir Pomodoro zamanlayıcısı
+        <code>x60</code> oturumunda çalıştırıldı ve geri sayımı hiç ilerlemedi. Uygulamanın paketini
+        parçalara ayırmak iki bağımsız neden gösterdi ve hiçbirinin yerel tarafta bir çözümü yoktu:
+      </p>
+      <ul>
+        <li>Geri sayım bir saat okumuyordu. Bir Web Worker içinde çalışan, <strong><code>setInterval</code>
+          tarafından artırılan bir sayaçtı</strong>. Yakalanacak bir zaman çağrısı yoktu; çünkü uygulama
+          saatin kaç olduğunu hiç sormuyordu.</li>
+        <li>O worker, <strong>yalıtılmış bir renderer sürecinde</strong> yaşar; dışarıdan enjekte edilen
+          bir kitaplığın giremediği tam da o yer.</li>
+      </ul>
+      <p>
+        Dolayısıyla Windows tarafındaki mekanizma burada yardımcı olamaz ve çözüm, bunun yerine uygulamanın
+        kendi JavaScript motoruyla konuşmaktır.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bunun yerine ne olur</h2>
+    <div class="prose">
+      <p>
+        Uygulama bir hata ayıklama portu ve temiz, tek kullanımlık bir profille başlatılır ve kendi zaman
+        API’leri DevTools protokolü üzerinden oturum saatine alınır - <code>Date.now</code>,
+        <code>new Date()</code> oluşturucusu, <code>performance.now</code>, <code>setTimeout</code> ve
+        <code>setInterval</code>.
+      </p>
+      <p>
+        Geçersiz kılma, uygulamanın açtığı her bağlama, <strong>Web Worker’ları dahil</strong>, yüklenir -
+        zamanlayıcının genellikle yaşadığı ve yerel enjeksiyonun asla ulaşamayacağı tek yer burasıdır.
+      </p>
+      <p>
+        Onu nasıl yönettiğiniz hakkında hiçbir şey değişmez. Aynı komut, aynı pencere, iki saatin ve
+        kararın bulunduğu aynı oturum paneli.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Yerel bir uygulamayla aynı komut - kip otomatik algılanır</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Başlamadan önce bilmeye değer iki sınırlama</h2>
+
+    <div class="note warning">
+      <p><strong>Başlatma müdahaleci ve bunu bilerek yüksek sesle söylüyor.</strong></p>
+      <p>
+        Uygulama açık bir uzak hata ayıklama portu ve <code>%TEMP%</code> altında yeni, yalıtılmış bir
+        profille başlatılır - gerçek profilinizde çalışmaz ve sistem tepsinizde zaten bulunan kopya da
+        değildir. Profil oturum bittiğinde silinir ve silinememişse oturum özeti bunu sessizce geride
+        bırakmak yerine söyler.
+      </p>
+      <p>
+        Kendi <code>--user-data-dir</code> ya da <code>--remote-debugging-port</code> değerinizi iletmek
+        geçersiz kılınmak yerine reddedilir; çünkü bariz kaza - oturumu gerçek tarayıcı profilinize
+        yöneltmek - izin vermeye değmeyecek bir şeydir.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Oturum saat dilimi ana makineyi izler.</strong></p>
+      <p>
+        Bu kipte an sahtelenir ama yerel saat getter’ları sahtelenmez; bu yüzden
+        <a href="/tr/saat-dilimi-testi/">bağımsız bir saat dilimi</a> yalnızca yerel kipin bir özelliğidir.
+        Bu, bu sürümün bir sınırlamasıdır, bir karar değil.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        İnsanları şaşırtan bir şey daha: <em>zaten zamanlanmış</em> bir aralık, oturum ortasında hızı
+        değiştirdiğinizde eski hızını korur. <code>Date.now</code>, <code>new Date()</code> ve
+        <code>performance.now</code> hemen tepki verir, çalışan bir <code>setInterval</code> vermez ve
+        oturum, değişikliğin hiçbir şey yapmadığı sonucuna varmanıza izin vermek yerine bunu uyarır.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ne kadar iyi test edildi</h2>
+    <div class="prose">
+      <p>
+        <strong>Deneysel</strong>, ve bu sözcüğün burada tanımlı bir anlamı var: karşısında geliştirildiği
+        hedeflerde çalışır, geniş çapta test edilmemiştir ve yerleşik denetim, bu sayfa değil, sizin
+        gerçeğin kaynağınızdır. Otomatik paketle değil elle, 64 bit Windows üzerinde gerçek bir Electron
+        uygulamasına karşı doğrulandı.
+      </p>
+      <p>
+        Kapsama, süreç başına değil JavaScript bağlamı başına bildirilir; çünkü burada var olan birim
+        budur. Boşta duran ve saati hiç sormayan bir uygulama dürüstçe <em>belirsiz</em> üretir - saat
+        okumadı, dolayısıyla doğru olanı görüp görmeyeceği hakkında hiçbir şey iddia edilemez.
+        <a href="/tr/zaman-kaynagi-denetimi/">Kararlar ne anlama geliyor &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/sss/">SSS’yi okuyun</a>
+    </div>
+  </section>
+
+</div>

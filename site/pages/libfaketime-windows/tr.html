@@ -1,0 +1,132 @@
+<!-- Windows’ta libfaketime, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows için libfaketime</h1>
+    <p class="sub">
+      <strong>Kısa cevap:</strong> libfaketime Windows’ta çalışmaz ve çalışamaz - Windows’un sahip olmadığı
+      <code>LD_PRELOAD</code> üzerine kuruludur. Chrono Mock, aynı fikrin Windows’un izin verdiği şekilde
+      kurulmuş hâlidir.
+    </p>
+  </section>
+
+  <section>
+    <h2>Neden basitçe taşınamaz</h2>
+    <div class="prose">
+      <p>
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a>, dinamik yükleyicinin C
+        kitaplığının önüne küçük bir kitaplık yerleştirmesiyle çalışır; böylece bir programın
+        <code>time()</code> çağrıları önce yedeğe ulaşır. Bu kanca Linux’ta <code>LD_PRELOAD</code>,
+        macOS’ta <code>DYLD_INSERT_LIBRARIES</code>’dir. Kendi README’si tam olarak bu iki platformu
+        listeler.
+      </p>
+      <p>
+        Windows’un bir eşdeğeri yoktur ve saati zaten tek bir işlevin arkasında yaşamaz. Uygulamalar
+        zamanı Win32 API’si, onun altındaki yerel API ve çalışma zamanlarının ikisinin etrafına sardığı
+        her şey aracılığıyla okur - dolayısıyla bu fikrin Windows sürümü, tek bir sembol yerine bir dizi
+        dışa aktarılmış işlevi yönlendiren, hedef sürece enjekte edilmiş bir kitaplıktır.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bayraklar, karşılıklarıyla</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>burada varsayılan - aşağıya bakın</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>ayarlanacak bir şey yok - araç enjekte eder</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">Yani aynı testin iki tarafı şöyle görünür:</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>İkisinin gerçekten ayrıldığı yerler</h2>
+    <div class="prose">
+      <p>
+        <strong>Monoton saatler tersine çevrilmiştir.</strong> libfaketime bunları varsayılan olarak
+        sahtelenir ve durdurmak için <code>FAKETIME_DONT_FAKE_MONOTONIC</code> verir. Burada yüksek
+        çözünürlüklü sayaç varsayılan olarak gerçek kalır; çünkü onu ölçeklemek testlerde
+        render’ı kararsızlaştırdı ve <code>--scale-qpc</code> bunu etkinleştirir. Python 3.13+
+        <code>monotonic</code>, .NET <code>Stopwatch</code> ve Java <code>nanoTime</code>’ın oturum
+        saatini izlemesini sağlayan anahtar budur.
+      </p>
+      <p>
+        <strong>Windows’ta yakalanacak daha çok yer var.</strong> Duvar saatinin ötesinde saat dilimi,
+        geçen zaman ekseni, dört zamanlayıcı ailesi, uyku ve bekleme işlevleri ve süreç oluşturma var -
+        toplamda {{channel_count}} kanal.
+      </p>
+      <p>
+        <strong>Bu araç kendi kapsamasını bildirir.</strong> Her oturum bir kararla, uygulamanın gerçekten
+        okuduğu kanalların her biri için bir sayıyla ve kaçırılan kanallarla biter. Bu, iki platformda da
+        eşdeğeri olmayan kısımdır.
+      </p>
+      <p>
+        <strong>libfaketime daha eskidir ve kendi alanında daha geniştir.</strong> Arkasında yılların
+        kullanımı vardır, C kitaplığının geniş bir giriş noktası yelpazesini kapsar ve Linux’ta doğru
+        araçtır. Buradaki hiçbir şey onu orada değiştirmez.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Gerçekten libfaketime’ın kendisini istiyorsanız</h2>
+    <div class="prose">
+      <p>
+        İkisi de test edilen programı Linux’a taşıyan iki dürüst yol:
+      </p>
+      <ul>
+        <li><strong>WSL</strong> - libfaketime’ı Linux alt sistemi içinde derleyip çalıştırın. Test
+          edilen şey, Windows’ta geliştirdiğiniz bir Linux programıysa iyidir.</li>
+        <li><strong>Bir konteyner</strong> - aynı fikir, daha tekrarlanabilir.</li>
+      </ul>
+      <p>
+        İkisi de bir Windows uygulamasına yardımcı olmaz; bu aracın var olma nedeni tam da budur.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/sss/">SSS’yi okuyun</a>
+    </div>
+  </section>
+
+</div>

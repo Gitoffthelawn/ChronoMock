@@ -66,6 +66,12 @@
       "link_text": "Časová pásma",
       "title": "Spusťte aplikaci v jiném časovém pásmu, Windows zůstane",
       "description": "Dejte jednomu procesu vlastní posun časového pásma, zatímco systémové pásmo zůstane, kde bylo. Reprodukujte chybu, která se objeví jen u zákazníka o pět časových pásem dál."
+    },
+    "tr": {
+      "slug": "saat-dilimi-testi",
+      "link_text": "Saat dilimleri",
+      "title": "Bir uygulamayı başka bir saat diliminde çalıştırın",
+      "description": "Tek bir sürece kendi saat dilimi kaymasını verin; sistem dilimi olduğu yerde kalsın. Yalnızca beş saat dilimi ötedeki müşteride görülen hatayı yeniden üretin."
     }
   }
 }

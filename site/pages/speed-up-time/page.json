@@ -66,6 +66,12 @@
       "link_text": "Zrychlení času",
       "title": "Zrychlení času pro jednu aplikaci, ne systémové hodiny",
       "description": "Nechte hodiny jedné aplikace běžet až milionkrát rychleji: třicetidenní zkušební doba vyprší za půl hodiny. Bez práv správce, ostatní programy drží skutečný čas."
+    },
+    "tr": {
+      "slug": "zamani-hizlandirma",
+      "link_text": "Zamanı hızlandırma",
+      "title": "Sistem saatini değil, tek bir Windows uygulamasını hızlandırın",
+      "description": "Tek bir uygulamanın saatini bir milyon kata kadar hızlı akıtın: 30 günlük deneme yarım saatte dolar. Yönetici hakkı gerekmez ve diğer programlar gerçek zamanı korur."
     }
   }
 }

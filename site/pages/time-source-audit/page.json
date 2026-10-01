@@ -68,6 +68,12 @@
       "link_text": "Audit",
       "title": "Jak poznáte, že falešné datum aplikaci opravdu dosáhlo",
       "description": "Každé sezení končí verdiktem, skutečně čtenými časovými kanály s počtem volání, minutými kanály a varováními. Tiché selhání je jediný výsledek, který se nepřipouští."
+    },
+    "tr": {
+      "slug": "zaman-kaynagi-denetimi",
+      "link_text": "Denetim",
+      "title": "Sahte tarihin uygulamaya gerçekten ulaştığını nasıl anlarsınız",
+      "description": "Her oturum bir kararla, gerçekten okunan zaman kanallarıyla ve çağrı sayılarıyla, kaçırılanlarla ve uyarılarla biter. Sessiz başarısızlık, kabul edilmeyen tek sonuçtur."
     }
   }
 }

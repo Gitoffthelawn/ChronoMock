@@ -1,0 +1,26 @@
+{
+  "//": "Sitenin Türkçe metinleri - en.json ile aynı anahtarlar (eksik bir anahtar derlemeyi durdurur).",
+
+  "html_lang": "tr",
+  "dir": "ltr",
+  "og_locale": "tr_TR",
+
+  "social_image_alt": "Chrono Mock - bir Windows uygulamasını sistem saatini değiştirmeden istediğiniz tarih ve saatte çalıştırın",
+
+  "skip_to_content": "İçeriğe geç",
+  "nav_label": "Ana gezinme",
+
+  "language_name": "Türkçe",
+  "language_title": "Bu sayfa Türkçe",
+  "language_menu_label": "Dil",
+
+  "footer_nav_label": "Site haritası",
+  "footer_group_start": "Buradan başlayın",
+  "footer_group_tools": "Alternatifler ve çalışma zamanları",
+  "footer_group_features": "Ne yapar",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Hesap yok, telemetri yok ve internete hiç bağlanmaz.",
+  "footer_source": "GitHub’da kaynak kodu",
+  "footer_releases": "Sürümler",
+  "footer_license": "Lisans"
+}
