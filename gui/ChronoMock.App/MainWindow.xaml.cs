@@ -11,7 +11,8 @@ public partial class MainWindow : FluentWindow
     // scenario list turns a named preset into a date (7.1 pt 2). Same layout seam as everything else,
     // resolved in AppPaths.
     private readonly SessionViewModel _session = new(
-        FileSessionHistoryStore.ForApp(), FileDiagnosticsLog.ForApp(), AppPaths.CalcClient, AppPaths.PresetsDir);
+        FileSessionHistoryStore.ForApp(), FileDiagnosticsLog.ForApp(), AppPaths.CalcClient, AppPaths.PresetsDir,
+        ProcessElevation.IsElevated);
     private readonly CalculatorViewModel _calculator = CreateCalculator();
 
 

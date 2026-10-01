@@ -40,6 +40,26 @@ Notable changes to Chrono Mock, newest first. The format follows
   60 second timeout runs out after one real second, so a server slower than that makes the request
   fail. A session with timers sped up now says so whenever the application opened a network
   connection, right under the line saying that waits on system objects stay on the real clock.
+- **Reaching the web pages of an application that runs as administrator (`--elevated-embedded`, off
+  by default).** WebView2 ignores the setting the session reaches its engine through when the
+  application is elevated, so such pages stayed on the real clock. With this option, started from a
+  Chrono Mock that runs as administrator too, the session writes one WebView2 value under
+  `HKLM\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`, named after the
+  application's file, for the length of the session and removes it before the verdict. It is the one
+  thing in this tool that writes the registry, so the cost is spelled out beside the option: while the
+  application runs, any program on this computer can reach its pages through the debugging port, and
+  the application has administrator rights. A value of yours under the same name is never
+  overwritten, and a `*` value of yours is carried into the session's. A session that ends abruptly
+  leaves a value carrying the marker of its dead owner, which the next session reports and the next
+  one started with this option removes. The report names every step - removed, left behind,
+  recovered, leftover, foreign, not written - and puts a value that could not be removed first among
+  the warnings. The window has the option as a checkbox under "Reach the web pages inside the
+  application", greyed out with the reason unless the window runs as administrator. A script as the
+  target is not covered, and a launcher whose WebView2 application is another program is reported
+  with the name of the program to start. With or without the option, the session now follows the
+  process tree under an elevated application: the engine's processes are named among those that ran
+  on the real clock, so the verdict is as careful as for an ordinary application, and an engine port
+  you opened yourself in the registry is reached.
 
 ### Changed
 
@@ -118,7 +138,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   have run on the real clock. When the application's token is elevated it adds the reason, that Chrono
   Mock runs as administrator and so does the application. The same explanation now also covers an
   application whose engine was not reached for any other reason that no other line names. A session
-  started with `--no-embedded` is not affected, since it leaves the pages on the real clock by request.
+  started with `--no-embedded` gets the same explanation, without the advice about administrator
+  rights: the pages stay on the real clock by request, and the report no longer calls that `works`
+  for an application whose pages it knows about.
 - **An application the tool was still starting no longer stays behind, suspended, when the tool is
   stopped.** It is started suspended, the time library is put into it, and only then does it run. If
   the tool ended in that stretch - the window stopping it after two seconds without an answer, Ctrl+C,

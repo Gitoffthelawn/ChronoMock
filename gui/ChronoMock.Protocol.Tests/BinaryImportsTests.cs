@@ -182,15 +182,21 @@ public class BinaryImportsTests
         ),
         (
             "chrono.exe", "advapi32.dll",
-            "Three calls, and nothing else. RegGetValueW is one read-only registry question for the " +
+            "Eleven calls, and nothing else, in two groups. READING: RegGetValueW is a registry question for the " +
             "embedded-engine channel (docs/09 section 12.10): whether a WebView2 AdditionalBrowserArguments " +
             "policy value for the target is there, because the session's environment variable hides it for " +
             "the session and the tester is told so. OpenProcessToken and GetTokenInformation are one read-only " +
             "question about a process's token (docs/09 section 12.12): whether the application that loaded " +
             "WebView2 runs elevated, because WebView2 then ignores that very variable and the report has to " +
-            "say why its pages were not reached. The standard library stopped importing this module when it " +
-            "moved its random seed to bcryptprimitives, so it arrives here for these calls. Measured " +
-            "2026-09-30 with dumpbin: three imports by name, on both bitnesses"
+            "say why its pages were not reached. WRITING, the only writes this program makes to the registry " +
+            "(docs/09 section 12.19), all in crates/mech/src/policy_value.rs and all behind --elevated-embedded: " +
+            "RegCreateKeyExW, RegSetValueExW, RegDeleteValueW and RegDeleteKeyW put one WebView2 value under " +
+            "HKLM for an application that runs as administrator and take it away again (RegDeleteKeyW only for " +
+            "a key the session created and only when RegQueryInfoKeyW says it is empty), and RegOpenKeyExW, " +
+            "RegEnumValueW and RegCloseKey find the values a session that ended abruptly left behind. The " +
+            "standard library stopped importing this module when it moved its random seed to " +
+            "bcryptprimitives, so it arrives here for these calls. Measured 2026-10-01 with dumpbin: eleven " +
+            "imports by name, on both bitnesses"
         ),
 
         (
@@ -288,8 +294,9 @@ public class BinaryImportsTests
     }
 
     /// <summary>
-    /// The same pin for the module the registry and token calls live in: three read-only questions, and a
-    /// fourth function arriving under the same entry would be a different grant than the one written down.
+    /// The same pin for the module the registry and token calls live in: the three read-only questions
+    /// and the eight calls of the one value a session may write, and a twelfth function arriving under the
+    /// same entry would be a different grant than the one written down.
     /// </summary>
     [Fact]
     public void The_advapi32_module_is_imported_for_exactly_the_calls_the_register_allows()
@@ -299,7 +306,11 @@ public class BinaryImportsTests
             var table = PeImportTable.Read(RepoPaths.ReleaseBinary(RepoPaths.RepoRoot(), triple, "chrono.exe"));
             var entry = Assert.Single(table.Entries, e => SameModule(e.Name, "advapi32.dll"));
             Assert.Equal(
-                ["GetTokenInformation", "OpenProcessToken", "RegGetValueW"],
+                [
+                    "GetTokenInformation", "OpenProcessToken", "RegCloseKey", "RegCreateKeyExW", "RegDeleteKeyW",
+                    "RegDeleteValueW", "RegEnumValueW", "RegGetValueW", "RegOpenKeyExW", "RegQueryInfoKeyW",
+                    "RegSetValueExW",
+                ],
                 entry.Functions.Order(StringComparer.Ordinal));
         }
     }

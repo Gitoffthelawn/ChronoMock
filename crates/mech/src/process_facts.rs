@@ -116,6 +116,19 @@ fn classify(mut next: impl FnMut() -> Step, wanted: &str) -> ModuleProbe {
     }
 }
 
+/// The file name of the executable a running process was started from, or `None` when it cannot be
+/// asked. Said to a tester only as a comparison with the name the session put its registry value under,
+/// and never on its own.
+pub fn process_image_name(pid: u32) -> Option<String> {
+    // SAFETY: the handle is closed on every path out, and nothing is borrowed from the caller.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let name = crate::image_name_of(process);
+        let _ = CloseHandle(process);
+        name
+    }
+}
+
 /// Whether the token of the process `pid` is elevated, or `None` when it cannot be read (the process
 /// is gone, or does not grant the question). Only `Some(true)` is ever said to a tester as a fact: a
 /// token that could not be read is not a token that is not elevated.

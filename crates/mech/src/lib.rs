@@ -18,6 +18,7 @@ mod family;
 mod job;
 mod listeners;
 mod policy;
+mod policy_value;
 mod process_facts;
 mod stdio;
 mod tree;
@@ -28,9 +29,12 @@ pub use environment::{current_environment, encode_block, environment_block, merg
 pub use family::FamilyMember;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
-pub use process_facts::{process_elevated, process_has_module, ModuleProbe};
+pub use policy_value::{
+    recover_stale, set_for_session, stale_value_present, PolicyRemoval, PolicySet, PolicyValue, Recovery,
+};
+pub use process_facts::{process_elevated, process_has_module, process_image_name, ModuleProbe};
 pub use stdio::TargetStdio;
-pub use tree::family_of;
+pub use tree::{descendants_of, family_of};
 
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
@@ -202,6 +206,15 @@ pub struct UncoveredChild {
     pub parent_pid: u32,
     pub image: Option<String>,
     pub command_line: Option<String>,
+}
+
+/// A process nothing reported, named the way the hook's own unfollowed children are: its image and
+/// command line as they stand now, `None` for whatever a process that has gone will not say. The
+/// session names the processes of an elevated WebView2 host's engine this way, because the hook never
+/// saw them start (docs/09 section 12.19).
+pub fn name_unhooked(pid: u32, parent_pid: u32) -> UncoveredChild {
+    let (image, command_line) = describe_process(pid);
+    UncoveredChild { pid, parent_pid, image, command_line }
 }
 
 /// The file name of a running process's executable and its command line, or `(None, None)` when

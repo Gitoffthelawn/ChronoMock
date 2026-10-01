@@ -60,6 +60,12 @@ public sealed record SessionRecord
     /// engine (docs/09). A record from before this field existed reads as the default, on.</summary>
     [JsonPropertyName("embedded")] public bool Embedded { get; init; } = true;
 
+    /// <summary>Whether the session was asked to reach the pages of an application that runs as
+    /// administrator by writing one WebView2 value to the machine registry for its duration (docs/09
+    /// section 12.19). What was asked of the core, so a window that could not ask records off. A record from
+    /// before this field existed reads as off, which is what it did.</summary>
+    [JsonPropertyName("elevated_embedded")] public bool ElevatedEmbedded { get; init; }
+
     /// <summary>The target's file name for display - the full path stays in <see cref="TargetPath"/>.</summary>
     [JsonIgnore] public string TargetName => Path.GetFileName(TargetPath);
 

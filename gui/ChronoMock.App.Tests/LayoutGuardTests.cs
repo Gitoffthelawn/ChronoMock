@@ -1065,6 +1065,52 @@ public class LayoutGuardTests
     private const int AuditChips = 5;
 
     /// <summary>
+    /// The options section starts folded, and its header says the option that writes the machine registry
+    /// is on.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 THIS GUARD EXISTS BECAUSE THE FAULT WAS MADE. The header carried a chip for every other option that
+    /// is on, and none for this one, which is the option that writes HKLM and opens a debugging port in an
+    /// application running as administrator. A repeated session ticks it again, so a tester could press Start
+    /// with the registry write on and nothing on the setup screen saying so (found by review).
+    ///
+    /// The chip text is read from the resource the view uses and asserted to resolve, so a key that was
+    /// never found cannot pass by comparing nothing with nothing. There are two controls, because one is
+    /// not enough: a window as it opens (channel on, option not ticked) and one with the channel off. A
+    /// chip bound to the channel instead of the option shows in the first and hides in the second, so only
+    /// the pair tells it from the right binding.
+    ///
+    /// Reversal probes: delete the chip from SpeedSummary in SetupPhaseView.xaml and this reddens on the
+    /// first assertion. Bind it to ReachEmbedded and it reddens on the second.
+    /// </remarks>
+    [Fact]
+    public void A_folded_options_header_says_the_registry_option_is_on()
+    {
+        var (chip, ticked, opensUnticked, channelOff) = WpfTestHost.InvokeSettled(() =>
+        {
+            var text = Application.Current.TryFindResource("setup.chip_elevated_embedded") as string ?? "";
+
+            static bool Shows(SessionViewModel model, string chipText)
+            {
+                var view = new SetupPhaseView { DataContext = model };
+                LayoutProbe.Settle(view);
+                return LayoutProbe.Walk(view).Any(e => e.IsVisible && e.Kind == nameof(TextBlock) && e.Text == chipText);
+            }
+
+            return (
+                text,
+                Shows(PhaseStates.SetupWithElevatedOption(), text),
+                Shows(PhaseStates.SetupElevatedOptionOff(), text),
+                Shows(PhaseStates.SetupElevatedWithoutChannel(), text));
+        });
+
+        Assert.NotEmpty(chip);
+        Assert.True(ticked, "the option is ticked and the folded header does not say so");
+        Assert.False(opensUnticked, "the option is not ticked, and a chip for it would say a session does what it does not");
+        Assert.False(channelOff, "the channel is off and unticks the option, and the header must follow it");
+    }
+
+    /// <summary>
     /// A session whose family spawned processes the hook never got into names them under the audit
     /// table: one row per executable and role, the true total in the heading, and the count the report
     /// could not name said in words.

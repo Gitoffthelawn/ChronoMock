@@ -59,7 +59,13 @@
 # before the loop itself changed, so the change lands in functions of their own size. `driver_run`
 # left the top of the ranking. The holder is `run::args::parse_run_args` at 161, `cdp_session` second
 # at 160, `mech::prepare` third at 146 (measured by `tools/margin.ps1 -Rust`).
-too-many-lines-threshold = 161
+#
+# Lowered 2026-10-01 (the option for an application that runs as administrator, docs/09 section
+# 12.19): `--elevated-embedded` took `parse_run_args` to 169, over the ceiling, and rather than raise
+# it the checks of flags that cannot stand together moved out to `check_combinations`, which took the
+# function to 159. The holder is now `cdp_session` at 160, `parse_run_args` second at 159, then
+# `report::describe_warning` at 148 (measured by `tools/margin.ps1 -Rust`).
+too-many-lines-threshold = 160
 
 # A tie at 25: `run::driver_run` and `report::render_report`. This happens to be clippy's own
 # default, which is worth saying out loud rather than leaving to look like a copied number - it

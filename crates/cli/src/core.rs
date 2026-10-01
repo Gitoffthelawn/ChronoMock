@@ -37,6 +37,7 @@ use crate::events::{
 use crate::grammar::parse_shift;
 use crate::output::diag;
 use crate::pe::is_windowed_program;
+use crate::policy_session::{PolicySession, KEY_LEFT};
 use crate::report::detect_runtime_warnings;
 use crate::wire::{read_protocol_line, spawn_command_reader};
 pub(crate) fn core_mode() -> i32 {
@@ -121,7 +122,14 @@ pub(crate) fn core_mode() -> i32 {
     // The embedded-engine channel (docs/09): the two variables that make an engine inside the
     // application open a local debugging port, and the discovery that uses it - never one without
     // the other. Off under `--no-embedded`, and then the environment is inherited untouched.
-    let launch = Launch::for_target(&target);
+    // The core's own token decides two things: whether the application it starts is elevated too (it
+    // inherits the token), and whether the tester's request to reach its pages through the machine
+    // registry can be met (docs/09 section 12.19). The value is written HERE, before the launch, because
+    // an engine reads it the moment it is created - and `policy` takes it away again on every way out.
+    let elevated = chrono_mech::process_elevated(std::process::id()) == Some(true);
+    let mut policy = PolicySession::start(&target, elevated);
+    let mut launch = Launch::for_target(&target, elevated);
+    launch.note_policy(&policy);
     let m_target = chrono_mech::Target {
         path: &target.path,
         args: &target.args,
@@ -143,6 +151,8 @@ pub(crate) fn core_mode() -> i32 {
         // application is not read while the session's variable is in its environment.
         runtime_warnings.push(KEY_REGISTRY_ARGUMENTS_HIDDEN.to_string());
     }
+    // What the registry step already knows, and the tester is owed before the application runs.
+    runtime_warnings.extend(policy.start_keys().iter().cloned());
 
     match chrono_mech::prepare(&spec, &m_target, &hook) {
         Ok(mut prepared) => {
@@ -176,7 +186,7 @@ pub(crate) fn core_mode() -> i32 {
                     lived_ms,
                 });
                 prepared.session.end();
-                emit(&ended_clean());
+                emit(&policy.ended_before_running());
                 return 12;
             }
 
@@ -198,6 +208,11 @@ pub(crate) fn core_mode() -> i32 {
             // running, and say when it could not look for all of it (R4-S5).
             let (left_running, family_search_incomplete) =
                 if refuse { end_refused_family(&prepared.session) } else { (Vec::new(), false) };
+            if refuse {
+                // The session is over, so the value goes now. How that went is kept, and `ended` below says
+                // a value that could not be taken away: it is still on the machine.
+                let _ = policy.finish();
+            }
             emit(&Event::Verdict {
                 v: PROTOCOL_VERSION,
                 id: Some(1),
@@ -209,12 +224,12 @@ pub(crate) fn core_mode() -> i32 {
             });
             if refuse {
                 prepared.session.end();
-                emit(&ended_clean());
+                emit(&policy.ended_before_running());
                 return verdict.exit_code();
             }
             // Enter the running session: heartbeat, answer queries, end on command,
             // EOF, or target exit.
-            run_session(prepared.session, verdict, reader, &launch, spec.scale_duration)
+            run_session(prepared.session, verdict, reader, &launch, spec.scale_duration, policy)
         }
         Err(e) => {
             let (code, key, origin, detail) = map_prepare_error(e);
@@ -227,12 +242,11 @@ pub(crate) fn core_mode() -> i32 {
             });
             // Human-side detail on stderr (never on the protocol stdout).
             diag!("chrono core: {detail}");
-            emit(&ended_clean());
+            emit(&policy.ended_before_running());
             code
         }
     }
 }
-
 /// The keys of the refusals that owe no `ended`, because no session was begun - the only answers a core
 /// gives without an `ended` after them. The driver reads a missing `ended` after any other error as a
 /// session the core left open (`run::collect`), so this list is what tells the two apart, and
@@ -332,6 +346,12 @@ pub(crate) struct SessionLedger {
     /// The processes the session went on for once the target had closed (ADR-16), noted the first
     /// time the target is seen gone. `None` while it runs, empty when nothing outlived it.
     followed: Option<Vec<FamilyMember>>,
+    /// Processes both the hook's ring and the process tree under an elevated host reported. Each is in
+    /// the list once and in both counts, so the total has to give one back.
+    duplicated: u32,
+    /// The pids the process tree named and still shows, so a ring entry for the same process is
+    /// recognised. A process that has left the tree is forgotten: the system hands its pid on.
+    unhooked_pids: HashSet<u32>,
 }
 
 impl SessionLedger {
@@ -344,6 +364,8 @@ impl SessionLedger {
             clock_clamped: false,
             duration_clamped: false,
             followed: None,
+            duplicated: 0,
+            unhooked_pids: HashSet::new(),
         }
     }
 
@@ -351,11 +373,35 @@ impl SessionLedger {
     /// the watch on the processes the session lasts for current.
     pub(crate) fn poll(&mut self, session: &mut chrono_mech::Session) {
         fold_children(session, &mut self.family, &mut self.family_pids);
-        self.uncovered_children.extend(session.poll_uncovered_children());
+        self.take_ring_children(session.poll_uncovered_children());
         session.refresh_family();
         if self.followed.is_none() && !session.is_alive() {
             self.followed = Some(session.living_family());
         }
+    }
+
+    /// Take in the children the hook's ring named. The process tree under an elevated host may have named
+    /// one first. Named twice would be counted twice, so the second naming is dropped and the count gives
+    /// the duplicate back. Only a process the TREE named, and still shows, is compared: two children of the
+    /// ring may share a pid, because the system hands a pid on once its process is gone, and so may a ring
+    /// child and a process the tree named earlier.
+    fn take_ring_children(&mut self, children: Vec<UncoveredChild>) {
+        for child in children {
+            if self.unhooked_pids.contains(&child.pid) {
+                self.duplicated += 1;
+            } else {
+                self.uncovered_children.push(child);
+            }
+        }
+    }
+
+    /// Take in the processes the process tree under an elevated host named: ones the hook never saw
+    /// start, listed with the children it saw and could not follow into. `present` is every pid the tree
+    /// shows now, so a process that has left it stops being compared against the ring.
+    pub(crate) fn adopt_unhooked(&mut self, named: Vec<UncoveredChild>, present: &HashSet<u32>) {
+        self.unhooked_pids.retain(|pid| present.contains(pid));
+        self.unhooked_pids.extend(named.iter().map(|c| c.pid));
+        self.uncovered_children.extend(named);
     }
 
     /// Note whether either clock stands at the end of its range in this sample.
@@ -394,6 +440,7 @@ pub(crate) fn run_session(
     reader: BufReader<std::io::Stdin>,
     launch: &Launch,
     scale_duration: bool,
+    policy: PolicySession,
 ) -> i32 {
     // A reader thread turns stdin lines into commands so the main thread can beat the
     // heartbeat and watch the target without blocking on read_line.
@@ -434,8 +481,13 @@ pub(crate) fn run_session(
         let now = Instant::now();
         if now >= child_deadline {
             ledger.poll(&mut session);
-            bridge.family(ledger.family(session.pid));
+            let family = ledger.family(session.pid);
+            bridge.family(family.iter().copied());
             bridge.look_for_webview2(&ledger.hosts(session.pid));
+            // The engine of an elevated host is started by a service, so the hook never sees it: the
+            // process tree is where it shows (docs/09 section 12.19).
+            let named = bridge.follow_host_tree(&family);
+            ledger.adopt_unhooked(named, bridge.tree_pids());
             child_deadline = now + child_poll;
         }
         // Every turn, from the host's clock as it stands now - a page shimmed this turn starts on
@@ -463,7 +515,7 @@ pub(crate) fn run_session(
         }
     }
 
-    close_session(session, ledger, bridge, target_exit)
+    close_session(session, ledger, bridge, policy, target_exit)
 }
 
 /// Act on one command that arrived mid-session.
@@ -683,18 +735,46 @@ fn family_left_running(session: &chrono_mech::Session, family_pids: &HashSet<u32
     session.is_alive() || family_pids.iter().any(|&pid| chrono_mech::process_is_alive(pid))
 }
 
+/// How many processes ran uncovered that nobody reported through the hook's own ring or could name: the
+/// ring's own count, plus the processes the process tree under an elevated host turned up that the ring
+/// never held, less the ones both named. The list can never be longer than the number it is a list of.
+fn uncovered_total(ring_total: u32, tree_found: u32, duplicated: u32, listed: usize) -> u32 {
+    ring_total.saturating_add(tree_found).saturating_sub(duplicated).max(listed as u32)
+}
+
+/// Put what the registry step has to say about the end of the session among the session warnings. A
+/// value that could not be taken away goes FIRST: the panel shows the list through a window shorter than
+/// the list, and that is the one line that says something is still set on this machine. The account of a
+/// value that was removed goes last, with the other plain facts.
+fn place_policy_keys(warnings: &mut Vec<String>, keys: Vec<String>) {
+    if keys.iter().any(|k| k == KEY_LEFT) {
+        warnings.splice(0..0, keys);
+    } else {
+        warnings.extend(keys);
+    }
+}
+
 /// End the session and state what it did: one last fold so a late child still counts, the coverage
 /// every process ENDED with, the family verdict and `ended`. Returns the family's exit code.
 pub(crate) fn close_session(
     mut session: chrono_mech::Session,
     mut ledger: SessionLedger,
     mut bridge: EmbeddedBridge,
+    mut policy: PolicySession,
     target_exit: Option<i32>,
 ) -> i32 {
     // Final fold so a child that joined since the last heartbeat still counts in the family.
     ledger.poll(&mut session);
-    let SessionLedger { mut family, family_pids, uncovered_children, clock_clamped, duration_clamped, followed } =
-        ledger;
+    let SessionLedger {
+        mut family,
+        family_pids,
+        mut uncovered_children,
+        clock_clamped,
+        duration_clamped,
+        followed,
+        duplicated,
+        unhooked_pids: _,
+    } = ledger;
     let followed = followed.unwrap_or_default();
     // The application may outlive the session - a `--ticks` cutoff, a Stop in the panel - and the
     // session does not stop it (docs/01 section 8.4). It lets it go instead, and the pages have to be
@@ -708,7 +788,13 @@ pub(crate) fn close_session(
     // nothing (docs/09 section 12.7).
     let hosts: Vec<u32> = std::iter::once(session.pid).chain(family_pids.iter().copied()).collect();
     bridge.look_for_webview2_last(&hosts);
+    // One last look at the tree under an elevated host, for what appeared in the final second.
+    let known: Vec<u32> = hosts.iter().copied().chain(uncovered_children.iter().map(|c| c.pid)).collect();
+    uncovered_children.extend(bridge.follow_host_tree_last(&known));
     let pages = bridge.finish();
+    // The engine is let go of, so the registry value that let the session reach it goes too - before
+    // the verdict, so the verdict can say how that went.
+    let policy_keys = policy.finish();
     let page_rows = covered_channels(pages.counts.clone());
     family = family.combine(embedded_verdict(pages.reached, pages.seen.len(), !page_rows.is_empty(), pages.failed + pages.overflow));
     // An application that loaded WebView2 while no engine of it was reached: its pages may have run on
@@ -717,7 +803,12 @@ pub(crate) fn close_session(
     if pages.engine_missed() {
         family = family.combine(Verdict::Partial);
     }
-    let uncovered_children_total = session.uncovered_children_total();
+    let uncovered_children_total = uncovered_total(
+        session.uncovered_children_total(),
+        pages.tree_found,
+        duplicated,
+        uncovered_children.len(),
+    );
     // A process nobody reached ran on the real clock: that is "something uncovered" for the family,
     // so the family cannot be `works` (untouchable rule 4 at the session level - the verdict model
     // already says so, this is the fact it was never fed). Folded as a verdict rather than a flag so
@@ -772,6 +863,7 @@ pub(crate) fn close_session(
     reconcile_engine_warnings(&mut children_warnings, pages.pages_reached());
     session_warnings.extend(children_warnings);
     session_warnings.extend(pages.session_warnings(zone_differs));
+    place_policy_keys(&mut session_warnings, policy_keys);
     if !followed.is_empty() {
         session_warnings.push(KEY_FOLLOWED_FAMILY.to_string());
     }
@@ -1122,6 +1214,7 @@ mod tests {
                 args: Vec::new(),
                 cwd: cwd.map(str::to_string),
                 embedded: true,
+                elevated_embedded: false,
                 console: Default::default(),
             },
             time: TimeSpec {
@@ -1246,6 +1339,113 @@ mod tests {
         assert_eq!(time.mode, "flow");
         assert_eq!(time.moment.local.as_deref(), Some("2038-01-19T03:14:07"));
         assert!(!force);
+    }
+
+    /// A value left in the registry is said first, because the panel shows the warnings through a window
+    /// shorter than the list and it is the one line that says something is still set. A value that was
+    /// removed is a plain fact and goes last, and nothing to say changes nothing.
+    #[test]
+    fn a_registry_value_left_behind_is_the_first_warning_and_a_removed_one_the_last() {
+        use crate::policy_session::KEY_REMOVED;
+        let base = || vec!["a".to_string(), "b".to_string()];
+
+        let mut warnings = base();
+        place_policy_keys(&mut warnings, vec![KEY_LEFT.to_string()]);
+        assert_eq!(warnings, [KEY_LEFT, "a", "b"]);
+
+        let mut warnings = base();
+        place_policy_keys(&mut warnings, vec![KEY_REMOVED.to_string()]);
+        assert_eq!(warnings, ["a", "b", KEY_REMOVED]);
+
+        let mut warnings = base();
+        place_policy_keys(&mut warnings, Vec::new());
+        assert_eq!(warnings, ["a", "b"]);
+    }
+
+    /// Every way a start can end once the registry step has run says what became of the value it wrote. The
+    /// three ends that follow it - a vanished target, a refusal, a start that could not be prepared - are one
+    /// line each, and a line that said `ended_clean()` would let a value that could not be removed go
+    /// without a word. The unit tests cover the account itself and not that each end asks for it, and
+    /// reaching an end with a value that cannot be removed takes a real elevated session, so this reads
+    /// the source. The count is a canary: a body that lost its ends would pass the first assertion alone.
+    #[test]
+    fn no_start_ends_clean_once_the_registry_step_has_run() {
+        let source = include_str!("core.rs");
+        let from = source.find("PolicySession::start(&target").expect("the registry step is where the guard starts");
+        let rest = &source[from..];
+        let body = &rest[..rest.find("\n}\n").expect("the function ends at a closing brace in column 0")];
+        assert!(
+            !body.contains("ended_clean()"),
+            "an end after the registry step said ended_clean(): use policy.ended_before_running(), which says a value that is still set"
+        );
+        assert_eq!(
+            body.matches("policy.ended_before_running()").count(),
+            3,
+            "the vanished, refused and unprepared ends each ask the registry step for the account"
+        );
+    }
+
+    /// The tree and the hook's ring may name the same process. It is listed once and the total gives the
+    /// second naming back, and a ring child the tree never named is listed as always.
+    #[test]
+    fn a_process_named_by_both_the_tree_and_the_ring_is_listed_once() {
+        let named = |pid| UncoveredChild { pid, parent_pid: 42, image: Some("engine.exe".into()), command_line: None };
+        let mut ledger = SessionLedger::new(Verdict::Works);
+        ledger.adopt_unhooked(vec![named(77)], &pids(&[77]));
+
+        ledger.take_ring_children(vec![named(77), named(88)]);
+
+        assert_eq!(ledger.uncovered_children.iter().map(|c| c.pid).collect::<Vec<_>>(), [77, 88]);
+        assert_eq!(ledger.duplicated, 1);
+        // Two ring children that share a pid are two processes: only the tree's names are compared.
+        ledger.take_ring_children(vec![named(88), named(88)]);
+        assert_eq!(ledger.uncovered_children.len(), 4);
+        assert_eq!(ledger.duplicated, 1);
+    }
+
+    fn pids(of: &[u32]) -> HashSet<u32> {
+        of.iter().copied().collect()
+    }
+
+    /// The system hands a pid on once its process is gone. The tree named 77 and 77 left the tree, so a ring
+    /// child that has the same pid is another process: it is listed and nothing is given back, where
+    /// comparing against every pid the tree ever named would drop it as a duplicate.
+    #[test]
+    fn a_ring_child_that_has_the_pid_of_a_process_gone_from_the_tree_is_a_new_process() {
+        let named = |pid| UncoveredChild { pid, parent_pid: 42, image: Some("engine.exe".into()), command_line: None };
+        let mut ledger = SessionLedger::new(Verdict::Works);
+        ledger.adopt_unhooked(vec![named(77)], &pids(&[77]));
+        ledger.adopt_unhooked(Vec::new(), &pids(&[]));
+
+        ledger.take_ring_children(vec![named(77)]);
+
+        assert_eq!(ledger.duplicated, 0, "a different process is not a duplicate");
+        assert_eq!(ledger.uncovered_children.iter().map(|c| c.pid).collect::<Vec<_>>(), [77, 77]);
+    }
+
+    /// The total is the ring's count plus what the tree found, less what both named, and never less than
+    /// the list it counts.
+    #[test]
+    fn the_uncovered_total_adds_the_tree_to_the_ring_and_gives_back_what_both_named() {
+        assert_eq!(uncovered_total(3, 0, 0, 3), 3, "no tree: the ring's own count");
+        assert_eq!(uncovered_total(0, 6, 0, 6), 6, "an elevated host: the tree alone");
+        assert_eq!(uncovered_total(3, 6, 1, 8), 8, "one process named by both is counted once");
+        assert_eq!(uncovered_total(0, 0, 0, 5), 5, "never fewer than the list");
+        assert_eq!(uncovered_total(1, 0, 4, 0), 0, "a count cannot go below zero");
+    }
+
+    /// What the process tree names under an elevated host is listed with the children the hook could not
+    /// follow into, and its pids are in the family a debugging port is looked for in.
+    #[test]
+    fn processes_named_by_the_tree_join_the_family_and_the_uncovered_list() {
+        let mut ledger = SessionLedger::new(Verdict::Works);
+        let named = |pid| UncoveredChild { pid, parent_pid: 42, image: Some("engine.exe".into()), command_line: None };
+        ledger.adopt_unhooked(vec![named(77), named(78)], &pids(&[77, 78]));
+
+        assert_eq!(ledger.uncovered_children.len(), 2);
+        let family = ledger.family(42);
+        assert!(family.contains(&42) && family.contains(&77) && family.contains(&78), "{family:?}");
+        assert!(!ledger.hosts(42).contains(&77), "an engine's process is not a host: it carries no client library");
     }
 
     /// Each caveat is said only when it happened, and all of them together keep the order the report

@@ -30,6 +30,10 @@ pub(crate) struct RunArgs {
     /// (docs/09). On unless `--no-embedded` - the opt-out for a tester who does not want that port
     /// open in their application for the session.
     pub(super) embedded: bool,
+    /// Also reach the web pages of an application that runs as administrator (`--elevated-embedded`,
+    /// docs/09 section 12.19): the session writes one WebView2 value to the machine registry for its
+    /// duration and removes it. Off by default and exclusive of `--no-embedded`.
+    pub(super) elevated_embedded: bool,
     /// How many `state` heartbeats to stream before ending. 0 = no cut: the session lasts until the
     /// target, and whatever it started on the session clock, has exited (ADR-16).
     pub(super) ticks: u64,
@@ -129,9 +133,23 @@ pub(crate) fn target_spec_for(ra: &RunArgs) -> TargetSpec {
         args: ra.args.clone(),
         cwd: ra.cwd.clone(),
         embedded: ra.embedded,
+        elevated_embedded: ra.elevated_embedded,
         // The terminal `chrono run` was started from: its console for input, its stderr for output
         // (R4-D15). Named rather than left to the default, so the driver's choice is visible here.
         console: TargetConsole::Shared,
+    }
+}
+
+/// What stops `--elevated-embedded` before anything starts, or `None`. The option writes the machine
+/// registry, which only an administrator can do, so from a shell that is not one it is refused with the
+/// same code a bad flag gets - and a dry run refuses it too, because a plan that described a command
+/// the run would then refuse would be describing nothing. A token that could not be read counts as not
+/// elevated: the refusal is the safe side of not knowing.
+pub(crate) fn elevation_problem(ra: &RunArgs, elevated: Option<bool>) -> Option<&'static str> {
+    if ra.elevated_embedded && elevated != Some(true) {
+        Some("--elevated-embedded needs Chrono Mock to run as administrator, and it is not: it writes a WebView2 value to the machine registry")
+    } else {
+        None
     }
 }
 
@@ -152,6 +170,33 @@ fn parse_set_after(raw: &str) -> Result<(u64, i64), String> {
     Ok((tick, mult))
 }
 
+/// The flags that cannot stand together, refused rather than resolved by picking one silently.
+fn check_combinations(
+    has_preset: bool,
+    saw_time_flag: bool,
+    has_params: bool,
+    embedded: bool,
+    elevated_embedded: bool,
+) -> Result<(), String> {
+    // A preset supplies both the moment and the time mode, so combining it with --at/--mode/
+    // --scale-duration would mean two sources.
+    if has_preset && saw_time_flag {
+        return Err("--preset supplies the moment and mode; it cannot be combined with \
+                    --at/--mode/--scale-duration"
+            .into());
+    }
+    // --param only makes sense with --preset (it fills a preset's declared parameters).
+    if has_params && !has_preset {
+        return Err("--param needs --preset (parameters belong to a preset)".into());
+    }
+    // One asks for the pages of an application that runs as administrator to be reached, the other
+    // for the pages to be left alone - saying both is a contradiction, not a setting.
+    if elevated_embedded && !embedded {
+        return Err("--elevated-embedded cannot be combined with --no-embedded".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     let mut target: Option<String> = None;
     let mut args: Vec<String> = Vec::new();
@@ -163,6 +208,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     let mut scale_duration = false;
     let mut scale_qpc = false;
     let mut embedded = true;
+    let mut elevated_embedded = false;
     let mut force = false;
     let mut dry_run = false;
     let mut ticks: u64 = 0;
@@ -239,6 +285,9 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             "--no-embedded" => {
                 embedded = false;
             }
+            "--elevated-embedded" => {
+                elevated_embedded = true;
+            }
             "--dry-run" => {
                 dry_run = true;
             }
@@ -294,17 +343,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         i += 1;
     }
 
-    // A preset supplies both the moment and the time mode, so combining it with --at/--mode/
-    // --scale-duration would mean two sources. Reject it rather than pick one silently.
-    if preset.is_some() && saw_time_flag {
-        return Err("--preset supplies the moment and mode; it cannot be combined with \
-                    --at/--mode/--scale-duration"
-            .into());
-    }
-    // --param only makes sense with --preset (it fills a preset's declared parameters).
-    if !params.is_empty() && preset.is_none() {
-        return Err("--param needs --preset (parameters belong to a preset)".into());
-    }
+    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), embedded, elevated_embedded)?;
 
     Ok(RunArgs {
         target: target.ok_or("missing <target>")?,
@@ -318,6 +357,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         scale_qpc,
         force,
         embedded,
+        elevated_embedded,
         dry_run,
         ticks,
         timeout_secs,
@@ -403,6 +443,38 @@ mod tests {
         let off = parse_run_args(&["app.exe".into(), "--no-embedded".into()]).unwrap();
         assert!(!off.embedded);
         assert!(!target_spec_for(&off).embedded, "the opt-out has to reach the wire");
+    }
+
+    /// The option that writes the machine registry is off unless asked for, says so on the wire, and
+    /// cannot be asked for together with the flag that leaves the pages alone.
+    #[test]
+    fn elevated_embedded_is_opt_in_and_reaches_the_wire() {
+        let bare = parse_run_args(&["app.exe".into()]).unwrap();
+        assert!(!bare.elevated_embedded, "a bare run writes nothing to the registry");
+        assert!(!target_spec_for(&bare).elevated_embedded);
+
+        let on = parse_run_args(&["app.exe".into(), "--elevated-embedded".into()]).unwrap();
+        assert!(on.elevated_embedded);
+        assert!(target_spec_for(&on).elevated_embedded, "the opt-in has to reach the wire");
+        assert!(target_spec_for(&on).embedded, "and it does not turn the channel off");
+
+        let both = parse_run_args(&["app.exe".into(), "--elevated-embedded".into(), "--no-embedded".into()]);
+        assert!(both.err().unwrap().contains("cannot be combined"), "either order is a contradiction");
+        assert!(parse_run_args(&["app.exe".into(), "--no-embedded".into(), "--elevated-embedded".into()]).is_err());
+    }
+
+    /// A shell that is not an administrator is refused, a dry run included, and one whose token could not
+    /// be read is treated as not being one. Without the option nothing is asked of the token at all.
+    #[test]
+    fn elevated_embedded_is_refused_unless_the_shell_is_known_to_be_elevated() {
+        let on = parse_run_args(&["app.exe".into(), "--elevated-embedded".into()]).unwrap();
+        assert!(elevation_problem(&on, Some(true)).is_none());
+        assert!(elevation_problem(&on, Some(false)).is_some());
+        assert!(elevation_problem(&on, None).is_some(), "unknown is not elevated");
+        let off = parse_run_args(&["app.exe".into()]).unwrap();
+        for token in [Some(true), Some(false), None] {
+            assert!(elevation_problem(&off, token).is_none(), "without the option there is nothing to refuse");
+        }
     }
 
     /// An explicitly empty value is a usage error rather than a quiet "no directory". The two are

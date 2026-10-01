@@ -28,6 +28,7 @@ use super::moment::TimeOrigin;
 use crate::cdp;
 use crate::cli::this_bitness;
 use crate::output::{diag, out, outln};
+use crate::policy_session::value_name_for;
 use crate::report::{describe_warning, detect_runtime_warnings, mode_label};
 use crate::zone::format_bias;
 
@@ -342,10 +343,34 @@ fn session_block(p: &Plan) -> String {
             "--no-embedded: web pages inside the app are left on the real clock"
         }));
     }
+    out.push_str(&elevated_embedded_note(p));
     if let Some(path) = &p.ra.report {
         out.push_str(&line("evidence", &format!("would be written to {path}")));
     }
     out
+}
+
+/// What `--elevated-embedded` would do, said before anything does it: the value it would write and where,
+/// or why it would write nothing. Empty without the flag. A dry run never writes it.
+fn elevated_embedded_note(p: &Plan) -> String {
+    if !p.ra.elevated_embedded {
+        return String::new();
+    }
+    if p.chromium {
+        return note("--elevated-embedded: does not apply - this target is Chromium and is reached through its own debugging port");
+    }
+    match elevated_value_name(p) {
+        Some(name) => note(&format!(
+            "--elevated-embedded: for an application that runs as administrator, the session would write one WebView2 value named {name} under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments for its duration and remove it at the end - any program on this computer could then reach the application's pages through the debugging port it opens"
+        )),
+        None => note("--elevated-embedded: nothing would be written - the value is named after the .exe the application is started from, and a script is started through the command interpreter"),
+    }
+}
+
+/// The name the registry value would be written under, when the flag is given and it would be written at
+/// all: not for a Chromium target and not for anything but an `.exe`.
+fn elevated_value_name(p: &Plan) -> Option<String> {
+    if p.ra.elevated_embedded && !p.chromium { value_name_for(&p.ra.target) } else { None }
 }
 
 /// The whole plan as a person reads it.
@@ -453,6 +478,11 @@ struct SessionJson<'a> {
     /// engine exists and whether its pages were reached is what the finished session's report says.
     /// Always false for a Chromium target, which is driven over its own port.
     embedded: bool,
+    /// Whether `--elevated-embedded` was given (docs/09 section 12.19). Always false for a Chromium target.
+    elevated_embedded: bool,
+    /// The name the session would write the registry value under, when it would write one: the flag is
+    /// given and the target is an `.exe` that is not Chromium. A dry run writes nothing either way.
+    elevated_embedded_value: Option<String>,
     /// The path `--report` named. A dry run does not write it.
     report: Option<&'a str>,
 }
@@ -508,6 +538,8 @@ fn render_json(p: &Plan) -> String {
             jump_after: p.ra.jump_after.as_ref().map(|(tick, moment)| (*tick, moment.as_str())),
             force: p.ra.force,
             embedded: p.ra.embedded && !p.chromium,
+            elevated_embedded: p.ra.elevated_embedded && !p.chromium,
+            elevated_embedded_value: elevated_value_name(p),
             report: p.ra.report.as_deref(),
         },
         warnings: &p.warning_keys,
@@ -579,6 +611,33 @@ mod tests {
                 assert_eq!(json["origin"]["kind"], "at");
             },
         );
+    }
+
+    /// `--elevated-embedded` is described before anything does it: the value and the place it would be
+    /// written, in both renderings - and for the targets it does not apply to, why nothing would be.
+    /// Without the flag the plan says nothing about it.
+    #[test]
+    fn the_plan_says_what_elevated_embedded_would_write_and_for_whom_it_would_not() {
+        plan_for(&["C:/apps/app.exe", "--at", "2038-01-19T03:14:07", "--elevated-embedded"], |plan| {
+            let text = render_plan(plan);
+            assert!(text.contains("one WebView2 value named app.exe"), "{text}");
+            assert!(text.contains("HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments"), "{text}");
+            let json: serde_json::Value = serde_json::from_str(&render_json(plan)).expect("valid JSON");
+            assert_eq!(json["session"]["elevated_embedded"], true);
+            assert_eq!(json["session"]["elevated_embedded_value"], "app.exe");
+        });
+        plan_for(&["C:/apps/run.bat", "--at", "2038-01-19T03:14:07", "--elevated-embedded"], |plan| {
+            assert!(render_plan(plan).contains("nothing would be written"), "{}", render_plan(plan));
+            let json: serde_json::Value = serde_json::from_str(&render_json(plan)).expect("valid JSON");
+            assert_eq!(json["session"]["elevated_embedded"], true);
+            assert!(json["session"]["elevated_embedded_value"].is_null());
+        });
+        plan_for(&["app.exe", "--at", "2038-01-19T03:14:07"], |plan| {
+            assert!(!render_plan(plan).contains("--elevated-embedded"), "{}", render_plan(plan));
+            let json: serde_json::Value = serde_json::from_str(&render_json(plan)).expect("valid JSON");
+            assert_eq!(json["session"]["elevated_embedded"], false);
+            assert!(json["session"]["elevated_embedded_value"].is_null());
+        });
     }
 
     /// A heartbeat number is a `u64` on the command line and stays one in the plan: squeezed into an

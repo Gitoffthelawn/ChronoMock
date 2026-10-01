@@ -100,6 +100,7 @@
   "setup.chip_qpc": "QPC skalowane",
   "setup.chip_force": "start wymuszony",
   "setup.chip_no_embedded": "bez stron WWW",
+  "setup.chip_elevated_embedded": "dotarcie do stron administratora",
   // The launch fields moved into this section, so its folded header says they are set without printing
   // values that have no length limit.
   "setup.chip_args": "argumenty ustawione",
@@ -143,6 +144,7 @@
   "setup.opt_qpc": "Przyspiesz też liczniki mierzące upływ czasu (Stopwatch, nanoTime, monotonic)",
   "setup.opt_force": "Uruchom nawet wtedy, gdy podmiana zegara okaże się nieskuteczna",
   "setup.opt_embedded": "Sięgnij do stron WWW wewnątrz aplikacji",
+  "setup.opt_elevated_embedded": "Dotrzyj do stron w aplikacji uruchomionej jako administrator",
 
   // Fits after a number, like the shipped one. It names the button to press rather than quoting it in
   // passing, because a reader who has never opened the calculator cannot tell a quotation from a label.
@@ -158,6 +160,8 @@
   "setup.opt_qpc_note": "Animacja i wideo wewnątrz aplikacji mogą wyglądać źle.",
   "setup.opt_force_note": "Sesja jest wtedy wszędzie oznaczona jako niewiarygodna.",
   "setup.opt_embedded_note": "Otwiera na czas sesji lokalny port debugowania w silniku WWW aplikacji. Inne programy na tym komputerze mogą z niego korzystać, dopóki aplikacja działa.",
+  "setup.opt_elevated_embedded_note": "Zapisuje na czas sesji jedną opcję WebView2 w rejestrze komputera i usuwa ją po sesji. Dopóki aplikacja działa, każdy program na tym komputerze może dotrzeć do jej stron, a aplikacja ma uprawnienia administratora.",
+  "setup.opt_elevated_embedded_unavailable": "Dostępne, gdy Chrono Mock działa jako administrator.",
 
   // Both of these say "target" in the shipped panel, which is the word this screen stopped using.
   "setup.tip_recent": "Aplikacje uruchamiane wcześniej. „Wybierz…” wskazuje taką, której ta maszyna jeszcze nie uruchamiała.",
@@ -431,7 +435,14 @@
   "embedded.zone_is_host": "Strony wewnątrz tej aplikacji czytają strefę czasową tego komputera, nie sesji. Pokazywany przez nie czas lokalny różni się od reszty aplikacji o przesunięcie strefy.",
   "embedded.registry_arguments_hidden": "Ta aplikacja ma w rejestrze ustawione argumenty przeglądarki WebView2. Sesja przesłoniła je na czas swojego trwania, więc to, co ustawiały (na przykład własny port debugowania), nie zadziałało.",
   "embedded.webview2_not_reached": "Aplikacja załadowała WebView2, ale sesja nie dotarła do jego silnika, więc strony mogły działać na realnym zegarze.",
-  "embedded.elevated_host": "Chrono Mock działa jako administrator, więc aplikacja też, a wtedy WebView2 pomija ustawienie, przez które sesja dociera do stron. Uruchom Chrono Mock bez uprawnień administratora.",
+  "embedded.elevated_host": "Chrono Mock działa jako administrator, więc aplikacja też, a wtedy WebView2 pomija ustawienie, przez które sesja dociera do stron. Włącz „Dotrzyj do stron w aplikacji uruchomionej jako administrator” albo uruchom Chrono Mock bez uprawnień administratora.",
+  "embedded.policy_value_removed": "Chrono Mock ustawił na czas sesji opcję WebView2 dla tej aplikacji w rejestrze komputera, żeby dało się dotrzeć do stron aplikacji działającej jako administrator, i usunął ją po końcu sesji.",
+  "embedded.policy_value_left": "Chrono Mock nie mógł usunąć opcji WebView2, którą ustawił dla tej aplikacji w rejestrze komputera. Stoi w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i przy każdym uruchomieniu trzyma otwarty port diagnostyczny tej aplikacji, dopóki jej nie usuniesz.",
+  "embedded.policy_value_recovered": "W rejestrze komputera została opcja WebView2 ustawiona przez wcześniejszą sesję Chrono Mock, która zakończyła się awaryjnie. Usunięto ją przed startem tej sesji.",
+  "embedded.policy_value_stale": "Opcja WebView2 ustawiona przez wcześniejszą sesję Chrono Mock, która zakończyła się awaryjnie, nadal jest w rejestrze komputera i trzyma otwarty port diagnostyczny aplikacji, której dotyczy. Uruchom raz Chrono Mock jako administrator z włączonym „Dotrzyj do stron w aplikacji uruchomionej jako administrator”, żeby ją usunąć, albo usuń wartość w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, która zawiera --chrono-mock-session.",
+  "embedded.policy_value_foreign": "W rejestrze komputera jest już opcja WebView2 dla tej aplikacji, której Chrono Mock nie ustawiał, więc została bez zmian. Sesja mogła dotrzeć do stron aplikacji tylko wtedy, gdy ta opcja otwiera port diagnostyczny.",
+  "embedded.policy_not_written": "Chrono Mock nie mógł ustawić opcji WebView2, dzięki której sesja dociera do stron aplikacji działającej jako administrator, więc strony działały na realnym zegarze.",
+  "embedded.policy_name_mismatch": "Chrono Mock ustawił opcję WebView2 dla programu, który uruchomił, ale WebView2 załadował inny program, którego opcja nie obejmuje. Uruchom bezpośrednio ten program, żeby dotrzeć do jego stron.",
   "embedded.pages_not_released": "Strona wewnątrz tej aplikacji nie potwierdziła powrotu na prawdziwy zegar, gdy sesja się skończyła, więc może trzymać datę sesji, dopóki jej nie odświeżysz albo nie zamkniesz.",
   "embedded.web_engine_processes_uncovered": "Są wśród nich procesy osadzonego silnika web (WebView2 albo Qt WebEngine), więc część tego silnika działała na prawdziwym zegarze. Czy jego strony też - nie da się ustalić: wśród nazwanych procesów nie było renderera.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
@@ -761,6 +772,7 @@
   "tip.scale_duration": "Przyśpiesz też liczniki, uśpienia i odliczania w aplikacji - nie tylko zegar ścienny.",
   "tip.scale_qpc": "Przyśpiesz też zegary na QPC (Python monotonic, .NET Stopwatch, Java nanoTime). Może zniekształcić aplikację liczącą render z QPC.",
   "tip.embedded": "Domyślnie włączone. Aplikacja z wbudowanym silnikiem WWW (WebView2, Qt WebEngine) uruchamia swoje strony w procesie, do którego hook zegara nie wchodzi. Z tą opcją silnik jest proszony o otwarcie na czas sesji lokalnego portu debugowania, a strony idą za zegarem sesji przez ten port. Odznacz, aby zostawić te strony na realnym zegarze i nie otwierać portu.",
+  "tip.elevated_embedded": "Domyślnie wyłączone. Aplikacja uruchomiona jako administrator sprawia, że WebView2 pomija ustawienie, przez które sesja dociera do jej stron, więc zostają na realnym zegarze. Po włączeniu sesja zapisuje jedną opcję WebView2 w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i usuwa ją po końcu sesji. Wymaga Chrono Mock uruchomionego jako administrator i aplikacji startowanej z pliku .exe. Dopóki jest ustawiona, każdy program uruchomiony pod tą nazwą pliku też dostaje port diagnostyczny, a uruchamiana aplikacja ma uprawnienia administratora. Wartość zostawiona przez sesję, która zakończyła się awaryjnie, jest usuwana przy następnym starcie z tą opcją.",
   "tip.force": "Domyślnie wyłączone. Gdy werdykt otwierający mówi, że podmiana nie zadziałała, cel jest zatrzymywany zamiast oddany do pracy - jego dowód dotyczyłby realnego zegara. Zaznacz, aby mimo to uruchomić - sesja jest wtedy wszędzie oznaczona jako nierzetelna.",
   "tip.start": "Uruchom cel z podmienionym zegarem. Wymaga celu i poprawnego momentu.",
   "tip.freeze": "Zamroź podmieniony zegar, by przestał iść.",

@@ -43,8 +43,9 @@ windows = { version = "0.62", features = [
     "Win32_System_Environment",
     "Win32_NetworkManagement_IpHelper",
     "Win32_System_Diagnostics_ToolHelp",
-    # One read-only registry query for the same channel (slice C): whether a WebView2 policy value
-    # the session's variable hides is there, so the session can say so. Nothing writes.
+    # The registry, for the same channel. Slice C read one value (whether a WebView2 policy value the
+    # session's variable hides is there). The option for an application that runs as administrator
+    # writes one (docs/09 section 12.19), only in crates/mech/src/policy_value.rs.
     "Win32_System_Registry",
     # The two below joined when the target stopped sharing the protocol (R4-W1, ADR-17): a console
     # program's input is opened by name (`CONIN$`, `NUL`) and its output is a copy of the core's

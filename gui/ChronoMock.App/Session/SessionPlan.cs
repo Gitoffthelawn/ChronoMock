@@ -25,7 +25,8 @@ internal sealed record SessionPlan(string CorePath, PeReader.Machine Machine, St
         bool force = false,
         IReadOnlyList<string>? args = null,
         string? workingFolder = null,
-        bool embedded = true)
+        bool embedded = true,
+        bool elevatedEmbedded = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(targetPath);
         ArgumentNullException.ThrowIfNull(time);
@@ -48,6 +49,9 @@ internal sealed record SessionPlan(string CorePath, PeReader.Machine Machine, St
                 // present-but-empty cwd straight to CreateProcessW, where it is not a valid directory.
                 Cwd = string.IsNullOrWhiteSpace(workingFolder) ? null : workingFolder,
                 Embedded = embedded,
+                // The registry option rides on the channel, so it is never on without it: the core would
+                // ignore it, and a start command that says both says something the session will not do.
+                ElevatedEmbedded = elevatedEmbedded && embedded,
                 // A console program shows up the way it does when the tester starts it, in a console
                 // window of its own (R4-D16, ADR-17). The core runs with no window, so the console it
                 // could share is one nobody sees: no input, and the program's output in the diagnostics

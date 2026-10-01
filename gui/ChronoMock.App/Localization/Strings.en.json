@@ -100,6 +100,7 @@
   "setup.chip_qpc": "QPC scaled",
   "setup.chip_force": "forced start",
   "setup.chip_no_embedded": "web pages not reached",
+  "setup.chip_elevated_embedded": "administrator pages reached",
   // The launch fields moved into this section, so its folded header says they are set without printing
   // values that have no length limit.
   "setup.chip_args": "arguments set",
@@ -143,6 +144,7 @@
   "setup.opt_qpc": "Also speed up timers that measure elapsed time (Stopwatch, nanoTime, monotonic)",
   "setup.opt_force": "Start even if the fake clock turns out not to work",
   "setup.opt_embedded": "Reach the web pages inside the application",
+  "setup.opt_elevated_embedded": "Reach the web pages of an application that runs as administrator",
 
   // Fits after a number, like the shipped one. It names the button to press rather than quoting it in
   // passing, because a reader who has never opened the calculator cannot tell a quotation from a label.
@@ -158,6 +160,11 @@
   "setup.opt_qpc_note": "Can make animation and video inside the application look wrong.",
   "setup.opt_force_note": "The session is then marked unreliable everywhere it appears.",
   "setup.opt_embedded_note": "Opens a local debugging port in the application's web engine for the session. Other programs on this computer can reach it while the application runs.",
+  // Under the option that writes the machine registry: the cost when it can be used, and instead of that
+  // cost, what it needs when it cannot. The cost names the one thing that makes it worse than the box
+  // above - the application it opens the port in has administrator rights.
+  "setup.opt_elevated_embedded_note": "Writes one WebView2 option to the machine registry for the session and removes it afterwards. While the application runs, any program on this computer can reach its pages - and the application runs as administrator.",
+  "setup.opt_elevated_embedded_unavailable": "Available when Chrono Mock runs as administrator.",
 
   // Both of these say "target" in the shipped panel, which is the word this screen stopped using.
   "setup.tip_recent": "The applications you have run before. Choose… picks one this machine has not run yet.",
@@ -450,7 +457,17 @@
   "embedded.zone_is_host": "The pages inside this application read this computer's time zone, not the session's. A local time they show differs from the rest of the application by the zone offset.",
   "embedded.registry_arguments_hidden": "This application has WebView2 browser arguments set in the registry. The session hid them for its duration, so whatever they set up (a debugging port of your own, say) was not applied.",
   "embedded.webview2_not_reached": "The application loaded WebView2, but the session never reached its web engine, so its pages may have run on the real clock.",
-  "embedded.elevated_host": "Chrono Mock is running as administrator, so the application is too, and WebView2 then ignores the setting that lets the session reach its pages. Run Chrono Mock without administrator rights.",
+  "embedded.elevated_host": "Chrono Mock is running as administrator, so the application is too, and WebView2 then ignores the setting that lets the session reach its pages. Turn on “Reach the web pages of an application that runs as administrator”, or run Chrono Mock without administrator rights.",
+  // The one WebView2 value a session may write to the machine registry for an application that runs as
+  // administrator (docs/09 section 12.19), and what became of it. Only the one that says something is
+  // still set is worded as a problem, because it is the only one that is.
+  "embedded.policy_value_removed": "Chrono Mock set a WebView2 option for this application in the machine registry for the session, so the pages of an application running as administrator could be reached, and removed it when the session ended.",
+  "embedded.policy_value_left": "Chrono Mock could not remove the WebView2 option it set in the machine registry for this application. It is under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and it keeps a debugging port open for that application in every run until you delete it.",
+  "embedded.policy_value_recovered": "A WebView2 option set by an earlier Chrono Mock session that ended abruptly was still in the machine registry. It was removed before this session started.",
+  "embedded.policy_value_stale": "A WebView2 option set by an earlier Chrono Mock session that ended abruptly is still in the machine registry, and it keeps a debugging port open for the application it names. Run Chrono Mock as administrator with “Reach the web pages of an application that runs as administrator” turned on once to remove it, or delete the value under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments that contains --chrono-mock-session.",
+  "embedded.policy_value_foreign": "The machine registry already has a WebView2 option for this application that Chrono Mock did not set, so it was left as it is. The session could reach the application's pages only if that option opens a debugging port.",
+  "embedded.policy_not_written": "Chrono Mock could not set the WebView2 option that lets the session reach the pages of an application running as administrator, so those pages ran on the real clock.",
+  "embedded.policy_name_mismatch": "Chrono Mock set the WebView2 option for the program it started, but WebView2 was loaded by a different program, which the option does not apply to. Start that program directly to reach its pages.",
   "embedded.pages_not_released": "A page inside this application did not confirm it was handed back to the real clock when the session ended, so it may keep the session date until you reload or close it.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
@@ -786,6 +803,7 @@
   "tip.scale_duration": "Also speed up timers, sleeps and countdowns inside the app - not just the wall clock.",
   "tip.scale_qpc": "Also speed up QPC-based clocks (Python monotonic, .NET Stopwatch, Java nanoTime). May distort an app that times its rendering off QPC.",
   "tip.embedded": "On by default. An application with a built-in web engine (WebView2, Qt WebEngine) runs its pages in a process the clock hook cannot enter. With this on, the engine is asked to open a local debugging port for the session and the pages follow the session clock through it. Untick it to leave those pages on the real clock and open no port.",
+  "tip.elevated_embedded": "Off by default. An application that runs as administrator makes WebView2 ignore the setting the session reaches its pages through, so they stay on the real clock. With this on, the session writes one WebView2 option under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and removes it when the session ends. It needs Chrono Mock to run as administrator and an application started from an .exe. While it is set, every program started under that file name gets the debugging port too, and the application you start has administrator rights. A value left by a session that ended abruptly is removed the next time you start with this on.",
   "tip.force": "Off by default. When the opening verdict says the substitution did not take effect, the target is stopped rather than handed to you, because its evidence would be about the real clock. Tick this to run anyway - the session is then marked unreliable everywhere it appears.",
   "tip.start": "Launch the target under the fake clock. Needs a target and a valid moment.",
   "tip.freeze": "Freeze the fake clock so it stops advancing.",
