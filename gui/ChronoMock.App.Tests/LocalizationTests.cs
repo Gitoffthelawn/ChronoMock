@@ -96,6 +96,9 @@ public class LocalizationTests
         "protocol.version_mismatch",
         "session.control_failed", "target.launch_failed", "target.inject_failed",
         "target.cwd_missing",
+        // The application's own start failing while Windows loads it, before the hook's turn (R4-S6).
+        "target.loader_dll_not_found", "target.loader_entry_missing", "target.loader_bad_image",
+        "target.loader_init_failed", "target.died_while_loading",
         "target.attach_failed", "target.bitness_mismatch", "session.already_active",
         "protocol.no_command", "protocol.bad_command",
         "protocol.bad_command_ignored",

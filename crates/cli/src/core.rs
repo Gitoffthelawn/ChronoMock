@@ -371,11 +371,15 @@ impl SessionLedger {
 
     /// Poll for children that joined and for children the hook could not follow into, and keep
     /// the watch on the processes the session lasts for current.
+    ///
+    /// The child poll reads the registry first thing (it has to know which parents have ended), so the
+    /// family it leaves is the one the session went on for, and the launched process is asked before it.
     pub(crate) fn poll(&mut self, session: &mut chrono_mech::Session) {
         fold_children(session, &mut self.family, &mut self.family_pids);
-        self.take_ring_children(session.poll_uncovered_children());
-        session.refresh_family();
-        if self.followed.is_none() && !session.is_alive() {
+        let launched_ended = ended_before(session, chrono_mech::Session::is_alive, |session| {
+            self.take_ring_children(session.poll_uncovered_children());
+        });
+        if self.followed.is_none() && launched_ended {
             self.followed = Some(session.living_family());
         }
     }
@@ -708,6 +712,18 @@ fn end_refused_family(session: &chrono_mech::Session) -> (Vec<FollowedProcess>, 
         .map(|m| FollowedProcess { pid: m.pid, image: m.image.as_deref().map(crate::cdp::sanitise_target_text) })
         .collect();
     (left, end.incomplete.is_some())
+}
+
+/// Whether the launched process had ended, asked BEFORE `then` reads the registry - the order the family
+/// is asked in everywhere (R4-N11). A child the hook follows signs in while its parent is still inside
+/// the call that creates it, so a launched process seen ended here left every child it started in the
+/// registry `then` reads. Asked after it, a launcher that started the application and ended in between
+/// was seen ended next to a registry read from before the child, and the session went on for the
+/// application without the report saying so.
+fn ended_before<S>(session: &mut S, alive: fn(&S) -> bool, then: impl FnOnce(&mut S)) -> bool {
+    let ended = !alive(session);
+    then(session);
+    ended
 }
 
 /// Why a target vanished inside the guard window with nothing on the session clock left running.
@@ -1045,6 +1061,20 @@ pub(crate) fn reclaim_notice(reclaimed: chrono_mech::Reclaimed) -> Option<&'stat
     }
 }
 
+/// The key for a target that ended while Windows was loading it (R4-S6). The four statuses the loader
+/// ends a process with when a static import fails are each named for what the tester can do about it,
+/// and every other code - a library's start-up code that ended the process itself, say - gets one key
+/// that says only what is known: the application ended before it ran.
+pub(crate) fn loader_failure_key(code: u32) -> &'static str {
+    match code {
+        0xC000_0135 => "target.loader_dll_not_found",
+        0xC000_0139 => "target.loader_entry_missing",
+        0xC000_007B => "target.loader_bad_image",
+        0xC000_0142 => "target.loader_init_failed",
+        _ => "target.died_while_loading",
+    }
+}
+
 pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static str, &'static str, String) {
     use chrono_mech::PrepareError as P;
     match e {
@@ -1052,6 +1082,14 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
         P::Control(m) => (3, "session.control_failed", "mechanism", m),
         P::Launch(m) => (2, "target.launch_failed", "mechanism", m),
         P::Inject(m) => (2, "target.inject_failed", "mechanism", m),
+        // The application's own start failed before the hook got its turn (R4-S6): exit 2 like every
+        // failure of the target, with the code on the detail line whichever key names it.
+        P::EndedLoading(code) => (
+            2,
+            loader_failure_key(code),
+            "mechanism",
+            format!("the target ended while Windows was loading it, with code 0x{code:08X}"),
+        ),
         // A usage error, not a failure of the target (docs/08 section 8, exit 1): nothing is wrong
         // with the application - the wrong build of the tool was pointed at it, and the fix is a
         // different command. Injection cannot cross bitness, so this is a known impossibility
@@ -1086,6 +1124,63 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
 mod tests {
     use super::*;
     use crate::testutil::unique_temp_dir;
+
+    /// A target the loader ended is named by its status (R4-S6): four statuses each with the key that
+    /// says what to do about it, every other code with the general one, all exit 2, and the code on the
+    /// detail line whichever key names it.
+    #[test]
+    fn a_target_the_loader_ended_is_named_by_its_status() {
+        for (code, key) in [
+            (0xC000_0135, "target.loader_dll_not_found"),
+            (0xC000_0139, "target.loader_entry_missing"),
+            (0xC000_007B, "target.loader_bad_image"),
+            (0xC000_0142, "target.loader_init_failed"),
+            (0xC000_0017, "target.died_while_loading"),
+            (1, "target.died_while_loading"),
+        ] {
+            let (exit, got, origin, detail) = map_prepare_error(chrono_mech::PrepareError::EndedLoading(code));
+            assert_eq!((exit, got, origin), (2, key, "mechanism"), "code 0x{code:08X}");
+            assert!(detail.contains(&format!("0x{code:08X}")), "the code is not on the detail line: {detail}");
+        }
+    }
+
+    /// A launcher that signs a child in and ends between two looks: running and alone at the first look,
+    /// ended with the child in the registry from the second on. Each look counts itself, and the registry
+    /// read says whether it saw the child.
+    struct LauncherWorld {
+        looks: std::cell::Cell<u32>,
+        registry_saw_child: Option<bool>,
+    }
+
+    fn launcher_runs(world: &LauncherWorld) -> bool {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        look == 0
+    }
+
+    fn read_registry(world: &mut LauncherWorld) {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        world.registry_saw_child = Some(look >= 1);
+    }
+
+    /// The family the session went on for is noted from a registry read taken after the launched process
+    /// was seen ended (R4-N11), so it holds every child the launcher started. The same world asked registry
+    /// first notes an ended launcher over a read from before its child, and the report stayed silent that
+    /// the session went on for the application.
+    #[test]
+    fn a_launcher_seen_ended_is_noted_with_every_child_it_started() {
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0), registry_saw_child: None };
+        assert!(!ended_before(&mut world, launcher_runs, read_registry), "the launcher still ran at the first look");
+        assert_eq!(world.registry_saw_child, Some(true), "the registry is read every time");
+        assert!(ended_before(&mut world, launcher_runs, read_registry));
+        assert_eq!(world.registry_saw_child, Some(true), "an ended launcher was noted over a registry without its child");
+
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0), registry_saw_child: None };
+        read_registry(&mut world);
+        let ended = !launcher_runs(&world);
+        assert!(ended && world.registry_saw_child == Some(false), "this world does not reproduce the race the order is there for");
+    }
 
     /// A takeover is always said, and said the way the previous session ended (R4-D19). The ordered end
     /// used to be reported as a dead core, which it was not.

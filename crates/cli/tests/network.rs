@@ -246,6 +246,19 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          a scratch file, and nothing reaches past this machine",
     ),
     (
+        "crates/cli/tests/loader_failure.rs",
+        "spawn",
+        "runs two sessions through the built binary: one on a copy of this test binary whose imported \
+         library was renamed, which ends while Windows loads it, and one on this test binary's own ignored \
+         probe, which writes the error mode it runs with to a scratch file. Nothing reaches past this machine",
+    ),
+    (
+        "crates/cli/tests/target_exit.rs",
+        "spawn",
+        "runs this test binary's own ignored probe under a session through the built binary, and the probe \
+         only reads the clock, waits and ends with a chosen code. Nothing reaches past this machine",
+    ),
+    (
         "crates/cli/tests/launch_job.rs",
         "spawn",
         "runs this test binary under a session through the built binary, and a callback in it ends the \
