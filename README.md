@@ -355,10 +355,11 @@ this computer, for as long as the engine runs - the report says so, names the po
 (or the checkbox in the window) leaves the pages on the real clock and opens nothing. The engine's
 helper processes and the renderer's own native reads stay on the real clock, so such a session is
 reported as PARTIAL with the reason spelled out. An application running elevated is out of reach by
-default: the engine ignores the variables there, so its pages stay on the real clock. The session says
-so instead of reporting success - it is PARTIAL, with the reason spelled out - and running Chrono Mock
-without administrator rights reaches those pages. So does the opt-in below, for the case where the
-application has to run as administrator.
+default: the engine ignores the variables there, so its pages stay on the real clock. An application
+runs elevated when Chrono Mock does, because it inherits that. The session says so instead of
+reporting success - it is PARTIAL, with the reason spelled out. Run Chrono Mock without administrator
+rights and the application starts without them too, and its pages are reached. An application that has
+to run as administrator is reached by the opt-in below, from a Chrono Mock that runs as administrator.
 
 **Reaching the pages of an application that runs as administrator (opt-in, off by default).**
 `chrono run app.exe --elevated-embedded`, or the checkbox "Reach the web pages of an application that
