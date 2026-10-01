@@ -129,6 +129,19 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The duration clocks no longer step back when the speed changes or the core stops.** Under
+  `--scale-duration` and `--scale-qpc`, a speed change could answer one read from the old speed and the
+  next from the new one for an overlapping moment, and the later read came back lower. Measured over
+  20 s of changes between x1440 and x1, `QueryPerformanceCounter` stepped back 1,627 times on x64 and
+  2,149 times on x86, by up to 0.18 s, and an earlier run caught the tick count stepping back 1.4 s. A
+  core that died at x1440 sent `QueryPerformanceCounter` back by up to about a millisecond in every
+  thread that was reading it as the application was let go. Both are gone, 0 in the same runs: a speed
+  change reads its instant inside its own write, every clock read takes the real clock inside the same
+  window as the anchor it projects from, and an application a dead core left behind keeps the session's
+  speed for 100 ms more before it carries on at the real speed from where its clocks stood. The tick
+  count is now derived from `QueryUnbiasedInterruptTime`, so it no longer falls behind by up to a
+  millisecond at every speed change. The cost, measured: about 7 ns more per `QueryPerformanceCounter`
+  call under `--scale-qpc` on x64 and 11 ns on x86, nothing measurable on the wall clock.
 - **An application that cannot load is named for what it lacks, at once.** An application whose
   library was missing, built for the other bitness, without a function it needs, or refusing to
   initialise ended before it ran, and the session reported a single-instance application that
