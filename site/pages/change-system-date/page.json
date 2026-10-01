@@ -1,0 +1,24 @@
+{
+  "//": "The query is 'change system date for testing', typed by people who are about to do the thing that breaks their machine. Problem-led rather than product-led, and it says plainly when changing the clock is the right answer (a throwaway VM), which is what keeps it credible. The table states Microsoft's documented defaults - Kerberos clock skew, Windows Time on a domain member - as defaults, not as promises.",
+
+  "id": "change-system-date",
+  "order": 35,
+  "nav": true,
+  "indexable": false,
+  "group": "tools",
+
+  "languages": {
+    "en": {
+      "slug": "change-system-date-testing",
+      "link_text": "Don't change the clock",
+      "title": "Changing the system date to test: what breaks on Windows",
+      "description": "Setting the Windows clock to test a date moves the whole machine - logon, certificates, time sync. What breaks, and how to move one app's clock instead."
+    },
+    "pl": {
+      "slug": "zmiana-daty-systemowej-w-testach",
+      "link_text": "Nie zmieniaj zegara",
+      "title": "Zmiana daty systemowej do testów - co psuje się w Windows",
+      "description": "Przestawienie zegara Windows na potrzeby testu przestawia całą maszynę: logowanie do domeny, certyfikaty, synchronizację czasu. Co się psuje i jak przesunąć zegar jednej aplikacji."
+    }
+  }
+}

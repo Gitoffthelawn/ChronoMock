@@ -1,0 +1,116 @@
+<!-- Zmiana daty systemowej do testów, po polsku. Struktura, klasy i tokeny jak w en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Zmiana daty systemowej, żeby przetestować aplikację</h1>
+    <p class="sub">
+      To najstarsza sztuczka na świecie: ustaw zegar Windows na datę, którą chcesz sprawdzić,
+      uruchom program, ustaw z powrotem. Działa - a dopóki zegar jest przestawiony, przestawia
+      też wszystko inne na komputerze.
+    </p>
+  </section>
+
+  <section>
+    <h2>Co naprawdę przesuwa się razem z zegarem</h2>
+    <div class="prose">
+      <p>
+        Zegar systemowy nie należy tylko do testowanego programu. Każdy proces, usługa i połączenie
+        sieciowe na maszynie czyta ten sam zegar, więc zmiana zrobiona na potrzeby jednego testu
+        jest zmianą dla wszystkich.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Co czyta zegar</th><th>Co się dzieje, gdy go przestawisz</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Logowanie do domeny i foldery sieciowe</td><td>Kerberos domyślnie toleruje różnicę zegarów do pięciu minut. Powyżej tego odrzuca bilety, a logowanie albo otwarcie udziału sieciowego kończy się błędem.</td></tr>
+          <tr><td>Certyfikaty i HTTPS</td><td>To, czy certyfikat jest ważny, rozstrzyga zegar. Ustaw go za datą końca certyfikatu, a każde połączenie, które na nim polega, zostanie odrzucone jako wygasłe; cofnij go dostatecznie daleko, a certyfikat jeszcze nie obowiązuje.</td></tr>
+          <tr><td>Usługa czasu systemu Windows</td><td>Komputer w domenie pobiera czas z kontrolera domeny, a usługa domyślnie koryguje zegar bez względu na wielkość różnicy. Ustawiona przez ciebie data może zniknąć, gdy jeszcze testujesz.</td></tr>
+          <tr><td>Wszystko, co zapisuje czas</td><td>Pliki, logi, wiersze w bazie i wysłane maile powstałe przy przestawionym zegarze noszą datę testu i zachowują ją po przywróceniu zegara.</td></tr>
+          <tr><td>Oprogramowanie pamiętające najpóźniejszą widzianą datę</td><td>Niektóre programy czytają cofnięty zegar jako manipulację - a właśnie to się dzieje, gdy przywracasz prawdziwą datę.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Im dalsza data, tym więcej z tego spotkasz. Maszyna ustawiona na rok 2038 widzi każdy
+        wystawiony dziś certyfikat jako wygasły.
+        <a href="/pl/testowanie-roku-2038/">Jak testować rok 2038 bez tego &rarr;</a>
+      </p>
+      <p>
+        Potrzebne jest do tego także uprawnienie, którego większość kont nie ma: zmiana czasu
+        systemowego to przywilej administratora, a na zarządzanej maszynie często nie jest twoim
+        do użycia.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kiedy zmiana zegara jest dobrą odpowiedzią</h2>
+    <div class="prose">
+      <p>
+        Maszyna wirtualna, z której nikt poza tobą nie korzysta, z wyłączoną synchronizacją zegara,
+        jest całkiem dobrym stanowiskiem testowym. Wyrzucasz ją potem, więc nic, co zapisała, nie
+        ma znaczenia. Jeśli ją masz, a test dotyczy jednej daty, to najprostsza rzecz, która działa.
+      </p>
+      <p>
+        Kłopoty zaczynają się, gdy to maszyna, na której pracujesz, ta w domenie albo ta, na której
+        działa coś, co niczego nie może zauważyć.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Przesuń zegar jednego programu</h2>
+    <div class="prose">
+      <p>
+        Przesunięty czas widzi <strong>jeden proces i procesy potomne, które uruchomi</strong>.
+        Twoje logowanie do domeny, certyfikaty i Windows Update nigdy go nie widzą, więc nic z
+        tabeli powyżej się nie przesuwa - i nie ma czego potem przywracać.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aplikacja widzi 31 grudnia 2027, 23:59:50. Cała reszta ma prawdziwą datę.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Start dziesięć minut przed północą, tempo 60 razy szybsze - rok zmienia się w dziesięć sekund</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        To, czy data przesunięta dla jednego programu rzeczywiście do niego dotarła, nie jest
+        czymś, co się zakłada. Każda sesja kończy się werdyktem i listą kanałów czasu, które
+        program faktycznie odczytał.
+        <a href="/pl/audyt-zrodel-czasu/">Skąd wiadomo, że zadziałało &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Czego to nie zastępuje</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Program, który pyta o czas serwer</strong>, leży poza zasięgiem lokalnej
+          podmiany. Sesja mówi o tym, gdy widzi, że program otwiera połączenie sieciowe, zamiast
+          zostawiać cię z założeniem, że test przeszedł.</li>
+        <li><strong>Testowanie samego systemu</strong> - usługi reagującej na zmianę prawdziwego
+          zegara, zadania harmonogramu, zachowania Windows przy zmianie czasu - nie ma zamiennika
+          dla zmiany zegara, na maszynie, na którą możesz sobie pozwolić.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wypróbuj</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pl/pobieranie/">Pobierz na Windows</a>
+      <a class="btn btn-ghost" href="/pl/scenariusze-testowe-dat/">Daty warte testowania</a>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,132 @@
+<!-- The Year 2038 problem on Windows, English.
+
+     The facts about Windows come from Microsoft's own documentation: the clock is a 64-bit
+     FILETIME counted from 1601, time_t has been 64-bit by default since Visual Studio 2005,
+     _USE_32BIT_TIME_T brings the old width back, and int and long stay 32-bit on 64-bit
+     Windows. The 2038 scenario carries an absolute UTC moment (presets/year-2038.json), which
+     is why the commands below pin the zone to +00:00 when they write a moment by hand. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testing for the Year 2038 problem on Windows</h1>
+    <p class="sub">
+      At 03:14:07 UTC on 19 January 2038, a signed 32-bit count of seconds since 1970 runs out.
+      The Windows clock runs on past it - the programs, file formats and libraries that kept their
+      own 32-bit copy do not. This is how to find those in one application, without setting the
+      date of the whole machine to 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>Where the bug can still be</h2>
+    <div class="prose">
+      <p>
+        The Windows clock is a 64-bit count of 100-nanosecond steps from 1601, so it has no 2038.
+        The C runtime's <code>time_t</code> has been 64-bit by default since Visual Studio 2005. What
+        is left is code that chose a 32-bit time, or lost the upper half on the way:
+      </p>
+      <ul>
+        <li><strong>32-bit builds compiled with <code>_USE_32BIT_TIME_T</code></strong>, or calling
+          <code>_time32</code> and <code>__time32_t</code> directly. Microsoft's own documentation
+          warns that such an application may fail after 18 January 2038.</li>
+        <li><strong>A 64-bit time stored in an <code>int</code> or a <code>long</code>.</strong> On
+          Windows both are 32 bits, even in a 64-bit program.</li>
+        <li><strong>Libraries, file formats, network protocols and database columns</strong> that
+          keep seconds since 1970 in 32 bits.</li>
+        <li><strong>Code that adds years.</strong> A twenty-year licence, a thirty-year loan
+          schedule or a certificate valid until 2040 crosses the boundary years before 2038 arrives.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Crossing the boundary in one application</h2>
+    <div class="prose">
+      <p>
+        The limit is defined in UTC and <code>--at</code> is read in the session zone, so pin the
+        zone to UTC when you write the moment yourself. The ready-made scenario already carries an
+        absolute UTC moment and needs no zone.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># The scenario: the session starts at the limit itself, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Start seventeen seconds before it and let the application cross it live</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Start earlier and run at 60 times speed - the limit arrives in about 14 seconds</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Or run on today's date and jump across it while the application is open</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        One second past the limit, a signed 32-bit counter becomes -2,147,483,648, which reads as
+        <strong>13 December 1901, 20:45:52 UTC</strong>. A date in 1901, a negative number, an item
+        that is suddenly expired or sorted first, an exception thrown from date code - those are
+        what the overflow looks like from the outside.
+      </p>
+      <p>
+        Setting the real clock to 2038 is the other way to get here, and it is the one that
+        breaks the most.
+        <a href="/change-system-date-testing/">What happens when you change the system date &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Checking that it reached the program</h2>
+    <div class="prose">
+      <p>
+        A test that passes because the program never saw 2038 is worse than no test. The report at the
+        end of every session says which clock the program read and how many times:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        The <strong>session</strong> line confirms the application's clock went past the limit. A
+        verdict of <em>works</em> with call counts means the program read the clock and was handed the
+        2038 date; <em>works partially</em> names the channels it read some other way.
+        <a href="/time-source-audit/">What the verdicts mean &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What a pass does not prove</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Only the program's own clock moved.</strong> A date it loads from a file or a
+          database is whatever is stored there, so a 2038 date inside the data is a separate test.
+          The date calculator works such dates out for you:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>A server the program talks to still runs on the real date.</strong> A 32-bit
+          limit on that side is out of reach, and the session warns when it sees the program open a
+          network connection.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Try it</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/download/">Download for Windows</a>
+      <a class="btn btn-ghost" href="/date-test-scenarios/">Other dates worth testing</a>
+    </div>
+  </section>
+
+</div>

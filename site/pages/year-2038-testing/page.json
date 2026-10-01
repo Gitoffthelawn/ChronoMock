@@ -1,0 +1,24 @@
+{
+  "//": "Weak competition for 'test Y2038 on Windows' - forum threads that say 'set the system date to 2038', which on a real machine breaks TLS and the domain. The page is honest that Windows' own clock is 64-bit and says where the 32-bit bug can still live (Microsoft's documented time_t, int and long behaviour). The commands pin the zone to +00:00 because the limit is defined in UTC and --at is read in the session zone.",
+
+  "id": "year-2038-testing",
+  "order": 45,
+  "nav": true,
+  "indexable": false,
+  "group": "features",
+
+  "languages": {
+    "en": {
+      "slug": "year-2038-testing",
+      "link_text": "Year 2038",
+      "title": "Year 2038 problem: test a Windows app past 03:14:07 UTC",
+      "description": "The Windows clock runs on past 2038. The bugs are in 32-bit time fields. How to run one app across 19 January 2038 without moving the system date."
+    },
+    "pl": {
+      "slug": "testowanie-roku-2038",
+      "link_text": "Rok 2038",
+      "title": "Problem roku 2038: test aplikacji Windows po 03:14:07 UTC",
+      "description": "Zegar Windows radzi sobie z rokiem 2038. Błędy siedzą w 32-bitowych polach czasu. Jak uruchomić jedną aplikację ponad 19 stycznia 2038 bez ruszania daty systemu."
+    }
+  }
+}

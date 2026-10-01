@@ -1,0 +1,120 @@
+<!-- Changing the system date to test, English.
+
+     Problem-led page: the query is "change system date for testing", and the people typing it are
+     about to do the thing that breaks their machine. The facts in the table are Microsoft's own
+     documented defaults (Kerberos clock skew of five minutes, Windows Time on a domain member),
+     stated as defaults rather than as promises. The section saying when moving the clock is the
+     right answer is deliberate - same posture as the RunAsDate page. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Changing the system date to test an application</h1>
+    <p class="sub">
+      It is the oldest trick there is: set the Windows clock to the date you want to test, run the
+      program, set it back. It works - and for as long as the clock is moved, it moves everything
+      else on the machine too.
+    </p>
+  </section>
+
+  <section>
+    <h2>What actually moves with the clock</h2>
+    <div class="prose">
+      <p>
+        The system clock is not private to the program you are testing. Every process, service and
+        network conversation on the machine reads the same one, so a change made for one test is a
+        change made for all of them.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>What reads the clock</th><th>What happens when you move it</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Domain logon and shared folders</td><td>Kerberos tolerates a clock difference of five minutes by default. Beyond that its tickets are refused, and logging on or opening a share fails.</td></tr>
+          <tr><td>Certificates and HTTPS</td><td>Whether a certificate is valid is decided against the clock. Set it past a certificate's end date and every connection that relies on it is refused as expired; set it back far enough and the certificate is not valid yet.</td></tr>
+          <tr><td>The Windows Time service</td><td>A domain-joined machine takes its time from a domain controller, and by default the service corrects the clock whatever the size of the difference. The date you set can be undone while you are still testing.</td></tr>
+          <tr><td>Everything that records a time</td><td>Files, logs, database rows and sent mail written while the clock is moved carry the test date, and keep it after you put the clock back.</td></tr>
+          <tr><td>Software that remembers the latest date it has seen</td><td>Some programs read a clock that goes backwards as tampering - which is exactly what happens when you restore the real date.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        The further the date, the more of this you meet. A machine set to 2038 sees every
+        certificate issued today as expired.
+        <a href="/year-2038-testing/">Testing for 2038 without that &rarr;</a>
+      </p>
+      <p>
+        It also takes a right most accounts do not have: changing the system time is an
+        administrator privilege, and on a managed machine it is often not yours to use.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>When changing the clock is the right answer</h2>
+    <div class="prose">
+      <p>
+        A virtual machine that nobody else uses, with its own clock synchronisation switched off, is
+        a perfectly good test bench. You throw it away afterwards, so nothing it recorded matters.
+        If you have one and the test is a single date, it is the simplest thing that works.
+      </p>
+      <p>
+        The trouble starts when the machine is the one you work on, the one on the domain, or the
+        one that is also running something that must not notice.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Move one program's clock instead</h2>
+    <div class="prose">
+      <p>
+        The shifted time is visible to <strong>one process and the children it starts</strong>.
+        Your domain logon, your certificates and Windows Update never see it, so nothing in the
+        table above moves - and there is nothing to put back afterwards.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># The application sees 31 December 2027, 23:59:50. Everything else keeps the real date.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Start ten minutes before midnight and run at 60 times speed - the year rolls over in ten seconds</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Whether a date moved for one program actually reached it is not something to assume. Every
+        session ends with a verdict and the list of time channels the program really read.
+        <a href="/time-source-audit/">How you know it worked &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What this does not replace</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>A program that asks a server for the time</strong> is outside what a local
+          substitution can reach. The session says so when it sees the program open a network
+          connection, rather than leaving you to assume the test passed.</li>
+        <li><strong>Testing the system itself</strong> - a service that reacts to the real clock
+          changing, a scheduled task, how Windows behaves around a clock change - has no
+          substitute for changing the clock, on a machine you can afford to.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Try it</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/download/">Download for Windows</a>
+      <a class="btn btn-ghost" href="/date-test-scenarios/">Dates worth testing</a>
+    </div>
+  </section>
+
+</div>
