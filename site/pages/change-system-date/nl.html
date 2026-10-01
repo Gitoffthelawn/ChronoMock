@@ -1,0 +1,114 @@
+<!-- Systeemdatum wijzigen om te testen, Nederlands. Structuur, klassen en tokens als in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>De systeemdatum wijzigen om een applicatie te testen</h1>
+    <p class="sub">
+      Het is de oudste truc die er is: de Windows-klok op de datum zetten die je wilt testen, het
+      programma draaien en de klok terugzetten. Het werkt - en zolang de klok verzet is, verzet hij ook
+      al het andere op de machine.
+    </p>
+  </section>
+
+  <section>
+    <h2>Wat er echt meeverschuift met de klok</h2>
+    <div class="prose">
+      <p>
+        De systeemklok is niet van alleen het programma dat je test. Elk proces, elke service en elk
+        netwerkgesprek op de machine leest dezelfde, dus een wijziging voor één test is een wijziging voor
+        allemaal.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Wat de klok leest</th><th>Wat er gebeurt als je hem verzet</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Domeinaanmelding en gedeelde mappen</td><td>Kerberos accepteert standaard een klokverschil van vijf minuten. Daarboven worden de tickets geweigerd en mislukt het aanmelden of het openen van een share.</td></tr>
+          <tr><td>Certificaten en HTTPS</td><td>Of een certificaat geldig is, wordt bepaald aan de hand van de klok. Zet hem voorbij de einddatum van een certificaat en elke verbinding die daarop steunt wordt geweigerd als verlopen; zet hem ver genoeg terug en het certificaat is nog niet geldig.</td></tr>
+          <tr><td>De Windows Time-service</td><td>Een machine in een domein haalt de tijd bij een domeincontroller, en standaard corrigeert de service de klok ongeacht de grootte van het verschil. De datum die je instelde kan ongedaan worden gemaakt terwijl je nog test.</td></tr>
+          <tr><td>Alles wat een tijd vastlegt</td><td>Bestanden, logs, databaserijen en verzonden e-mails die ontstaan terwijl de klok verzet is, dragen de testdatum en houden die nadat je de klok hebt teruggezet.</td></tr>
+          <tr><td>Software die de laatste gezien datum onthoudt</td><td>Sommige programma's lezen een klok die terugloopt als knoeien - en dat is precies wat er gebeurt als je de echte datum herstelt.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Hoe verder de datum, hoe meer hiervan je tegenkomt. Een machine die op 2038 staat, ziet elk
+        certificaat dat vandaag is uitgegeven als verlopen.
+        <a href="/nl/jaar-2038-testen/">2038 testen zonder dat &rarr;</a>
+      </p>
+      <p>
+        Het vraagt ook een recht dat de meeste accounts niet hebben: de systeemtijd wijzigen is een
+        beheerdersrecht, en op een beheerde machine is het vaak niet aan jou.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wanneer de klok verzetten het juiste antwoord is</h2>
+    <div class="prose">
+      <p>
+        Een virtuele machine die niemand anders gebruikt, met haar eigen kloksynchronisatie uitgeschakeld,
+        is een prima testbank. Je gooit hem daarna weg, dus niets wat hij heeft vastgelegd doet ertoe. Als
+        je er een hebt en de test één datum betreft, is het het simpelste dat werkt.
+      </p>
+      <p>
+        De problemen beginnen wanneer het de machine is waarop je werkt, die in het domein, of een
+        machine waarop tegelijk iets draait dat niets mag merken.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Verzet in plaats daarvan de klok van één programma</h2>
+    <div class="prose">
+      <p>
+        De verschoven tijd is zichtbaar voor <strong>één proces en de kinderen die het start</strong>. Je
+        domeinaanmelding, je certificaten en Windows Update zien hem nooit, dus niets uit de tabel
+        hierboven verschuift - en er is niets om achteraf terug te zetten.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># De applicatie ziet 31 december 2027, 23:59:50. Al het andere houdt de echte datum.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Tien minuten voor middernacht starten en op x60 snelheid draaien - de jaarwisseling komt in tien seconden</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Of een voor één programma verschoven datum het ook echt bereikte, is niet iets om aan te nemen.
+        Elke sessie eindigt met een oordeel en de lijst van tijdkanalen die het programma werkelijk las.
+        <a href="/nl/tijdbronnen-audit/">Hoe weet je dat het gewerkt heeft &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat dit niet vervangt</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Een programma dat een server naar de tijd vraagt</strong>, ligt buiten het bereik van
+          een lokale vervanging. De sessie meldt het als ze ziet dat het programma een netwerkverbinding
+          opent, in plaats van je te laten aannemen dat de test geslaagd is.</li>
+        <li><strong>Het systeem zelf testen</strong> - een service die reageert op een wijziging van de
+          echte klok, een geplande taak, hoe Windows zich rond een klokwijziging gedraagt - kent geen
+          alternatief voor het verzetten van de klok, op een machine die je kunt missen.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/datum-testscenarios/">Datums om te testen</a>
+    </div>
+  </section>
+
+</div>

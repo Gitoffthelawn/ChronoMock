@@ -49,6 +49,12 @@
       "link_text": "Non cambiare l'orologio",
       "title": "Data di sistema cambiata per i test: cosa si rompe su Windows",
       "description": "Cambiare l'orologio di Windows per testare una data sposta l'intera macchina: dominio, certificati, sincronizzazione. Cosa si rompe e come spostare una sola app."
+    },
+    "nl": {
+      "slug": "systeemdatum-wijzigen-testen",
+      "link_text": "Verander de klok niet",
+      "title": "Systeemdatum wijzigen om te testen: wat breekt er in Windows",
+      "description": "De Windows-klok verzetten om een datum te testen verzet de hele machine: domein, certificaten, tijdsync. Wat er breekt en hoe je alleen één app verzet."
     }
   }
 }

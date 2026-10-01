@@ -49,6 +49,12 @@
       "link_text": "Anno 2038",
       "title": "Problema dell'anno 2038: testare un'app Windows (03:14:07 UTC)",
       "description": "L'orologio di Windows supera il 2038; i campi di tempo a 32 bit no. Come far attraversare il 19 gennaio 2038 a una sola app senza toccare la data di sistema."
+    },
+    "nl": {
+      "slug": "jaar-2038-testen",
+      "link_text": "Jaar 2038",
+      "title": "Jaar-2038-probleem: een Windows-app testen na 03:14:07 UTC",
+      "description": "De Windows-klok loopt door na 2038; 32-bits tijdvelden niet. Zo laat je één app 19 januari 2038 passeren zonder de systeemdatum te wijzigen."
     }
   }
 }
