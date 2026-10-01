@@ -1,0 +1,93 @@
+<!-- Electron과 Chromium, 한국어. 구조, 클래스, 토큰은 en.html과 같습니다. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Electron 앱에서 날짜 속이기</h1>
+    <p class="sub">
+      이것을 검색하면 모든 답이 자기 코드를 바꾸는 이야기뿐입니다. <code>Date</code> 객체를 모킹하거나 테스트 프레임워크의 가짜 타이머를 쓰라는 식입니다. 이미 빌드된 앱만 있을 때는 그중 어느 것도 도움이 되지 않습니다. 이 도구는 이미 가진 앱을 그대로 실행합니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>인젝션이 닿지 않는 이유</h2>
+    <div class="prose">
+      <p>
+        이 모드는 구체적인 실패 때문에 생겼습니다. Electron으로 만든 포모도로 타이머를 <code>x60</code> 세션에서 실행했는데 카운트다운이 전혀 움직이지 않았습니다. 앱의 번들을 뜯어 보니 서로 독립적인 두 가지 이유가 나왔고, 어느 것도 네이티브 쪽에서는 해결책이 없었습니다.
+      </p>
+      <ul>
+        <li>카운트다운은 시계를 읽고 있지 않았습니다. Web Worker 안에서 실행되는 <strong><code>setInterval</code>이 증가시키는 카운터</strong>였습니다. 앱이 지금 몇 시인지 한 번도 묻지 않으니 가로챌 시간 호출이 없었습니다.</li>
+        <li>그 Worker는 <strong>샌드박스된 렌더러 프로세스</strong> 안에 있으며, 외부에서 인젝션한 라이브러리가 들어가지 못하는 바로 그 자리입니다.</li>
+      </ul>
+      <p>
+        그래서 Windows 쪽 메커니즘은 여기서 도움이 되지 못하고, 대신 앱 자신의 JavaScript 엔진과 직접 이야기하는 것이 해답입니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>대신 일어나는 일</h2>
+    <div class="prose">
+      <p>
+        앱은 디버깅 포트와 깨끗한 일회용 프로필로 시작되며, 앱 자신의 시간 API가 DevTools 프로토콜을 통해 세션 시계로 바뀝니다. <code>Date.now</code>, <code>new Date()</code> 생성자, <code>performance.now</code>, <code>setTimeout</code>, <code>setInterval</code>이 대상입니다.
+      </p>
+      <p>
+        이 덮어쓰기는 앱이 여는 모든 컨텍스트에, <strong>Web Worker를 포함해서</strong> 설치됩니다. 타이머가 보통 들어 있는 곳이며, 네이티브 인젝션이 결코 닿을 수 없는 유일한 곳입니다.
+      </p>
+      <p>
+        조작하는 방식은 아무것도 달라지지 않습니다. 같은 명령, 같은 창, 두 시계와 판정이 있는 같은 세션 패널입니다.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 네이티브 앱과 같은 명령 - 모드는 자동으로 감지됨</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>시작하기 전에 알아 둘 두 가지 제한</h2>
+
+    <div class="note warning">
+      <p><strong>실행 방식은 침습적이며, 일부러 그 사실을 크게 알립니다.</strong></p>
+      <p>
+        앱은 원격 디버깅 포트가 열린 채, <code>%TEMP%</code> 아래의 새로운 격리 프로필로 시작됩니다. 실제 프로필에서 실행되지 않으며, 시스템 트레이에 이미 떠 있는 사본도 아닙니다. 프로필은 세션이 끝나면 삭제되고, 삭제하지 못했다면 조용히 남겨 두지 않고 세션 요약이 그 사실을 알립니다.
+      </p>
+      <p>
+        직접 지정한 <code>--user-data-dir</code>나 <code>--remote-debugging-port</code>는 덮어쓰기 대신 거부됩니다. 세션을 실제 브라우저 프로필로 향하게 하는 뻔한 사고는 허용할 가치가 없기 때문입니다.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>세션 시간대는 호스트를 따릅니다.</strong></p>
+      <p>
+        이 모드에서는 시점은 속이지만 로컬 시간 게터는 속이지 않으므로, <a href="/ko/timezone-testing/">독립된 시간대</a>는 네이티브 모드 전용 기능입니다. 이는 이 버전의 한계이지 결정이 아닙니다.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        사람들이 놀라는 점이 하나 더 있습니다. 세션 도중 속도를 바꿔도 <em>이미 예약된</em> 인터벌은 원래 속도를 유지합니다. <code>Date.now</code>, <code>new Date()</code>, <code>performance.now</code>는 즉시 반응하지만 실행 중인 <code>setInterval</code>은 반응하지 않으며, 변경이 아무 일도 하지 않았다고 결론짓지 않도록 세션이 이를 경고합니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>얼마나 잘 테스트되었나요</h2>
+    <div class="prose">
+      <p>
+        <strong>실험적</strong>이며, 이 말에는 여기서 정해진 의미가 있습니다. 만들어질 때 대상으로 삼은 앱에서는 동작하고, 폭넓게 테스트되지는 않았으며, 신뢰할 수 있는 출처는 이 페이지가 아니라 내장된 감사입니다. 자동화된 테스트 모음이 아니라, 64비트 Windows의 실제 Electron 애플리케이션을 대상으로 직접 확인했습니다.
+      </p>
+      <p>
+        커버리지는 프로세스 단위가 아니라 JavaScript 컨텍스트 단위로 보고됩니다. 여기서 존재하는 단위가 그것이기 때문입니다. 가만히 있으며 시간을 한 번도 묻지 않는 앱은 솔직하게 <em>판단 불가</em>를 냅니다. 시계를 읽지 않았으므로 올바른 시계를 보았을지에 대해 아무것도 주장할 수 없습니다. <a href="/ko/time-source-audit/">판정의 의미 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>직접 써 보세요</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ko/download/">Windows용 다운로드</a>
+      <a class="btn btn-ghost" href="/ko/faq/">FAQ 읽기</a>
+    </div>
+  </section>
+
+</div>

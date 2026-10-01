@@ -104,6 +104,12 @@
       "link_text": "Electron と Chromium",
       "title": "Electron / Chromium アプリで日付を偽装する",
       "description": "これらの時計はインジェクションが届かないサンドボックス化されたレンダラー内にあります。別の仕組みで、Worker を含むアプリの JavaScript の時間 API をセッションの時計に載せ替えます。"
+    },
+    "ko": {
+      "slug": "electron-chromium",
+      "link_text": "Electron과 Chromium",
+      "title": "Electron·Chromium 앱에서 날짜 속이기",
+      "description": "이들의 시계는 인젝션이 닿지 않는 샌드박스 렌더러 안에 있습니다. 다른 메커니즘으로 Worker를 포함한 앱의 JavaScript 시간 API를 세션 시계에 올립니다."
     }
   }
 }

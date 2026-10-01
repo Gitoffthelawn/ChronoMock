@@ -102,6 +102,12 @@
       "link_text": "ダウンロード",
       "title": "Chrono Mock for Windows をダウンロード - 無料・インストール不要",
       "description": "無料の Windows 版をダウンロード。デスクトップアプリとコマンドラインツールの 2 種類があり、インストーラー、管理者権限、レジストリへの書き込みは不要です。"
+    },
+    "ko": {
+      "slug": "download",
+      "link_text": "다운로드",
+      "title": "Chrono Mock Windows 다운로드 - 무료, 설치 불필요",
+      "description": "무료 Windows 버전을 다운로드하세요. 데스크톱 앱과 명령줄 도구가 있으며, 설치 프로그램, 관리자 권한, 레지스트리 기록이 필요 없습니다."
     }
   }
 }

@@ -1,0 +1,117 @@
+<!-- 테스트할 가치가 있는 날짜, 한국어. 구조, 클래스, 토큰은 en.html과 같습니다. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>테스트할 가치가 있는 날짜</h1>
+    <p class="sub">
+      소프트웨어는 평범한 화요일에는 고장 나지 않습니다. 분기의 마지막 날, 2월 29일, 해가 바뀌는 순간, 그리고 라이선스가 만료된 1초 뒤에 고장 납니다. 이런 버그를 찾아내는 날짜들이 바로 이것이며, 그중 <strong>{{preset_count}}</strong>개가 이름이 붙은 시나리오로 제공됩니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>기간 경계</h2>
+    <div class="prose">
+      <p>
+        기간을 마감하거나, 문서에 연도별로 번호를 매기거나, 마감일까지 누적하는 모든 것은 여기서 가장 먼저 틀립니다.
+      </p>
+      <ul>
+        <li><strong>월말</strong> - 월말 마감과 기간 누적이 그달의 마지막 날에 제대로 동작하는가?</li>
+        <li><strong>분기 마지막 날</strong> - 분기 마감과 보고가 분기의 마지막 날에 제대로 동작하는가?</li>
+        <li><strong>회계 연도 마지막 날</strong> - 앱이 회계 연도를 올바른 날, 즉 새 회계 연도가 시작되기 전날에 마감하는가?</li>
+        <li><strong>실시간 연도 전환</strong> - 문서 번호, 이름에 들어가는 연도, 연간 보고가 연도 전환을 <em>일어나는 도중에</em> 제대로 처리하는가? 나중에 다시 시작하는 것이 아니라.</li>
+      </ul>
+      <p>
+        마지막 항목은 대부분 아예 테스트할 수 없는 것입니다. 앱이 실행되는 동안 시계가 12월 31일 자정을 넘어가야 하기 때문입니다. 가속된 시계로는 10초면 되는 일입니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>달력과 표현의 가장자리</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>2월 29일</strong> - 4년에 한 번만 존재하는 윤일이며, 놀랄 만큼 많은 검증 코드가 이 날짜를 아예 거부합니다.</li>
+        <li><strong>Unix 에포크 0</strong> - 앱이 1970년 1월 1일을 실제 날짜로 취급하는가, 아니면 저장을 거부했어야 하는 빈 값으로 취급하는가?</li>
+        <li><strong>2038년 경계</strong> - 부호 있는 32비트 <code>time_t</code>가 바닥나는 순간, <code>2038-01-19T03:14:07Z</code>입니다. 1초 뒤 카운터가 넘쳐 1901년이 됩니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>라이선스, 체험 기간, 설치</h2>
+    <div class="prose">
+      <p>
+        이것들은 <em>자신의</em> 라이선스 처리를 테스트하기 위한 것이며, 그 목적으로 만들어졌습니다.
+      </p>
+      <ul>
+        <li><strong>체험 기간 마지막 날</strong> - 체험 기간의 정말 마지막 순간에도 앱이 동작하는가?</li>
+        <li><strong>체험 기간 만료 후 첫날</strong> - 체험 기간이 끝나는 순간 접근을 거부하는가, 그리고 어떻게 거부하는가? 알아볼 수 있는 메시지인가, 스택 트레이스인가?</li>
+        <li><strong>1년 전에 만료된 라이선스</strong> - 어제가 아니라 오래전에 만료된 라이선스도 처리하는가?</li>
+        <li><strong>설치 이전 날짜</strong> - 시계가 앱 자신의 설치 날짜보다 앞으로 설정되었을 때 제대로 동작하는가? 이 시나리오는 대상 자체의 파일 날짜를 읽으므로 매개변수가 필요 없습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>업무 규칙과 시계 동작</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>결제 기한, +N영업일</strong> - N영업일 뒤가 기한인 결제가 주말과 해당 국가의 공휴일을 건너뛰어 올바른 날에 떨어지는가? 달력이 필요한 유일한 시나리오이며, 답은 시장마다 다릅니다.</li>
+        <li><strong>성년 기준 경계</strong> - 앱이 딱 경계에 있는 사람은 받아들이고 하루 모자란 사람은 거절하는가?</li>
+        <li><strong>시계 오차, +90초</strong> - 앱의 시계가 실제 시간보다 90초 빠를 때 대처하는가? 시간 기반 일회용 비밀번호와 토큰 검증을 깨뜨리는 경우입니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>사용하는 방법</h2>
+    <div class="prose">
+      <p>
+        시나리오는 이름이 붙은 날짜 식입니다. 계산기가 그 의미를 계산하고, 대체 기능이 그 날짜로 앱을 실행합니다. 두 곳에서 같은 이름을 씁니다.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 어떤 날짜이고, 그 날짜는 무엇을 테스트하는가?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># 그 날짜로 앱을 실행</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># 체험 시나리오는 시작일을 대상 자체의 파일 날짜에서 가져옴</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        창에서는 날짜 입력란 위의 칩으로 나타나며, 클릭 한 번으로 채워집니다. 각 칩에는 무엇을 잡아내는지 설명하는 문장이 붙어 있는데, 온라인 날짜 계산기가 줄 수 없는 부분입니다.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Scenarios 섹션이 열린 Chrono Mock 설정 화면. 목록 위에 검색란이 있고, 각 기성 날짜가 답하는 질문과 함께 나열됩니다 - 2038년 경계, 2월 29일, 90초 빠르게 가는 시계, 월말 - 그리고 목록 아래에는 세 개 더는 직접 고르는 값이 필요하다는 줄이 있습니다. 하단은 Start 버튼 위에서 시점을 쉬운 말로 다시 읽어 줍니다.">
+      <figcaption>각 시나리오는 날짜만이 아니라 답하는 질문을 함께 담고 있습니다. 직접 고르는 값이 필요한 세 가지는 숨기지 않고 목록 아래에 이름을 밝혔습니다.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>여기에 없는 것</h2>
+    <div class="prose">
+      <p>
+        <strong>서머타임 전환.</strong> 앱을 시계가 앞으로 가거나 뒤로 가는 경계로 통과시키는 것은 정말 유용한 테스트이며 <em>의도적으로 빠져 있습니다</em>. 세션 시간대는 서머타임이 없는 고정 오프셋이라 시뮬레이션할 전환이 아직 없기 때문입니다. 조용히 아무것도 하지 않는 시나리오를 내놓는 것은 내놓지 않는 것보다 나쁩니다.
+      </p>
+      <p>
+        시간대 규칙 모델과 함께 돌아올 것입니다. <a href="/ko/timezone-testing/">시간대가 하는 일과 하지 않는 일 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>직접 써 보세요</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ko/download/">Windows용 다운로드</a>
+      <a class="btn btn-ghost" href="/ko/date-calculator/">계산기</a>
+    </div>
+  </section>
+
+</div>

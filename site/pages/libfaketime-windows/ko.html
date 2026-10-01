@@ -1,0 +1,111 @@
+<!-- Windows의 libfaketime, 한국어. 구조, 클래스, 토큰은 en.html과 같습니다. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows용 libfaketime</h1>
+    <p class="sub">
+      <strong>짧은 답:</strong> libfaketime은 Windows에서 동작하지 않으며, 동작할 수도 없습니다. Windows에 없는 <code>LD_PRELOAD</code> 위에 만들어졌기 때문입니다. Chrono Mock은 같은 발상을 Windows가 허용하는 방식으로 만든 것입니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>그냥 이식할 수 없는 이유</h2>
+    <div class="prose">
+      <p>
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a>은 동적 로더가 C 라이브러리 앞에 작은 라이브러리를 놓게 하는 방식으로 동작하므로, 프로그램의 <code>time()</code> 호출이 대체 함수에 먼저 도달합니다. 그 훅이 Linux에서는 <code>LD_PRELOAD</code>, macOS에서는 <code>DYLD_INSERT_LIBRARIES</code>입니다. 자체 README에도 정확히 이 두 플랫폼만 나열되어 있습니다.
+      </p>
+      <p>
+        Windows에는 그에 해당하는 것이 없고, Windows의 시계는 어차피 하나의 함수 뒤에 있지도 않습니다. 애플리케이션은 Win32 API, 그 아래의 네이티브 API, 그리고 런타임이 이 둘을 감싼 모든 것을 통해 시간을 읽습니다. 그래서 이 발상의 Windows 버전은 하나의 심볼이 아니라 내보낸 함수 집합을 리디렉션하는, 대상 프로세스에 인젝션된 라이브러리가 됩니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>플래그 대응표</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>여기서는 기본값 - 아래 참고</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>설정할 것 없음 - 도구가 직접 인젝션함</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">같은 테스트의 양쪽은 다음과 같습니다.</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>둘이 실제로 다른 점</h2>
+    <div class="prose">
+      <p>
+        <strong>모노토닉 시계는 반대입니다.</strong> libfaketime은 기본적으로 이를 속이며, 멈추려면 <code>FAKETIME_DONT_FAKE_MONOTONIC</code>을 쓰게 합니다. 여기서는 배율을 적용하면 테스트에서 렌더링이 불안정해졌기 때문에 고해상도 카운터가 기본적으로 실제 값이고, <code>--scale-qpc</code>로 켭니다. Python 3.13+의 <code>monotonic</code>, .NET의 <code>Stopwatch</code>, Java의 <code>nanoTime</code>이 세션 시계를 따르게 하는 것이 이 스위치입니다.
+      </p>
+      <p>
+        <strong>Windows에는 가로챌 곳이 더 많습니다.</strong> 벽시계 외에도 시간대, 경과 시간 축, 네 가지 타이머 계열, 슬립과 대기 함수, 프로세스 생성이 있어 모두 {{channel_count}}개 채널입니다.
+      </p>
+      <p>
+        <strong>이 도구는 자신의 커버리지를 보고합니다.</strong> 모든 세션은 판정, 앱이 실제로 읽은 채널과 각각의 횟수, 놓친 채널로 끝납니다. 어느 플랫폼에도 대응하는 것이 없는 부분입니다.
+      </p>
+      <p>
+        <strong>libfaketime은 더 오래되었고 자기 영역에서는 더 폭넓습니다.</strong> 수년간의 사용 경험이 있고 C 라이브러리의 다양한 진입점을 커버하며, Linux에서는 알맞은 도구입니다. 여기 있는 어떤 것도 그곳에서 libfaketime을 대체하지 않습니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>정말 libfaketime 자체가 필요하다면</h2>
+    <div class="prose">
+      <p>
+        솔직한 방법이 두 가지 있으며, 둘 다 테스트 대상 프로그램을 Linux로 옮깁니다.
+      </p>
+      <ul>
+        <li><strong>WSL</strong> - Linux 서브시스템 안에서 libfaketime을 빌드해 실행합니다. 테스트하는 것이 우연히 Windows에서 개발 중인 Linux 프로그램이라면 괜찮습니다.</li>
+        <li><strong>컨테이너</strong> - 같은 발상이며 재현성이 더 좋습니다.</li>
+      </ul>
+      <p>
+        어느 쪽도 Windows 애플리케이션에는 도움이 되지 않으며, 이 도구가 존재하는 이유가 바로 그 경우입니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>직접 써 보세요</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ko/download/">Windows용 다운로드</a>
+      <a class="btn btn-ghost" href="/ko/faq/">FAQ 읽기</a>
+    </div>
+  </section>
+
+</div>

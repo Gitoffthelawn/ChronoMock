@@ -1,0 +1,113 @@
+<!-- 시계 가속, 한국어. 구조, 클래스, 토큰은 en.html과 같습니다. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>앱 하나의 시계만 더 빠르게 돌리기</h1>
+    <p class="sub">
+      시간을 옮길 수 없다면 30일 체험 기간이 만료되는 데 30일이 걸립니다. 흔한 조언은 시스템 시계를 앞으로 미는 것인데, 관리자 권한이 필요하고 컴퓨터의 다른 모든 프로그램까지 끌려옵니다. 이 도구는 대신 프로세스 하나만 옮깁니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>얼마나 빠르게</h2>
+    <div class="prose">
+      <p>
+        정수 배율을 고르세요. 앱의 시계는 세션이 시작된 시점부터 실제 시계보다 그 배수만큼 빠르게 흐릅니다.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>배율</th><th>실제 1분이 되는 것</th><th>용도</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>한 시간</td><td>매시간 작업, 세션 타임아웃, 토큰 수명</td></tr>
+          <tr><td><code>x1440</code></td><td>하루</td><td>일 단위 전환, 30분 만에 끝나는 30일 체험 기간</td></tr>
+          <tr><td><code>x43200</code></td><td>30일 체험 기간</td><td>이 글을 읽는 동안 체험 기간 전체가 끝나는 것을 지켜보기</td></tr>
+          <tr><td><code>x525600</code></td><td>1년</td><td>연간 갱신, 인증서 만료</td></tr>
+          <tr><td><code>x1000000</code></td><td>약 1.9년</td><td>상한</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># 지금의 실제 시간에서 시작해 1분에 하루씩 돌리기</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># 선택한 날짜에서 시작해 거기서부터 가속하기</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># 반대로 시계를 완전히 멈춰 두기</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="다른 Windows 애플리케이션을 제어하는 세션의 녹화 화면. 왼쪽 창은 Chrono Mock으로, 앱의 시계가 2038-01-19에서 실제 속도의 60배로 올라가는 동안 옆의 실제 시계는 몇 초만 움직입니다. 오른쪽 창은 테스트 대상 앱으로, 자체 세션 기록에는 2038-01-19에 시작해 방 안에서는 겨우 30초 남짓 지나는 동안 몇 분째 실행 중인 것으로 나타납니다.">
+      <figcaption>실제 애플리케이션을 제어하는 실제 세션입니다. 오른쪽 창을 보세요. 테스트 대상 프로그램은 자신의 시작을 <strong>2038년 1월 19일</strong>로 기록했고, 방 안의 시계가 몇 초 움직이는 동안 세션은 몇 분간 이어졌습니다. 속도는 아무것도 다시 시작하지 않고 실행 중에 바뀝니다.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>사람들이 걸려 넘어지는 부분: 시계는 두 가지입니다</h2>
+    <div class="prose">
+      <p>
+        <strong>벽시계</strong>, 즉 <code>DateTime.Now</code>와 그에 해당하는 것들이 반환하는 값을 빠르게 한다고 해서 그것만으로 <strong>카운트다운</strong>이 빨라지지는 않습니다. 이는 애플리케이션이 운영 체제에 던질 수 있는 서로 다른 두 질문이며, 많은 소프트웨어가 “30일”을 앞의 것이 아니라 뒤의 것으로 잽니다.
+      </p>
+      <p>
+        그래서 지속 시간 축, 즉 틱 수, 슬립, 대기, 타이머는 별도의 스위치입니다.
+      </p>
+      <ul>
+        <li><code>--scale-duration</code>은 슬립, 대기, 타이머도 세션 시계에 올립니다. 이것이 없으면 <code>x1440</code>은 달력만 앞으로 질주시키고 5초 타이머는 여전히 실제 5초가 걸립니다.</li>
+        <li><code>--scale-qpc</code>는 추가로 고해상도 카운터에도 배율을 적용합니다. Python 3.13+의 <code>monotonic</code>, .NET의 <code>Stopwatch</code>, Java의 <code>nanoTime</code>이 경과 시간을 읽는 곳이며, 배율을 적용하면 테스트에서 렌더링이 불안정해졌기 때문에 기본값은 꺼짐입니다.</li>
+      </ul>
+      <p>
+        배율이 카운트다운에 아무 영향도 주지 않는 것처럼 보인다면 거의 항상 이것이 이유입니다.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 타이머 앱: 달력과 카운트다운을 모두 가속</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># 경과 시간을 고해상도 카운터로 재는 Python 또는 .NET 앱</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>다시 시작하지 않고 속도 바꾸기</h2>
+    <div class="prose">
+      <p>
+        배율은 세션 도중에 바꿀 수 있으며, 시계는 점프하는 대신 기준점을 다시 잡기 때문에 속도가 내려가도 뒤로 가는 일이 없습니다. 시계를 곧바로 점프시킬 수도 있습니다. 앞으로도, 노트북이 시간 서버와 다시 동기화한 뒤처럼 뒤로도 가능하며, 이는 보호 장치 없이 경과 시간을 재는 모든 것을 깨뜨리는 경우입니다.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># x60으로 실행하다가 2초 뒤에 x1440으로 전환</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># 실행하다가 5초 뒤에 시계를 선택한 시점으로 점프</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>하지 않는 일</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>시스템 시계는 건드리지 않습니다.</strong> 이것은 한계가 아니라 요점입니다. 다만 서버, 데이터베이스, 다른 컴퓨터에서 시간을 읽는 것은 영향을 받지 않는다는 뜻이며, 그런 일이 생기면 감사가 알려 줍니다.</li>
+        <li><strong>점프는 앱이 보는 시간을 바꾸는 것이지, 앱이 깨어나는 시점을 바꾸지는 않습니다.</strong> 이미 커널에 넘겨진 타이머는 실제 시간으로 동작합니다. 대부분의 앱은 시계를 폴링하므로 실제로는 점프가 통하지만, 전부 그런 것은 아닙니다.</li>
+        <li><strong>시간을 느리게 하지는 못합니다.</strong> 배율은 1 이상의 정수이며, 0에서 멈춘 시계가 있을 뿐입니다.</li>
+      </ul>
+      <p>
+        이 중 어느 것이 앱에 닿았는지는 짐작할 일이 아닙니다. <a href="/ko/time-source-audit/">세션이 알려 줍니다 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>직접 써 보세요</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ko/download/">Windows용 다운로드</a>
+      <a class="btn btn-ghost" href="/ko/faq/">FAQ 읽기</a>
+    </div>
+  </section>
+
+</div>

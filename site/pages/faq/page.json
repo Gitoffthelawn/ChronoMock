@@ -104,6 +104,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - Windows での日付偽装に関する質問",
       "description": "システム時計は変わる? 管理者権限は必要? 自分のアプリや .NET、Java、Electron で動く? できないことも含めた短い回答です。"
+    },
+    "ko": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Windows 날짜 속이기에 관한 질문",
+      "description": "시스템 시계가 바뀌나요? 관리자 권한이 필요한가요? 내 앱, .NET, Java, Electron에서 동작하나요? 하지 않는 일을 포함한 짧은 답변입니다."
     }
   }
 }

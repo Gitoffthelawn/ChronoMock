@@ -102,6 +102,12 @@
       "link_text": "CLI リファレンス",
       "title": "Chrono Mock CLI リファレンス - 全オプションと終了コード",
       "description": "chrono run と chrono calc の完全なリファレンス。すべてのコマンドラインフラグ、2 つの終了コード表、セッションレポートの読み方を網羅しています。"
+    },
+    "ko": {
+      "slug": "cli-reference",
+      "link_text": "CLI 레퍼런스",
+      "title": "Chrono Mock CLI 레퍼런스 - 모든 옵션과 종료 코드",
+      "description": "chrono run과 chrono calc의 전체 레퍼런스. 모든 명령줄 플래그, 두 가지 종료 코드 표, 세션 보고서를 읽는 방법을 담았습니다."
     }
   }
 }
