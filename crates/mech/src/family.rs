@@ -137,6 +137,17 @@ impl Family {
         }
     }
 
+    /// Whether `slot` is the launched process's own, which the session watches through its own handle.
+    pub(crate) fn is_root(&self, slot: usize) -> bool {
+        Some(slot) == self.root_slot
+    }
+
+    /// Whether the process in `slot` may still be running: it was when `refresh` last looked, or it has
+    /// not been looked at yet. A slot that ended, or could never be watched, may not.
+    pub(crate) fn may_run(&self, slot: usize) -> bool {
+        !matches!(self.watch.get(slot), Some(Watch::Done))
+    }
+
     /// The members still running when `refresh` last looked.
     pub(crate) fn living(&self) -> Vec<FamilyMember> {
         self.watch
@@ -199,7 +210,7 @@ fn membership(id: Identity, pid: u32, known: &HashSet<u32>, entries: Option<&[Pr
 /// A snapshot that could not be read (`entries` is `None`) answers yes, without a name. The handle
 /// opened at first sight is the guard that matters, and ending a session under a running application
 /// because a list was unreadable would be the failure this module exists to fix.
-fn member_of_family(pid: u32, known: &HashSet<u32>, entries: Option<&[ProcessEntry]>) -> Option<Option<String>> {
+pub(crate) fn member_of_family(pid: u32, known: &HashSet<u32>, entries: Option<&[ProcessEntry]>) -> Option<Option<String>> {
     match entries {
         None => Some(None),
         Some(list) => list

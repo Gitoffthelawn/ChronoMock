@@ -37,6 +37,7 @@ pub use process_facts::{process_elevated, process_has_module, process_image_name
 pub use stdio::TargetStdio;
 pub use tree::{descendants_of, family_of};
 
+use std::collections::HashSet;
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
@@ -367,6 +368,48 @@ impl SessionState {
 
 const STILL_ACTIVE_CODE: u32 = 259;
 
+/// The pids a parent's ring holds past what was already taken, and how far the taking got (R4-N18).
+/// `read(at)` is entry `at`, 0 for one claimed and not written yet. A parent that may still run writes it
+/// soon, so the walk stops there and the next poll reads on. One that has ended never will, and its
+/// hole used to hold back every entry after it for the rest of the session - those children were then
+/// only counted, never named. It is stepped over now, and the child it stood for stays in the count.
+fn ring_pids(taken: usize, named: usize, writer_may_run: bool, read: impl Fn(usize) -> u32) -> (Vec<u32>, usize) {
+    let mut pids = Vec::new();
+    let mut at = taken;
+    while at < named {
+        let pid = read(at);
+        if pid == 0 && writer_may_run {
+            break;
+        }
+        if pid != 0 {
+            pids.push(pid);
+        }
+        at += 1;
+    }
+    (pids, at)
+}
+
+/// An uncovered child, named only when the process under its pid is one the family started (R4-N13).
+/// The hook wrote the pid at the spawn, and the name is asked up to a poll later, so a child that ended
+/// in between left its pid to anybody. The snapshot's parent decides, as it does for a family member
+/// (`family::member_of_family`): a process started from outside the family is a stranger, and the child
+/// is reported the way an ended one is, by its pid alone. A snapshot that could not be read names it as
+/// before. Between the snapshot and the open behind `describe` the pid would have to be freed and taken
+/// again, which is the window of a few instructions.
+fn name_if_ours(
+    pid: u32,
+    parent_pid: u32,
+    known: &HashSet<u32>,
+    entries: Option<&[tree::ProcessEntry]>,
+    describe: impl FnOnce(u32) -> (Option<String>, Option<String>),
+) -> UncoveredChild {
+    let (image, command_line) = match family::member_of_family(pid, known, entries) {
+        Some(_) => describe(pid),
+        None => (None, None),
+    };
+    UncoveredChild { pid, parent_pid, image, command_line }
+}
+
 /// The family is alive when the launched process is, or any other process on its clock - asked in that
 /// order (R4-N11). A child the hook follows signs in to the registry while its parent is still inside
 /// the call that creates it, so a launched process that has ended left every child it started in the
@@ -590,36 +633,57 @@ impl Session {
     /// The pid comes from the parent's slot (the hook wrote it at the spawn, see
     /// `chrono_ctl::record_uncovered_child`), and only the pid: a detour must not allocate, so naming
     /// happens here, on the mechanism side, from a snapshot the OS still holds. A child that has
-    /// already exited keeps its pid and loses its name - the report says so rather than guessing.
+    /// already exited keeps its pid and loses its name - the report says so rather than guessing - and
+    /// so does one whose pid a process from outside the family has taken since (R4-N13).
     ///
     /// Called at the child poll cadence (about every 100 ms) so a short-lived child is usually still
     /// there to be named, and once more at the end so a late spawn is not lost. A parent whose ring
     /// overflowed still reports every pid it managed to record, and `uncovered_children_total` (the
     /// sum of the counters) carries the ones it could not.
     pub fn poll_uncovered_children(&mut self) -> Vec<UncoveredChild> {
-        let mut out = Vec::new();
-        unsafe {
-            for i in 0..MAX_COV_PIDS {
-                let parent = read_pid(self.ctl(), i);
-                if parent == 0 {
-                    continue;
-                }
-                let cov = cov_at(self.ctl(), i);
-                let count = read_uncovered_children_count(cov) as usize;
-                let named = count.min(chrono_ctl::UNCOVERED_CHILDREN_MAX);
-                while (self.consumed_children[i] as usize) < named {
-                    let index = self.consumed_children[i] as usize;
-                    let pid = read_uncovered_child(cov, index);
-                    if pid == 0 {
-                        break; // claimed, not written yet - the next poll will see it
-                    }
-                    self.consumed_children[i] += 1;
-                    let (image, command_line) = describe_process(pid);
-                    out.push(UncoveredChild { pid, parent_pid: parent, image, command_line });
-                }
+        // The family as it stands now, so a parent that has ended is known to have ended (R4-N18).
+        self.refresh_family();
+        let mut found: Vec<(u32, u32)> = Vec::new();
+        for slot in 0..MAX_COV_PIDS {
+            // SAFETY: the control block stays mapped for the whole session, and each read is of one
+            // published field.
+            let parent = unsafe { read_pid(self.ctl(), slot) };
+            if parent == 0 {
+                continue;
             }
+            let cov = unsafe { cov_at(self.ctl(), slot) };
+            let count = unsafe { read_uncovered_children_count(cov) } as usize;
+            let named = count.min(chrono_ctl::UNCOVERED_CHILDREN_MAX);
+            let writer_may_run = self.slot_may_run(slot);
+            let (pids, taken) = ring_pids(self.consumed_children[slot] as usize, named, writer_may_run, |at| {
+                // SAFETY: as above, `at` is below the ring's length.
+                unsafe { read_uncovered_child(cov, at) }
+            });
+            self.consumed_children[slot] = taken as u32;
+            found.extend(pids.into_iter().map(|pid| (parent, pid)));
         }
-        out
+        if found.is_empty() {
+            return Vec::new();
+        }
+        let known: HashSet<u32> = std::iter::once(self.pid)
+            .chain((0..MAX_COV_PIDS).map(|slot| unsafe { read_pid(self.ctl(), slot) }))
+            .filter(|&pid| pid != 0)
+            .collect();
+        let entries = tree::process_entries().ok();
+        found
+            .into_iter()
+            .map(|(parent, pid)| name_if_ours(pid, parent, &known, entries.as_deref(), describe_process))
+            .collect()
+    }
+
+    /// Whether the process in sign-in slot `slot` may still write to its ring: running when the family
+    /// was last refreshed, or not looked at yet. The launched process is asked through the session's own
+    /// handle.
+    fn slot_may_run(&self, slot: usize) -> bool {
+        if self.family.is_root(slot) {
+            return self.is_alive();
+        }
+        self.family.may_run(slot)
     }
 
     /// Every uncovered child every hooked process reported, ring overflow included - the number the
@@ -1806,6 +1870,45 @@ mod tests {
         let look = world.looks.get();
         world.looks.set(look + 1);
         look >= 1
+    }
+
+    /// A ring entry claimed and never written stops the walk while its writer may still run, and is
+    /// stepped over once it cannot (R4-N18): the children after it used to wait for it for good.
+    #[test]
+    fn a_hole_left_by_a_parent_that_ended_does_not_hold_back_the_children_after_it() {
+        let ring = [5, 0, 7];
+        let read = |at: usize| ring[at];
+        assert_eq!(super::ring_pids(0, 3, true, read), (vec![5], 1), "a running writer is waited for");
+        assert_eq!(super::ring_pids(1, 3, true, read), (vec![], 1), "and waited for on the next poll too");
+        assert_eq!(super::ring_pids(0, 3, false, read), (vec![5, 7], 3), "an ended writer's hole is stepped over");
+        assert_eq!(super::ring_pids(3, 3, false, read), (vec![], 3), "nothing past what the ring names");
+        assert_eq!(super::ring_pids(0, 2, true, |at| [9, 8][at]), (vec![9, 8], 2));
+    }
+
+    fn entry(pid: u32, parent: u32, image: &str) -> super::tree::ProcessEntry {
+        super::tree::ProcessEntry { pid, parent, image: image.to_string() }
+    }
+
+    fn described(pid: u32) -> (Option<String>, Option<String>) {
+        (Some(format!("p{pid}.exe")), Some(format!("p{pid}.exe --flag")))
+    }
+
+    /// An uncovered child is named only while the snapshot shows the family started it (R4-N13). A
+    /// stranger under its pid is never asked, so its name and command line cannot stand in for the
+    /// child's.
+    #[test]
+    fn a_stranger_under_an_uncovered_child_s_pid_does_not_lend_it_a_name() {
+        let known: HashSet<u32> = [10, 11].into_iter().collect();
+        let list = [entry(20, 11, "child.exe"), entry(21, 4, "stranger.exe")];
+        let named = super::name_if_ours(20, 11, &known, Some(&list), described);
+        assert_eq!(named.image.as_deref(), Some("p20.exe"));
+        assert_eq!(named.command_line.as_deref(), Some("p20.exe --flag"));
+        let stranger = super::name_if_ours(21, 11, &known, Some(&list), |_| panic!("a stranger was asked"));
+        assert_eq!((stranger.pid, stranger.parent_pid, stranger.image, stranger.command_line), (21, 11, None, None));
+        let ended = super::name_if_ours(22, 11, &known, Some(&list), |_| panic!("an ended child was asked"));
+        assert_eq!((ended.image, ended.command_line), (None, None));
+        let unread = super::name_if_ours(23, 11, &known, None, described);
+        assert_eq!(unread.image.as_deref(), Some("p23.exe"), "an unreadable snapshot names as before");
     }
 
     /// The family is asked about in the order that cannot miss a child (R4-N11), and the registry is read
