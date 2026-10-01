@@ -1,0 +1,26 @@
+{
+  "//": "站点的简体中文文案——键与 en.json 完全相同（缺少任何一个键都会导致构建失败）。",
+
+  "html_lang": "zh-Hans",
+  "dir": "ltr",
+  "og_locale": "zh_CN",
+
+  "social_image_alt": "Chrono Mock——不修改系统时钟，让 Windows 应用以任意日期和时间运行",
+
+  "skip_to_content": "跳到正文",
+  "nav_label": "主导航",
+
+  "language_name": "简体中文",
+  "language_title": "查看本页的简体中文版",
+  "language_menu_label": "语言",
+
+  "footer_nav_label": "站点地图",
+  "footer_group_start": "开始使用",
+  "footer_group_tools": "替代方案与运行时",
+  "footer_group_features": "功能详解",
+
+  "footer_summary": "Chrono Mock - GPL-3.0。无需账号，无遥测，从不连接互联网。",
+  "footer_source": "GitHub 上的源代码",
+  "footer_releases": "版本发布",
+  "footer_license": "许可证"
+}

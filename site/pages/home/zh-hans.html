@@ -1,0 +1,212 @@
+<!-- 首页，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>不动系统时钟，让 Windows 应用在<span class="hl">任意日期</span>运行</h1>
+
+        <p class="lede">
+          把某个应用的时钟调到明年、让它停住，或者<strong>加速运转，让 30 天的试用期在你泡咖啡的工夫里到期</strong>。机器上的其他部分仍然使用真实时间——域登录、证书和其他所有程序都照常工作。
+        </p>
+        <p class="lede">
+          然后它会告诉你，这次替换<strong>是否真的生效了</strong>。
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+          <a class="btn btn-ghost" href="{{repo}}">在 GitHub 上查看代码</a>
+        </div>
+
+        <p class="trust">
+          <span>免费开源，GPL-3.0</span>
+          <span>无需安装程序</span>
+          <span>无需管理员权限</span>
+          <span>从不连接互联网</span>
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="panel-cap">一次会话的样子</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">应用看到的时间</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">会话时区 -05:00</div>
+          </div>
+          <div class="clock">
+            <div class="who">机器仍然看到的时间</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">宿主时区 +02:00</div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>生效</b>——替换已经作用到这个进程</span>
+        </div>
+        <div class="chan">
+          <span>已覆盖的时间通道</span>
+          <span class="n">26 / {{channel_count}} &middot; 附调用次数</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock 的会话面板。应用的时钟显示 2038-01-19 03:14:14，旁边的真实时钟显示 2026-09-22 15:50:30，两者各自带有已运行时间。下方是从 x1 到 x1440 的速度档和一个 Freeze 按钮，接着是相对跳转和跳转到输入日期的选项，页脚处一个绿色对勾标着 Works，旁边是红色的 Stop session 按钮。">
+      <figcaption>一次正在运行的会话。应用身处 2038 年，机器却不是，判定结果表明替换已经作用到它。</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">为什么需要它</p>
+    <h2>测试任何与日期相关的功能，都得拨动时间。常见的两种做法都不好。</h2>
+    <p class="sub">
+      许可证到期、试用期、订阅续费、证书有效期、令牌寿命、月末与年末报表、利息计提、提醒。
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">做法一：修改系统时钟</p>
+        <p>
+          它会破坏域登录和 Kerberos，让 TLS 证书失效、浏览器无法使用，扰乱 Windows 更新，还会让这台机器上其他所有应用写出错误的时间戳。在加入域的机器上，组策略通常会直接禁止修改，或者几分钟后又把时间改回去，于是测试连重复执行都做不到。
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">做法二：等</p>
+        <p>
+          也就是说：不测。与日期相关的用例就这样被跳过，<em>“许可证永不过期”</em>的版本也就这样交到了客户手里。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>它能做什么</h2>
+    <p class="sub">只有一个进程穿越时间，机器上的其他一切都不受影响。</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>任意时刻</h3>
+        <p>一个具体的日期和时间，或者一个相对的时间——<code>+30 days</code>、<code>-1 year</code>。</p>
+      </div>
+      <div class="feat">
+        <h3>流动、冻结或加速</h3>
+        <p>正常速度、停住的时钟，或者一个整数倍率。<code>x1440</code> 让一天只需一分钟。</p>
+      </div>
+      <div class="feat">
+        <h3>独立的时区</h3>
+        <p>只对该进程生效的固定偏移量，系统时区则原封不动。</p>
+      </div>
+      <div class="feat">
+        <h3>子进程一并跟随</h3>
+        <p>安装程序和启动器都会派生子进程。没有这一点，测试只覆盖了实际运行内容的一半。</p>
+      </div>
+      <div class="feat">
+        <h3>会话中途跳转</h3>
+        <p>向前或向后都可以——包括笔记本与时间服务器重新同步后发生的那种向后跳变。</p>
+      </div>
+      <div class="feat">
+        <h3>同样支持 Electron 和 Chromium</h3>
+        <p>通过另一种机制实现，因为它们的时钟位于沙盒渲染进程中，注入够不到那里。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">别人都没做的部分</p>
+      <h2>你怎么知道它生效了？</h2>
+      <p class="sub">
+        用其他任何工具，你都无从知道。应用启动了，显示出某个日期，而你只能假定一切正常。可它也许是通过工具从未拦截的通道读取时钟的——来自服务器、来自数据库、来自某个运行时层——到那时，<em>“测试通过”</em>就毫无意义。
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&rarr;</span><span>在真正的测试开始之前就给出判定：<b>生效 / 部分生效 / 未生效</b></span></li>
+        <li><span class="tick">&rarr;</span><span>在 <b>{{channel_count}} 个时间通道</b>中，哪些已被覆盖，应用对每个通道各查询了多少次</span></li>
+        <li><span class="tick">&rarr;</span><span><b>哪些通道没有被覆盖</b>——如实写明，绝不省略</span></li>
+        <li><span class="tick">&rarr;</span><span>附带后果说明的警告：<em>“该应用会从网络读取时间——仅做本地替换可能不够”</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/zh-hans/time-source-audit/">时间源审计是如何工作的 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>两分钟上手</h2>
+    <p class="sub">用窗口来探索，用命令行跑 CI。两者背后是同一个引擎。</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># 让应用以 2027 年的最后一秒来运行</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># 在你泡咖啡时看着 30 天试用期到期：x1440 就是一分钟一天</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># 用命名场景代替日期，并把证据写入文件</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        计算器回答日期测试的另一半——该用<em>哪个</em>日期：
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">与你可能正在用的工具对比</p>
+    <h2>像 RunAsDate，但补上了缺失的部分</h2>
+    <p class="sub">
+      RunAsDate 拦截五个挂钟时间函数，并且做得很好。下面是两者的差异——完整页面还会说明 RunAsDate 在哪些情况下仍是更好的选择。
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>让一个应用以虚拟日期运行</td><td class="y">是</td><td class="y">是</td></tr>
+          <tr><td>被拦截的时间通道</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>加快时钟</td><td class="n">否</td><td class="y">是</td></tr>
+          <tr><td>独立的时区</td><td class="n">文档中未提及</td><td class="y">是</td></tr>
+          <tr><td>跟随子进程</td><td class="n">文档中未提及</td><td class="y">是</td></tr>
+          <tr><td>告诉你是否生效</td><td class="n">否</td><td class="y">是，逐个通道</td></tr>
+          <tr><td>可获取源代码</td><td class="n">免费软件，闭源</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/zh-hans/runasdate-alternative/">完整对比，包括 RunAsDate 更胜一筹的地方 &rarr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>获取</h2>
+    <p class="sub">
+      解压到任意位置即可运行。无需安装程序，不写注册表，不需要管理员权限。
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="{{repo}}">在 GitHub 上查看代码</a>
+    </div>
+  </section>
+
+</div>

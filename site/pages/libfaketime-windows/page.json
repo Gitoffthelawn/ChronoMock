@@ -110,6 +110,12 @@
       "link_text": "Windows의 libfaketime",
       "title": "Windows용 libfaketime - 가장 가까운 대안",
       "description": "libfaketime에는 Windows에 없는 LD_PRELOAD가 필요합니다. 그것을 대체하는 것이 무엇인지, FAKETIME 옵션을 Windows의 대응 항목으로 하나씩 옮겨 정리했습니다."
+    },
+    "zh-hans": {
+      "slug": "libfaketime-windows",
+      "link_text": "Windows 版 libfaketime",
+      "title": "Windows 版 libfaketime - 最接近的替代品",
+      "description": "libfaketime 需要 Windows 上不存在的 LD_PRELOAD。这里说明用什么来替代它，并把每个 FAKETIME 选项逐一对照到 Windows 的写法。"
     }
   }
 }

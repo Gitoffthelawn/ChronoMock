@@ -1,0 +1,94 @@
+<!-- Electron 与 Chromium，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>在 Electron 应用中伪造日期</h1>
+    <p class="sub">
+      搜索这个问题，所有的答案都是改你自己的代码——模拟 <code>Date</code> 对象、使用测试框架的假定时器。而当你手里是一个已经构建好的应用时，这些统统帮不上忙。这个工具运行的，就是你已有的那个应用。
+    </p>
+  </section>
+
+  <section>
+    <h2>为什么注入够不到它</h2>
+    <div class="prose">
+      <p>
+        这种模式的出现，源于一次具体的失败。一个基于 Electron 构建的番茄钟，在 <code>x60</code> 会话下运行时，倒计时纹丝不动。把应用的打包文件拆开来看，发现了两个相互独立的原因，而且在原生这一侧都无法修复：
+      </p>
+      <ul>
+        <li>倒计时根本没有读取时钟。它是一个<strong>由 <code>setInterval</code> 递增的计数器</strong>，运行在 Web Worker 里。没有任何时间调用可以拦截，因为应用从来没有询问过现在几点。</li>
+        <li>那个 worker 位于<strong>沙盒渲染进程</strong>中，而这恰恰是从外部注入的库进不去的地方。</li>
+      </ul>
+      <p>
+        所以，Windows 一侧的机制在这里帮不上忙，答案是改为与应用自己的 JavaScript 引擎对话。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>改用什么办法</h2>
+    <div class="prose">
+      <p>
+        应用启动时带有一个调试端口和一个干净的一次性配置文件，它自己的时间 API 通过 DevTools 协议被放到会话时钟上——<code>Date.now</code>、<code>new Date()</code> 构造函数、<code>performance.now</code>、<code>setTimeout</code> 和 <code>setInterval</code>。
+      </p>
+      <p>
+        这一覆盖会安装到应用打开的每一个上下文中，<strong>包括它的 Web Worker</strong>——计时器往往就藏在那里，也是原生注入永远够不到的那个地方。
+      </p>
+      <p>
+        你的操作方式完全不变。同样的命令，同样的窗口，同样带有两个时钟和判定的会话面板。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 与原生应用相同的命令——模式会被自动识别</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>开始之前值得了解的两个限制</h2>
+
+    <div class="note warning">
+      <p><strong>这种启动方式具有侵入性，并且有意对此毫不掩饰。</strong></p>
+      <p>
+        应用启动时会打开一个远程调试端口，并使用 <code>%TEMP%</code> 下一个全新的独立配置文件——它不会在你真实的配置文件上运行，也不是系统托盘里已经存在的那个副本。配置文件会在会话结束时删除；如果删除不了，会话摘要会如实说明，而不是悄悄把它留在那里。
+      </p>
+      <p>
+        如果你传入自己的 <code>--user-data-dir</code> 或 <code>--remote-debugging-port</code>，它们会被拒绝而不是被覆盖，因为那种显而易见的意外——让会话指向你真实的浏览器配置文件——不值得放任它发生。
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>会话时区跟随宿主机。</strong></p>
+      <p>
+        在这种模式下，时刻是伪造的，但本地时间的取值方法没有被伪造，所以<a href="/zh-hans/timezone-testing/">独立的时区</a>只是原生模式的功能。这是当前版本的局限，而不是有意的决定。
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        还有一件会让人意外的事：当你在会话中途改变速度时，<em>已经排定</em>的间隔计时器会保持原来的速率。<code>Date.now</code>、<code>new Date()</code> 和 <code>performance.now</code> 会立即响应，而正在运行的 <code>setInterval</code> 不会，会话会就此发出警告，而不是让你得出“这次改动什么都没做”的结论。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>测试得如何</h2>
+    <div class="prose">
+      <p>
+        <strong>实验性</strong>，这个词在这里有明确的含义：它在当初开发时针对的目标上可以工作，尚未经过广泛测试，而内置的审计才是你的事实依据，而不是本页面。它是由人工验证的，而不是由自动化测试套件完成的，针对的是 64 位 Windows 上的一个真实 Electron 应用。
+      </p>
+      <p>
+        覆盖情况按 JavaScript 上下文而不是按进程来报告，因为这里存在的单位就是上下文。一个处于空闲、从不询问时间的应用，如实得到的结果是<em>无法确定</em>——它没有读取过时钟，所以无法就它本来看到的是不是正确的时钟做出任何断言。
+        <a href="/zh-hans/time-source-audit/">判定结果的含义 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/faq/">阅读常见问题</a>
+    </div>
+  </section>
+
+</div>

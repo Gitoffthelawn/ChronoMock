@@ -1,0 +1,114 @@
+<!-- 加速时钟，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>让一个应用的时钟走得更快</h1>
+    <p class="sub">
+      30 天的试用期要等 30 天才会到期，除非你能拨动时间。常见的建议是把系统时钟往前拨，这需要管理员权限，还会把机器上的其他所有程序一起拖走。这个工具改为只拨动一个进程。
+    </p>
+  </section>
+
+  <section>
+    <h2>能快多少</h2>
+    <div class="prose">
+      <p>
+        选择一个整数倍率。应用的时钟会从会话开始的那个时刻起，以真实时钟的这么多倍速度前进。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>倍率</th><th>真实的一分钟变成</th><th>适用于</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>一小时</td><td>每小时的任务、会话超时、令牌寿命</td></tr>
+          <tr><td><code>x1440</code></td><td>一天</td><td>每日翻篇，半小时跑完 30 天试用期</td></tr>
+          <tr><td><code>x43200</code></td><td>30 天的试用期</td><td>趁你读这段话的工夫，看着整个试用期结束</td></tr>
+          <tr><td><code>x525600</code></td><td>一年</td><td>年度续费、证书到期</td></tr>
+          <tr><td><code>x1000000</code></td><td>约 1.9 年</td><td>上限</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># 从当前的真实时间开始，每分钟跑一天</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># 从选定的日期开始，并从那里加速</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># 反过来，让时钟完全静止</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="一段会话驱动另一个 Windows 应用的录屏。左侧窗口是 Chrono Mock，应用的时钟停在 2038-01-19 并以六十倍真实速度攀升，旁边的真实时钟只走了几秒。右侧窗口是被测应用，它自己的会话记录显示它从 2038-01-19 开始，已经运行了好几分钟，而现实中才过去不到半分钟。">
+      <figcaption>一次真实的会话，驱动着一个真实的应用。请看右侧的窗口：被测程序把自己的启动记录为 <strong>2038 年 1 月 19 日</strong>，它的会话已经持续了几分钟，而房间里的时钟只走了几秒。速度是在运行时改变的，不需要重启任何东西。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>容易让人栽跟头的地方：时钟有两个</h2>
+    <div class="prose">
+      <p>
+        加快<strong>挂钟时间</strong>——也就是 <code>DateTime.Now</code> 及其同类返回的值——本身并不会加快<strong>倒计时</strong>。这是应用可以向操作系统提出的两个不同的问题，而很多软件是用后者而不是前者来衡量“三十天”的。
+      </p>
+      <p>
+        所以时长轴——滴答计数、休眠、等待和定时器——是一个单独的开关：
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> 把休眠、等待和定时器也放到会话时钟上。没有它，<code>x1440</code> 会让日历飞速向前，而一个五秒的定时器仍然要花五个真实秒。</li>
+        <li><code>--scale-qpc</code> 额外缩放高分辨率计数器。Python 3.13+ 的 <code>monotonic</code>、.NET 的 <code>Stopwatch</code> 和 Java 的 <code>nanoTime</code> 都是从这里读取经过的时间，它默认关闭，因为在测试中缩放它会让渲染不稳定。</li>
+      </ul>
+      <p>
+        如果倍率看起来对倒计时毫无作用，几乎总是这个原因。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 计时器应用：日历和倒计时一起加速</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># 用高分辨率计数器测量经过时间的 Python 或 .NET 应用</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>不重启就改变速度</h2>
+    <div class="prose">
+      <p>
+        倍率可以在会话中途改变，时钟是被重新锚定而不是跳变的，所以速度降低时它绝不会倒退。你也可以直接让时钟跳转——向前，或者像笔记本与时间服务器重新同步后那样向后，这正是会破坏任何没有保护措施地测量经过时间的东西的情形。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 以 x60 运行，两秒之后切换到 x1440</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># 运行，五秒之后把时钟跳到选定的时刻</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>它不会做的事</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>它不会动系统时钟。</strong>这是重点，而不是局限——但这意味着任何从服务器、数据库或另一台机器读取时间的东西都不会受影响，出现这种情况时审计会告诉你。</li>
+        <li><strong>跳转改变的是应用看到的时间，而不是它何时被唤醒。</strong>已经交给内核的定时器按真实时间运行。大多数应用会轮询时钟，所以跳转在实践中是有效的——但并非全部如此。</li>
+        <li><strong>它不会让时间变慢。</strong>倍率是一及以上的整数，外加零倍率的冻结时钟。</li>
+      </ul>
+      <p>
+        这一切是否到达了你的应用，不应该靠假定。
+        <a href="/zh-hans/time-source-audit/">会话会告诉你 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/faq/">阅读常见问题</a>
+    </div>
+  </section>
+
+</div>

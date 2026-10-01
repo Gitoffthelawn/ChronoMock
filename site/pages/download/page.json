@@ -108,6 +108,12 @@
       "link_text": "다운로드",
       "title": "Chrono Mock Windows 다운로드 - 무료, 설치 불필요",
       "description": "무료 Windows 버전을 다운로드하세요. 데스크톱 앱과 명령줄 도구가 있으며, 설치 프로그램, 관리자 권한, 레지스트리 기록이 필요 없습니다."
+    },
+    "zh-hans": {
+      "slug": "download",
+      "link_text": "下载",
+      "title": "下载 Chrono Mock Windows 版 - 免费，无需安装",
+      "description": "下载免费的 Windows 版本：桌面应用和命令行工具，无需安装程序、管理员权限，也不写注册表。"
     }
   }
 }

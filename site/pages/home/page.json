@@ -111,6 +111,12 @@
       "link_text": "홈",
       "title": "Chrono Mock - Windows 앱을 다른 날짜로 실행",
       "description": "무료 오픈 소스 Windows 도구. 시스템 시계를 건드리지 않고 앱을 원하는 날짜로 실행하고, 시계를 멈추거나 가속할 수 있습니다. 시간 대체가 적용되었는지도 알려 줍니다."
+    },
+    "zh-hans": {
+      "slug": "",
+      "link_text": "首页",
+      "title": "Chrono Mock - 让 Windows 应用以任意日期运行",
+      "description": "免费开源的 Windows 工具：不改系统时钟，让应用以任意日期运行，可冻结或加速时钟，并告诉你时间替换是否真的生效。"
     }
   }
 }

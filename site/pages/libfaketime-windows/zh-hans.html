@@ -1,0 +1,111 @@
+<!-- Windows 上的 libfaketime，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows 版 libfaketime</h1>
+    <p class="sub">
+      <strong>简短的回答：</strong>libfaketime 不能在 Windows 上运行，也不可能——它建立在 <code>LD_PRELOAD</code> 之上，而 Windows 没有这个东西。Chrono Mock 是同样的想法，只是按 Windows 允许的方式来实现。
+    </p>
+  </section>
+
+  <section>
+    <h2>为什么不能直接移植</h2>
+    <div class="prose">
+      <p>
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> 的工作方式，是让动态加载器把一个小型库放在 C 库的前面，于是程序对 <code>time()</code> 的调用会先到达替代版本。这个钩子在 Linux 上是 <code>LD_PRELOAD</code>，在 macOS 上是 <code>DYLD_INSERT_LIBRARIES</code>。它自己的 README 列出的正是这两个平台。
+      </p>
+      <p>
+        Windows 没有等价物，而且它的时钟本来也不是只在某一个函数后面。应用通过 Win32 API、通过它下面的原生 API，以及通过运行时对这两者的各种封装来读取时间——所以这个想法在 Windows 上的版本，是一个注入到目标进程中的库，重定向的是一组导出函数，而不是一个符号。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>参数对照</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>这里的默认行为——见下文</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>无需设置——工具自行注入</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">所以，同一个测试的两种写法如下：</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>两者真正不同的地方</h2>
+    <div class="prose">
+      <p>
+        <strong>单调时钟的处理是反过来的。</strong>libfaketime 默认会伪造它们，并提供 <code>FAKETIME_DONT_FAKE_MONOTONIC</code> 来停止。这里的高分辨率计数器默认保持真实，因为在测试中缩放它会让渲染不稳定，需要用 <code>--scale-qpc</code> 来启用。正是这个开关，让 Python 3.13+ 的 <code>monotonic</code>、.NET 的 <code>Stopwatch</code> 和 Java 的 <code>nanoTime</code> 跟随会话时钟。
+      </p>
+      <p>
+        <strong>Windows 上可拦截的地方更多。</strong>除了挂钟时间，还有时区、经过时间轴、四类定时器、休眠和等待函数，以及进程创建——总共 {{channel_count}} 个通道。
+      </p>
+      <p>
+        <strong>这个工具会报告自己的覆盖情况。</strong>每次会话都以一个判定、应用实际读取过的通道及各自的次数，以及被遗漏的通道结束。这是两个平台上都没有对应物的部分。
+      </p>
+      <p>
+        <strong>libfaketime 更老资格，在它自己的领域里也更全面。</strong>它有多年的使用经验，覆盖了 C 库中范围广泛的入口点，在 Linux 上它是正确的工具。这里的任何东西都不会在那里取代它。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>如果你真正想要的是 libfaketime 本身</h2>
+    <div class="prose">
+      <p>
+        有两条实在的路，两者都是把被测程序挪到 Linux 上：
+      </p>
+      <ul>
+        <li><strong>WSL</strong>——在 Linux 子系统里构建并运行 libfaketime。如果被测的是一个恰好在 Windows 上开发的 Linux 程序，这就很合适。</li>
+        <li><strong>容器</strong>——思路相同，可复现性更好。</li>
+      </ul>
+      <p>
+        两者对 Windows 应用都没有帮助，而这正是这个工具存在的理由。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/faq/">阅读常见问题</a>
+    </div>
+  </section>
+
+</div>

@@ -110,6 +110,12 @@
       "link_text": "Electron과 Chromium",
       "title": "Electron·Chromium 앱에서 날짜 속이기",
       "description": "이들의 시계는 인젝션이 닿지 않는 샌드박스 렌더러 안에 있습니다. 다른 메커니즘으로 Worker를 포함한 앱의 JavaScript 시간 API를 세션 시계에 올립니다."
+    },
+    "zh-hans": {
+      "slug": "electron-chromium",
+      "link_text": "Electron 与 Chromium",
+      "title": "在 Electron 和 Chromium 应用中伪造日期",
+      "description": "它们的时钟位于注入够不到的沙盒渲染进程中。另一种机制把应用的 JavaScript 时间 API（包括 Worker 内部）放到会话时钟上。"
     }
   }
 }
