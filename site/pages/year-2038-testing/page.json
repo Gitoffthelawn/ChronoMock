@@ -31,6 +31,12 @@
       "link_text": "An 2038",
       "title": "Bug de l'an 2038 : tester une appli Windows après 03:14:07 UTC",
       "description": "L'horloge de Windows passe 2038 ; les champs de temps sur 32 bits, non. Faire franchir le 19 janvier 2038 à une appli, sans toucher à la date système."
+    },
+    "es": {
+      "slug": "probar-el-problema-del-ano-2038",
+      "link_text": "Año 2038",
+      "title": "Problema del año 2038: probar una app de Windows (03:14:07 UTC)",
+      "description": "El reloj de Windows pasa de 2038; los campos de tiempo de 32 bits, no. Cómo cruzar el 19 de enero de 2038 con una sola app sin tocar la fecha del sistema."
     }
   }
 }

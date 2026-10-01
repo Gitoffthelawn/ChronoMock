@@ -31,6 +31,12 @@
       "link_text": "Sans changer l'horloge",
       "title": "Date système changée pour tester : ce qui casse sous Windows",
       "description": "Changer l'horloge de Windows pour tester une date décale toute la machine : domaine, certificats, synchro. Ce qui casse, et comment ne décaler qu'une appli."
+    },
+    "es": {
+      "slug": "cambiar-la-fecha-del-sistema-para-pruebas",
+      "link_text": "No cambies el reloj",
+      "title": "Cambiar la fecha del sistema para probar: qué falla en Windows",
+      "description": "Cambiar el reloj de Windows para probar una fecha mueve toda la máquina: dominio, certificados, sincronización. Qué se rompe y cómo mover solo una app."
     }
   }
 }
