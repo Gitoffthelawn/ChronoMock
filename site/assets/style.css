@@ -88,7 +88,7 @@ header{
    the bar containing it, so the first row is laid out ABOVE the header and clipped -
    measured at 1440px with twelve links: nav 69.8px inside a 58px bar, first row at
    -6px. Six links fit today; this makes the seventh wrap instead of disappear. */
-.bar{display:flex;align-items:center;gap:28px;min-height:58px}
+.bar{display:flex;align-items:center;gap:20px;min-height:58px}
 .brand{
   display:flex;align-items:center;gap:10px;
   font-weight:650;letter-spacing:-.01em;color:var(--text);white-space:nowrap;
@@ -97,8 +97,8 @@ header{
 .bean{width:20px;height:20px;flex:0 0 20px}
 /* Scoped to the bar on purpose: the footer site map is a <nav> too, and a bare `nav`
    rule pushes `margin-left:auto` and this padding onto it. */
-.bar nav{display:flex;gap:10px 22px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end;padding:9px 0}
-.bar nav a{color:var(--muted);font-size:14.5px}
+.bar nav{display:flex;gap:10px 16px;margin-inline-start:auto;flex-wrap:wrap;justify-content:flex-end;padding:9px 0}
+.bar nav a{color:var(--muted);font-size:14px}
 .bar nav a:hover{color:var(--text);text-decoration:none}
 .bar nav a[aria-current="page"]{color:var(--text)}
 
@@ -108,11 +108,11 @@ header{
    navigation scrolls sideways on a phone, and a panel inside a scrolling box is clipped
    by it. The same links are repeated in the footer for a reader who has reached the end
    of a page, and for a crawler that renders nothing. */
-.langmenu{position:relative;font-size:14.5px}
+.langmenu{position:relative;font-size:14px}
 .langmenu summary{
   list-style:none;cursor:pointer;color:var(--dim);white-space:nowrap;
   display:flex;align-items:center;gap:9px;
-  border-inline-start:1px solid var(--line);padding:4px 0;padding-inline-start:22px;
+  border-inline-start:1px solid var(--line);padding:4px 0;padding-inline-start:18px;
 }
 .langmenu summary::-webkit-details-marker{display:none}
 .langmenu summary::after{
@@ -357,6 +357,23 @@ footer a{color:var(--muted)}
   .hero-grid,.two,.grid{grid-template-columns:1fr}
   .hero{padding-top:48px}
   section{padding:52px 0}
+}
+
+/* Eight links fit beside the wordmark down to about 1140px in every language. Below that,
+   letting them wrap leaves one word alone on a second row (measured at 1024px: FAQ), so the
+   navigation takes a row of its own, starts at the reading edge and scrolls sideways if a
+   language needs more than the row. The header stays sticky here, unlike on a phone: two
+   rows are about as tall as the wrapped bar was. */
+@media (min-width:761px) and (max-width:1140px){
+  .bar{flex-wrap:wrap;gap:0 20px;padding-top:12px}
+  .brand{order:1}
+  .langmenu{order:2;margin-inline-start:auto}
+  .bar nav{
+    order:3;flex:1 0 100%;margin:0;padding:8px 0 12px;
+    flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;gap:18px;scrollbar-width:none;
+  }
+  .bar nav::-webkit-scrollbar{display:none}
+  .bar nav a{white-space:nowrap}
 }
 
 /* Below this width the navigation cannot share a row with the wordmark. Letting it

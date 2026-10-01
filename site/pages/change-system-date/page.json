@@ -4,7 +4,6 @@
   "id": "change-system-date",
   "order": 35,
   "nav": true,
-  "indexable": false,
   "group": "tools",
 
   "languages": {
@@ -18,7 +17,7 @@
       "slug": "zmiana-daty-systemowej-w-testach",
       "link_text": "Nie zmieniaj zegara",
       "title": "Zmiana daty systemowej do testów - co psuje się w Windows",
-      "description": "Przestawienie zegara Windows na potrzeby testu przestawia całą maszynę: logowanie do domeny, certyfikaty, synchronizację czasu. Co się psuje i jak przesunąć zegar jednej aplikacji."
+      "description": "Przestawienie zegara Windows na czas testu przestawia całą maszynę: domenę, certyfikaty, synchronizację. Co się psuje i jak przesunąć zegar jednej aplikacji."
     },
     "de": {
       "slug": "systemdatum-aendern-testen",
@@ -72,7 +71,7 @@
       "slug": "sistem-tarihini-degistirerek-test",
       "link_text": "Saati değiştirmeyin",
       "title": "Test için sistem tarihini değiştirmek: Windows’ta ne bozulur",
-      "description": "Bir tarihi test etmek için Windows saatini kaydırmak tüm makineyi kaydırır: etki alanı, sertifikalar, zaman eşitleme. Ne bozulur ve yalnızca bir uygulama nasıl kaydırılır."
+      "description": "Test için Windows saatini kaydırmak tüm makineyi kaydırır: etki alanı, sertifikalar, zaman eşitleme. Ne bozulur ve yalnızca bir uygulamanın saati nasıl kaydırılır."
     },
     "id": {
       "slug": "mengubah-tanggal-sistem-untuk-pengujian",
