@@ -115,6 +115,12 @@
       "link_text": "别改系统时钟",
       "title": "为测试改系统日期 - 在 Windows 上会坏什么",
       "description": "为测试日期而调动 Windows 时钟，会让整台机器跟着动：域登录、证书、时间同步。会坏什么，以及如何只调动一个应用的时钟。"
+    },
+    "zh-hant": {
+      "slug": "change-system-date-testing",
+      "link_text": "別改系統時鐘",
+      "title": "為測試改系統日期 - 在 Windows 上會壞什麼",
+      "description": "為測試日期而調動 Windows 時鐘，會讓整台電腦跟著動：網域登入、憑證、時間同步。會壞什麼，以及如何只調動一個應用程式的時鐘。"
     }
   }
 }

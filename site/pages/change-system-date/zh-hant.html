@@ -1,0 +1,96 @@
+<!-- 為測試而修改系統日期，繁體中文。結構、類別名稱和佔位符與 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>為測試應用程式而修改系統日期</h1>
+    <p class="sub">
+      這是最古老的辦法：把 Windows 時鐘調到你想測試的日期，執行程式，再把時鐘調回來。它確實管用——但時鐘被調動期間，電腦上的其他一切也都會跟著變。
+    </p>
+  </section>
+
+  <section>
+    <h2>時鐘一動，實際上會跟著動的東西</h2>
+    <div class="prose">
+      <p>
+        系統時鐘並不只屬於你正在測試的程式。電腦上的每個處理序、服務和網路通訊讀取的都是同一個時鐘，所以為一次測試做的更動，就是對所有東西做的更動。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>讀取時鐘的對象</th><th>你撥動它時會發生什麼</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>網域登入與共用資料夾</td><td>Kerberos 預設容許五分鐘的時鐘差。超出之後，它的票證會被拒絕，登入或存取共用都會失敗。</td></tr>
+          <tr><td>憑證與 HTTPS</td><td>憑證是否有效由時鐘決定。把時鐘調到憑證到期日之後，所有仰賴它的連線都會因過期而被拒絕；調回得夠早，憑證則還沒有生效。</td></tr>
+          <tr><td>Windows 時間服務</td><td>加入網域的電腦從網域控制站取得時間，預設情況下該服務無論差多少都會校正時鐘。你設定的日期可能在你還在測試的時候就被撤銷。</td></tr>
+          <tr><td>一切會記錄時間的東西</td><td>時鐘被調動期間產生的檔案、記錄檔、資料庫資料列和已寄出的郵件都帶著測試日期，即使你把時鐘調回來，它們也維持原樣。</td></tr>
+          <tr><td>會記住所見最晚日期的軟體</td><td>有些程式會把倒退的時鐘當作竄改——而這正是你還原真實日期時發生的事。</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        日期越遠，遇到的這類問題就越多。一台被設到 2038 年的電腦，會把今天簽發的每一張憑證都視為已過期。<a href="/zh-hant/year-2038-testing/">不帶這些副作用地測試 2038 年 &rarr;</a>
+      </p>
+      <p>
+        此外還需要大多數帳號沒有的權限：修改系統時間是系統管理員的特殊權限，在受管理的電腦上，這往往不歸你使用。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>什麼時候改時鐘才是正確答案</h2>
+    <div class="prose">
+      <p>
+        一台沒有別人使用、並關閉了自身時鐘同步的虛擬機器，是個完全合格的測試平台。用完就丟棄，所以它記錄的一切都無關緊要。如果你有這樣一台，而測試只涉及一個日期，這就是管用的最簡單辦法。
+      </p>
+      <p>
+        麻煩從這裡開始：它是你日常工作的那台電腦、加入了網域的那台電腦，或者同時還在執行某個不能察覺任何變化的東西的那台電腦。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>改為只撥動一個程式的時鐘</h2>
+    <div class="prose">
+      <p>
+        被偏移的時間只對<strong>一個處理序及其啟動的子處理序</strong>可見。你的網域登入、憑證和 Windows Update 永遠看不到它，所以上表中的一切都不會移動——事後也沒有什麼需要調回來。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 應用程式看到的是 2027 年 12 月 31 日 23:59:50。其他一切仍用真實日期。</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># 在午夜前十分鐘開始，以 60 倍速執行——十秒後跨年</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        為某個程式偏移的日期是否真的抵達了它，不是可以想當然的事。每次工作階段都以一個判定和該程式實際讀取的時間通道清單作結。<a href="/zh-hant/time-source-audit/">你怎麼知道它生效了 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>這無法取代什麼</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>向伺服器詢問時間的程式</strong>超出了本機替換能觸及的範圍。工作階段在發現程式開啟網路連線時會告訴你，而不是讓你預設測試通過了。</li>
+        <li><strong>測試系統本身</strong>——對真實時鐘變化做出反應的服務、排程工作、Windows 在時鐘變化前後的行為——除了改時鐘沒有別的替代辦法，而且要在你承受得起的電腦上做。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/date-test-scenarios/">測試日期</a>
+    </div>
+  </section>
+
+</div>
