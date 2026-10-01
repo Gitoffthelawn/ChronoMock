@@ -371,11 +371,15 @@ impl SessionLedger {
 
     /// Poll for children that joined and for children the hook could not follow into, and keep
     /// the watch on the processes the session lasts for current.
+    ///
+    /// The child poll reads the registry first thing (it has to know which parents have ended), so the
+    /// family it leaves is the one the session went on for, and the launched process is asked before it.
     pub(crate) fn poll(&mut self, session: &mut chrono_mech::Session) {
         fold_children(session, &mut self.family, &mut self.family_pids);
-        self.take_ring_children(session.poll_uncovered_children());
-        session.refresh_family();
-        if self.followed.is_none() && !session.is_alive() {
+        let launched_ended = ended_before(session, chrono_mech::Session::is_alive, |session| {
+            self.take_ring_children(session.poll_uncovered_children());
+        });
+        if self.followed.is_none() && launched_ended {
             self.followed = Some(session.living_family());
         }
     }
@@ -708,6 +712,18 @@ fn end_refused_family(session: &chrono_mech::Session) -> (Vec<FollowedProcess>, 
         .map(|m| FollowedProcess { pid: m.pid, image: m.image.as_deref().map(crate::cdp::sanitise_target_text) })
         .collect();
     (left, end.incomplete.is_some())
+}
+
+/// Whether the launched process had ended, asked BEFORE `then` reads the registry - the order the family
+/// is asked in everywhere (R4-N11). A child the hook follows signs in while its parent is still inside
+/// the call that creates it, so a launched process seen ended here left every child it started in the
+/// registry `then` reads. Asked after it, a launcher that started the application and ended in between
+/// was seen ended next to a registry read from before the child, and the session went on for the
+/// application without the report saying so.
+fn ended_before<S>(session: &mut S, alive: fn(&S) -> bool, then: impl FnOnce(&mut S)) -> bool {
+    let ended = !alive(session);
+    then(session);
+    ended
 }
 
 /// Why a target vanished inside the guard window with nothing on the session clock left running.
@@ -1126,6 +1142,44 @@ mod tests {
             assert_eq!((exit, got, origin), (2, key, "mechanism"), "code 0x{code:08X}");
             assert!(detail.contains(&format!("0x{code:08X}")), "the code is not on the detail line: {detail}");
         }
+    }
+
+    /// A launcher that signs a child in and ends between two looks: running and alone at the first look,
+    /// ended with the child in the registry from the second on. Each look counts itself, and the registry
+    /// read says whether it saw the child.
+    struct LauncherWorld {
+        looks: std::cell::Cell<u32>,
+        registry_saw_child: Option<bool>,
+    }
+
+    fn launcher_runs(world: &LauncherWorld) -> bool {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        look == 0
+    }
+
+    fn read_registry(world: &mut LauncherWorld) {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        world.registry_saw_child = Some(look >= 1);
+    }
+
+    /// The family the session went on for is noted from a registry read taken after the launched process
+    /// was seen ended (R4-N11), so it holds every child the launcher started. The same world asked registry
+    /// first notes an ended launcher over a read from before its child, and the report stayed silent that
+    /// the session went on for the application.
+    #[test]
+    fn a_launcher_seen_ended_is_noted_with_every_child_it_started() {
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0), registry_saw_child: None };
+        assert!(!ended_before(&mut world, launcher_runs, read_registry), "the launcher still ran at the first look");
+        assert_eq!(world.registry_saw_child, Some(true), "the registry is read every time");
+        assert!(ended_before(&mut world, launcher_runs, read_registry));
+        assert_eq!(world.registry_saw_child, Some(true), "an ended launcher was noted over a registry without its child");
+
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0), registry_saw_child: None };
+        read_registry(&mut world);
+        let ended = !launcher_runs(&world);
+        assert!(ended && world.registry_saw_child == Some(false), "this world does not reproduce the race the order is there for");
     }
 
     /// A takeover is always said, and said the way the previous session ended (R4-D19). The ordered end
