@@ -457,6 +457,21 @@
           <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource OptionNoteGap}"
                      Text="{DynamicResource setup.opt_embedded_note}" />
 
+          <!-- The option that answers an application running as administrator, which WebView2 will not
+               open a port for through the variable the box above relies on. OFF by default and greyed out
+               unless this window is elevated too: the box says what it needs, in the place the cost would
+               stand, instead of vanishing and leaving no way to learn it exists. It rides on the box above,
+               so it greys out with it. -->
+          <CheckBox Content="{DynamicResource setup.opt_elevated_embedded}" IsChecked="{Binding ReachElevatedEmbedded}"
+                    IsEnabled="{Binding ElevatedEmbeddedEnabled}" ToolTip="{DynamicResource tip.elevated_embedded}"
+                    Margin="{StaticResource StackGapSm}" />
+          <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource OptionNoteGap}"
+                     Text="{DynamicResource setup.opt_elevated_embedded_note}"
+                     Visibility="{Binding CanReachElevatedEmbedded, Converter={StaticResource BoolToVis}}" />
+          <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource OptionNoteGap}"
+                     Text="{DynamicResource setup.opt_elevated_embedded_unavailable}"
+                     Visibility="{Binding ElevatedEmbeddedUnavailable, Converter={StaticResource BoolToVis}}" />
+
           <!--
             🔴 AND THE LAUNCH OPTIONS, IN THE SAME GROUP. They were a fifth section of their own, and
             measured at the window's real height the five groups came to 710 px against a 671 px viewport:

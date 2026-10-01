@@ -78,6 +78,11 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     private bool _scaleQpc;
     private bool _forceStart;
     private bool _reachEmbedded = true;
+    // Plain values, for the reason the start snapshot below gives: this class is on its coupling ceiling.
+    // Whether the WINDOW runs as administrator (told once, by whoever builds the view model) and whether
+    // the tester ticked the option that writes the machine registry for an application that does too.
+    private readonly bool _canReachElevated;
+    private bool _reachElevatedEmbedded;
     private string _targetArgs = string.Empty;
     private string _workingFolder = string.Empty;
     private readonly ISessionHistoryStore _store;
@@ -118,6 +123,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     private bool _startScaleQpc;
     private bool _startForce;
     private bool _startReachEmbedded = true;
+    private bool _startReachElevated;
     private string _inFlightErrorKey = string.Empty;
     private bool _applyingMultiplier; // guard: syncing the Mode dropdown from a state event must not re-send
 
@@ -131,12 +137,14 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         ISessionHistoryStore history,
         IDiagnosticsLog? diagnosticsLog = null,
         CalcClient? calcClient = null,
-        string? presetsDir = null)
+        string? presetsDir = null,
+        bool canReachElevated = false)
     {
         _store = history;
         _diagnosticsLog = diagnosticsLog ?? new NoOpDiagnosticsLog();
         _calcClient = calcClient;
         _presetsDir = presetsDir;
+        _canReachElevated = canReachElevated;
 
         // 🔴 UTC, changed 2026-09-12, and UTC+02:00 before that. The old default was one market's summer
         // time and read on a first run as somebody's local clock without saying whose - while the list it
@@ -639,6 +647,13 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             if (Set(ref _reachEmbedded, value))
             {
                 RaisePropertyChanged(nameof(LeavesEmbeddedPages));
+                RaisePropertyChanged(nameof(ElevatedEmbeddedEnabled));
+                // The option below rides on this one, so turning the channel off turns it off too: a box
+                // left ticked and greyed would claim a session that Start then does not run.
+                if (!value)
+                {
+                    ReachElevatedEmbedded = false;
+                }
             }
         }
     }
@@ -646,6 +661,35 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// <summary>The opt-out, for the folded header's chip: reaching the pages is the default, so the chip
     /// shows only when the tester turned it off - a chip for every session would say nothing.</summary>
     public bool LeavesEmbeddedPages => !_reachEmbedded;
+
+    /// <summary>Whether this window runs as administrator, which is what makes the option below usable:
+    /// an application started from an elevated window is elevated too, and WebView2 then ignores the
+    /// setting the session reaches its pages through (docs/09 section 12.19). Told once at construction -
+    /// a process cannot change its token - and false for a view model built bare.</summary>
+    public bool CanReachElevatedEmbedded => _canReachElevated;
+
+    /// <summary>The other side of <see cref="CanReachElevatedEmbedded"/>, for the line that says what the
+    /// option needs when it cannot be used - a view binds a visibility to a flag, not to its negation.</summary>
+    public bool ElevatedEmbeddedUnavailable => !_canReachElevated;
+
+    /// <summary>Whether the option can be changed now: idle, an elevated window, and the channel it rides
+    /// on still on.</summary>
+    public bool ElevatedEmbeddedEnabled => _idle && _canReachElevated && _reachEmbedded;
+
+    /// <summary>Reach the web pages of an application that runs as administrator: the session writes one
+    /// WebView2 value to the machine registry for its duration and removes it at the end (docs/09 section
+    /// 12.19). OFF by default, because it changes the machine and opens a debugging port in an application
+    /// with administrator rights. Maps to the wire <c>target.elevated_embedded</c>. Start-only.</summary>
+    public bool ReachElevatedEmbedded
+    {
+        get => _reachElevatedEmbedded;
+        set => Set(ref _reachElevatedEmbedded, value);
+    }
+
+    /// <summary>What Start asks of the core: the tick, held to what can be done. A window that is not
+    /// elevated cannot ask (the core would refuse it, and the box is greyed), and the option has nothing to
+    /// ride on without the channel.</summary>
+    private bool WantsElevatedEmbedded => _reachElevatedEmbedded && _canReachElevated && _reachEmbedded;
 
     /// <summary>Command-line arguments for the target (chrono-mock 7.1 pt 1), as one line the tester types.
     /// Split into the wire's argument list by <see cref="TargetArguments"/>, which mirrors the CLI's own
@@ -1155,6 +1199,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
                 RaiseStartRefusalChanged();
                 RaisePropertyChanged(nameof(IsIdle));
                 RaisePropertyChanged(nameof(CanEditTime));
+                RaisePropertyChanged(nameof(ElevatedEmbeddedEnabled));
             }
         }
     }
@@ -1817,6 +1862,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             _startScaleQpc = _scaleQpc;
             _startForce = _forceStart;
             _startReachEmbedded = _reachEmbedded;
+            _startReachElevated = WantsElevatedEmbedded;
             _startCaptured = true;
             RaisePropertyChanged(nameof(StartedAtPreview));
 
@@ -1833,7 +1879,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
                     _forceStart,
                     TargetArguments.Split(_targetArgs),
                     _workingFolder,
-                    _reachEmbedded);
+                    _reachEmbedded,
+                    _startReachElevated);
             }
             catch (InvalidOperationException ex)
             {
@@ -2486,6 +2533,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             ScaleQpc = _startCaptured ? _startScaleQpc : _scaleQpc,
             Force = _startCaptured ? _startForce : _forceStart,
             Embedded = _startCaptured ? _startReachEmbedded : _reachEmbedded,
+            ElevatedEmbedded = _startCaptured ? _startReachElevated : WantsElevatedEmbedded,
             Verdict = RecordedVerdict(),
             EndedAtUtc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
         };
@@ -2606,6 +2654,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         ScaleQpc = record.ScaleQpc;
         ForceStart = record.Force;
         ReachEmbedded = record.Embedded;
+        // What a window that is not elevated cannot do is not loaded as ticked: the box would claim it.
+        ReachElevatedEmbedded = record.ElevatedEmbedded && _canReachElevated;
 
         // A zone or a mode the catalogues no longer offer cannot be filled in, and the old code left the
         // CURRENT one standing without a word - so the form claimed to be the recorded session while one of

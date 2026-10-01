@@ -42,6 +42,29 @@ internal static class PhaseStates
         return model;
     }
 
+    /// <summary>A window that runs as administrator, with the option that writes the machine registry
+    /// ticked: the one state in which the option is live, its cost note shown in place of the line that says
+    /// what it needs (docs/09 section 12.19).</summary>
+    public static SessionViewModel SetupWithElevatedOption()
+    {
+        var model = ElevatedSetup();
+        model.ReachElevatedEmbedded = true;
+        return model;
+    }
+
+    /// <summary>An elevated window with the channel the option rides on turned off: the option is greyed
+    /// and unticked with it, so the form never claims a session that Start does not run.</summary>
+    public static SessionViewModel SetupElevatedWithoutChannel()
+    {
+        var model = ElevatedSetup();
+        model.ReachElevatedEmbedded = true;
+        model.ReachEmbedded = false;
+        return model;
+    }
+
+    private static SessionViewModel ElevatedSetup()
+        => new(new InMemorySessionHistoryStore(), presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"), canReachElevated: true);
+
     /// <summary>An application chosen and a date that does not exist.</summary>
     public static SessionViewModel SetupWithBadDate()
     {
@@ -188,7 +211,19 @@ internal static class PhaseStates
     /// own under the parent's - context rows, not process rows - and the warning says they were reached
     /// rather than that they read the real clock. The shape the bench measured on two hosts, 2026-09-22.
     /// </summary>
-    public static SessionViewModel ResultPartialWithEmbeddedPages()
+    public static SessionViewModel ResultPartialWithEmbeddedPages() => EmbeddedPages([], []);
+
+    /// <summary>The same session after an application that runs as administrator, whose registry value
+    /// was written and taken away again (docs/09 section 12.19): the account of what was done to the machine
+    /// stands with the other warnings.</summary>
+    public static SessionViewModel ResultElevatedRemoved() => EmbeddedPages([], ["embedded.policy_value_removed"]);
+
+    /// <summary>The same, with the value that could NOT be taken away. The core puts that one FIRST in the
+    /// warnings, because the list is a short window onto a longer one and it is the one line that says
+    /// something is still set on this machine.</summary>
+    public static SessionViewModel ResultElevatedLeft() => EmbeddedPages(["embedded.policy_value_left"], []);
+
+    private static SessionViewModel EmbeddedPages(string[] firstWarningKeys, string[] lastWarningKeys)
     {
         var model = ResultRunning();
         // The parent's final snapshot arrives BEFORE the page rows, as the core emits them - and the
@@ -237,8 +272,10 @@ internal static class PhaseStates
             ProcessCount = 3,
             WarningKeys =
             [
+                ..firstWarningKeys,
                 "inheritance.children_uncovered", "embedded.web_engine_reached", "embedded.debug_port_open",
                 "chromium.rate_change_affects_running_timers",
+                ..lastWarningKeys,
             ],
             UncoveredChildren =
             [

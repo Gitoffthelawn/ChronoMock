@@ -58,6 +58,11 @@ public class LocalizationTests
         "embedded.discovery_unavailable", "embedded.qt_port_taken", "embedded.zone_is_host",
         "embedded.registry_arguments_hidden", "embedded.pages_not_released",
         "embedded.webview2_not_reached", "embedded.elevated_host",
+        // The one WebView2 value a session may write to the machine registry for an application that runs
+        // as administrator (docs/09 section 12.19), and what became of it.
+        "embedded.policy_value_removed", "embedded.policy_value_left", "embedded.policy_value_recovered",
+        "embedded.policy_value_stale", "embedded.policy_value_foreign", "embedded.policy_not_written",
+        "embedded.policy_name_mismatch",
         "time.fake_clock_clamped", "time.duration_axis_clamped",
         // The application outlived the session and was let go (docs/01 section 8.4), and the session
         // outlived the program it launched and went on for what that program started (ADR-16).
@@ -130,6 +135,10 @@ public class LocalizationTests
     private static readonly (string Text, string Label)[] QuotedLabels =
     [
         ("runtime.dotnet_stopwatch_qpc", "setup.opt_duration"),
+        // The advice to take the option, and the line about a value a crashed session left that only that
+        // option removes: both point at the checkbox, so both quote it.
+        ("embedded.elevated_host", "setup.opt_elevated_embedded"),
+        ("embedded.policy_value_stale", "setup.opt_elevated_embedded"),
     ];
 
     [Fact]

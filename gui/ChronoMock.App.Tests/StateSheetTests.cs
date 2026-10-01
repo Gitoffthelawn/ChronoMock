@@ -97,6 +97,12 @@ public class StateSheetTests
             // column agreeing across a boundary that used to be two separate scopes.
             total += RenderSetup("setup-options", PhaseStates.SetupWithEveryOption(), "SpeedSection").Count;
 
+            // The option that writes the machine registry, in the three states it has beyond the one above
+            // (a window that is not elevated, where it is greyed with what it needs): live and ticked,
+            // and greyed with the channel it rides on turned off.
+            total += RenderSetup("setup-options-elevated", PhaseStates.SetupWithElevatedOption(), "SpeedSection").Count;
+            total += RenderSetup("setup-options-elevated-no-channel", PhaseStates.SetupElevatedWithoutChannel(), "SpeedSection").Count;
+
             // 🔴 AN APPLICATION CHOSEN AND A DATE THAT DOES NOT PARSE, which is the state the footer used
             // to meet in silence: the contract line has no moment to print, Start is disabled, and the
             // only sentence the footer knew was "choose an application" - which had been done. Nothing in
@@ -200,6 +206,14 @@ public class StateSheetTests
             total += RenderResult("result-partial", PhaseStates.ResultPartial()).Count;
             total += RenderResult("result-processes", PhaseStates.ResultPartialWithUncoveredProcesses(), "AuditSection").Count;
             total += RenderResult("result-embedded", PhaseStates.ResultPartialWithEmbeddedPages(), "AuditSection").Count;
+            // The registry value an elevated session wrote: taken away again, and - the one that is worded
+            // as a problem because it is one - left behind.
+            total += Shows(
+                RenderResult("result-elevated-removed", PhaseStates.ResultElevatedRemoved(), "AuditSection"),
+                "embedded.policy_value_removed");
+            total += Shows(
+                RenderResult("result-elevated-left", PhaseStates.ResultElevatedLeft(), "AuditSection"),
+                "embedded.policy_value_left");
             total += RenderResult("result-refused", PhaseStates.ResultRefused()).Count;
             total += Shows(RenderResult("result-refused-left-running", PhaseStates.ResultRefusedLeftRunning()), "result.left_running");
             total += Shows(RenderResult("result-refused-incomplete", PhaseStates.ResultRefusedIncomplete()), "result.refusal_incomplete");
