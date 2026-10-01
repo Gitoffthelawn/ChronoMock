@@ -92,6 +92,12 @@
       "link_text": "vs RunAsDate",
       "title": "Альтернатива RunAsDate для QA в Windows — с открытым кодом",
       "description": "Чем Chrono Mock отличается от RunAsDate: {{channel_count}} каналов времени вместо пяти, регулируемая скорость часов, собственный часовой пояс, дочерние процессы — и вердикт, сработало ли."
+    },
+    "uk": {
+      "slug": "runasdate-alternative",
+      "link_text": "vs RunAsDate",
+      "title": "Альтернатива RunAsDate для QA у Windows — з відкритим кодом",
+      "description": "Чим Chrono Mock відрізняється від RunAsDate: {{channel_count}} каналів часу замість п’яти, регульована швидкість годинника, власний часовий пояс, дочірні процеси — і вердикт, чи спрацювало."
     }
   }
 }
