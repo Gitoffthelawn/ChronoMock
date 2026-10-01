@@ -72,7 +72,6 @@ pub struct SiteConfig {
     pub social_image: String,
     pub social_image_width: u32,
     pub social_image_height: u32,
-    pub social_image_alt: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,7 +122,7 @@ impl Page {
     }
 }
 
-/// `/`, `/download/`, `/pl/`, `/pl/pobieranie/` - one rule, written once.
+/// `/`, `/download/`, `/pl/`, `/pl/pobieranie/`, `/zh-hans/download/` - one rule, written once.
 pub fn url_path(lang: &str, slug: &str) -> String {
     match (lang == ROOT_LANGUAGE, slug.is_empty()) {
         (true, true) => "/".to_string(),
@@ -305,6 +304,67 @@ pub fn load_i18n(site_dir: &Path, languages: &[String]) -> Result<BTreeMap<Strin
     Ok(all)
 }
 
+/// Whether `code` is usable as both a directory name and the lower-cased form of a language tag.
+fn is_language_code(code: &str) -> bool {
+    !code.is_empty()
+        && !code.starts_with('-')
+        && !code.ends_with('-')
+        && code.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Facts about each language that more than one place in the output relies on, held to
+/// one another so that they cannot drift apart across twenty-odd dictionaries.
+///
+/// * The code in `site.json` is a directory name AND the thing hreflang is generated from.
+///   If `pt-br` were paired with `html_lang` `pt-PT`, every page would announce one language
+///   to search engines and live under the address of another, and nothing would fail.
+/// * `dir` is the only thing that turns the layout around for Arabic; a typo there would
+///   silently publish a left-to-right Arabic site.
+/// * An `og_locale` that is not `ll_CC` is dropped by the crawlers that read it, without a
+///   message.
+pub fn validate_languages(
+    languages: &[String],
+    i18n: &BTreeMap<String, BTreeMap<String, String>>,
+) -> Result<()> {
+    let mut seen = BTreeSet::new();
+    for lang in languages {
+        if !is_language_code(lang) {
+            return Err(format!(
+                "site.json: '{lang}' is not a usable language code - lower-case letters, digits and hyphens only"
+            ));
+        }
+        if !seen.insert(lang.as_str()) {
+            return Err(format!("site.json lists '{lang}' twice"));
+        }
+        let dict = &i18n[lang];
+        let key = |name: &str| {
+            dict.get(name)
+                .map(String::as_str)
+                .ok_or_else(|| format!("i18n/{lang}.json has no key '{name}'"))
+        };
+
+        let html_lang = key("html_lang")?;
+        if html_lang.to_ascii_lowercase() != *lang {
+            return Err(format!(
+                "i18n/{lang}.json: html_lang is '{html_lang}', which is not '{lang}' in other letters - the address and the hreflang would name different languages"
+            ));
+        }
+        let dir = key("dir")?;
+        if dir != "ltr" && dir != "rtl" {
+            return Err(format!("i18n/{lang}.json: dir is '{dir}', and it must be 'ltr' or 'rtl'"));
+        }
+        let og = key("og_locale")?;
+        let shaped = og.len() == 5
+            && og.as_bytes()[2] == b'_'
+            && og[..2].chars().all(|c| c.is_ascii_lowercase())
+            && og[3..].chars().all(|c| c.is_ascii_uppercase());
+        if !shaped {
+            return Err(format!("i18n/{lang}.json: og_locale '{og}' is not of the form ll_CC"));
+        }
+    }
+    Ok(())
+}
+
 /// Read every page directory. Order is by `order` then id, so the navigation is a
 /// property of the data rather than of the filesystem.
 pub fn load_pages(site_dir: &Path) -> Result<Vec<Page>> {
@@ -365,6 +425,51 @@ mod tests {
         assert_eq!(url_path("en", "download"), "/download/");
         assert_eq!(url_path("pl", ""), "/pl/");
         assert_eq!(url_path("pl", "pobieranie"), "/pl/pobieranie/");
+    }
+
+    #[test]
+    fn addresses_of_hyphenated_languages_keep_the_hyphen() {
+        assert_eq!(url_path("zh-hans", ""), "/zh-hans/");
+        assert_eq!(url_path("pt-br", "baixar"), "/pt-br/baixar/");
+        assert_eq!(
+            output_path("zh-hant", "faq"),
+            PathBuf::from("zh-hant").join("faq").join("index.html")
+        );
+    }
+
+    fn dict(html_lang: &str, dir: &str, og: &str) -> BTreeMap<String, String> {
+        [("html_lang", html_lang), ("dir", dir), ("og_locale", og)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn one(code: &str, d: BTreeMap<String, String>) -> Result<()> {
+        let mut all = BTreeMap::new();
+        all.insert(code.to_string(), d);
+        validate_languages(&[code.to_string()], &all)
+    }
+
+    #[test]
+    fn a_language_code_must_be_its_own_html_lang_in_lower_case() {
+        assert!(one("pt-br", dict("pt-BR", "ltr", "pt_BR")).is_ok());
+        assert!(one("zh-hans", dict("zh-Hans", "ltr", "zh_CN")).is_ok());
+        let err = one("pt-br", dict("pt-PT", "ltr", "pt_BR")).unwrap_err();
+        assert!(err.contains("html_lang"), "{err}");
+    }
+
+    #[test]
+    fn direction_and_locale_shapes_are_checked_not_trusted() {
+        assert!(one("ar", dict("ar", "rtl", "ar_AR")).is_ok());
+        assert!(one("ar", dict("ar", "RTL", "ar_AR")).unwrap_err().contains("dir"));
+        assert!(one("ar", dict("ar", "rtl", "ar")).unwrap_err().contains("og_locale"));
+        assert!(one("ar", dict("ar", "rtl", "ar_ar")).unwrap_err().contains("og_locale"));
+    }
+
+    #[test]
+    fn a_code_that_cannot_be_a_directory_is_refused() {
+        assert!(one("PT", dict("pt", "ltr", "pt_PT")).unwrap_err().contains("language code"));
+        assert!(one("../x", dict("x", "ltr", "xx_XX")).unwrap_err().contains("language code"));
     }
 
     #[test]
@@ -456,7 +561,6 @@ mod tests {
             social_image: "/assets/social-preview.png".into(),
             social_image_width: 1280,
             social_image_height: 640,
-            social_image_alt: "alt".into(),
         }
     }
 

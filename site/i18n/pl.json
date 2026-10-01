@@ -1,8 +1,13 @@
 {
   "//": "Odpowiednik en.json. Klucze muszą być identyczne - brakujący klucz zatrzymuje budowanie, zamiast po cichu wstawić angielski tekst na polskiej stronie.",
 
+  "//html_lang": "Znacznik języka strony. To także wartość hreflang i inLanguage danych strukturalnych, więc musi być kodem z site.json, pisanym małymi literami, w zapisie znacznika (pt-BR, zh-Hans) - generator je porównuje. dir to ltr albo rtl i nic więcej.",
   "html_lang": "pl",
+  "dir": "ltr",
   "og_locale": "pl_PL",
+
+  "//social_image_alt": "Tekst alternatywny obrazka podglądu linku. Obrazek jest wspólny dla wszystkich języków, więc w każdym opisuje się to, co na nim widać - tłumaczy się opis, nie napisy narysowane na obrazku.",
+  "social_image_alt": "Chrono Mock - uruchom aplikację Windows z dowolną datą i godziną, bez zmiany zegara systemowego",
 
   "skip_to_content": "Przejdź do treści",
   "nav_label": "Główna",
@@ -10,6 +15,8 @@
   "//language_name": "Jak TEN język nazywa siebie sam - tak ma być podpisany odnośnik prowadzący do niego. Generator czyta te dwa klucze ze słownika języka, DO którego prowadzi odnośnik, nigdy z bieżącego.",
   "language_name": "Polski",
   "language_title": "Ta strona po polsku",
+  "//language_menu_label": "Jak nazywa się wybór języka - w TYM języku, czyli napis, którego szuka czytelnik, a nie nazwa któregoś z języków.",
+  "language_menu_label": "Język",
 
   "//footer_group": "Nagłówki mapy serwisu w stopce. Pasek u góry niesie tylko te kilka adresów, których potrzebuje ktoś, kto trafia tu pierwszy raz - to ta mapa utrzymuje każdą stronę osiągalną. Jeden nagłówek na każdą grupę z render.rs.",
   "footer_nav_label": "Mapa serwisu",
