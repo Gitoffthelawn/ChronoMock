@@ -87,6 +87,12 @@
       "link_text": "Trang chủ",
       "title": "Chrono Mock - chạy ứng dụng Windows ở một ngày khác",
       "description": "Công cụ Windows miễn phí, mã nguồn mở. Chạy ứng dụng ở bất kỳ ngày nào, đóng băng hoặc tăng tốc đồng hồ của nó mà không đụng đến giờ hệ thống. Nó cho bạn biết có hiệu quả hay không."
+    },
+    "ru": {
+      "slug": "",
+      "link_text": "Главная",
+      "title": "Chrono Mock — запуск приложений Windows с другой датой",
+      "description": "Бесплатный инструмент для Windows с открытым кодом. Запускайте приложение с любой датой, останавливайте или ускоряйте его часы, не трогая системное время. Он скажет, сработало ли."
     }
   }
 }

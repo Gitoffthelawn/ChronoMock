@@ -86,6 +86,12 @@
       "link_text": "so với RunAsDate",
       "title": "Thay thế RunAsDate cho QA Windows - mã nguồn mở",
       "description": "Chrono Mock khác RunAsDate ở chỗ: {{channel_count}} kênh thời gian thay vì năm, tốc độ đồng hồ điều chỉnh được, múi giờ riêng, tiến trình con - và kết luận có hiệu quả hay không."
+    },
+    "ru": {
+      "slug": "runasdate-alternative",
+      "link_text": "vs RunAsDate",
+      "title": "Альтернатива RunAsDate для QA в Windows — с открытым кодом",
+      "description": "Чем Chrono Mock отличается от RunAsDate: {{channel_count}} каналов времени вместо пяти, регулируемая скорость часов, собственный часовой пояс, дочерние процессы — и вердикт, сработало ли."
     }
   }
 }

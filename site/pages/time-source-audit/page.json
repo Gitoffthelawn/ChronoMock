@@ -86,6 +86,12 @@
       "link_text": "Kiểm toán",
       "title": "Làm sao biết ngày giả có thực sự đến được ứng dụng",
       "description": "Mỗi phiên kết thúc bằng một kết luận, các kênh thời gian thực sự đã đọc kèm số lần gọi, các kênh bị bỏ sót và cảnh báo. Thất bại thầm lặng là kết quả duy nhất không được chấp nhận."
+    },
+    "ru": {
+      "slug": "time-source-audit",
+      "link_text": "Аудит",
+      "title": "Как понять, что поддельная дата дошла до приложения",
+      "description": "Каждая сессия заканчивается вердиктом, реально прочитанными каналами времени со счётчиками вызовов, упущенными каналами и предупреждениями. Тихий сбой — единственный недопустимый исход."
     }
   }
 }

@@ -84,6 +84,12 @@
       "link_text": "CLI và CI",
       "title": "Kiểm thử ngày tháng trong CI - mã thoát và đầu ra JSON",
       "description": "Bản dựng dòng lệnh 1,6 MB không cần runtime. Mã thoát là kết luận về độ bao phủ chứ không phải của mục tiêu: pipeline sẽ lỗi nếu việc thay thế thời gian không có hiệu lực."
+    },
+    "ru": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI и CI",
+      "title": "Тестирование дат в CI — коды завершения и вывод JSON",
+      "description": "Сборка для командной строки на 1,6 МБ без среды выполнения. Код завершения — вердикт о покрытии, а не код цели: конвейер падает, если подмена времени не сработала."
     }
   }
 }

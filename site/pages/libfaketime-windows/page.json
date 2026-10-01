@@ -86,6 +86,12 @@
       "link_text": "libfaketime trên Windows",
       "title": "libfaketime cho Windows - lựa chọn tương đương gần nhất",
       "description": "libfaketime cần LD_PRELOAD, thứ mà Windows không có. Đây là thứ thay thế nó, với từng tùy chọn FAKETIME được ánh xạ sang tương đương trên Windows."
+    },
+    "ru": {
+      "slug": "libfaketime-windows",
+      "link_text": "libfaketime в Windows",
+      "title": "libfaketime для Windows — ближайший аналог",
+      "description": "libfaketime нужен LD_PRELOAD, которого в Windows нет. Вот что его заменяет, с параметрами FAKETIME, по одному сопоставленными с аналогами для Windows."
     }
   }
 }

@@ -86,6 +86,12 @@
       "link_text": "WebView2 và Qt WebEngine",
       "title": "Làm giả ngày cho các trang web trong một ứng dụng native",
       "description": "Ứng dụng native có động cơ web tích hợp chạy các trang của nó trong một tiến trình mà việc chèn mã không vào được, nên chúng giữ ngày thật. Phiên tiếp cận chúng qua cổng gỡ lỗi của động cơ."
+    },
+    "ru": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 и Qt WebEngine",
+      "title": "Подмена даты для веб-страниц внутри нативного приложения",
+      "description": "Нативное приложение со встроенным веб-движком запускает страницы в процессе, куда внедрение не попадает, и они сохраняют настоящую дату. Сессия достаёт их через порт отладки движка."
     }
   }
 }

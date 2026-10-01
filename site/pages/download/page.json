@@ -84,6 +84,12 @@
       "link_text": "Tải về",
       "title": "Tải Chrono Mock cho Windows - miễn phí, không cần cài đặt",
       "description": "Tải bản Windows miễn phí: một ứng dụng máy tính để bàn và một công cụ dòng lệnh. Không có trình cài đặt, không cần quyền quản trị viên và không ghi gì vào registry."
+    },
+    "ru": {
+      "slug": "download",
+      "link_text": "Скачать",
+      "title": "Скачать Chrono Mock для Windows — бесплатно, без установки",
+      "description": "Скачайте бесплатную версию для Windows: настольное приложение и инструмент командной строки. Без установщика, без прав администратора и без записей в реестр."
     }
   }
 }

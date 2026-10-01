@@ -86,6 +86,12 @@
       "link_text": "Electron và Chromium",
       "title": "Làm giả ngày trong ứng dụng Electron hoặc Chromium",
       "description": "Đồng hồ của chúng nằm trong renderer bị cô lập mà việc chèn mã không với tới. Một cơ chế khác đặt các API thời gian JavaScript của ứng dụng lên đồng hồ phiên, kể cả trong worker."
+    },
+    "ru": {
+      "slug": "electron-chromium",
+      "link_text": "Electron и Chromium",
+      "title": "Подмена даты в приложении на Electron или Chromium",
+      "description": "Их часы живут в изолированном рендерере, куда внедрение не достаёт. Другой механизм переводит API времени JavaScript приложения на часы сессии, включая воркеры."
     }
   }
 }

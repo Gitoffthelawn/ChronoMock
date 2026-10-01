@@ -1,0 +1,26 @@
+{
+  "//": "Русские тексты сайта — те же ключи, что и в en.json (отсутствующий ключ останавливает сборку).",
+
+  "html_lang": "ru",
+  "dir": "ltr",
+  "og_locale": "ru_RU",
+
+  "social_image_alt": "Chrono Mock — запускайте приложение Windows с любой датой и временем, не меняя системные часы",
+
+  "skip_to_content": "Перейти к содержимому",
+  "nav_label": "Основная навигация",
+
+  "language_name": "Русский",
+  "language_title": "Эта страница на русском",
+  "language_menu_label": "Язык",
+
+  "footer_nav_label": "Карта сайта",
+  "footer_group_start": "С чего начать",
+  "footer_group_tools": "Альтернативы и среды выполнения",
+  "footer_group_features": "Что умеет",
+
+  "footer_summary": "Chrono Mock — GPL-3.0. Без учётной записи, без телеметрии, и никогда не обращается к интернету.",
+  "footer_source": "Исходный код на GitHub",
+  "footer_releases": "Релизы",
+  "footer_license": "Лицензия"
+}

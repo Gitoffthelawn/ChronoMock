@@ -84,6 +84,12 @@
       "link_text": "Máy tính ngày",
       "title": "Máy tính ngày cho QA - ngày làm việc và trường hợp biên",
       "description": "Tìm ra ngày cần kiểm thử: cuối tháng, khóa sổ quý, N ngày làm việc với ngày lễ thật, ranh giới 2038. Mọi định dạng cùng lúc và mỗi ngày kiểm thử điều gì."
+    },
+    "ru": {
+      "slug": "date-calculator",
+      "link_text": "Калькулятор",
+      "title": "Калькулятор дат для QA — рабочие дни и граничные случаи",
+      "description": "Узнайте, какую дату тестировать: конец месяца, закрытие квартала, N рабочих дней с настоящими праздниками, граница 2038 года. Все форматы сразу и что проверяет каждая дата."
     }
   }
 }

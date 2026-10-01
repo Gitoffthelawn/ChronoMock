@@ -84,6 +84,12 @@
       "link_text": "Ngày cần kiểm thử",
       "title": "Những ngày đáng kiểm thử - cuối tháng, 29 tháng 2, năm 2038",
       "description": "Những ngày làm phần mềm hỏng: ranh giới kỳ, ngày nhuận, epoch bằng không, ranh giới 32-bit, biên của bản dùng thử và lệch đồng hồ. {{preset_count}} ngày được cung cấp sẵn dưới dạng kịch bản có tên."
+    },
+    "ru": {
+      "slug": "date-test-scenarios",
+      "link_text": "Даты для тестов",
+      "title": "Даты для тестирования — конец месяца, 29 февраля, 2038 год",
+      "description": "Даты, на которых ломается ПО: границы периодов, високосный день, нулевая эпоха, 32-разрядная граница, края пробных периодов и расхождение часов. {{preset_count}} из них поставляются как именованные сценарии."
     }
   }
 }

@@ -86,6 +86,12 @@
       "link_text": "FAQ",
       "title": "FAQ Chrono Mock - hỏi đáp về ngày giả trên Windows",
       "description": "Nó có đổi đồng hồ hệ thống không? Có cần quyền quản trị viên không? Có chạy với ứng dụng của tôi, .NET, Java hay Electron không? Trả lời ngắn, kể cả về điều nó không làm."
+    },
+    "ru": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ — вопросы о подмене даты в Windows",
+      "description": "Меняет ли он системные часы? Нужны ли права администратора? Подойдёт ли моему приложению, .NET, Java или Electron? Короткие ответы, включая то, чего он не делает."
     }
   }
 }

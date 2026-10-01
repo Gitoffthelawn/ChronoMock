@@ -84,6 +84,12 @@
       "link_text": "Tham chiếu CLI",
       "title": "Tham chiếu CLI Chrono Mock - mọi tùy chọn và mã thoát",
       "description": "Tham chiếu đầy đủ cho chrono run và chrono calc: mọi tùy chọn dòng lệnh, cả hai bảng mã thoát và cách đọc báo cáo phiên."
+    },
+    "ru": {
+      "slug": "cli-reference",
+      "link_text": "Справочник CLI",
+      "title": "Справочник CLI Chrono Mock — все флаги и коды завершения",
+      "description": "Полный справочник по chrono run и chrono calc: каждый флаг командной строки, обе таблицы кодов завершения и как читать отчёт сессии."
     }
   }
 }

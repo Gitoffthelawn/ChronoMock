@@ -84,6 +84,12 @@
       "link_text": "Múi giờ",
       "title": "Chạy ứng dụng ở múi giờ khác mà không đổi Windows",
       "description": "Cho một tiến trình độ lệch múi giờ riêng trong khi múi giờ hệ thống vẫn nguyên chỗ cũ. Tái hiện lỗi chỉ xuất hiện với khách hàng ở cách đó năm múi giờ."
+    },
+    "ru": {
+      "slug": "timezone-testing",
+      "link_text": "Часовые пояса",
+      "title": "Запуск приложения в другом часовом поясе без смены Windows",
+      "description": "Дайте одному процессу собственное смещение часового пояса, пока системный пояс остаётся на месте. Воспроизведите ошибку, которая бывает только у клиента за пять часовых поясов."
     }
   }
 }

@@ -84,6 +84,12 @@
       "link_text": "Tăng tốc thời gian",
       "title": "Tăng tốc thời gian cho một ứng dụng Windows, không phải giờ hệ thống",
       "description": "Cho đồng hồ của một ứng dụng chạy nhanh gấp tới một triệu lần: bản dùng thử 30 ngày hết hạn trong nửa giờ. Không cần quyền quản trị viên, các chương trình khác giữ giờ thật."
+    },
+    "ru": {
+      "slug": "speed-up-time",
+      "link_text": "Ускорение времени",
+      "title": "Ускорение времени для одного приложения, а не системных часов",
+      "description": "Пустите часы одного приложения быстрее до миллиона раз: 30-дневный пробный период истекает за полчаса. Права администратора не нужны, остальные программы живут по настоящему времени."
     }
   }
 }
