@@ -85,6 +85,12 @@
       "link_text": "Đừng đổi đồng hồ",
       "title": "Đổi ngày hệ thống để kiểm thử: điều gì hỏng trên Windows",
       "description": "Dời đồng hồ Windows để thử một ngày sẽ dời cả máy: miền, chứng chỉ, đồng bộ giờ. Điều gì hỏng và cách chỉ dời đồng hồ của một ứng dụng."
+    },
+    "ru": {
+      "slug": "change-system-date-testing",
+      "link_text": "Не меняйте часы",
+      "title": "Смена системной даты для тестов — что ломается в Windows",
+      "description": "Сдвиг часов Windows ради теста даты сдвигает всю машину: домен, сертификаты, синхронизацию. Что ломается и как сдвинуть часы только одного приложения."
     }
   }
 }
