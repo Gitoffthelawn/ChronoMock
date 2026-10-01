@@ -136,9 +136,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   error window, reported a loader lock and left the window on the desktop. It now ends with a key that
   says which (`target.loader_dll_not_found`, `target.loader_entry_missing`, `target.loader_bad_image`,
   `target.loader_init_failed`, or `target.died_while_loading` with the code it ended with), exit 2.
-  Windows' error window is kept off while the application loads and switched back before its first
-  instruction, so the application runs with the error mode it inherited, and the message says how to
-  see the name that window would have shown: start the application once without Chrono Mock.
+  Windows' error window is kept off while the application loads and switched back before its entry
+  point, so the application runs with the error mode it inherited, and the message says how to see the
+  name that window would have shown: start the application once without Chrono Mock.
 - **An application that runs as administrator and uses WebView2 is no longer reported as working
   over pages that ran on the real clock.** WebView2 ignores the environment variable the session
   reaches its web engine through when the application is elevated, so the session never reached the

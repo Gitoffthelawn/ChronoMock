@@ -3050,10 +3050,13 @@ unsafe fn make_duration_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) {
 /// Install and enable every channel's detour, wiring this process to the shared anchor.
 ///
 /// INVARIANT (P6, docs/06 ADR-3): injection assumes the target is SUSPENDED - the parent is created
-/// `CREATE_SUSPENDED` and injected before its first thread runs, and children are forced
+/// `CREATE_SUSPENDED` and injected before its main thread runs, and children are forced
 /// `CREATE_SUSPENDED` in `h_cpw`/`h_cpa` before self-injection. This runs from `DLL_PROCESS_ATTACH`
 /// under the loader lock, and `MinHook::enable_all_hooks` suspends/resumes threads - safe ONLY while
-/// no other application thread exists yet. Do NOT add a path that injects into an already-running,
+/// no other application thread exists yet. Not quite "no code of the target has run" (R4-N20): the
+/// injecting thread does the target's own loading first, so the start-up code of its static imports and
+/// its TLS callbacks run before this, on the real clock, and a thread one of them starts is the one
+/// application thread that can exist here. Do NOT add a path that injects into an already-running,
 /// multi-threaded process without moving hook-enabling off the loader lock (the watcher thread is
 /// created OUTSIDE DllMain, in `ensure_watcher`, for exactly this reason).
 unsafe fn install() -> Result<(), InstallError> { unsafe {

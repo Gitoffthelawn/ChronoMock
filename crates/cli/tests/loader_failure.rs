@@ -6,7 +6,7 @@
 //! there, and the session reported a successful injection followed by a vanished target - or, started
 //! from Explorer, with Windows's error window up, a loader lock ten seconds later. Measured on x64 and x86
 //! in tools/probes/r4-9. The core now switches that window off while the target loads and back before its
-//! first instruction.
+//! entry point.
 //!
 //! Both sessions here run with the error mode a program started from Explorer has (the default, which
 //! shows the window), whatever mode the test runner itself was given. The broken target is a copy of

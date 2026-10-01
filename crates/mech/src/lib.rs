@@ -5,8 +5,11 @@
 //! Stage 4: substitute the full set of wall-clock channels and report the session
 //! zone. `prepare` creates the session control memory, computes the fake anchor and
 //! the session zone bias from the moment, launches the target SUSPENDED (so the hook
-//! is installed before the target's first instruction - no race), injects the hook
-//! DLL, reads back which channels were covered, then resumes.
+//! is installed before the target's entry point runs), injects the hook DLL, reads back
+//! which channels were covered, then resumes. One thing runs before the hook all the
+//! same (R4-N20): the remote thread that loads it does the target's own loading first,
+//! so the start-up code of the target's static imports (`DllMain`) and its TLS
+//! callbacks read the real clock. The README says so under its limits.
 //!
 //! The tool injects its OWN probes on the host - injecting into third-party or system
 //! processes stays on the VM or requires explicit consent.
@@ -106,7 +109,7 @@ pub enum PrepareError {
     Control(String),
     Launch(String),
     Inject(String),
-    /// The target ended while Windows was loading it, before its first instruction, with this exit
+    /// The target ended while Windows was loading it, before its entry point, with this exit
     /// code - the loader's status when a static import was missing, of the other bitness, lacked a
     /// function or would not initialise (R4-S6). Nothing about the hook is known: it never got its turn.
     EndedLoading(u32),
@@ -1493,7 +1496,8 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         write_core_created(ctl, process_created(GetCurrentProcess()).unwrap_or(0));
         write_core_pid(ctl, GetCurrentProcessId());
 
-        // 2. Launch SUSPENDED so the hook lands before the first instruction, and in a job that ends the
+        // 2. Launch SUSPENDED so the hook lands before the entry point (the loading the remote thread does
+        // for the target still comes first, with its imports' start-up code, R4-N20), and in a job that ends the
         // target with this core until it runs (R4-S1). A core that died while the target was still
         // suspended - killed by the window after its patience ran out, Ctrl+C, a crash - left it
         // suspended for good, holding its executable and the hook library open. Its children stay out
@@ -1754,8 +1758,8 @@ fn build_command_line(path: &str, args: &[String]) -> Vec<u16> {
 const INJECT_TIMEOUT_MS: u32 = 10_000;
 
 /// Inject the hook with Windows's error window off while the target loads, and back the way the target
-/// inherited it before its first instruction (R4-S6, `loader::QuietLoader`). On `Err` the caller ends the
-/// target, which has run nothing of its own, so the mode is not given back on that road.
+/// inherited it before its entry point (R4-S6, `loader::QuietLoader`). On `Err` the caller ends the
+/// target, which has not reached its entry point, so the mode is not given back on that road.
 unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { unsafe {
     let quiet = loader::QuietLoader::begin(hproc);
     load_hook(hproc, dll_wide)?;

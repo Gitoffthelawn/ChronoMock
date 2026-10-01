@@ -11,7 +11,7 @@
 //!
 //! Two things fix it. The end of the wait is read in the order that tells the truth ([`outcome`]): the
 //! target's own exit code first, then the thread's. And Windows's error window is switched off for the
-//! target while it loads and switched back before its first instruction ([`QuietLoader`]), so a failed
+//! target while it loads and switched back before its entry point ([`QuietLoader`]), so a failed
 //! load ends in milliseconds with its status instead of waiting on a window nobody may be looking at, and
 //! no window outlives the start that raised it.
 
@@ -129,9 +129,9 @@ type NtSetInformationProcessFn = unsafe extern "system" fn(HANDLE, u32, *const c
 /// with the window still on the desktop after the start was over. Off, the loader ends the process at
 /// once with the status the window would have shown.
 ///
-/// The mode goes back before the target's first instruction, so the application runs with the mode it
+/// The mode goes back before the target's entry point, so the application runs with the mode it
 /// inherited - measured with a program that reports its own mode. What runs under the switch is the
-/// loading itself and the start-up code of the libraries it loads.
+/// loading itself: the start-up code of the libraries it imports and its TLS callbacks (R4-N20).
 pub(crate) struct QuietLoader {
     process: HANDLE,
     inherited: u32,

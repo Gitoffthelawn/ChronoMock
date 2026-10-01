@@ -293,6 +293,10 @@ cover something is worse than one that says what it cannot do.
   instead, which is the right answer: .NET's `TimeZoneInfo.Local` keeps the name, Java names the zone
   after its offset (`GMT+05:30`), and so do Node.js and Deno for a whole hour (`Etc/GMT-5`). A target
   that insists on a registry name will not find one
+- **What runs while Windows loads the application reads the real clock.** The fake clock is attached
+  once Windows has loaded the application, so the start-up code of the libraries it imports
+  (`DllMain`) and its TLS callbacks run before it. Everything from the application's entry point on,
+  static constructors included, runs after it
 - **Chrono Mock cleans up after itself. It cannot clean up after the application you tested.** See the
   warning below
 - Windows only. No macOS, no Linux - `libfaketime` already covers Linux well
