@@ -134,6 +134,12 @@
       "link_text": "Windows पर libfaketime",
       "title": "Windows के लिए libfaketime - सबसे नज़दीकी विकल्प",
       "description": "libfaketime को LD_PRELOAD चाहिए, जो Windows में नहीं है। यह बताता है कि उसकी जगह क्या है, और हर FAKETIME विकल्प को Windows के समकक्ष से मिलाता है।"
+    },
+    "th": {
+      "slug": "libfaketime-windows",
+      "link_text": "libfaketime บน Windows",
+      "title": "libfaketime สำหรับ Windows - ทางเลือกที่ใกล้เคียงที่สุด",
+      "description": "libfaketime ต้องใช้ LD_PRELOAD ซึ่งไม่มีบน Windows นี่คือสิ่งที่มาแทนที่ พร้อมจับคู่ตัวเลือก FAKETIME แต่ละตัวกับของที่เทียบเท่าบน Windows"
     }
   }
 }

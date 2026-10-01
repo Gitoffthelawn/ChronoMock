@@ -134,6 +134,12 @@
       "link_text": "Electron और Chromium",
       "title": "Electron और Chromium ऐप में तारीख़ बदलना",
       "description": "इनकी घड़ी एक सैंडबॉक्स्ड रेंडरर में रहती है जहाँ इंजेक्शन नहीं पहुँचता। एक अलग तंत्र Worker समेत ऐप के JavaScript समय API को सत्र की घड़ी पर रखता है।"
+    },
+    "th": {
+      "slug": "electron-chromium",
+      "link_text": "Electron และ Chromium",
+      "title": "ปลอมวันที่ในแอป Electron และ Chromium",
+      "description": "นาฬิกาของมันอยู่ในเรนเดอเรอร์แบบแซนด์บ็อกซ์ที่การฉีดไปไม่ถึง กลไกอีกแบบย้าย API เวลา JavaScript ของแอป รวมถึงใน Worker ไปอยู่บนนาฬิกาของเซสชัน"
     }
   }
 }

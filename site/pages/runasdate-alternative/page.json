@@ -134,6 +134,12 @@
       "link_text": "RunAsDate से तुलना",
       "title": "Windows QA के लिए RunAsDate का विकल्प - ओपन सोर्स",
       "description": "Chrono Mock, RunAsDate से कैसे अलग है: पाँच की जगह {{channel_count}} समय चैनल, बदली जा सकने वाली घड़ी की गति, अपना टाइम ज़ोन, चाइल्ड प्रोसेस - और काम किया या नहीं का निर्णय।"
+    },
+    "th": {
+      "slug": "runasdate-alternative",
+      "link_text": "เทียบกับ RunAsDate",
+      "title": "ทางเลือกแทน RunAsDate สำหรับ QA บน Windows - โอเพนซอร์ส",
+      "description": "Chrono Mock ต่างจาก RunAsDate อย่างไร: ช่องทางเวลา {{channel_count}} ช่องแทนห้าช่อง ปรับความเร็วนาฬิกาได้ เขตเวลาของตัวเอง โพรเซสย่อย - และผลสรุปว่าได้ผลหรือไม่"
     }
   }
 }

@@ -1,0 +1,121 @@
+<!-- เครื่องคิดเลขวันที่ ภาษาไทย โครงสร้าง คลาส และตัวแทนค่าเหมือน en.html -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>ควรทดสอบวันที่ไหน?</h1>
+    <p class="sub">การทดสอบวันที่ครึ่งหนึ่งคือการเลื่อนนาฬิกา อีกครึ่งหนึ่งคือการรู้ว่าจะเลื่อนไปที่ไหน เครื่องคิดเลขออนไลน์บอกคุณได้ว่าเก้าสิบวันนับจากวันนี้คือวันอะไร แต่จะไม่บอกว่าวันนั้นเป็นวันหยุดธนาคาร หรือเป็นวันสุดท้ายของไตรมาส</p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="เครื่องคิดเลขของ Chrono Mock ด้านซ้ายเป็นรายการสถานการณ์ที่ค้นหาได้พร้อมคำอธิบาย ตรงกลางเป็นตัวสร้างวันที่ และคอลัมน์ผลลัพธ์ทางขวาแสดงทุกรูปแบบ แต่ละรูปแบบมีปุ่มคัดลอกกำกับและมี Use this date อยู่ด้านล่าง ใต้ตัวสร้าง วันที่ 04/08/2008 ที่วางเข้ามาถูกระบุว่ากำกวม พร้อมแสดงทั้งการอ่านแบบอเมริกันและแบบโปแลนด์">
+      <figcaption>ใต้ตัวสร้างคือทิศทางย้อนกลับ: วาง <code>04/08/2008</code> เข้าไป แล้วแสดงทั้งสองการอ่านแทนที่จะเดาเพียงแบบเดียว</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>วันทำการ พร้อมวันหยุดจริง</h2>
+    <div class="prose">
+      <p>“สิบวันทำการข้างหน้า” ไม่ใช่เลขคณิต - ขึ้นอยู่กับว่าคุณนับในปฏิทินของประเทศใด วันเริ่มต้นเดียวกัน สิบวันเท่ากัน ได้สองคำตอบที่ต่างกัน:</p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>ต่างกันหนึ่งวัน และเครื่องคิดเลขจะบอกเหตุผลถ้าคุณถามถึงวันที่อยู่ตรงกลาง:</p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>สหรัฐอเมริกาและโปแลนด์มาเป็นปฏิทินอ้างอิง โดยเลือกเพราะทั้งสองรวมกันครอบคลุมกฎทุกประเภท ได้แก่ วันที่ตายตัว วันธรรมดาที่ n ของเดือน วันที่คำนวณจากวันอีสเตอร์ และกฎแบบอเมริกันที่วันหยุดซึ่งตรงกับวันเสาร์จะถือเป็นวันศุกร์ก่อนหน้า การเพิ่มประเทศหนึ่งคือการเพิ่มไฟล์ข้อมูล ไม่ใช่การแก้โค้ด</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>ทุกรูปแบบพร้อมกัน</h2>
+    <div class="prose">
+      <p>แอปที่ทดสอบต้องการวันที่ในรูปแบบที่มันคาดหวัง แทนที่จะให้คุณแปลงเอง เครื่องคิดเลขพิมพ์ให้ทั้งหมด - และมีมาสก์กำหนดเองสำหรับรูปแบบที่ไม่เข้ากับมาตรฐานใดเลย</p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>ค่าเอพอกนั้นไม่ใช่เรื่องบังเอิญ - <code>2147483647</code> คือจำนวนที่ใหญ่ที่สุดที่จำนวนเต็มแบบมีเครื่องหมาย 32 บิตเก็บได้พอดี ซึ่งเป็นเหตุผลทั้งหมดที่วันที่นี้สำคัญ</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>อ่านวันที่ย้อนกลับ</h2>
+    <div class="prose">
+      <p>ทิศทางตรงข้ามก็มีประโยชน์พอกัน: วางวันที่จากล็อกแล้วดูว่ามันคืออะไร เมื่อรูปแบบกำกวม - และ <code>04/08</code> กำกวมในครึ่งหนึ่งของโลก - <strong>จะแสดงทั้งสองการอ่านแทนที่จะเดาแบบเดียว</strong> เพราะการเดาคือที่มาของรายงานบั๊กเดิม</p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>ห่างกันสี่เดือน และตรงกับวันในสัปดาห์ที่ต่างกัน วันที่แบบ ISO ไม่กำกวมและถูกอ่านเป็นเช่นนั้น ส่วนสิ่งที่ไม่ใช่วันที่เลยจะถูกปฏิเสธแทนที่จะเดา</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>สร้างจากสเตป ไม่ใช่จากประโยค</h2>
+    <div class="prose">
+      <p>ช่วงเวลาคือจุดเริ่มต้นบวกสเตป และผลลัพธ์ระหว่างทางจะแสดงหลังทุกสเตป นิพจน์ที่ให้คำตอบน่าแปลกใจจึงบอกคุณว่าเลี้ยวผิดตรงไหน สเตปมีห้าแบบ: เลื่อนด้วยหน่วย ตั้งเวลาของวัน กระโดดไปยังขอบเขตของช่วงเวลา ย้ายไปวันทำการที่ใกล้ที่สุด และแสดงใหม่ในเขตเวลาอื่น</p>
+    </div>
+
+    <pre class="term"><span class="c"># วินาทีสุดท้ายก่อนขึ้นปีใหม่</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># เก้าสิบวันทำการข้างหน้า ตามปฏิทินธนาคารอเมริกัน</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># ถอยหลังสิบแปดปีกับอีกหนึ่งวัน สำหรับตรวจอายุ</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>วันที่ที่คำนวณได้ทุกวันส่งเข้าเซสชันแทนที่เวลาได้โดยตรง และ <code>--json</code> ส่งออกผลลัพธ์เดียวกันในรูปแบบสำหรับเครื่อง <a href="/th/date-test-scenarios/">วันที่ที่ควรทดสอบ &rarr;</a></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>ลองใช้</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/th/download/">ดาวน์โหลดสำหรับ Windows</a>
+      <a class="btn btn-ghost" href="/th/date-test-scenarios/">ดูสถานการณ์ทั้งหมด</a>
+      <a class="btn btn-ghost" href="/th/cli-reference/">ตัวเลือกทุกตัวของเครื่องคิดเลข</a>
+    </div>
+  </section>
+
+</div>
