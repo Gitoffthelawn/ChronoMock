@@ -30,6 +30,12 @@
       "link_text": "Accélérer le temps",
       "title": "Accélérer le temps d'une appli Windows, pas l'horloge système",
       "description": "Faites tourner l'horloge d'une application jusqu'à un million de fois plus vite : un essai de 30 jours expire en une demi-heure. Sans droits d'administrateur, les autres programmes gardent l'heure réelle."
+    },
+    "es": {
+      "slug": "acelerar-el-tiempo",
+      "link_text": "Acelerar el tiempo",
+      "title": "Acelerar el tiempo de una app de Windows, no el reloj del sistema",
+      "description": "Haz correr el reloj de una aplicación hasta un millón de veces más rápido: una prueba de 30 días caduca en media hora. Sin permisos de administrador, y los demás programas conservan la hora real."
     }
   }
 }

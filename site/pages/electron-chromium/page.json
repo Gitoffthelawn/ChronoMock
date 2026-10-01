@@ -32,6 +32,12 @@
       "link_text": "Electron et Chromium",
       "title": "Falsifier la date dans une application Electron ou Chromium",
       "description": "Leur horloge vit dans un moteur de rendu isolé que l'injection n'atteint pas. Un autre mécanisme place les API de temps JavaScript de l'appli sur l'horloge de session, workers compris."
+    },
+    "es": {
+      "slug": "electron-chromium",
+      "link_text": "Electron y Chromium",
+      "title": "Falsear la fecha en una aplicación Electron o Chromium",
+      "description": "Su reloj vive en un renderizador aislado al que la inyección no llega. Otro mecanismo pone las API de tiempo de JavaScript de la app en el reloj de la sesión, workers incluidos."
     }
   }
 }

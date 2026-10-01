@@ -30,6 +30,12 @@
       "link_text": "Dates à tester",
       "title": "Dates à tester - fin de mois, 29 février, 2038",
       "description": "Les dates qui font planter les logiciels : limites de période, jour bissextile, epoch zéro, limite 32 bits, bords des essais et dérive d'horloge. {{preset_count}} sont livrées comme scénarios nommés."
+    },
+    "es": {
+      "slug": "escenarios-de-prueba-de-fechas",
+      "link_text": "Fechas que probar",
+      "title": "Fechas que probar - fin de mes, 29 de febrero, 2038",
+      "description": "Las fechas que rompen el software: límites de periodo, día bisiesto, epoch cero, el límite de 32 bits, bordes de pruebas y desfase de reloj. {{preset_count}} se incluyen como escenarios con nombre."
     }
   }
 }

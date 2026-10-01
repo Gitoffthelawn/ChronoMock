@@ -33,6 +33,12 @@
       "link_text": "Accueil",
       "title": "Chrono Mock - lancer une appli Windows à une autre date",
       "description": "Outil Windows gratuit et open source : lancez une application à n'importe quelle date, figez ou accélérez son horloge, sans toucher à l'heure système. Avec vérification du résultat."
+    },
+    "es": {
+      "slug": "",
+      "link_text": "Inicio",
+      "title": "Chrono Mock - ejecuta cualquier app de Windows con otra fecha",
+      "description": "Herramienta gratuita y de código abierto para Windows. Ejecuta una aplicación en cualquier fecha, congela o acelera su reloj sin tocar la hora del sistema. Y te dice si funcionó."
     }
   }
 }

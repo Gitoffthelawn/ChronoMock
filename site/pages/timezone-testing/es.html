@@ -1,0 +1,120 @@
+<!-- Zonas horarias, español. Estructura, clases y marcadores como en en.html.
+
+     La sección de límites honestos pesa aquí más que en ninguna otra página: la zona de la sesión es un
+     desfase fijo sin horario de verano, y quien lo descubre después ya ha sacado una conclusión errónea
+     de una prueba. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Ejecuta una app en otra zona horaria</h1>
+    <p class="sub">
+      El informe que cae en el día equivocado, el recordatorio que salta una hora antes, la marca de
+      tiempo que se lee como mañana - casi todo esto solo aparece en una zona en la que no estás sentado.
+      Esto da a un proceso su propio desfase, mientras tu zona del sistema sigue exactamente donde estaba.
+    </p>
+  </section>
+
+  <section>
+    <h2>Por qué no ayudan las respuestas habituales</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Cambiar la zona horaria de Windows</strong> la cambia para todo - tu calendario, tus
+          registros, tus reuniones - y en un equipo administrado puede que no te corresponda
+          cambiarla.</li>
+        <li><strong>Definir <code>TZ</code></strong> funciona con algunos entornos de ejecución y con
+          otros no. Una aplicación nativa de Windows que lea <code>GetTimeZoneInformation</code> no lo
+          notará en absoluto.</li>
+        <li><strong>Las herramientas de desarrollo del navegador</strong> sobrescriben la zona de una
+          página web, lo cual es excelente e irrelevante para una aplicación de escritorio.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Un proceso, un desfase</h2>
+    <div class="prose">
+      <p>
+        La sesión lleva su propio desfase. La aplicación pregunta a Windows en qué zona está y recibe esa
+        respuesta, mientras que todos los demás programas del equipo reciben la real.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># El mismo momento, visto desde la costa oeste de Estados Unidos</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Solo la zona - la fecha real de hoy, el reloj de otra persona</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        La calculadora responde a la otra mitad de la pregunta - qué marca realmente un momento dado en
+        otro lugar. Convertir conserva el instante y cambia solo el reloj de pared, que es exactamente como
+        una fecha cae en el día equivocado:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Las nueve de la mañana en Europa central son la <strong>medianoche</strong> en la costa oeste de
+        Estados Unidos. El mismo instante, y un informe diario que agrupa por fecha local lo coloca en un
+        día distinto según dónde se ejecute.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Límites honestos, y aquí importan</h2>
+
+    <div class="note warning">
+      <p><strong>La zona de la sesión es un desfase fijo sin horario de verano.</strong></p>
+      <p>
+        Una sesión configurada en <code>+01:00</code> se queda en <code>+01:00</code> tanto si su reloj
+        marca enero como julio. Una ejecución que cruce una transición real se desvía por tanto una hora
+        de lo que esa zona mostraría de verdad, y hacer pasar a una aplicación por un cambio de horario de
+        verano es algo que esta herramienta todavía no hace. La calculadora de fechas lo dice en lugar de
+        adivinar.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>La zona se presenta como «Chrono Session»</strong>, un nombre que ningún registro de
+          Windows conoce. Todo lo que relacione ese nombre con una zona - entre ello
+          <code>TimeZoneInfo.Local</code> de .NET - recurre en su lugar al desfase, que es la respuesta
+          correcta. Una aplicación que insista en un nombre del registro no encontrará ninguno.</li>
+        <li><strong>Java toma la zona de la sesión como un desfase.</strong> La zona de la sesión no tiene
+          horario de verano ni ciudad detrás, así que Java la nombra por su desfase - <code>GMT+05:30</code>
+          para una sesión en +05:30.</li>
+        <li><strong>En el modo Chromium y Electron la zona sigue la del equipo.</strong> Se falsea el
+          instante, no los métodos de hora local.</li>
+        <li><strong>Los desfases van de -14:00 a +14:00</strong> en minutos enteros. Todo lo que quede
+          fuera se rechaza en lugar de envolverse en silencio.</li>
+      </ul>
+      <p>
+        Cuál de estos casos se aplica a tu aplicación es algo que se mide, no que se adivina.
+        <a href="/es/auditoria-de-fuentes-de-tiempo/">La sesión informa de su propia cobertura &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pruébalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/es/descargar/">Descargar para Windows</a>
+      <a class="btn btn-ghost" href="/es/faq/">Leer las preguntas frecuentes</a>
+    </div>
+  </section>
+
+</div>

@@ -30,6 +30,12 @@
       "link_text": "Calculateur",
       "title": "Calculateur de dates pour la QA - jours ouvrés et cas limites",
       "description": "Trouvez la date à tester : fin de mois, clôture de trimestre, N jours ouvrés avec les vrais jours fériés, la limite de 2038. Tous les formats d'un coup, et ce que teste chaque date."
+    },
+    "es": {
+      "slug": "calculadora-de-fechas",
+      "link_text": "Calculadora",
+      "title": "Calculadora de fechas para QA - días laborables y casos límite",
+      "description": "Averigua qué fecha probar: fin de mes, cierre de trimestre, N días laborables con festivos reales, el límite de 2038. Todos los formatos a la vez y qué prueba cada fecha."
     }
   }
 }

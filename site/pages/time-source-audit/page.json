@@ -32,6 +32,12 @@
       "link_text": "L'audit",
       "title": "Savoir si la fausse date a vraiment atteint votre appli",
       "description": "Chaque session se termine par un verdict, les canaux de temps réellement lus avec leur nombre d'appels, ceux qui ont été manqués, et des avertissements. Un échec silencieux est le seul résultat refusé."
+    },
+    "es": {
+      "slug": "auditoria-de-fuentes-de-tiempo",
+      "link_text": "La auditoría",
+      "title": "Cómo saber si la fecha falsa llegó de verdad a tu app",
+      "description": "Cada sesión termina con un veredicto, los canales de tiempo que la aplicación leyó con su número de llamadas, los que se pasaron por alto y avisos. Un fallo silencioso es el único resultado que se rechaza."
     }
   }
 }
