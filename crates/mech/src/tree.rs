@@ -25,6 +25,51 @@ pub fn family_of(root: u32) -> Result<Vec<u32>, String> {
     Ok(descendants(root, &edges))
 }
 
+/// Everything under `root` as (pid, declared parent), the root itself left out, from one snapshot.
+/// For an elevated WebView2 host the engine's browser process is started by a system service and
+/// only DECLARES the host as its parent, so the hook never sees it start and the tree is the one place
+/// it shows (docs/09 section 12.19). A process older than the root cannot be its descendant, so one
+/// that the snapshot attaches to a recycled parent pid is dropped by its creation time. A process
+/// whose creation time cannot be read is kept, because naming an extra process is the safer error.
+pub fn descendants_of(root: u32) -> Result<Vec<(u32, u32)>, String> {
+    let entries = process_entries()?;
+    let edges: Vec<(u32, u32)> = entries.iter().map(|e| (e.pid, e.parent)).collect();
+    let parents: HashMap<u32, u32> = edges.iter().copied().collect();
+    let root_created = created_of(root);
+    Ok(descendants(root, &edges)
+        .into_iter()
+        .filter(|&pid| pid != root)
+        .filter(|&pid| not_older_than(created_of(pid), root_created))
+        .map(|pid| (pid, parents.get(&pid).copied().unwrap_or(root)))
+        .collect())
+}
+
+/// When a process was created, or `None` when it cannot be asked (it has gone, or does not allow the
+/// question).
+fn created_of(pid: u32) -> Option<u64> {
+    // SAFETY: the handle is closed on every path out, and nothing is borrowed from the caller.
+    unsafe {
+        let handle = windows::Win32::System::Threading::OpenProcess(
+            windows::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            pid,
+        )
+        .ok()?;
+        let created = crate::process_created(handle);
+        let _ = CloseHandle(handle);
+        created
+    }
+}
+
+/// Whether a child can be a descendant of a root given when each was created. Unknown on either side
+/// keeps the child. Pure, so the three cases are tested without processes.
+fn not_older_than(child: Option<u64>, root: Option<u64>) -> bool {
+    match (child, root) {
+        (Some(child), Some(root)) => child >= root,
+        _ => true,
+    }
+}
+
 /// One process as the snapshot lists it: its pid, the pid of the process that started it, and the
 /// file name of its executable.
 pub(crate) struct ProcessEntry {
@@ -132,5 +177,44 @@ mod tests {
         let me = std::process::id();
         let family = family_of(me).expect("the snapshot is readable");
         assert_eq!(family[0], me);
+    }
+
+    /// A child is never older than its root: the creation time drops a process the snapshot attached
+    /// to a recycled parent pid, and an unreadable time on either side keeps the child.
+    #[test]
+    fn a_child_older_than_its_root_is_not_a_descendant() {
+        assert!(not_older_than(Some(10), Some(10)), "created at the same instant counts");
+        assert!(not_older_than(Some(11), Some(10)));
+        assert!(!not_older_than(Some(9), Some(10)));
+        assert!(not_older_than(None, Some(10)), "unknown keeps it");
+        assert!(not_older_than(Some(9), None), "unknown keeps it");
+        assert!(not_older_than(None, None));
+    }
+
+    /// The live walk, on a real child: a process started here is under this one, the root is not in
+    /// its own list, and the declared parent is the root for a direct child.
+    #[test]
+    fn a_process_started_by_this_one_is_found_under_it() {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let path = format!(r"{system_root}\System32\cmd.exe");
+        let ping = format!(r"{system_root}\System32\PING.EXE");
+        let args = ["/c".to_string(), ping, "-n".into(), "30".into(), "127.0.0.1".into()];
+        let target = crate::Target { path: &path, args: &args, cwd: None, env: &[], stdio: crate::TargetStdio::Discarded };
+        let child = crate::launch_plain(&target).expect("cmd.exe launches");
+        let me = std::process::id();
+
+        // The grandchild, once cmd.exe has started it: found under this process with cmd.exe as its parent.
+        let found = (0..50).find_map(|_| {
+            let under = descendants_of(me).ok()?;
+            let grandchild = under.iter().find(|&&(_, parent)| parent == child.pid).copied();
+            if grandchild.is_none() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            grandchild.map(|g| (under, g))
+        });
+        let (under, grandchild) = found.expect("the snapshot shows cmd.exe's own child within five seconds");
+        assert!(under.iter().all(|&(pid, _)| pid != me), "the root is not its own descendant");
+        assert!(under.contains(&(child.pid, me)), "the child has this process as its parent: {under:?}");
+        assert_eq!(grandchild.1, child.pid);
     }
 }

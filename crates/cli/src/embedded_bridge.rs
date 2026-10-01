@@ -21,7 +21,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use chrono_mech::ModuleProbe;
+use chrono_mech::{ModuleProbe, UncoveredChild};
 use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
@@ -30,6 +30,8 @@ use crate::cdp_clock::{cdp_jump_expr, cdp_release_expr, cdp_set_multiplier_expr,
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::engine_env;
 use crate::output::diag;
+use crate::policy_session::{PolicySession, KEY_NAME_MISMATCH};
+use crate::unhooked_tree::UnhookedTree;
 
 /// How long a quiet engine socket may block one turn of the session loop, and how long a call to an
 /// engine waits for its reply. The client's own defaults (500 ms and 10 s) suit a loop that drives
@@ -81,22 +83,49 @@ const WEBVIEW2_CLIENT_LIBRARY: &str = "EmbeddedBrowserWebView.dll";
 /// millisecond or two and the answer only ever turns from no to yes, so once a second is plenty.
 const LOOK_EVERY: Duration = Duration::from_secs(1);
 
-/// A process of the family seen with the WebView2 client library loaded, with what its token said.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A process of the family seen with the WebView2 client library loaded, with what its token said and
+/// the file it was started from.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WebView2Host {
     pub(crate) pid: u32,
     /// `None` when the token could not be read - never taken for "not elevated".
     pub(crate) elevated: Option<bool>,
+    /// The file name of its executable, `None` when it could not be asked.
+    pub(crate) image: Option<String>,
+}
+
+/// What the closing words about an unreached WebView2 depend on beyond the host itself: whether the
+/// channel was on, whether this core (and so the application) is elevated, whether the tester asked for
+/// the registry value, and the name it was written under (docs/09 section 12.19).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Reach {
+    /// The core's own token is elevated. An application started from it is too.
+    pub(crate) elevated_core: bool,
+    /// The tester asked for the registry value.
+    opted_in: bool,
+    /// The name the value was written under, while this session wrote one.
+    written_name: Option<String>,
+}
+
+impl Reach {
+    fn of(elevated_core: bool) -> Reach {
+        Reach { elevated_core, ..Reach::default() }
+    }
 }
 
 /// The warnings for an application that loaded WebView2 while the session never reached a web engine
 /// in it. Said only when all three hold: a host was seen, no engine was reached, and no other key of
 /// the channel already names why (an endpoint that answered and could not be attached to, or a
-/// discovery that could not look) - a second line for the same fact would only repeat it. The
-/// elevated line rides beside the first only when the token said elevated.
+/// discovery that could not look) - a second line for the same fact would only repeat it.
+///
+/// Two lines may ride beside the first. The elevated one, when the token said elevated, the channel
+/// was on and the tester did NOT ask for the registry value: it is the advice that value answers, and
+/// advice for an option already taken would be wrong, as would advice to give up administrator rights
+/// to a tester who turned the channel off. The mismatch one, when the value was written under one name
+/// and WebView2 was loaded by a program of another.
 ///
 /// Pure, so each combination is tested without a session.
-fn unreached_warnings(host: Option<WebView2Host>, reached: bool, explained: bool) -> Vec<String> {
+fn unreached_warnings(host: Option<&WebView2Host>, reached: bool, explained: bool, channel_on: bool, reach: &Reach) -> Vec<String> {
     let Some(host) = host else {
         return Vec::new();
     };
@@ -104,10 +133,46 @@ fn unreached_warnings(host: Option<WebView2Host>, reached: bool, explained: bool
         return Vec::new();
     }
     let mut out = vec![KEY_WEBVIEW2_NOT_REACHED.to_string()];
-    if host.elevated == Some(true) {
+    if host.elevated == Some(true) && channel_on && !reach.opted_in {
         out.push(KEY_ELEVATED_HOST.to_string());
     }
+    if let (Some(written), Some(image)) = (&reach.written_name, &host.image)
+        && written.to_lowercase() != image.to_lowercase()
+    {
+        out.push(KEY_NAME_MISMATCH.to_string());
+    }
     out
+}
+
+/// Whether a registry value the tester put in is hidden by the session's variable. Only for an
+/// application that is not elevated: an elevated one ignores the variable and honours the machine
+/// registry (Microsoft Learn, "Develop secure WebView2 apps"), so nothing is hidden from it, and the
+/// registry is not even asked. Pure over the question, so the claim is tested without a machine that
+/// happens to have such a value.
+fn hidden_by_variable(elevated: bool, present: impl FnOnce() -> bool) -> bool {
+    !elevated && present()
+}
+
+/// The three questions put to a process when the family is looked at for WebView2: whether it has the
+/// client library loaded, whether its token is elevated, and the file it was started from. A struct,
+/// so a test hands in three answers of its own making and the look still has one parameter for them.
+struct Probes<H, E, I> {
+    has: H,
+    elevated: E,
+    image: I,
+}
+
+/// The questions as the machine answers them.
+type MachineProbes = Probes<fn(u32, &str) -> ModuleProbe, fn(u32) -> Option<bool>, fn(u32) -> Option<String>>;
+
+impl Probes<(), (), ()> {
+    fn machine() -> MachineProbes {
+        Probes {
+            has: chrono_mech::process_has_module,
+            elevated: chrono_mech::process_elevated,
+            image: chrono_mech::process_image_name,
+        }
+    }
 }
 
 /// What a native start needs from the channel before the target launches: the variables that make
@@ -120,29 +185,51 @@ pub(crate) struct Launch {
     unavailable: bool,
     /// A registry policy value the session's variable hides is there (docs/09 section 12.10).
     pub(crate) registry_hidden: bool,
+    /// What the closing words about WebView2 depend on beyond the channel itself.
+    reach: Reach,
 }
 
 impl Launch {
-    /// The channel turned off: nothing in the environment, nothing to look for. What every session
-    /// gets under `--no-embedded`, and what a Chromium target would get if it came this way.
+    /// The channel turned off: nothing in the environment, nothing to ask of the engine. What every
+    /// session gets under `--no-embedded`, and what a Chromium target would get if it came this way.
+    /// The bridge still looks at which program loaded WebView2, because a tester who left the pages
+    /// alone has not asked to be told nothing about them.
     pub(crate) fn off() -> Launch {
-        Launch { env: Vec::new(), qt_port: None, enabled: false, unavailable: false, registry_hidden: false }
+        Launch {
+            env: Vec::new(),
+            qt_port: None,
+            enabled: false,
+            unavailable: false,
+            registry_hidden: false,
+            reach: Reach::default(),
+        }
     }
 
     /// Prepare the channel for a target: reserve the port a Qt engine needs telling, build the two
     /// variables on top of what the tester already has, and look whether a registry policy is about
-    /// to be hidden. The three reads of the machine happen here, the composition in `compose`.
-    pub(crate) fn for_target(target: &TargetSpec) -> Launch {
+    /// to be hidden. The reads of the machine happen here, the composition in `compose`.
+    ///
+    /// `elevated` is the core's own token. An elevated application ignores the variables (Microsoft
+    /// Learn, "Develop secure WebView2 apps") and honours the machine registry, so nothing is hidden
+    /// from it by them and the policy value is not looked for under that claim.
+    pub(crate) fn for_target(target: &TargetSpec, elevated: bool) -> Launch {
         if !target.embedded {
-            return Launch::off();
+            return Launch { reach: Reach::of(elevated), ..Launch::off() };
         }
         let exe_name = std::path::Path::new(&target.path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let qt_port = cdp::free_loopback_port().ok();
-        let registry_hidden = chrono_mech::webview2_arguments_policy_present(&exe_name);
-        Launch::compose(&chrono_mech::current_environment(), qt_port, registry_hidden)
+        let registry_hidden = hidden_by_variable(elevated, || chrono_mech::webview2_arguments_policy_present(&exe_name));
+        Launch { reach: Reach::of(elevated), ..Launch::compose(&chrono_mech::current_environment(), qt_port, registry_hidden) }
+    }
+
+    /// Say what the registry value came to, so the closing words can be chosen: whether the tester asked
+    /// for it and the name it was written under.
+    pub(crate) fn note_policy(&mut self, policy: &PolicySession) {
+        self.reach.opted_in = policy.opted_in();
+        self.reach.written_name = policy.written_name().map(str::to_string);
     }
 
     /// The channel's launch from what the machine said: the tester's environment, the port reserved
@@ -152,9 +239,15 @@ impl Launch {
     /// of the test's choosing rather than whatever the tester's machine carries.
     fn compose(base: &[(String, String)], qt_port: Option<u16>, registry_hidden: bool) -> Launch {
         let Some(qt_port) = qt_port else {
-            return Launch { env: Vec::new(), qt_port: None, enabled: true, unavailable: true, registry_hidden };
+            return Launch { enabled: true, unavailable: true, registry_hidden, ..Launch::off() };
         };
-        Launch { env: engine_env(base, qt_port), qt_port: Some(qt_port), enabled: true, unavailable: false, registry_hidden }
+        Launch {
+            env: engine_env(base, qt_port),
+            qt_port: Some(qt_port),
+            enabled: true,
+            registry_hidden,
+            ..Launch::off()
+        }
     }
 }
 
@@ -172,6 +265,12 @@ pub(crate) struct Outcome {
     warnings: Vec<String>,
     /// A process of the family that had WebView2 loaded, when one was seen at any point of the session.
     webview2: Option<WebView2Host>,
+    /// Whether the channel was on, and what else the closing words depend on.
+    channel_on: bool,
+    reach: Reach,
+    /// How many processes of an elevated host's engine the process tree turned up that nobody else
+    /// had named (docs/09 section 12.19). Named ones are in the session's list, this is the count.
+    pub(crate) tree_found: u32,
 }
 
 impl Outcome {
@@ -186,7 +285,7 @@ impl Outcome {
     fn unreached_warnings(&self) -> Vec<String> {
         let explained =
             self.warnings.iter().any(|w| w == KEY_ENGINE_UNREACHABLE || w == KEY_DISCOVERY_UNAVAILABLE);
-        unreached_warnings(self.webview2, self.reached, explained)
+        unreached_warnings(self.webview2.as_ref(), self.reached, explained, self.channel_on, &self.reach)
     }
 
     /// The warnings the session verdict carries for this channel, each said only when it happened.
@@ -253,11 +352,15 @@ pub(crate) struct EmbeddedBridge {
     pushed: Option<ShimOrigin>,
     rate_changed: bool,
     reached: bool,
-    /// Whether the channel is on, which is what makes the family worth asking about WebView2.
-    looking: bool,
+    /// Whether the channel is on. The family is asked about WebView2 either way.
+    channel_on: bool,
     /// The first process of the family seen with the WebView2 client library loaded.
     host: Option<WebView2Host>,
     last_look: Option<Instant>,
+    /// What the closing words depend on beyond the channel: elevation and the registry value.
+    reach: Reach,
+    /// The engine of an elevated host, found by the process tree once the host is seen.
+    tree: UnhookedTree,
 }
 
 impl EmbeddedBridge {
@@ -280,9 +383,11 @@ impl EmbeddedBridge {
             pushed: None,
             rate_changed: false,
             reached: false,
-            looking: launch.enabled,
+            channel_on: launch.enabled,
             host: None,
             last_look: None,
+            reach: launch.reach.clone(),
+            tree: UnhookedTree::default(),
         };
         if !launch.enabled {
             return bridge;
@@ -328,38 +433,71 @@ impl EmbeddedBridge {
     /// until one has. `hosts` are the processes the hook is in - the application itself - and not the
     /// engine's own processes, which carry the engine and not the client library. The hook cannot
     /// answer this for an elevated host, whose engine a system service starts, so it is asked from
-    /// outside (docs/09 section 12.12).
+    /// outside (docs/09 section 12.12). Asked whether or not the channel is on: a tester who left the
+    /// pages alone has not asked the report to say nothing about them.
     pub(crate) fn look_for_webview2(&mut self, hosts: &[u32]) {
-        self.look_with(hosts, false, Instant::now(), chrono_mech::process_has_module, chrono_mech::process_elevated);
+        self.look_with(hosts, false, Instant::now(), Probes::machine());
     }
 
     /// The same look once more as the session closes, whatever the cadence says: what turned up in the
     /// last second counts.
     pub(crate) fn look_for_webview2_last(&mut self, hosts: &[u32]) {
-        self.look_with(hosts, true, Instant::now(), chrono_mech::process_has_module, chrono_mech::process_elevated);
+        self.look_with(hosts, true, Instant::now(), Probes::machine());
     }
 
-    /// The look over any two questions, so the cadence, the stopping once found and the order are
+    /// The look over any three questions, so the cadence, the stopping once found and the order are
     /// tested with answers of the test's making.
-    fn look_with(
-        &mut self,
-        hosts: &[u32],
-        forced: bool,
-        now: Instant,
-        has: impl Fn(u32, &str) -> ModuleProbe,
-        elevated: impl Fn(u32) -> Option<bool>,
-    ) {
-        if !self.looking || self.host.is_some() {
+    fn look_with(&mut self, hosts: &[u32], forced: bool, now: Instant, probes: Probes<impl Fn(u32, &str) -> ModuleProbe, impl Fn(u32) -> Option<bool>, impl Fn(u32) -> Option<String>>) {
+        if self.host.is_some() {
             return;
         }
         if !forced && self.last_look.is_some_and(|t| now.saturating_duration_since(t) < LOOK_EVERY) {
             return;
         }
         self.last_look = Some(now);
-        self.host = hosts
-            .iter()
-            .find(|&&pid| has(pid, WEBVIEW2_CLIENT_LIBRARY) == ModuleProbe::Loaded)
-            .map(|&pid| WebView2Host { pid, elevated: elevated(pid) });
+        self.host = hosts.iter().find(|&&pid| (probes.has)(pid, WEBVIEW2_CLIENT_LIBRARY) == ModuleProbe::Loaded).map(
+            |&pid| WebView2Host { pid, elevated: (probes.elevated)(pid), image: (probes.image)(pid) },
+        );
+    }
+
+    /// Follow the engine of an elevated host through the process tree, once the host is seen and only
+    /// for a core that is itself elevated - an application under an ordinary token is followed by the
+    /// hook, and nothing here is needed (docs/09 section 12.19). Returns the processes that nobody had
+    /// named, for the session's list of what ran on the real clock. The pids of the whole tree join the
+    /// family discovery looks in, which is how the debugging port of an engine a service started is found.
+    ///
+    /// `known` is every pid the session already accounts for.
+    pub(crate) fn follow_host_tree(&mut self, known: &[u32]) -> Vec<UncoveredChild> {
+        self.follow_tree(known, false)
+    }
+
+    /// The same look once more as the session closes, whatever the cadence says.
+    pub(crate) fn follow_host_tree_last(&mut self, known: &[u32]) -> Vec<UncoveredChild> {
+        self.follow_tree(known, true)
+    }
+
+    fn follow_tree(&mut self, known: &[u32], forced: bool) -> Vec<UncoveredChild> {
+        self.follow_tree_with(known, forced, Instant::now(), chrono_mech::descendants_of, chrono_mech::name_unhooked)
+    }
+
+    fn follow_tree_with(
+        &mut self,
+        known: &[u32],
+        forced: bool,
+        now: Instant,
+        tree: impl Fn(u32) -> Result<Vec<(u32, u32)>, String>,
+        name: impl Fn(u32, u32) -> UncoveredChild,
+    ) -> Vec<UncoveredChild> {
+        let Some(host) = self.host.as_ref().map(|h| h.pid).filter(|_| self.reach.elevated_core) else {
+            return Vec::new();
+        };
+        match self.tree.follow_with(host, known, forced, now, tree, name) {
+            Some(found) => {
+                self.family(found.pids);
+                found.named
+            }
+            None => Vec::new(),
+        }
     }
 
     /// One turn: take what discovery found and start connecting to it, take what connected and
@@ -543,6 +681,9 @@ impl EmbeddedBridge {
             engines: self.engines,
             warnings: self.warnings,
             webview2: self.host,
+            channel_on: self.channel_on,
+            reach: self.reach,
+            tree_found: self.tree.total(),
         };
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
@@ -565,7 +706,14 @@ mod tests {
     use super::*;
 
     fn target(embedded: bool) -> TargetSpec {
-        TargetSpec { path: "C:/apps/host.exe".into(), args: Vec::new(), cwd: None, embedded, console: Default::default() }
+        TargetSpec {
+            path: "C:/apps/host.exe".into(),
+            args: Vec::new(),
+            cwd: None,
+            embedded,
+            elevated_embedded: false,
+            console: Default::default(),
+        }
     }
 
     /// The opt-out means no variable in the environment and nothing to look for. On, the machine is
@@ -575,15 +723,56 @@ mod tests {
     /// the tester's machine it is meant to describe.
     #[test]
     fn the_launch_reads_the_machine_only_when_the_channel_is_on() {
-        let off = Launch::for_target(&target(false));
+        let off = Launch::for_target(&target(false), false);
         assert!(off.env.is_empty());
         assert!(!off.enabled);
         assert!(!off.unavailable);
 
-        let on = Launch::for_target(&target(true));
+        let on = Launch::for_target(&target(true), false);
         assert!(on.enabled);
         assert!(!on.unavailable, "this machine hands out loopback ports");
         assert!(on.qt_port.is_some());
+    }
+
+    /// The core's own token is carried into the launch, channel on or off, because the closing words and
+    /// the tree both depend on it. And an elevated application ignores the variables, so no registry
+    /// value is claimed hidden by them - whatever this machine's registry holds.
+    #[test]
+    fn the_launch_carries_the_cores_elevation_and_claims_nothing_hidden_for_an_elevated_one() {
+        for embedded in [false, true] {
+            assert!(Launch::for_target(&target(embedded), true).reach.elevated_core);
+            assert!(!Launch::for_target(&target(embedded), false).reach.elevated_core);
+        }
+        assert!(!Launch::for_target(&target(true), true).registry_hidden);
+    }
+
+    /// A registry value is claimed hidden by the variable only for an application that is not elevated,
+    /// and for an elevated one the registry is not even asked.
+    #[test]
+    fn a_registry_value_is_hidden_by_the_variable_only_for_an_application_that_is_not_elevated() {
+        use std::cell::Cell;
+        let asked = Cell::new(0);
+        let present = || {
+            asked.set(asked.get() + 1);
+            true
+        };
+        assert!(hidden_by_variable(false, present));
+        assert_eq!(asked.get(), 1);
+        assert!(!hidden_by_variable(true, present), "elevated: the variable is ignored, so nothing is hidden");
+        assert_eq!(asked.get(), 1, "and the registry was not asked");
+        assert!(!hidden_by_variable(false, || false), "no value, nothing hidden");
+    }
+
+    /// What the tester asked for and what was written are carried from the policy to the launch.
+    #[test]
+    fn the_launch_notes_what_the_policy_did() {
+        let mut launch = Launch::for_target(&target(true), true);
+        launch.note_policy(&PolicySession::none(true, Some("app.exe")));
+        assert!(launch.reach.opted_in);
+        assert_eq!(launch.reach.written_name.as_deref(), Some("app.exe"));
+        launch.note_policy(&PolicySession::none(false, None));
+        assert!(!launch.reach.opted_in);
+        assert_eq!(launch.reach.written_name, None);
     }
 
     /// From a bare environment the two variables are there - the WebView2 one asking for an
@@ -636,6 +825,9 @@ mod tests {
             engines: Vec::new(),
             warnings: warnings.iter().map(|w| w.to_string()).collect(),
             webview2: None,
+            channel_on: true,
+            reach: Reach::default(),
+            tree_found: 0,
         }
     }
 
@@ -661,7 +853,11 @@ mod tests {
     }
 
     fn host(elevated: Option<bool>) -> Option<WebView2Host> {
-        Some(WebView2Host { pid: 42, elevated })
+        Some(WebView2Host { pid: 42, elevated, image: Some("app.exe".into()) })
+    }
+
+    fn reach(opted_in: bool, written: Option<&str>) -> Reach {
+        Reach { elevated_core: true, opted_in, written_name: written.map(str::to_string) }
     }
 
     /// Every combination of the facts the claim rests on. No host seen says nothing, reached or not. A
@@ -670,16 +866,55 @@ mod tests {
     /// read is not one that is not elevated, and neither is it elevated.
     #[test]
     fn an_unreached_webview2_is_said_only_when_a_host_was_seen_nothing_was_reached_and_nothing_else_says_why() {
-        assert!(unreached_warnings(None, false, false).is_empty());
-        assert!(unreached_warnings(None, true, false).is_empty());
-        assert!(unreached_warnings(host(Some(true)), true, false).is_empty());
-        assert_eq!(unreached_warnings(host(Some(false)), false, false), vec![KEY_WEBVIEW2_NOT_REACHED]);
-        assert_eq!(unreached_warnings(host(None), false, false), vec![KEY_WEBVIEW2_NOT_REACHED]);
+        let none = Reach::default();
+        assert!(unreached_warnings(None, false, false, true, &none).is_empty());
+        assert!(unreached_warnings(None, true, false, true, &none).is_empty());
+        assert!(unreached_warnings(host(Some(true)).as_ref(), true, false, true, &none).is_empty());
+        assert_eq!(unreached_warnings(host(Some(false)).as_ref(), false, false, true, &none), vec![KEY_WEBVIEW2_NOT_REACHED]);
+        assert_eq!(unreached_warnings(host(None).as_ref(), false, false, true, &none), vec![KEY_WEBVIEW2_NOT_REACHED]);
         assert_eq!(
-            unreached_warnings(host(Some(true)), false, false),
+            unreached_warnings(host(Some(true)).as_ref(), false, false, true, &none),
             vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]
         );
-        assert!(unreached_warnings(host(Some(true)), false, true).is_empty(), "another key already names why");
+        assert!(unreached_warnings(host(Some(true)).as_ref(), false, true, true, &none).is_empty(), "another key already names why");
+    }
+
+    /// The advice to give up administrator rights is for a tester who has not taken the option that
+    /// answers it, and for one who left the channel on: with the option taken it would be wrong, and to
+    /// a tester who turned the pages off it would be advice to change something they chose.
+    #[test]
+    fn the_elevated_advice_is_said_only_to_a_tester_who_has_not_taken_the_option_and_left_the_channel_on() {
+        let elevated = host(Some(true));
+        let said = |channel_on: bool, reach: &Reach| unreached_warnings(elevated.as_ref(), false, false, channel_on, reach);
+        assert_eq!(said(true, &reach(false, None)), vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]);
+        assert_eq!(said(true, &reach(true, None)), vec![KEY_WEBVIEW2_NOT_REACHED], "the option is taken: that advice is spent");
+        assert_eq!(said(false, &reach(false, None)), vec![KEY_WEBVIEW2_NOT_REACHED], "the channel is off by choice");
+        // A host that is not elevated has no use for it either way.
+        assert_eq!(
+            unreached_warnings(host(Some(false)).as_ref(), false, false, true, &reach(false, None)),
+            vec![KEY_WEBVIEW2_NOT_REACHED]
+        );
+    }
+
+    /// A value written under the name of the program the session started, with WebView2 loaded by a
+    /// program of another name: said, because it names the program to start. Said only with both names
+    /// known and different, and never on its own - without the unreached claim there is nothing to explain.
+    #[test]
+    fn a_value_written_for_another_program_than_the_one_that_loaded_webview2_is_named() {
+        let loaded_by = |image: Option<&str>| {
+            Some(WebView2Host { pid: 42, elevated: Some(true), image: image.map(str::to_string) })
+        };
+        let said = |h: Option<WebView2Host>, reached: bool, written: Option<&str>| {
+            unreached_warnings(h.as_ref(), reached, false, true, &reach(true, written))
+        };
+        assert_eq!(
+            said(loaded_by(Some("child.exe")), false, Some("launcher.exe")),
+            vec![KEY_WEBVIEW2_NOT_REACHED, KEY_NAME_MISMATCH]
+        );
+        assert_eq!(said(loaded_by(Some("APP.EXE")), false, Some("app.exe")), vec![KEY_WEBVIEW2_NOT_REACHED], "case is not a difference");
+        assert_eq!(said(loaded_by(None), false, Some("launcher.exe")), vec![KEY_WEBVIEW2_NOT_REACHED], "an unknown name claims nothing");
+        assert_eq!(said(loaded_by(Some("child.exe")), false, None), vec![KEY_WEBVIEW2_NOT_REACHED], "nothing written, nothing to compare");
+        assert!(said(loaded_by(Some("child.exe")), true, Some("launcher.exe")).is_empty(), "reached: nothing to explain");
     }
 
     /// The outcome applies that rule to what the bridge noted: an unreachable endpoint and a discovery
@@ -706,34 +941,48 @@ mod tests {
 
     /// A bridge with the channel on and no discovery to start: nothing is reserved and no thread runs.
     fn looking_bridge() -> EmbeddedBridge {
-        let launch = Launch { env: Vec::new(), qt_port: None, enabled: true, unavailable: true, registry_hidden: false };
+        let launch = Launch { enabled: true, unavailable: true, ..Launch::off() };
         EmbeddedBridge::start(&launch, vec![1], false)
     }
 
-    /// The family is asked only when the channel is on, in order, stopping at the first process that
-    /// has the library and reading the token of that one alone - and once one answered, never again.
+    /// The three answers of a test: which pid has the library, its token, its file. The question about the
+    /// library is boxed because it counts how often it is asked, which only a closure can carry.
+    type TestProbes<'a> = Probes<Box<dyn Fn(u32, &str) -> ModuleProbe + 'a>, fn(u32) -> Option<bool>, fn(u32) -> Option<String>>;
+
+    fn probes(asked: &std::cell::Cell<u32>, loaded: u32) -> TestProbes<'_> {
+        // The token and the file are plain functions of the pid, so they need no capture: the pid that
+        // has the library is always 2 where they are looked at, and the tests that read them say so.
+        Probes {
+            has: Box::new(move |pid: u32, library: &str| {
+                asked.set(asked.get() + 1);
+                assert_eq!(library, WEBVIEW2_CLIENT_LIBRARY);
+                if pid == loaded { ModuleProbe::Loaded } else { ModuleProbe::NotLoaded }
+            }),
+            elevated: |pid| Some(pid == 2),
+            image: |pid| Some(format!("p{pid}.exe")),
+        }
+    }
+
+    /// The family is asked in order, stopping at the first process that has the library and reading the
+    /// token and the file of that one alone - and once one answered, never again. The channel being off
+    /// changes nothing about that: a tester who left the pages alone is still owed the claim.
     #[test]
-    fn the_family_is_asked_about_webview2_only_when_the_channel_is_on_and_only_until_one_answers() {
+    fn the_family_is_asked_about_webview2_in_order_until_one_answers_whether_or_not_the_channel_is_on() {
         use std::cell::Cell;
         let asked = Cell::new(0u32);
-        let has = |pid: u32, library: &str| {
-            asked.set(asked.get() + 1);
-            assert_eq!(library, WEBVIEW2_CLIENT_LIBRARY);
-            if pid == 2 { ModuleProbe::Loaded } else { ModuleProbe::NotLoaded }
-        };
-        let token = |pid: u32| Some(pid == 2);
         let t0 = Instant::now();
 
         let mut off = EmbeddedBridge::start(&Launch::off(), vec![1], false);
-        off.look_with(&[1, 2], true, t0, has, token);
-        assert_eq!(asked.get(), 0, "a channel that is off asks nothing");
-        assert_eq!(off.host, None);
+        off.look_with(&[1, 2], true, t0, probes(&asked, 2));
+        assert_eq!(asked.get(), 2, "a channel that is off still asks");
+        assert_eq!(off.host, Some(WebView2Host { pid: 2, elevated: Some(true), image: Some("p2.exe".into()) }));
 
+        asked.set(0);
         let mut on = looking_bridge();
-        on.look_with(&[1, 2, 3], false, t0, has, token);
+        on.look_with(&[1, 2, 3], false, t0, probes(&asked, 2));
         assert_eq!(asked.get(), 2, "the walk stops at the first process that has it");
-        assert_eq!(on.host, Some(WebView2Host { pid: 2, elevated: Some(true) }));
-        on.look_with(&[1, 2, 3], true, t0 + Duration::from_secs(9), has, token);
+        assert_eq!(on.host, Some(WebView2Host { pid: 2, elevated: Some(true), image: Some("p2.exe".into()) }));
+        on.look_with(&[1, 2, 3], true, t0 + Duration::from_secs(9), probes(&asked, 2));
         assert_eq!(asked.get(), 2, "once found, even a forced look does not ask again");
     }
 
@@ -743,21 +992,57 @@ mod tests {
     fn a_look_that_found_nothing_waits_out_the_cadence_unless_it_is_forced() {
         use std::cell::Cell;
         let asked = Cell::new(0u32);
-        let none = |_: u32, _: &str| {
-            asked.set(asked.get() + 1);
-            ModuleProbe::NotLoaded
-        };
         let t0 = Instant::now();
         let mut bridge = looking_bridge();
-        bridge.look_with(&[1], false, t0, none, |_| None);
-        bridge.look_with(&[1], false, t0 + LOOK_EVERY / 2, none, |_| None);
+        bridge.look_with(&[1], false, t0, probes(&asked, 99));
+        bridge.look_with(&[1], false, t0 + LOOK_EVERY / 2, probes(&asked, 99));
         assert_eq!(asked.get(), 1, "inside the cadence nothing is asked");
-        bridge.look_with(&[1], false, t0 + LOOK_EVERY, none, |_| None);
+        bridge.look_with(&[1], false, t0 + LOOK_EVERY, probes(&asked, 99));
         assert_eq!(asked.get(), 2);
-        bridge.look_with(&[1], true, t0 + LOOK_EVERY, none, |_| None);
+        bridge.look_with(&[1], true, t0 + LOOK_EVERY, probes(&asked, 99));
         assert_eq!(asked.get(), 3, "the closing look ignores the cadence");
 
-        bridge.look_with(&[1], true, t0 + LOOK_EVERY, |_: u32, _: &str| ModuleProbe::Unknown, |_| Some(true));
+        let unknown = Probes {
+            has: |_: u32, _: &str| ModuleProbe::Unknown,
+            elevated: |_: u32| Some(true),
+            image: |_: u32| Some("x.exe".to_string()),
+        };
+        bridge.look_with(&[1], true, t0 + LOOK_EVERY, unknown);
         assert_eq!(bridge.host, None, "an unknown answer is not a sighting");
+    }
+
+    /// A bridge that has seen a host, for the tests of the tree below.
+    fn bridge_with_host(elevated_core: bool) -> EmbeddedBridge {
+        let launch = Launch { enabled: true, unavailable: true, reach: Reach::of(elevated_core), ..Launch::off() };
+        let mut bridge = EmbeddedBridge::start(&launch, vec![1], false);
+        bridge.host = host(Some(elevated_core));
+        bridge
+    }
+
+    fn named(pid: u32, parent: u32) -> UncoveredChild {
+        UncoveredChild { pid, parent_pid: parent, image: Some(format!("p{pid}.exe")), command_line: None }
+    }
+
+    /// The tree is followed only for a core that is itself elevated and only once a host was seen: an
+    /// ordinary application is followed by the hook, and a session with no WebView2 in it owes the tree
+    /// nothing. Its pids join the family discovery looks in.
+    #[test]
+    fn the_tree_is_followed_only_for_an_elevated_core_with_a_host_seen() {
+        let t0 = Instant::now();
+        let under = |_: u32| Ok(vec![(50, 42), (51, 50)]);
+
+        let mut ordinary = bridge_with_host(false);
+        assert!(ordinary.follow_tree_with(&[1], true, t0, under, named).is_empty());
+        assert!(!ordinary.family.contains(&50));
+
+        let mut no_host = bridge_with_host(true);
+        no_host.host = None;
+        assert!(no_host.follow_tree_with(&[1], true, t0, under, named).is_empty());
+
+        let mut elevated = bridge_with_host(true);
+        let found = elevated.follow_tree_with(&[1], true, t0, under, named);
+        assert_eq!(found.iter().map(|c| c.pid).collect::<Vec<_>>(), [50, 51]);
+        assert!(elevated.family.contains(&50) && elevated.family.contains(&51), "discovery looks at the tree now");
+        assert_eq!(elevated.tree.total(), 2);
     }
 }

@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use chrono_proto::{Command, Event, MomentSpec, PROTOCOL_VERSION};
 
-use args::{parse_run_args, target_spec_for, RunArgs};
+use args::{elevation_problem, parse_run_args, target_spec_for, RunArgs};
 use collect::Collector;
 use moment::resolve_time_spec;
 use crate::cdp;
@@ -84,6 +84,10 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
             return 1;
         }
     };
+    if let Some(problem) = elevation_problem(&ra, chrono_mech::process_elevated(std::process::id())) {
+        diag!("chrono: {problem}");
+        return 1;
+    }
 
     // The session zone when the caller named none: the HOST's. Reading "now" as UTC instead hands the
     // target a local time off by the host's own offset - the failure untouchable rule 2 names. This used

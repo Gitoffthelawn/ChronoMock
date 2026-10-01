@@ -31,6 +31,15 @@ pub struct TargetSpec {
     /// Ignored for a target that IS Chromium, which the CDP session drives anyway.
     #[serde(default = "embedded_default")]
     pub embedded: bool,
+    /// Reach the web pages of an application that runs as administrator (docs/09 section 12.19): an
+    /// elevated WebView2 host ignores the variable `embedded` relies on, so the session writes one value
+    /// under the machine registry's WebView2 policy for its duration and removes it at the end. Off by
+    /// default, because it changes the machine and opens a debugging port in an application that has
+    /// administrator rights - a client from before this field existed gets that default. Needs a core
+    /// that is itself elevated and a target that is an `.exe`, and says in the session's report when it
+    /// could not do what was asked. Ignored for a Chromium target and under `embedded: false`.
+    #[serde(default)]
+    pub elevated_embedded: bool,
     /// Where a console program's console is (docs/08, ADR-17): `shared` gives it the core's console
     /// and stderr, `new` a console window of its own. Neither hands it the core's stdin or stdout,
     /// which carry this protocol (R4-W1). A client from before this field existed gets `shared`, and
@@ -387,6 +396,9 @@ mod tests {
                 // inside the application is the coverage promise, and the opt-out is the flag a
                 // client has to send. An older client that never heard of it gets the promise.
                 assert!(target.embedded, "a missing embedded must mean reach the pages");
+                // The opposite again for the option that writes the machine registry: a client that
+                // never heard of it must not get a write it did not ask for.
+                assert!(!target.elevated_embedded, "a missing elevated_embedded must mean no registry write");
                 // A client from before the field keeps the console it always had, and now without the
                 // protocol in it (R4-W1).
                 assert_eq!(target.console, TargetConsole::Shared, "a missing console must mean shared");
@@ -405,6 +417,7 @@ mod tests {
                 args: vec!["--x".into()],
                 cwd: None,
                 embedded: false,
+                elevated_embedded: true,
                 console: TargetConsole::New,
             },
             time: TimeSpec {
@@ -429,10 +442,12 @@ mod tests {
                 assert_eq!(id, 1);
                 assert_eq!(time.multiplier, Some(60));
                 assert_eq!(target.console, TargetConsole::New);
+                assert!(target.elevated_embedded, "the option has to survive the wire");
             }
             _ => panic!("wrong command variant"),
         }
         assert!(line.contains(r#""console":"new""#), "{line}");
+        assert!(line.contains(r#""elevated_embedded":true"#), "{line}");
     }
 
     /// A console value this build does not know makes the `start` unreadable, so the core refuses it

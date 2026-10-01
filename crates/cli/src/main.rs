@@ -49,6 +49,9 @@ mod grammar;
 mod output;
 /// A bounded look inside the target's own executable: Go build info, a .NET runtime linked in.
 mod pe;
+/// What a session does about the machine registry for an application that runs as administrator
+/// (docs/09 section 12.19).
+mod policy_session;
 /// Presets: a named moment with parameters (docs/04 section 4).
 mod preset;
 /// The terminal report and the evidence export for a finished session.
@@ -58,6 +61,8 @@ mod run;
 /// Test-only helpers shared by more than one module.
 #[cfg(test)]
 mod testutil;
+/// The engine of an elevated WebView2 host, found by the process tree (docs/09 section 12.19).
+mod unhooked_tree;
 /// One NDJSON line off the machine protocol, bounded.
 mod wire;
 /// Session zone and instant conversions (untouchable rule 2).

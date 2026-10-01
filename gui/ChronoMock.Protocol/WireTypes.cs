@@ -14,6 +14,13 @@ public sealed record TargetSpec
     /// Chromium, which the core drives over its own port either way.</summary>
     [JsonPropertyName("embedded")] public bool Embedded { get; init; } = true;
 
+    /// <summary>Reach the web pages of an application that runs as administrator (docs/09 section 12.19): the
+    /// session writes one WebView2 value to the machine registry for its duration and removes it at the end,
+    /// because an elevated WebView2 host ignores the setting <see cref="Embedded"/> relies on. OFF by default,
+    /// since it changes the machine and opens a debugging port in an application with administrator rights.
+    /// Written out rather than left to the core's default, like <see cref="Embedded"/>.</summary>
+    [JsonPropertyName("elevated_embedded")] public bool ElevatedEmbedded { get; init; }
+
     /// <summary>Where a console program's console is (mirrors <c>chrono_proto::TargetConsole</c>, docs/08,
     /// ADR-17): <see cref="SharedConsole"/> gives it the core's console and stderr, <see cref="NewConsole"/>
     /// a console window of its own. Neither hands it the core's stdin or stdout, which carry this protocol.
