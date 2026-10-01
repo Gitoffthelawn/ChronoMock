@@ -139,6 +139,13 @@ Notable changes to Chrono Mock, newest first. The format follows
   Windows' error window is kept off while the application loads and switched back before its entry
   point, so the application runs with the error mode it inherited, and the message says how to see the
   name that window would have shown: start the application once without Chrono Mock.
+- **The session's account of its processes holds in rare cases.** An application that ended with exit
+  code 259 was reported with no exit code. A launcher that started the application and ended at the
+  same moment could end the session under the running application, or leave the report silent that the
+  session went on for it. A child the hook could not enter was named after whatever process took its
+  pid next, and a child its parent did not finish recording held back the children recorded after it.
+  An environment variable holding a lone UTF-16 surrogate reached the application with U+FFFD in its
+  place.
 - **An application that runs as administrator and uses WebView2 is no longer reported as working
   over pages that ran on the real clock.** WebView2 ignores the environment variable the session
   reaches its web engine through when the application is elevated, so the session never reached the
