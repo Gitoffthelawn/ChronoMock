@@ -62,6 +62,10 @@ internal static class PhaseStates
         return model;
     }
 
+    /// <summary>An elevated window as it opens: the option is available and not ticked, the channel it rides
+    /// on is on. The control for anything that must say nothing about the option until it is asked for.</summary>
+    public static SessionViewModel SetupElevatedOptionOff() => ElevatedSetup();
+
     private static SessionViewModel ElevatedSetup()
         => new(new InMemorySessionHistoryStore(), presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"), canReachElevated: true);
 

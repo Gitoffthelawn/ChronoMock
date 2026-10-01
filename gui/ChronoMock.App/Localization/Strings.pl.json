@@ -100,6 +100,7 @@
   "setup.chip_qpc": "QPC skalowane",
   "setup.chip_force": "start wymuszony",
   "setup.chip_no_embedded": "bez stron WWW",
+  "setup.chip_elevated_embedded": "dotarcie do stron administratora",
   // The launch fields moved into this section, so its folded header says they are set without printing
   // values that have no length limit.
   "setup.chip_args": "argumenty ustawione",
@@ -159,7 +160,7 @@
   "setup.opt_qpc_note": "Animacja i wideo wewnątrz aplikacji mogą wyglądać źle.",
   "setup.opt_force_note": "Sesja jest wtedy wszędzie oznaczona jako niewiarygodna.",
   "setup.opt_embedded_note": "Otwiera na czas sesji lokalny port debugowania w silniku WWW aplikacji. Inne programy na tym komputerze mogą z niego korzystać, dopóki aplikacja działa.",
-  "setup.opt_elevated_embedded_note": "Zapisuje na czas sesji jedno ustawienie WebView2 w rejestrze komputera i usuwa je po sesji. Dopóki aplikacja działa, każdy program na tym komputerze może dotrzeć do jej stron, a aplikacja ma uprawnienia administratora.",
+  "setup.opt_elevated_embedded_note": "Zapisuje na czas sesji jedną opcję WebView2 w rejestrze komputera i usuwa ją po sesji. Dopóki aplikacja działa, każdy program na tym komputerze może dotrzeć do jej stron, a aplikacja ma uprawnienia administratora.",
   "setup.opt_elevated_embedded_unavailable": "Dostępne, gdy Chrono Mock działa jako administrator.",
 
   // Both of these say "target" in the shipped panel, which is the word this screen stopped using.
@@ -771,7 +772,7 @@
   "tip.scale_duration": "Przyśpiesz też liczniki, uśpienia i odliczania w aplikacji - nie tylko zegar ścienny.",
   "tip.scale_qpc": "Przyśpiesz też zegary na QPC (Python monotonic, .NET Stopwatch, Java nanoTime). Może zniekształcić aplikację liczącą render z QPC.",
   "tip.embedded": "Domyślnie włączone. Aplikacja z wbudowanym silnikiem WWW (WebView2, Qt WebEngine) uruchamia swoje strony w procesie, do którego hook zegara nie wchodzi. Z tą opcją silnik jest proszony o otwarcie na czas sesji lokalnego portu debugowania, a strony idą za zegarem sesji przez ten port. Odznacz, aby zostawić te strony na realnym zegarze i nie otwierać portu.",
-  "tip.elevated_embedded": "Domyślnie wyłączone. Aplikacja uruchomiona jako administrator sprawia, że WebView2 pomija ustawienie, przez które sesja dociera do jej stron, więc zostają na realnym zegarze. Z tą opcją sesja zapisuje jedno ustawienie WebView2 w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i usuwa je po końcu sesji. Wymaga Chrono Mock uruchomionego jako administrator i aplikacji startowanej z pliku .exe. Dopóki jest ustawione, każdy program uruchomiony pod tą nazwą pliku też dostaje port diagnostyczny, a uruchamiana aplikacja ma uprawnienia administratora. Wartość zostawiona przez sesję, która zakończyła się awaryjnie, jest usuwana przy następnym starcie z tą opcją.",
+  "tip.elevated_embedded": "Domyślnie wyłączone. Aplikacja uruchomiona jako administrator sprawia, że WebView2 pomija ustawienie, przez które sesja dociera do jej stron, więc zostają na realnym zegarze. Po włączeniu sesja zapisuje jedną opcję WebView2 w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i usuwa ją po końcu sesji. Wymaga Chrono Mock uruchomionego jako administrator i aplikacji startowanej z pliku .exe. Dopóki jest ustawiona, każdy program uruchomiony pod tą nazwą pliku też dostaje port diagnostyczny, a uruchamiana aplikacja ma uprawnienia administratora. Wartość zostawiona przez sesję, która zakończyła się awaryjnie, jest usuwana przy następnym starcie z tą opcją.",
   "tip.force": "Domyślnie wyłączone. Gdy werdykt otwierający mówi, że podmiana nie zadziałała, cel jest zatrzymywany zamiast oddany do pracy - jego dowód dotyczyłby realnego zegara. Zaznacz, aby mimo to uruchomić - sesja jest wtedy wszędzie oznaczona jako nierzetelna.",
   "tip.start": "Uruchom cel z podmienionym zegarem. Wymaga celu i poprawnego momentu.",
   "tip.freeze": "Zamroź podmieniony zegar, by przestał iść.",

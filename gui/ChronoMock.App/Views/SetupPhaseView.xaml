@@ -78,6 +78,14 @@
             <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                        Text="{DynamicResource setup.chip_no_embedded}" />
           </Border>
+          <!-- The option that writes the machine registry and opens a debugging port in an application
+               that runs as administrator. It starts folded away with the rest of this section, and a repeated
+               session ticks it again, so the header is where a tester sees that this session will do it. -->
+          <Border Style="{StaticResource PartBadge}" Margin="{StaticResource SpaceXs}"
+                  Visibility="{Binding ReachElevatedEmbedded, Converter={StaticResource BoolToVis}}">
+            <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
+                       Text="{DynamicResource setup.chip_elevated_embedded}" />
+          </Border>
           <!-- 🔴 The launch fields live in this section too, so its header has to account for them. A chip
                rather than the value: an argument list and a folder path are both as long as somebody makes
                them, and a summary that grew with them would push the rate off the right-hand edge. Neither

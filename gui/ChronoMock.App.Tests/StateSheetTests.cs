@@ -103,6 +103,10 @@ public class StateSheetTests
             total += RenderSetup("setup-options-elevated", PhaseStates.SetupWithElevatedOption(), "SpeedSection").Count;
             total += RenderSetup("setup-options-elevated-no-channel", PhaseStates.SetupElevatedWithoutChannel(), "SpeedSection").Count;
 
+            // The same option with the section folded, as the form opens and as Set up again leaves it: the
+            // header is the one place that says this session will write the machine registry.
+            total += RenderSetup("setup-options-elevated-folded", PhaseStates.SetupWithElevatedOption()).Count;
+
             // 🔴 AN APPLICATION CHOSEN AND A DATE THAT DOES NOT PARSE, which is the state the footer used
             // to meet in silence: the contract line has no moment to print, Start is disabled, and the
             // only sentence the footer knew was "choose an application" - which had been done. Nothing in
