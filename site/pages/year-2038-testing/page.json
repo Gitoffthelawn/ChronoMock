@@ -19,6 +19,12 @@
       "link_text": "Rok 2038",
       "title": "Problem roku 2038: test aplikacji Windows po 03:14:07 UTC",
       "description": "Zegar Windows radzi sobie z rokiem 2038. Błędy siedzą w 32-bitowych polach czasu. Jak uruchomić jedną aplikację ponad 19 stycznia 2038 bez ruszania daty systemu."
+    },
+    "de": {
+      "slug": "jahr-2038-testen",
+      "link_text": "Jahr 2038",
+      "title": "Jahr-2038-Problem: Windows-App über 03:14:07 UTC testen",
+      "description": "Die Windows-Uhr läuft über 2038 hinaus. Die Fehler stecken in 32-Bit-Zeitfeldern. So führen Sie eine App über den 19. Januar 2038, ohne das Systemdatum zu ändern."
     }
   }
 }

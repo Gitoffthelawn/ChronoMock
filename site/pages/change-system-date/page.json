@@ -19,6 +19,12 @@
       "link_text": "Nie zmieniaj zegara",
       "title": "Zmiana daty systemowej do testów - co psuje się w Windows",
       "description": "Przestawienie zegara Windows na potrzeby testu przestawia całą maszynę: logowanie do domeny, certyfikaty, synchronizację czasu. Co się psuje i jak przesunąć zegar jednej aplikacji."
+    },
+    "de": {
+      "slug": "systemdatum-aendern-testen",
+      "link_text": "Systemuhr nicht ändern",
+      "title": "Systemdatum zum Testen ändern: Was unter Windows kaputtgeht",
+      "description": "Wer die Windows-Uhr zum Testen umstellt, verstellt den ganzen Rechner: Anmeldung, Zertifikate, Zeitsync. Was kaputtgeht und wie nur eine App umgestellt wird."
     }
   }
 }
