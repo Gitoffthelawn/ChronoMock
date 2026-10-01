@@ -1,0 +1,102 @@
+<!-- 下载页，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>下载 Chrono Mock</h1>
+    <p class="sub">
+      同一个引擎的两个版本：用来探索的窗口版，用来跑 CI 的命令行版。任选其一，解压到任意位置即可运行——没有安装程序，不会往注册表写任何内容，也不需要管理员权限。
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">获取最新版本</a>
+      <a class="btn btn-ghost" href="{{repo}}">在 GitHub 上查看代码</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>文件</th><th>说明</th><th>大小</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>桌面应用，自包含——无需另外安装 .NET</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>仅命令行工具，适用于 CI 和脚本</td>
+            <td>~1.6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>运行环境要求</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 或 Windows 11。</strong>没有 macOS 或 Linux 版本——在 Linux 上，<a href="https://github.com/wolfcw/libfaketime">libfaketime</a> 已经能很好地胜任这件事。</li>
+        <li><strong>不需要其他任何东西。</strong>桌面版自带运行时，命令行版则什么都不带。</li>
+        <li><strong>32 位和 64 位应用都受支持。</strong>安装包两者都带，并会选择与你所指向的应用相匹配的那一个。</li>
+      </ul>
+      <p>
+        ARM64 在 1.0 版本之前不在范围之内，打包的商店应用（UWP 和 MSIX）也不受支持——它们的启动模型不允许这样做。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>运行方法</h2>
+    <div class="prose">
+      <p>
+        解压后，运行 <code>ChronoMock.exe</code> 使用窗口版，或运行 <code>chrono.exe</code> 使用命令行版。第一次会话只需要做三个决定：哪个应用、哪个时刻，以及时钟应该跑多快。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 让应用以 2027 年的最后一秒来运行</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># 同样的事，但时钟以每分钟一天的速度运行</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>先读这两件事</h2>
+
+    <div class="note warning">
+      <p><strong>在第一次进行未来日期的会话之前，请先备份应用的数据目录。</strong></p>
+      <p>
+        一个运行在 2028 年的应用，会在它存放数据的所有地方写入 2028 年的日期：数据库、配置、缓存、许可证文件。回到真实时间之后，这些值仍然留在那里。对于带有许可证保护的软件，这可能是永久性的——<em>“检测到时钟回拨，许可证已失效”</em>是业界的标准做法，它会严格按设计初衷行事。
+      </p>
+      <p>
+        Chrono Mock 会清理它自己留下的东西，但无法替你测试的那个应用善后。
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>你的杀毒软件可能会报警，这是意料之中的。</strong></p>
+      <p>
+        改变时间的方式，是把一个小型库注入目标进程。这是一种合法的、有文档记载的 Windows 技术——恶意软件也会使用它，所以 Microsoft Defender 等软件可能会对被注入的库报警，甚至直接阻止注入。这是由该技术触发的误报。
+      </p>
+      <p>
+        如果会话拒绝启动、而 Defender 报告了威胁，请排除这个库而不是整个文件夹：在 Windows 安全中心选择<strong>文件</strong>，并填入 <code>chrono_hook.dll</code> 的完整路径。文件夹排除会让工具用来注入的那个目录里的所有内容都不再被扫描。或者，在你有权限这样做的机器上运行它。被注入的库由本仓库中的代码在 GPL-3.0 下构建——你可以自己重新构建。Chromium 和 Electron 模式完全不注入，不受影响。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>它留下了什么</h2>
+    <div class="prose">
+      <p>
+        系统里什么都不留：没有常驻的钩子，没有注册表项，除了三样它会明确告知你的东西之外，也不会在自己的文件夹以外留下任何内容——会话历史和诊断日志，在工具自己的文件夹不可写时会移到 <code>%LOCALAPPDATA%\ChronoMock\</code>；还有，对 Electron 或 Chromium 目标来说，在 <code>%TEMP%</code> 下的一个一次性浏览器配置文件，它会在会话结束时删除，如果删除不了，会在会话摘要中报告。
+      </p>
+      <p>
+        它从不连接互联网，不需要账号，也不发送遥测数据。
+      </p>
+    </div>
+  </section>
+
+</div>

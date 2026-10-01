@@ -1,0 +1,93 @@
+<!-- 時區，繁體中文。結構、class 與預留位置和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>讓應用程式在另一個時區執行</h1>
+    <p class="sub">
+      落在錯誤日期的報表、提早一小時響起的提醒、讀起來像是明天的時間戳記——這些問題大多只會出現在你自己並不身處的時區裡。這個工具給一個處理序單獨的偏移量，而你的系統時區原封不動。
+    </p>
+  </section>
+
+  <section>
+    <h2>為什麼常見的辦法幫不上忙</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>修改 Windows 時區</strong>會改動所有東西——你的行事曆、你的記錄檔、你的會議——而在受管理的電腦上，這也許根本不由你來改。</li>
+        <li><strong>設定 <code>TZ</code></strong> 對一些執行階段有效，對另一些無效。讀取 <code>GetTimeZoneInformation</code> 的原生 Windows 應用程式完全不會察覺。</li>
+        <li><strong>瀏覽器開發人員工具</strong>可以覆寫網頁的時區，這很好，但與桌面應用程式無關。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>一個處理序，一個偏移量</h2>
+    <div class="prose">
+      <p>
+        工作階段帶有自己的偏移量。應用程式向 Windows 詢問自己處於哪個時區，得到的就是這個答案，而電腦上的其他所有程式得到的是真實的答案。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 同一個時刻，從美國西岸看過去</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># 只改時區——今天的真實日期，別人的時鐘</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        計算機回答問題的另一半——某個時刻在別處實際讀作什麼。轉換會保持時刻不變，只改變掛鐘時間，一個日期落在錯誤的一天，恰恰就是這麼發生的：
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        中歐的上午九點，在美國西岸是<strong>午夜</strong>。同一個時刻，而依本地日期分組的日報，會因為執行的位置不同而把它歸到不同的一天。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>如實說明的限制，在這裡尤其重要</h2>
+
+    <div class="note warning">
+      <p><strong>工作階段時區是沒有日光節約時間的固定偏移量。</strong></p>
+      <p>
+        設為 <code>+01:00</code> 的工作階段，無論它的時鐘讀到的是一月還是七月，都停留在 <code>+01:00</code>。因此，跨越真實切換的執行，會與該時區實際顯示的時間相差一小時，而讓應用程式經歷日光節約時間的切換，目前還不是這個工具能做的事。日期計算機會如實說明這一點，而不是猜測。
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>該時區會把自己回報為「Chrono Session」</strong>，這是任何 Windows 登錄都不認識的名稱。凡是把這個名稱對應回時區的東西——包括 .NET 的 <code>TimeZoneInfo.Local</code>——都會退回到使用偏移量，這是正確的答案。堅持要用登錄中名稱的應用程式則找不到。</li>
+        <li><strong>Java 會把工作階段時區當作偏移量來接收。</strong>工作階段時區沒有日光節約時間，背後也沒有城市，所以 Java 用它的偏移量來命名——對於 +05:30 的工作階段就是 <code>GMT+05:30</code>。</li>
+        <li><strong>在 Chromium 與 Electron 模式下，時區跟隨主機。</strong>時刻是偽造的，本地時間的取值方法則不是。</li>
+        <li><strong>偏移量的範圍是 -14:00 到 +14:00</strong>，以整分鐘為單位。超出這個範圍的值會被拒絕，而不是悄悄迴繞。</li>
+      </ul>
+      <p>
+        其中哪一條適用於你的應用程式，是可以量測的，而不是靠猜。
+        <a href="/zh-hant/time-source-audit/">工作階段會回報它自己的涵蓋情況 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/faq/">閱讀常見問題</a>
+    </div>
+  </section>
+
+</div>

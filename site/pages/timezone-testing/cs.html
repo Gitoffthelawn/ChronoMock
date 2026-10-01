@@ -1,0 +1,114 @@
+<!-- Časová pásma, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Spusťte aplikaci v jiném časovém pásmu</h1>
+    <p class="sub">
+      Sestava, která skončí ve špatný den, připomínka, která zazvoní o hodinu dřív, časové razítko, které
+      se čte jako zítřek - většina z toho se projeví jen v pásmu, ve kterém právě nesedíte. Tohle dává
+      jednomu procesu vlastní posun, zatímco vaše systémové pásmo zůstane přesně tam, kde bylo.
+    </p>
+  </section>
+
+  <section>
+    <h2>Proč obvyklé odpovědi nepomáhají</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Změna časového pásma Windows</strong> ho změní pro všechno - váš kalendář, logy,
+          schůzky - a na spravovaném počítači nemusí být vaše právo ho měnit.</li>
+        <li><strong>Nastavení <code>TZ</code></strong> funguje pro některá běhová prostředí a pro jiná
+          ne. Nativní aplikace pro Windows, která čte <code>GetTimeZoneInformation</code>, si ho vůbec
+          nevšimne.</li>
+        <li><strong>Vývojářské nástroje prohlížeče</strong> přepisují pásmo pro webovou stránku, což je
+          vynikající a pro desktopovou aplikaci nepodstatné.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jeden proces, jeden posun</h2>
+    <div class="prose">
+      <p>
+        Sezení nese vlastní posun. Aplikace se zeptá Windows, v jakém je pásmu, a dostane tuto odpověď,
+        zatímco každý jiný program na počítači dostane skutečnou.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Stejný okamžik, viděný ze západního pobřeží Ameriky</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Jen pásmo - dnešní skutečné datum, cizí hodiny</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        Kalkulačka odpovídá na druhou polovinu otázky - jak se daný okamžik skutečně čte jinde. Převod
+        zachovává okamžik a mění jen kalendářní hodiny, což je přesně způsob, jak datum skončí ve
+        špatný den:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Devět hodin ráno ve střední Evropě je na západním pobřeží Ameriky <strong>půlnoc</strong>.
+        Stejný okamžik a denní sestava, která seskupuje podle místního data, ho zařadí do jiného dne
+        podle toho, kde běží.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Upřímná omezení, a tady na nich záleží</h2>
+
+    <div class="note warning">
+      <p><strong>Pásmo sezení je pevný posun bez letního času.</strong></p>
+      <p>
+        Sezení nastavené na <code>+01:00</code> zůstává na <code>+01:00</code>, ať jeho hodiny ukazují
+        leden, nebo červenec. Běh, který překročí skutečný přechod, se tedy odchýlí o hodinu od toho, co
+        by dané pásmo skutečně ukazovalo, a protažení aplikace přechodem na letní čas tento nástroj
+        zatím nedělá. Kalkulačka dat to říká, místo aby hádala.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>Pásmo se hlásí jako „Chrono Session“</strong>, jméno, které žádný registr Windows
+          nezná. Cokoli, co toto jméno převádí zpět na pásmo - mimo jiné <code>TimeZoneInfo.Local</code>
+          v .NET - se místo toho vrátí k posunu, což je správná odpověď. Aplikace, která trvá na názvu
+          z registru, žádný nenajde.</li>
+        <li><strong>Java přebírá pásmo sezení jako posun.</strong> Pásmo sezení nemá letní čas ani město
+          za sebou, takže ho Java pojmenuje podle jeho posunu - <code>GMT+05:30</code> pro sezení na
+          +05:30.</li>
+        <li><strong>V režimu Chromium a Electron se pásmo řídí hostitelem.</strong> Okamžik je falešný,
+          getery místního času ne.</li>
+        <li><strong>Posuny jdou od -14:00 do +14:00</strong> v celých minutách. Cokoli mimo se odmítne,
+          ne tiše zalomí.</li>
+      </ul>
+      <p>
+        Které z nich se týká vaší aplikace, lze změřit, ne hádat.
+        <a href="/cs/audit-zdroju-casu/">Sezení hlásí vlastní pokrytí &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/faq/">Přečtěte si FAQ</a>
+    </div>
+  </section>
+
+</div>

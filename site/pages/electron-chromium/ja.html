@@ -1,0 +1,93 @@
+<!-- Electron と Chromium（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Electron アプリで日付を偽装する</h1>
+    <p class="sub">
+      これを検索すると、どの答えも自分のコードを変更する話ばかりです。<code>Date</code> オブジェクトをモックする、テストフレームワークのフェイクタイマーを使う、など。ビルド済みのアプリしか手元にないときには、どれも役に立ちません。これは、すでにあるアプリをそのまま動かします。
+    </p>
+  </section>
+
+  <section>
+    <h2>なぜインジェクションが届かないのか</h2>
+    <div class="prose">
+      <p>
+        このモードがあるのは、ある具体的な失敗がきっかけです。Electron で作られたポモドーロタイマーを <code>x60</code> のセッションで動かしたところ、カウントダウンがまったく進みませんでした。アプリのバンドルを分解すると、互いに独立した 2 つの理由が見つかり、どちらもネイティブ側には対処法がありませんでした。
+      </p>
+      <ul>
+        <li>カウントダウンは時計を読んでいませんでした。Web Worker の中で動く、<strong><code>setInterval</code> で増えるカウンター</strong>だったのです。アプリが「いま何時か」を一度も尋ねないので、フックすべき時刻の呼び出し自体がありませんでした。</li>
+        <li>その Worker は<strong>サンドボックス化されたレンダラープロセス</strong>の中にあります。外部からインジェクトされたライブラリが入り込めない、まさにその場所です。</li>
+      </ul>
+      <p>
+        そのため、Windows 側の仕組みはここでは役に立ちません。答えは、代わりにアプリ自身の JavaScript エンジンと直接やり取りすることです。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>代わりに何が起こるか</h2>
+    <div class="prose">
+      <p>
+        アプリはデバッグポートと、きれいな使い捨てのプロファイルで起動され、そのアプリ自身の時間関連 API が DevTools プロトコル経由でセッションの時計に載せ替えられます。対象は <code>Date.now</code>、<code>new Date()</code> コンストラクター、<code>performance.now</code>、<code>setTimeout</code>、<code>setInterval</code> です。
+      </p>
+      <p>
+        この上書きは、アプリが開くすべてのコンテキストに、<strong>Web Worker も含めて</strong>設定されます。タイマーがたいていいるのはそこであり、ネイティブのインジェクションがどうやっても届かない唯一の場所です。
+      </p>
+      <p>
+        操作方法は何も変わりません。同じコマンド、同じウィンドウ、2 つの時計と判定が並ぶ同じセッションパネルです。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># ネイティブアプリと同じコマンド - モードは自動で検出される</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>始める前に知っておくべき 2 つの制約</h2>
+
+    <div class="note warning">
+      <p><strong>起動は侵襲的で、そのことを意図的に大きく伝えます。</strong></p>
+      <p>
+        アプリはリモートデバッグポートを開き、<code>%TEMP%</code> の下に作られた新しい隔離プロファイルで起動します。実際のプロファイルでは動かず、すでにシステムトレイに常駐しているコピーでもありません。プロファイルはセッション終了時に削除され、削除できなかった場合は、黙って残さずセッションの概要でそう報告します。
+      </p>
+      <p>
+        自分で指定した <code>--user-data-dir</code> や <code>--remote-debugging-port</code> は、上書きされずに拒否されます。セッションを実際のブラウザープロファイルに向けてしまうという分かりやすい事故は、許容する価値がないからです。
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>セッションのタイムゾーンはホストに従います。</strong></p>
+      <p>
+        このモードでは時点は偽装されますが、ローカル時刻のゲッターは偽装されません。そのため<a href="/ja/timezone-testing/">独立したタイムゾーン</a>はネイティブモードだけの機能です。これはこの版の制約であり、方針ではありません。
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        もう 1 つ、人を驚かせるのは、<em>すでにスケジュールされた</em>インターバルは、セッション中に速度を変えても元のペースを保つことです。<code>Date.now</code>、<code>new Date()</code>、<code>performance.now</code> はすぐに反応しますが、実行中の <code>setInterval</code> は反応しません。何も起きなかったと誤解させないよう、セッションはこの点について警告します。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>どれほどテストされているか</h2>
+    <div class="prose">
+      <p>
+        <strong>実験的</strong>です。この言葉には、ここでは決まった意味があります。想定した対象では動作する、広範にはテストされていない、そして信頼できる情報源は、このページではなく内蔵の監査である、ということです。自動化されたテスト一式ではなく、64 ビット Windows 上の実際の Electron アプリで手作業により確認されました。
+      </p>
+      <p>
+        カバレッジはプロセス単位ではなく JavaScript コンテキスト単位で報告されます。ここで存在する単位がそれだからです。何もせず待機していて時刻を一度も尋ねないアプリは、正直に<em>判定不能</em>を返します。時計を読んでいないので、正しい時計を見たかどうかについては何も言えないのです。<a href="/ja/time-source-audit/">判定の意味 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/faq/">FAQ を読む</a>
+    </div>
+  </section>
+
+</div>

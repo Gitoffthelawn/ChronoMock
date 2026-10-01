@@ -1,0 +1,26 @@
+{
+  "//": "Українські тексти сайту — ті самі ключі, що й у en.json (відсутній ключ зупиняє збірку).",
+
+  "html_lang": "uk",
+  "dir": "ltr",
+  "og_locale": "uk_UA",
+
+  "social_image_alt": "Chrono Mock — запускайте застосунок Windows з будь-якою датою й часом, не змінюючи системний годинник",
+
+  "skip_to_content": "Перейти до вмісту",
+  "nav_label": "Основна навігація",
+
+  "language_name": "Українська",
+  "language_title": "Ця сторінка українською",
+  "language_menu_label": "Мова",
+
+  "footer_nav_label": "Мапа сайту",
+  "footer_group_start": "З чого почати",
+  "footer_group_tools": "Альтернативи та середовища виконання",
+  "footer_group_features": "Що вміє",
+
+  "footer_summary": "Chrono Mock — GPL-3.0. Без облікового запису, без телеметрії, і ніколи не звертається до інтернету.",
+  "footer_source": "Вихідний код на GitHub",
+  "footer_releases": "Випуски",
+  "footer_license": "Ліцензія"
+}

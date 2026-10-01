@@ -1,0 +1,111 @@
+<!-- CLI 與 CI，繁體中文。結構、class 與預留位置和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>在管線中做日期測試</h1>
+    <p class="sub">
+      視窗用來探索，這裡是另一半：一個約 <strong>1.6 MB</strong> 的命令列版本，無需安裝任何執行階段，它的結束代碼是涵蓋情況的判定，而不是目標程式自己的結束代碼。
+    </p>
+  </section>
+
+  <section>
+    <h2>結束代碼就是判定</h2>
+    <div class="prose">
+      <p>
+        這個設計決定讓該工具可以被指令碼呼叫。工作階段結束時，結束代碼回答的是<em>「時間替換有沒有生效」</em>，而不是<em>「應用程式回傳了什麼」</em>。因此，管線可以在替換悄悄沒有發生時直接失敗——這正是值得為之失敗的情形，因為它之後的一切都是什麼也沒證明的測試。
+      </p>
+      <p>
+        目標程式自己的結束代碼仍然會被回報，記錄在工作階段資料中。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>代碼</th><th>意義</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>生效——所有讀取過時間的處理序看到的都是工作階段時鐘</td></tr>
+          <tr><td>10</td><td>部分生效——部分通道已涵蓋，部分未涵蓋</td></tr>
+          <tr><td class="n">11</td><td>未生效——替換沒有到達關鍵通道</td></tr>
+          <tr><td>4</td><td>無法確定——無法確認涵蓋情況</td></tr>
+          <tr><td>1</td><td>用法錯誤——參數錯誤或運算式錯誤</td></tr>
+          <tr><td>2</td><td>無法啟動目標程式，或無法對其注入</td></tr>
+          <tr><td>12</td><td>目標程式消失了，這表示它可能是單一執行個體的應用程式</td></tr>
+          <tr><td>3</td><td>內部錯誤——引擎無法啟動、遇到非預期的狀態，或在關閉工作階段之前就停止了（無論目標程式自己的結束代碼是什麼）。這樣的執行不帶判定</td></tr>
+          <tr><td>5</td><td>此版本未內建該操作</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        兩個命令的所有參數，以及計算機對應的同一張表，都在<a href="/zh-hant/cli-reference/">命令列參考</a>中。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>限定時長的執行</h2>
+    <div class="prose">
+      <p>
+        管線不能等人去關閉一個桌面應用程式。<code>--ticks N</code> 會在 N 次心跳（每次一個真實秒）之後結束工作階段，並回報到那一刻為止的發現。涵蓋情況本來就是在處理序啟動的最初階段確定的，所以通常設一個較短的上限就夠了。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 執行十秒，然後停止並回報</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>機器輸出與證據</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> 以機器可讀的記錄輸出工作階段，而不是給人讀的報告——事實完全相同，包括逐個通道的涵蓋情況。</li>
+        <li><code>--report &lt;path&gt;</code> 把給人讀的報告寫入檔案，作為建置成品很合適。判定不是<em>生效</em>的工作階段，會在該檔案開頭放一條證據不可靠的橫幅，而不是把這個提醒埋在結尾。</li>
+        <li>計算機同樣支援 <code>--json</code>，所以管線可以算出需要的日期，再把它傳回去使用。</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># 先算出日期，再依該日期執行</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>一個步驟的大致寫法</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># 這裡結束代碼非零，表示替換沒有生效，所以</span>
+    <span class="c"># 它後面的測試什麼也證明不了</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>關於執行器的兩點如實說明</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>它需要 Windows 執行器。</strong>沒有 Linux 或 macOS 版本，以後也不會有——在 Linux 上，<a href="https://github.com/wolfcw/libfaketime">libfaketime</a> 已經能勝任這件事。</li>
+        <li><strong>代管執行器上的防毒軟體可能會攔截注入。</strong>改變時間需要把一個程式庫注入目標處理序，這是一種有文件記載的 Windows 技術，惡意程式也在使用。被執行器攔截時，你得到的是說明此事的結束代碼，而不是一次虛假的通過——但這是你在依賴它之前就該弄清楚的事。</li>
+      </ul>
+      <p>
+        基於同樣的理由，本專案自己的端對端測試套件在真實機器上執行，而不是在代管執行器上。它的持續整合會建置並對所有內容做單元測試；至於替換本身，則在每次發行之前，由人工在 32 位元與 64 位元兩種建置上針對真實應用程式逐一驗證。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/time-source-audit/">判定結果的意義</a>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,129 @@
+<!-- Le bug de l'an 2038 sous Windows, français. Structure, classes et jetons comme dans en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Tester le bug de l'an 2038 sous Windows</h1>
+    <p class="sub">
+      Le 19 janvier 2038 à 03:14:07 UTC, un compteur signé de 32 bits de secondes depuis 1970 arrive au
+      bout. L'horloge de Windows continue au-delà - pas les programmes, formats de fichier et
+      bibliothèques qui ont gardé leur propre copie sur 32 bits. Voici comment les trouver dans une seule
+      application, sans régler la date de toute la machine sur 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>Où le bug peut encore se cacher</h2>
+    <div class="prose">
+      <p>
+        L'horloge de Windows est un compteur sur 64 bits de pas de 100 nanosecondes depuis 1601, elle
+        ignore donc 2038. Le type <code>time_t</code> de la bibliothèque d'exécution C est sur 64 bits
+        par défaut depuis Visual Studio 2005. Reste le code qui a choisi une heure sur 32 bits, ou perdu
+        la moitié haute en chemin&nbsp;:
+      </p>
+      <ul>
+        <li><strong>Les builds 32 bits compilés avec <code>_USE_32BIT_TIME_T</code></strong>, ou qui
+          appellent directement <code>_time32</code> et <code>__time32_t</code>. La documentation de
+          Microsoft prévient qu'une telle application peut échouer après le 18 janvier 2038.</li>
+        <li><strong>Une heure sur 64 bits rangée dans un <code>int</code> ou un
+          <code>long</code>.</strong> Sous Windows, les deux font 32 bits, même dans un programme
+          64 bits.</li>
+        <li><strong>Les bibliothèques, formats de fichier, protocoles réseau et colonnes de bases de
+          données</strong> qui gardent les secondes depuis 1970 sur 32 bits.</li>
+        <li><strong>Le code qui ajoute des années.</strong> Une licence de vingt ans, un échéancier de
+          prêt sur trente ans ou un certificat valable jusqu'en 2040 franchissent la limite bien avant
+          l'arrivée de 2038.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Franchir la limite dans une seule application</h2>
+    <div class="prose">
+      <p>
+        La limite est définie en UTC et <code>--at</code> se lit dans le fuseau de la session&nbsp;:
+        fixez donc le fuseau sur UTC quand vous écrivez l'instant vous-même. Le scénario prêt à l'emploi
+        porte déjà un instant UTC absolu et n'a pas besoin de fuseau.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Le scénario : la session démarre sur la limite elle-même, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Démarrer dix-sept secondes avant et laisser l'application la franchir en direct</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Démarrer plus tôt et tourner à vitesse x60 - la limite arrive en 14 secondes environ</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Ou tourner à la date d'aujourd'hui et sauter par-dessus pendant que l'application est ouverte</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Une seconde après la limite, un compteur signé de 32 bits devient -2 147 483 648, ce qui se lit
+        <strong>13 décembre 1901, 20:45:52 UTC</strong>. Une date en 1901, un nombre négatif, un élément
+        soudain expiré ou trié en premier, une exception levée par le code des dates - voilà à quoi
+        ressemble le dépassement vu de l'extérieur.
+      </p>
+      <p>
+        Régler la vraie horloge sur 2038 est l'autre manière d'y arriver, et celle qui casse le plus.
+        <a href="/fr/changer-la-date-systeme-pour-tester/">Ce qui se passe quand on change la date système &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vérifier que cela a atteint le programme</h2>
+    <div class="prose">
+      <p>
+        Un test qui réussit parce que le programme n'a jamais vu 2038 est pire que pas de test. Le rapport
+        de fin de chaque session dit quelle horloge le programme a lue et combien de fois&nbsp;:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        La ligne <strong>session</strong> confirme que l'horloge de l'application a dépassé la limite. Un
+        verdict <em>works</em> avec des compteurs d'appels signifie que le programme a lu l'horloge et
+        reçu la date de 2038&nbsp;; <em>works partially</em> nomme les canaux qu'il a lus par un autre
+        chemin.
+        <a href="/fr/audit-des-sources-de-temps/">Ce que signifient les verdicts &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce qu'un test réussi ne prouve pas</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Seule l'horloge du programme a bougé.</strong> Une date qu'il charge depuis un fichier
+          ou une base est celle qui y est stockée, donc une date de 2038 dans les données est un autre
+          test. Le calculateur de dates calcule ces dates pour vous&nbsp;:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Un serveur avec lequel le programme dialogue tourne toujours à la vraie date.</strong>
+          Une limite de 32 bits de ce côté est hors de portée, et la session avertit quand elle voit le
+          programme ouvrir une connexion réseau.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/scenarios-de-test-de-dates/">Autres dates à tester</a>
+    </div>
+  </section>
+
+</div>

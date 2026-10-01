@@ -1,0 +1,26 @@
+{
+  "//": "साइट का हिन्दी पाठ - कुंजियाँ en.json जैसी ही हैं (कोई भी कुंजी छूटने पर बिल्ड विफल हो जाता है)।",
+
+  "html_lang": "hi",
+  "dir": "ltr",
+  "og_locale": "hi_IN",
+
+  "social_image_alt": "Chrono Mock - सिस्टम घड़ी बदले बिना किसी भी Windows ऐप को मनचाही तारीख़ और समय पर चलाएँ",
+
+  "skip_to_content": "सीधे मुख्य सामग्री पर जाएँ",
+  "nav_label": "मुख्य नेविगेशन",
+
+  "language_name": "हिन्दी",
+  "language_title": "यह पेज हिन्दी में",
+  "language_menu_label": "भाषा",
+
+  "footer_nav_label": "साइट मैप",
+  "footer_group_start": "यहाँ से शुरू करें",
+  "footer_group_tools": "विकल्प और रनटाइम",
+  "footer_group_features": "यह क्या करता है",
+
+  "footer_summary": "Chrono Mock - GPL-3.0। कोई अकाउंट नहीं, कोई टेलीमेट्री नहीं, और यह कभी इंटरनेट से संपर्क नहीं करता।",
+  "footer_source": "GitHub पर सोर्स कोड",
+  "footer_releases": "रिलीज़",
+  "footer_license": "लाइसेंस"
+}

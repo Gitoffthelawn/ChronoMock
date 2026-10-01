@@ -1,0 +1,100 @@
+<!-- Windows での 2038 年問題、日本語。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows での 2038 年問題をテストする</h1>
+    <p class="sub">
+      2038 年 1 月 19 日 03:14:07 UTC に、1970 年からの秒数を数える符号付き 32 ビットのカウンターが尽きます。Windows の時計はその先も進みますが、独自の 32 ビットのコピーを持ち続けたプログラム、ファイル形式、ライブラリはそうではありません。マシン全体の日付を 2038 年に設定せずに、それらを 1 つのアプリで見つける方法を紹介します。
+    </p>
+  </section>
+
+  <section>
+    <h2>バグがまだ潜みうる場所</h2>
+    <div class="prose">
+      <p>
+        Windows の時計は 1601 年から 100 ナノ秒刻みで数える 64 ビットのカウンターなので、2038 年はありません。C ランタイムライブラリの <code>time_t</code> は、Visual Studio 2005 以降、既定で 64 ビットです。残るのは、32 ビットの時刻を選んだコード、あるいは途中で上位の半分を失ったコードです。
+      </p>
+      <ul>
+        <li><strong><code>_USE_32BIT_TIME_T</code> を付けてコンパイルした 32 ビットビルド</strong>、または <code>_time32</code> や <code>__time32_t</code> を直接呼ぶもの。Microsoft 自身のドキュメントも、そのようなアプリは 2038 年 1 月 18 日以降に失敗する可能性があると警告しています。</li>
+        <li><strong>64 ビットの時刻を <code>int</code> や <code>long</code> に格納しているもの。</strong> Windows ではどちらも 32 ビットで、64 ビットのプログラムでも同じです。</li>
+        <li><strong>1970 年からの秒数を 32 ビットで保持するライブラリ、ファイル形式、ネットワークプロトコル、データベース列。</strong></li>
+        <li><strong>年を加算するコード。</strong> 20 年のライセンス、30 年の返済スケジュール、2040 年まで有効な証明書は、2038 年が来るずっと前にこの境界をまたぎます。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>1 つのアプリで境界をまたぐ</h2>
+    <div class="prose">
+      <p>
+        この限界は UTC で定義されていて、<code>--at</code> はセッションのゾーンで読まれます。時刻を自分で書くときは、ゾーンを UTC に固定してください。用意されたシナリオには絶対的な UTC の時刻がすでに含まれているので、ゾーンは不要です。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># シナリオ: セッションは限界そのもの、03:14:07 UTC から始まる</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># 17 秒前から始めて、アプリに境界をその場でまたがせる</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># もっと早くから 60 倍速で実行 - 約 14 秒で限界に到達する</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># あるいは今日の日付で実行し、アプリを開いたまま境界を飛び越える</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        限界の 1 秒後、符号付き 32 ビットのカウンターは -2,147,483,648 になり、これは <strong>1901 年 12 月 13 日 20:45:52 UTC</strong> と読まれます。1901 年の日付、負の数、突然期限切れになる項目や並び順の先頭に来る項目、日付処理のコードから投げられる例外。オーバーフローは外から見るとこうした形で現れます。
+      </p>
+      <p>
+        本物の時計を 2038 年に設定するのは、ここへ至るもう 1 つの方法で、最も多くのものを壊す方法です。<a href="/ja/change-system-date-testing/">システム日付を変更すると何が起きるか &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>プログラムに届いたことを確認する</h2>
+    <div class="prose">
+      <p>
+        プログラムが 2038 年を一度も見なかったために通ったテストは、テストがないよりも悪いものです。すべてのセッションの最後のレポートは、プログラムがどの時計を何回読んだかを示します。
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        <strong>session</strong> の行は、アプリの時計が限界を越えたことを裏付けます。呼び出し回数が付いた <em>works</em> の判定は、プログラムが時計を読み、2038 年の日付を受け取ったことを意味します。<em>works partially</em> は、別の経路で読まれたチャネルを挙げます。<a href="/ja/time-source-audit/">判定の意味 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>テストが通っても証明されないこと</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>動いたのはプログラム自身の時計だけです。</strong> ファイルやデータベースから読み込む日付は、そこに保存されているとおりのものなので、データの中にある 2038 年の日付は別のテストです。日付電卓なら、そうした日付を代わりに計算できます。<code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>プログラムが通信するサーバーは、本物の日付で動き続けています。</strong> その側の 32 ビットの限界には手が届きません。セッションは、プログラムがネットワーク接続を開くのを見つけると警告します。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/date-test-scenarios/">ほかのテストすべき日付</a>
+    </div>
+  </section>
+
+</div>

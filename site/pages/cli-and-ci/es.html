@@ -1,0 +1,134 @@
+<!-- CLI y CI, español. Estructura, clases y marcadores como en en.html. La tabla de códigos de salida es
+     el contrato y coincide con la página de la auditoría. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Pruebas de fechas en un pipeline</h1>
+    <p class="sub">
+      La ventana sirve para explorar. Esta es la otra mitad: una compilación de línea de comandos de unos
+      <strong>1,6 MB</strong> sin entorno de ejecución que instalar, cuyo código de salida es el veredicto
+      de cobertura y no el del propio objetivo.
+    </p>
+  </section>
+
+  <section>
+    <h2>El código de salida es el veredicto</h2>
+    <div class="prose">
+      <p>
+        Esta es la decisión de diseño que hace la herramienta scriptable. Cuando termina una sesión, el
+        código de salida responde a <em>«¿tuvo efecto la sustitución del tiempo?»</em>, no a
+        <em>«¿qué devolvió la aplicación?»</em>. Un pipeline puede entonces fallar ante una sustitución
+        que silenciosamente no ocurrió - que es el fallo por el que merece la pena fallar, porque todo lo
+        que viene después es una prueba que no demostró nada.
+      </p>
+      <p>
+        El código de salida del propio objetivo se sigue informando, en los datos de la sesión.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Código</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>funciona - todo proceso que leyó la hora vio el reloj de la sesión</td></tr>
+          <tr><td>10</td><td>funciona parcialmente - algunos canales cubiertos, otros no</td></tr>
+          <tr><td class="n">11</td><td>no funciona - la sustitución no llegó a los canales clave</td></tr>
+          <tr><td>4</td><td>indeterminado - no se pudo establecer la cobertura</td></tr>
+          <tr><td>1</td><td>error de uso - una opción o una expresión incorrecta</td></tr>
+          <tr><td>2</td><td>el objetivo no se pudo lanzar ni inyectar</td></tr>
+          <tr><td>12</td><td>el objetivo desapareció, lo que sugiere una aplicación de instancia única</td></tr>
+          <tr><td>3</td><td>error interno - el motor no pudo arrancar, llegó a un estado inesperado o se detuvo antes de cerrar la sesión (sea cual sea su propio código de salida). Una ejecución así no lleva veredicto</td></tr>
+          <tr><td>5</td><td>la operación no está incluida en esta versión</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Todas las opciones de ambos comandos, y la misma tabla para la calculadora, están en la
+        <a href="/es/referencia-cli/">referencia de la línea de comandos</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ejecuciones acotadas</h2>
+    <div class="prose">
+      <p>
+        Un pipeline no puede esperar a que una persona cierre una aplicación de escritorio.
+        <code>--ticks N</code> termina la sesión tras N latidos - de un segundo real cada uno - e informa
+        de lo que encontró hasta ese momento. La cobertura se establece en los primeros instantes del
+        proceso de todos modos, así que un límite corto suele bastar.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Diez segundos, luego parar e informar</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Salida para máquinas y evidencias</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> emite la sesión como registros legibles por máquina en lugar del informe
+          para personas - los mismos hechos, incluida la cobertura por canal.</li>
+        <li><code>--report &lt;path&gt;</code> escribe el informe para personas en un archivo, que sirve
+          como artefacto de compilación. Una sesión cuyo veredicto no sea <em>funciona</em> abre ese
+          archivo con un aviso de evidencia poco fiable en lugar de enterrar la salvedad al final.</li>
+        <li>La calculadora también entiende <code>--json</code>, de modo que un pipeline puede calcular la
+          fecha que necesita y devolverla.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Calcular la fecha y luego ejecutar en ella</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Un paso, más o menos</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># un código de salida distinto de cero aquí significa que la sustitución no tuvo efecto,</span>
+    <span class="c"># así que la prueba siguiente no habría demostrado nada</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Dos salvedades honestas sobre los runners</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Necesita un runner de Windows.</strong> No hay versión para Linux ni macOS, y no la
+          habrá - en Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> ya cubre
+          este caso.</li>
+        <li><strong>El antivirus de un runner alojado puede bloquear la inyección.</strong> Desplazar el
+          tiempo implica inyectar una biblioteca en el proceso objetivo, una técnica documentada de
+          Windows que también usa el malware. Un runner que la bloquee produce un código de salida que lo
+          dice en vez de un falso éxito - pero conviene averiguarlo antes de depender de ello.</li>
+      </ul>
+      <p>
+        Por la misma razón, la suite de pruebas de extremo a extremo de este proyecto se ejecuta en
+        máquinas reales y no en un runner alojado. Su integración continua compila y prueba todo con
+        pruebas unitarias, y la sustitución en sí se ejercita a mano con aplicaciones reales, tanto en
+        compilaciones de 32 como de 64 bits, antes de cada versión.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pruébalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/es/descargar/">Descargar para Windows</a>
+      <a class="btn btn-ghost" href="/es/auditoria-de-fuentes-de-tiempo/">Qué significan los veredictos</a>
+    </div>
+  </section>
+
+</div>

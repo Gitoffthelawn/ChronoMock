@@ -1,0 +1,147 @@
+<!-- Data, která stojí za testování, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Data, která stojí za testování</h1>
+    <p class="sub">
+      Software se nerozbije v obyčejné úterý. Rozbije se v poslední den čtvrtletí, 29. února, ve chvíli,
+      kdy se mění rok, a o vteřinu po vypršení licence. Tohle jsou data, která takové chyby najdou -
+      <strong>{{preset_count}}</strong> z nich je dodáváno jako pojmenované scénáře.
+    </p>
+  </section>
+
+  <section>
+    <h2>Hranice období</h2>
+    <div class="prose">
+      <p>
+        Cokoli, co uzavírá období, čísluje doklad podle roku nebo připisuje do uzávěrky, se zde splete
+        jako první.
+      </p>
+      <ul>
+        <li><strong>Poslední den měsíce</strong> - chová se správně měsíční uzávěrka a připisování za
+          období v poslední den měsíce?</li>
+        <li><strong>Poslední den čtvrtletí</strong> - chová se správně čtvrtletní uzávěrka a výkaznictví
+          v poslední den čtvrtletí?</li>
+        <li><strong>Poslední den fiskálního roku</strong> - uzavře aplikace fiskální rok ve správný den,
+          den před začátkem fiskálního roku?</li>
+        <li><strong>Přechod roku za živa</strong> - zvládne číslování dokladů, rok v názvu a roční
+          výkaznictví přechod roku <em>přímo ve chvíli, kdy nastane</em>, místo aby se po něm restartovaly?</li>
+      </ul>
+      <p>
+        Poslední z nich je ten, který lidé obvykle nemohou testovat vůbec, protože potřebuje, aby hodiny
+        překročily půlnoc 31. prosince, zatímco aplikace běží. Se zrychlenými hodinami je to práce na
+        deset vteřin.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Okraje kalendáře a reprezentace</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29. února</strong> - přestupný den, který existuje jen jednou za čtyři roky a který
+          překvapivé množství validačního kódu rovnou odmítne.</li>
+        <li><strong>Nula unixové epochy</strong> - bere aplikace 1. leden 1970 jako skutečné datum, nebo
+          jako prázdnou hodnotu, kterou měla odmítnout uložit?</li>
+        <li><strong>Hranice roku 2038</strong> - okamžik, kdy dojde 32bitový <code>time_t</code> se
+          znaménkem, v <code>2038-01-19T03:14:07Z</code>. O vteřinu později čítač přeteče do roku
+          1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Licence, zkušební doby a instalace</h2>
+    <div class="prose">
+      <p>
+        Slouží k testování <em>vašeho vlastního</em> licencování, což je případ, pro který vznikly.
+      </p>
+      <ul>
+        <li><strong>Poslední den zkušební doby</strong> - funguje aplikace ještě v úplně poslední okamžik
+          zkušební doby?</li>
+        <li><strong>První den po vypršení zkušební doby</strong> - odepře přístup ve chvíli, kdy zkušební
+          doba skončí, a jak? Rozumnou zprávou, nebo výpisem zásobníku?</li>
+        <li><strong>Licence vypršela před rokem</strong> - zvládne licenci, která vypršela dávno, ne jen
+          včera?</li>
+        <li><strong>Datum před instalací</strong> - chová se správně, když jsou hodiny nastaveny před
+          datum její vlastní instalace? Toto čte datum souboru samotného cíle, takže nepotřebuje žádný
+          parametr.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Obchodní pravidla a chování hodin</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Splatnost platby, +N pracovních dnů</strong> - dopadne platba splatná za N
+          pracovních dnů na správný den, s vynecháním víkendů a svátků správné země? Jediný scénář,
+          který potřebuje kalendář, a odpověď se mezi trhy liší.</li>
+        <li><strong>Hranice zletilosti</strong> - pustí aplikace dovnitř někoho přesně na hranici a
+          odmítne někoho, komu chybí jediný den?</li>
+        <li><strong>Odchylka hodin, +90 s</strong> - poradí si aplikace, když její hodiny jdou o
+          devadesát vteřin před skutečným časem? To je případ, který rozbíjí jednorázová hesla založená
+          na čase a ověřování tokenů.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jak jeden použít</h2>
+    <div class="prose">
+      <p>
+        Scénář je pojmenovaný výraz pro datum. Kalkulačka vypočítá, co znamená, a náhrada času spustí
+        aplikaci v něm - na obou místech stejný název.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Jaké je to datum a co toto datum testuje?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Spustit v něm aplikaci</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Scénáře zkušební doby berou počáteční datum z data souboru samotného cíle</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        V okně jsou to štítky nad polem pro datum - jedno kliknutí ho vyplní. Každý nese vlastní větu,
+        která říká, co zachytí, což je část, kterou online kalkulačka dat nemá jak dát.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Obrazovka nastavení Chrono Mock s otevřenou sekcí Scenarios: vyhledávací pole nad seznamem, pak každé hotové datum s otázkou, na kterou odpovídá - hranice roku 2038, 29. únor, hodiny jdoucí o devadesát vteřin napřed, poslední den měsíce - a pod seznamem řádek říkající, že další tři potřebují hodnotu, kterou si zvolíte. Zápatí čte okamžik zpět srozumitelným jazykem nad tlačítkem Start.">
+      <figcaption>Každý scénář nese otázku, na kterou odpovídá, a nejen datum. Tři, které potřebují
+        hodnotu, kterou si zvolíte, jsou pod seznamem pojmenovány, ne skryty.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Co tu není</h2>
+    <div class="prose">
+      <p>
+        <strong>Přechody na letní a zimní čas.</strong> Protažení aplikace hranicí přechodu na letní nebo
+        zimní čas je opravdu užitečný test a <em>záměrně tu chybí</em>, protože časové pásmo sezení je
+        pevný posun bez letního času - zatím není co simulovat. Dodávat scénář, který by tiše nic
+        nedělal, by bylo horší než ho nedodávat.
+      </p>
+      <p>
+        Vrátí se spolu s modelem pravidel časových pásem.
+        <a href="/cs/testovani-casovych-pasem/">Co časové pásmo dělá a co ne &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/kalkulacka-dat/">Kalkulačka</a>
+    </div>
+  </section>
+
+</div>

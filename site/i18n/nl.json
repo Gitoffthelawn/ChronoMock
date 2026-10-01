@@ -1,0 +1,26 @@
+{
+  "//": "Nederlandse teksten van de website - dezelfde sleutels als en.json (een ontbrekende sleutel stopt de build).",
+
+  "html_lang": "nl",
+  "dir": "ltr",
+  "og_locale": "nl_NL",
+
+  "social_image_alt": "Chrono Mock - draai een Windows-applicatie op elke datum en tijd, zonder de systeemklok te veranderen",
+
+  "skip_to_content": "Ga naar de inhoud",
+  "nav_label": "Hoofdnavigatie",
+
+  "language_name": "Nederlands",
+  "language_title": "Deze pagina in het Nederlands",
+  "language_menu_label": "Taal",
+
+  "footer_nav_label": "Sitemap",
+  "footer_group_start": "Begin hier",
+  "footer_group_tools": "Alternatieven en runtimes",
+  "footer_group_features": "Wat het doet",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Geen account, geen telemetrie, en het maakt nooit verbinding met internet.",
+  "footer_source": "Broncode op GitHub",
+  "footer_releases": "Releases",
+  "footer_license": "Licentie"
+}

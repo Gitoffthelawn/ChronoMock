@@ -1,0 +1,115 @@
+<!-- Cambiar la fecha del sistema para probar, español. Estructura, clases y tokens como en en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Cambiar la fecha del sistema para probar una aplicación</h1>
+    <p class="sub">
+      Es el truco más viejo que existe: poner el reloj de Windows en la fecha que quieres probar, ejecutar
+      el programa y volver a ponerlo. Funciona - y mientras el reloj está movido, mueve también todo lo
+      demás de la máquina.
+    </p>
+  </section>
+
+  <section>
+    <h2>Qué se mueve realmente con el reloj</h2>
+    <div class="prose">
+      <p>
+        El reloj del sistema no es privado del programa que pruebas. Cada proceso, servicio y
+        conversación de red de la máquina lee el mismo, así que un cambio hecho para una prueba es un
+        cambio hecho para todas.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Qué lee el reloj</th><th>Qué pasa cuando lo mueves</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>El inicio de sesión de dominio y las carpetas compartidas</td><td>Kerberos tolera por defecto una diferencia de reloj de cinco minutos. Más allá, rechaza sus tickets y falla el inicio de sesión o el acceso a un recurso compartido.</td></tr>
+          <tr><td>Los certificados y HTTPS</td><td>Si un certificado es válido se decide con el reloj. Ponlo más allá de la fecha de fin de un certificado y toda conexión que dependa de él se rechaza por caducada; retrásalo lo bastante y el certificado aún no es válido.</td></tr>
+          <tr><td>El servicio Hora de Windows</td><td>Un equipo unido a un dominio toma la hora de un controlador de dominio, y por defecto el servicio corrige el reloj sea cual sea el tamaño de la diferencia. La fecha que pusiste puede deshacerse mientras aún pruebas.</td></tr>
+          <tr><td>Todo lo que registra una hora</td><td>Los archivos, registros, filas de base de datos y correos enviados mientras el reloj está movido llevan la fecha de la prueba, y la conservan después de que devuelvas el reloj.</td></tr>
+          <tr><td>El software que recuerda la última fecha que ha visto</td><td>Algunos programas leen un reloj que retrocede como una manipulación - y eso es justo lo que ocurre cuando restauras la fecha real.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Cuanto más lejana la fecha, más de esto encuentras. Una máquina puesta en 2038 ve como caducado
+        todo certificado emitido hoy.
+        <a href="/es/probar-el-problema-del-ano-2038/">Probar 2038 sin eso &rarr;</a>
+      </p>
+      <p>
+        Además hace falta un derecho que la mayoría de las cuentas no tiene: cambiar la hora del sistema
+        es un privilegio de administrador, y en una máquina gestionada a menudo no es tuyo.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cuándo cambiar el reloj es la respuesta correcta</h2>
+    <div class="prose">
+      <p>
+        Una máquina virtual que nadie más usa, con su propia sincronización de reloj desactivada, es un
+        banco de pruebas perfectamente bueno. La tiras después, así que nada de lo que registró importa.
+        Si tienes una y la prueba es de una sola fecha, es lo más sencillo que funciona.
+      </p>
+      <p>
+        Los problemas empiezan cuando es la máquina en la que trabajas, la que está en el dominio o la que
+        a la vez ejecuta algo que no debe enterarse.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mueve en su lugar el reloj de un solo programa</h2>
+    <div class="prose">
+      <p>
+        La hora desplazada la ve <strong>un proceso y los hijos que lanza</strong>. Tu inicio de sesión de
+        dominio, tus certificados y Windows Update nunca la ven, así que nada de la tabla de arriba se
+        mueve - y luego no hay nada que devolver.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># La aplicación ve el 31 de diciembre de 2027, 23:59:50. Todo lo demás conserva la fecha real.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Empezar diez minutos antes de medianoche y correr a velocidad x60 - el año cambia en diez segundos</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Que una fecha movida para un programa le haya llegado de verdad no es algo que dar por supuesto.
+        Cada sesión termina con un veredicto y la lista de canales de tiempo que el programa leyó
+        realmente.
+        <a href="/es/auditoria-de-fuentes-de-tiempo/">Cómo saber si funcionó &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lo que esto no sustituye</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Un programa que pide la hora a un servidor</strong> queda fuera del alcance de una
+          sustitución local. La sesión lo dice cuando ve que el programa abre una conexión de red, en vez
+          de dejarte suponer que la prueba pasó.</li>
+        <li><strong>Probar el propio sistema</strong> - un servicio que reacciona a que cambie el reloj
+          real, una tarea programada, cómo se comporta Windows ante un cambio de reloj - no tiene
+          sustituto para cambiar el reloj, en una máquina que puedas permitirte.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pruébalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/es/descargar/">Descargar para Windows</a>
+      <a class="btn btn-ghost" href="/es/escenarios-de-prueba-de-fechas/">Fechas que probar</a>
+    </div>
+  </section>
+
+</div>

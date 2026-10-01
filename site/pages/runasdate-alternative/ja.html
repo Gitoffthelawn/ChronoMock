@@ -1,0 +1,112 @@
+<!-- RunAsDate との比較（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>足りなかった部分を補う、RunAsDate の代替ツール</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> は長年にわたり、<em>「Windows でこのプログラムを別の日付で実行する」</em>ための定番の答えであり、優れたツールです。このページでは、両者がどこで異なるか、そして RunAsDate のほうが今でも向いている場面を説明します。
+    </p>
+  </section>
+
+  <section>
+    <h2>並べて比較</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1 つのアプリを偽の日付で実行する</td><td class="y">対応</td><td class="y">対応</td></tr>
+          <tr><td>システム時計に手を触れない</td><td class="y">対応</td><td class="y">対応</td></tr>
+          <tr><td>フックする時刻関数</td><td class="n">5</td><td class="y">{{channel_count}} チャネル</td></tr>
+          <tr><td>実時間より速い時計</td><td class="n">非対応</td><td class="y">任意の整数倍</td></tr>
+          <tr><td>時計を止める</td><td class="n">非対応</td><td class="y">対応</td></tr>
+          <tr><td>アプリ実行中のジャンプ</td><td class="n">非対応</td><td class="y">前方にも後方にも</td></tr>
+          <tr><td>そのプロセスだけのタイムゾーン</td><td class="n">記載なし</td><td class="y">対応（固定オフセット）</td></tr>
+          <tr><td>子プロセスがセッションを引き継ぐ</td><td class="n">記載なし</td><td class="y">対応</td></tr>
+          <tr><td>効いたかどうかを教えてくれる</td><td class="n">なし</td><td class="y">判定、チャネルごと、呼び出し回数付き</td></tr>
+          <tr><td>Electron と Chromium のアプリ</td><td class="n">非対応</td><td class="y">別の仕組み</td></tr>
+          <tr><td>CI 用のコマンドライン</td><td class="y">対応</td><td class="y">対応（終了コードと JSON 付き）</td></tr>
+          <tr><td>ソースコード</td><td class="n">フリーウェア、非公開</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>サイズ</td><td class="y">40 KB 未満</td><td class="n">CLI 1.6 MB、ウィンドウ付きで 69 MB</td></tr>
+          <tr><td>古い Windows</td><td class="y">Windows 2000 まで</td><td class="n">Windows 10 と 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>「記載なし」</em>は、その機能が RunAsDate のページに書かれていないという意味です。ツールにその機能がないと主張しているわけではありません。
+    </p>
+  </section>
+
+  <section>
+    <h2>最も大きな違い</h2>
+    <div class="prose">
+      <p>
+        チャネルの数ではありません。RunAsDate は自身のドキュメントで、<strong>「現在の日付と時刻を別のソースから取得するアプリには影響しません」</strong>と正直に述べています。そしてそのうえで、自分のアプリがそれに該当するかどうかは、利用者が突き止めるしかありません。
+      </p>
+      <p>
+        Chrono Mock は、同じ一文を<strong>測定すべきもの</strong>として扱います。すべてのセッションは、判定、アプリが実際に読んだチャネルとそれぞれの回数、取りこぼしたチャネル、そしてアプリが時計を尋ねる前にネットワーク接続を開くのが観測されたときの警告で終わります。
+      </p>
+      <p>
+        時刻がずれているように見えて実はずれていないアプリは、一度も起動しなかったアプリより悪質です。何の意味もない合格テストを生み出すからです。<a href="/ja/time-source-audit/">監査のしくみ &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>5 つの関数か、{{channel_count}} 個のチャネルか</h2>
+    <div class="prose">
+      <p>
+        RunAsDate は <code>GetSystemTime</code>、<code>GetLocalTime</code>、<code>GetSystemTimeAsFileTime</code>、<code>NtQuerySystemTime</code>、<code>GetSystemTimePreciseAsFileTime</code> をフックします。壁時計はそこで読まれるので、非常に多くのアプリにはこれで本当に十分です。
+      </p>
+      <p>
+        残りの領域は、日付に依存するコードが潜みやすい場所です。
+      </p>
+      <ul>
+        <li><strong>タイムゾーン</strong> - 4 つの関数と、ゾーン間を変換する関数群全体。レポートが誤った日に着地するのは、こうした経路が原因です。</li>
+        <li><strong>経過時間の軸</strong> - ティック数と、バイアスのない割り込み時間。試用期間のカウントダウンがたいてい測っているものです。</li>
+        <li><strong>スリープと待機</strong> - 遅延が実際の時計ではなくセッションの時計での遅延になるように。</li>
+        <li><strong>タイマー</strong> - 待機可能タイマー、ウィンドウタイマー、スレッドプールタイマー、マルチメディアタイマー。</li>
+        <li><strong>プロセス作成</strong> - インストーラーの子プロセスが、現在の日付ではなく同じセッションで動くように。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>RunAsDate のほうが向いている場合</h2>
+    <div class="prose">
+      <p>本当に、しかもめずらしくありません。</p>
+      <ul>
+        <li><strong>通常の速度で、1 つの日付だけを今すぐ使いたいとき。</strong>RunAsDate は 40 KB 未満で、覚えるウィンドウもなく、長年にわたってまさにこのことを行ってきました。</li>
+        <li><strong>古い Windows を使っているとき。</strong>RunAsDate は Windows 2000 まで対応しています。このツールは Windows 10 と 11 を対象としており、それより古い環境ではテストしていません。</li>
+        <li><strong>サイズが重要なとき。</strong>40 KB とコマンドライン版の 1.6 MB、あるいはウィンドウ付きの 69 MB では、比較になりません。</li>
+        <li><strong>判定が要らないとき。</strong>カバレッジを測るとは、結果を読むということです。使い捨てのテストなら、求めていない手間です。</li>
+      </ul>
+      <p>
+        両者は共存もできます。手軽な用途のために RunAsDate を手元に残しておくことを、ここにあるものが妨げることはありません。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>どちらも目的としていないこと</h2>
+    <div class="prose">
+      <p>
+        どちらのツールも、試用期間の延長に関する検索結果に現れます。<strong>このツールは、そのために作られたものではなく</strong>、それを示す例、シナリオ、ページは、ここには今後も存在しません。Chrono Mock は、自分が責任を負うソフトウェア、つまり自社のライセンスの期限切れ、自社の更新ロジック、自社の月末レポートをテストするためのものです。
+      </p>
+      <p>
+        それは、最も動作しにくいケースでもあります。ライセンス保護は、傍受しにくい経路を選んで日常的に時刻を読みます。共有されたユーザーモードのデータページ、直接のシステムコール、サーバーなどです。そして時計の巻き戻しは、その種のコードが検出するように書かれている条件です。監査は、それが動作しなかったと教えてくれます。これは役に立つ答えではなく、正直な答えです。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/faq/">まず FAQ を読む</a>
+    </div>
+  </section>
+
+</div>

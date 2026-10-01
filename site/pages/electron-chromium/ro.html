@@ -1,0 +1,126 @@
+<!-- Electron și Chromium, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Falsificarea datei într-o aplicație Electron</h1>
+    <p class="sub">
+      Caută asta și fiecare răspuns este despre schimbarea propriului cod - mock pentru obiectul
+      <code>Date</code>, temporizatoare false din framework-ul tău de testare. Nimic din toate astea nu
+      ajută când ai o aplicație deja compilată. Aici rulezi aplicația pe care o ai deja.
+    </p>
+  </section>
+
+  <section>
+    <h2>De ce nu ajunge injecția la ea</h2>
+    <div class="prose">
+      <p>
+        Acest mod există din cauza unui eșec concret. Un cronometru Pomodoro construit pe Electron a fost
+        rulat într-o sesiune <code>x60</code> și numărătoarea lui inversă nu s-a mișcat deloc. Desfacerea
+        pachetului aplicației a arătat două motive independente, iar niciunul nu avea o soluție pe partea
+        nativă:
+      </p>
+      <ul>
+        <li>Numărătoarea inversă nu citea un ceas. Era un <strong>contor incrementat de
+          <code>setInterval</code></strong>, care rula într-un Web Worker. Nu exista niciun apel de timp
+          de interceptat, pentru că aplicația nu întreba niciodată cât este ceasul.</li>
+        <li>Acel worker trăiește într-un <strong>proces renderer izolat</strong>, adică exact locul în care
+          o bibliotecă injectată din afară nu pătrunde.</li>
+      </ul>
+      <p>
+        Așadar mecanismul de pe partea Windows nu poate ajuta aici, iar răspunsul este să vorbești în
+        schimb cu motorul JavaScript propriu al aplicației.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce se întâmplă în schimb</h2>
+    <div class="prose">
+      <p>
+        Aplicația este lansată cu un port de depanare și cu un profil curat, de unică folosință, iar
+        propriile ei API-uri de timp sunt puse pe ceasul sesiunii prin protocolul DevTools -
+        <code>Date.now</code>, constructorul <code>new Date()</code>,
+        <code>performance.now</code>, <code>setTimeout</code> și <code>setInterval</code>.
+      </p>
+      <p>
+        Înlocuirea este instalată în fiecare context pe care îl deschide aplicația, <strong>inclusiv în
+        Web Worker-ele ei</strong> - acolo unde se dovedește de obicei că trăiește cronometrul și singurul
+        loc la care injecția nativă nu avea cum să ajungă.
+      </p>
+      <p>
+        Nimic din felul în care îl folosești nu se schimbă. Aceeași comandă, aceeași fereastră, același
+        panou de sesiune cu cele două ceasuri și verdictul.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aceeași comandă ca pentru o aplicație nativă - modul este detectat</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Două limite bune de știut înainte să începi</h2>
+
+    <div class="note warning">
+      <p><strong>Lansarea este invazivă și spune asta deschis, în mod deliberat.</strong></p>
+      <p>
+        Aplicația este pornită cu un port de depanare la distanță deschis și cu un profil nou, izolat, în
+        <code>%TEMP%</code> - nu rulează pe profilul tău real și nu este exemplarul care se află deja în
+        bara de sistem. Profilul este șters când se încheie sesiunea, iar dacă nu a putut fi șters,
+        rezumatul sesiunii spune asta, în loc să-l lase pe tăcute în urmă.
+      </p>
+      <p>
+        Transmiterea propriului <code>--user-data-dir</code> sau <code>--remote-debugging-port</code>
+        este refuzată, nu suprascrisă, pentru că accidentul evident - îndreptarea sesiunii spre profilul
+        tău real de browser - nu merită permis.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Fusul orar al sesiunii urmează gazda.</strong></p>
+      <p>
+        În acest mod momentul este falsificat, dar getter-ele de oră locală nu sunt, așa că
+        <a href="/ro/testarea-fusurilor-orare/">un fus orar independent</a> este o funcție doar a
+        modului nativ. Aceasta este o limitare a acestei versiuni, nu o decizie.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Încă un lucru care îi surprinde pe oameni: un interval <em>deja programat</em> își păstrează
+        vechiul ritm când schimbi viteza în timpul sesiunii. <code>Date.now</code>,
+        <code>new Date()</code> și <code>performance.now</code> reacționează imediat, un
+        <code>setInterval</code> aflat în execuție nu, iar sesiunea te avertizează în loc să te lase să
+        concluzionezi că schimbarea nu a făcut nimic.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cât de bine este testat</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimental</strong>, iar cuvântul acesta are aici un sens definit: funcționează pe țintele
+        pentru care a fost construit, nu a fost testat pe scară largă, iar auditul încorporat este sursa ta
+        de adevăr, nu această pagină. A fost verificat manual, nu prin suita automată, pe o aplicație
+        Electron reală, pe Windows pe 64 de biți.
+      </p>
+      <p>
+        Acoperirea este raportată pe context JavaScript, nu pe proces, deoarece asta este unitatea care
+        există aici. O aplicație aflată în repaus, care nu întreabă niciodată ora, produce în mod onest
+        <em>nedeterminat</em> - nu a citit un ceas, deci nu se poate afirma nimic despre dacă ar fi văzut
+        unul corect.
+        <a href="/ro/auditul-surselor-de-timp/">Ce înseamnă verdictele &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/faq/">Citește FAQ-ul</a>
+    </div>
+  </section>
+
+</div>

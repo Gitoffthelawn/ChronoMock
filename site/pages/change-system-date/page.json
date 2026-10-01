@@ -1,0 +1,143 @@
+{
+  "//": "The query is 'change system date for testing', typed by people who are about to do the thing that breaks their machine. Problem-led rather than product-led, and it says plainly when changing the clock is the right answer (a throwaway VM), which is what keeps it credible. The table states Microsoft's documented defaults - Kerberos clock skew, Windows Time on a domain member - as defaults, not as promises.",
+
+  "id": "change-system-date",
+  "order": 35,
+  "nav": true,
+  "group": "tools",
+
+  "languages": {
+    "en": {
+      "slug": "change-system-date-testing",
+      "link_text": "Don't change the clock",
+      "title": "Changing the system date to test: what breaks on Windows",
+      "description": "Setting the Windows clock to test a date moves the whole machine - logon, certificates, time sync. What breaks, and how to move one app's clock instead."
+    },
+    "pl": {
+      "slug": "zmiana-daty-systemowej-w-testach",
+      "link_text": "Nie zmieniaj zegara",
+      "title": "Zmiana daty systemowej do testów - co psuje się w Windows",
+      "description": "Przestawienie zegara Windows na czas testu przestawia całą maszynę: domenę, certyfikaty, synchronizację. Co się psuje i jak przesunąć zegar jednej aplikacji."
+    },
+    "de": {
+      "slug": "systemdatum-aendern-testen",
+      "link_text": "Systemuhr nicht ändern",
+      "title": "Systemdatum zum Testen ändern: Was unter Windows kaputtgeht",
+      "description": "Wer die Windows-Uhr zum Testen umstellt, verstellt den ganzen Rechner: Anmeldung, Zertifikate, Zeitsync. Was kaputtgeht und wie nur eine App umgestellt wird."
+    },
+    "fr": {
+      "slug": "changer-la-date-systeme-pour-tester",
+      "link_text": "Sans changer l'horloge",
+      "title": "Date système changée pour tester : ce qui casse sous Windows",
+      "description": "Changer l'horloge de Windows pour tester une date décale toute la machine : domaine, certificats, synchro. Ce qui casse, et comment ne décaler qu'une appli."
+    },
+    "es": {
+      "slug": "cambiar-la-fecha-del-sistema-para-pruebas",
+      "link_text": "No cambies el reloj",
+      "title": "Cambiar la fecha del sistema para probar: qué falla en Windows",
+      "description": "Cambiar el reloj de Windows para probar una fecha mueve toda la máquina: dominio, certificados, sincronización. Qué se rompe y cómo mover solo una app."
+    },
+    "pt-br": {
+      "slug": "alterar-a-data-do-sistema-para-testar",
+      "link_text": "Não mude o relógio",
+      "title": "Alterar a data do sistema para testar: o que quebra no Windows",
+      "description": "Mudar o relógio do Windows para testar uma data move a máquina toda: domínio, certificados, sincronização. O que quebra e como mover só um app."
+    },
+    "it": {
+      "slug": "cambiare-la-data-di-sistema-nei-test",
+      "link_text": "Non cambiare l'orologio",
+      "title": "Data di sistema cambiata per i test: cosa si rompe su Windows",
+      "description": "Cambiare l'orologio di Windows per testare una data sposta l'intera macchina: dominio, certificati, sincronizzazione. Cosa si rompe e come spostare una sola app."
+    },
+    "nl": {
+      "slug": "systeemdatum-wijzigen-testen",
+      "link_text": "Verander de klok niet",
+      "title": "Systeemdatum wijzigen om te testen: wat breekt er in Windows",
+      "description": "De Windows-klok verzetten om een datum te testen verzet de hele machine: domein, certificaten, tijdsync. Wat er breekt en hoe je alleen één app verzet."
+    },
+    "ro": {
+      "slug": "modificarea-datei-sistemului-pentru-teste",
+      "link_text": "Nu schimba ceasul",
+      "title": "Schimbarea datei sistemului la teste: ce se strică în Windows",
+      "description": "Schimbarea ceasului Windows pentru a testa o dată mută toată mașina: domeniu, certificate, sincronizare. Ce se strică și cum muți ceasul unei singure aplicații."
+    },
+    "cs": {
+      "slug": "zmena-systemoveho-data-pri-testovani",
+      "link_text": "Neměňte hodiny",
+      "title": "Změna systémového data kvůli testu: co se ve Windows rozbije",
+      "description": "Přestavení hodin Windows kvůli testu data posune celý počítač: doména, certifikáty, synchronizace. Co se rozbije a jak posunout hodiny jen jedné aplikace."
+    },
+    "tr": {
+      "slug": "sistem-tarihini-degistirerek-test",
+      "link_text": "Saati değiştirmeyin",
+      "title": "Test için sistem tarihini değiştirmek: Windows’ta ne bozulur",
+      "description": "Test için Windows saatini kaydırmak tüm makineyi kaydırır: etki alanı, sertifikalar, zaman eşitleme. Ne bozulur ve yalnızca bir uygulamanın saati nasıl kaydırılır."
+    },
+    "id": {
+      "slug": "mengubah-tanggal-sistem-untuk-pengujian",
+      "link_text": "Jangan ubah jamnya",
+      "title": "Mengubah tanggal sistem untuk menguji: yang rusak di Windows",
+      "description": "Menggeser jam Windows untuk menguji tanggal ikut menggeser seluruh mesin: domain, sertifikat, sinkronisasi. Apa yang rusak dan cara menggeser satu aplikasi saja."
+    },
+    "vi": {
+      "slug": "doi-ngay-he-thong-de-kiem-thu",
+      "link_text": "Đừng đổi đồng hồ",
+      "title": "Đổi ngày hệ thống để kiểm thử: điều gì hỏng trên Windows",
+      "description": "Dời đồng hồ Windows để thử một ngày sẽ dời cả máy: miền, chứng chỉ, đồng bộ giờ. Điều gì hỏng và cách chỉ dời đồng hồ của một ứng dụng."
+    },
+    "ru": {
+      "slug": "change-system-date-testing",
+      "link_text": "Не меняйте часы",
+      "title": "Смена системной даты для тестов — что ломается в Windows",
+      "description": "Сдвиг часов Windows ради теста даты сдвигает всю машину: домен, сертификаты, синхронизацию. Что ломается и как сдвинуть часы только одного приложения."
+    },
+    "uk": {
+      "slug": "change-system-date-testing",
+      "link_text": "Не змінюйте годинник",
+      "title": "Зміна системної дати для тестів — що ламається у Windows",
+      "description": "Зсув годинника Windows заради тесту дати зсуває всю машину: домен, сертифікати, синхронізацію. Що ламається і як зсунути годинник лише одного застосунку."
+    },
+    "ja": {
+      "slug": "change-system-date-testing",
+      "link_text": "時計を変更しない",
+      "title": "システム日付を変えてテスト - Windows で壊れるもの",
+      "description": "テストのために Windows の時計を動かすとマシン全体が動きます。ドメイン、証明書、時刻同期など何が壊れるか、1 つのアプリだけ動かす方法。"
+    },
+    "ko": {
+      "slug": "change-system-date-testing",
+      "link_text": "시계를 바꾸지 마세요",
+      "title": "테스트용 시스템 날짜 변경 - Windows에서 망가지는 것",
+      "description": "날짜를 테스트하려고 Windows 시계를 옮기면 컴퓨터 전체가 옮겨집니다. 도메인, 인증서, 시간 동기화 등 무엇이 망가지는지와 앱 하나만 옮기는 방법."
+    },
+    "zh-hans": {
+      "slug": "change-system-date-testing",
+      "link_text": "别改系统时钟",
+      "title": "为测试改系统日期 - 在 Windows 上会坏什么",
+      "description": "为测试日期而调动 Windows 时钟，会让整台机器跟着动：域登录、证书、时间同步。会坏什么，以及如何只调动一个应用的时钟。"
+    },
+    "zh-hant": {
+      "slug": "change-system-date-testing",
+      "link_text": "別改系統時鐘",
+      "title": "為測試改系統日期 - 在 Windows 上會壞什麼",
+      "description": "為測試日期而調動 Windows 時鐘，會讓整台電腦跟著動：網域登入、憑證、時間同步。會壞什麼，以及如何只調動一個應用程式的時鐘。"
+    },
+    "ar": {
+      "slug": "change-system-date-testing",
+      "link_text": "لا تغيّر الساعة",
+      "title": "تغيير تاريخ النظام للاختبار - ما الذي يتعطل في Windows",
+      "description": "إزاحة ساعة Windows لاختبار تاريخ تزيح الجهاز كله: النطاق والشهادات ومزامنة الوقت. ما الذي يتعطل، وكيف تزيح ساعة تطبيق واحد فقط."
+    },
+    "hi": {
+      "slug": "change-system-date-testing",
+      "link_text": "घड़ी न बदलें",
+      "title": "परीक्षण के लिए सिस्टम की तारीख़ बदलना - Windows में क्या टूटता है",
+      "description": "तारीख़ परखने के लिए Windows की घड़ी खिसकाने से पूरी मशीन खिसक जाती है: डोमेन, सर्टिफ़िकेट, समय सिंक। क्या टूटता है, और सिर्फ़ एक ऐप की घड़ी कैसे खिसकाएँ।"
+    },
+    "th": {
+      "slug": "change-system-date-testing",
+      "link_text": "อย่าเปลี่ยนนาฬิกา",
+      "title": "เปลี่ยนวันที่ของระบบเพื่อทดสอบ - อะไรจะพังบน Windows",
+      "description": "การเลื่อนนาฬิกา Windows เพื่อทดสอบวันที่ทำให้ทั้งเครื่องเลื่อนตาม: โดเมน ใบรับรอง การซิงก์เวลา อะไรจะพัง และวิธีเลื่อนนาฬิกาเฉพาะแอปเดียว"
+    }
+  }
+}

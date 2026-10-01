@@ -1,0 +1,142 @@
+<!-- तारीख़ कैलकुलेटर, हिन्दी। संरचना, क्लास और टोकन en.html जैसे ही हैं। -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>आपको कौन-सी तारीख़ परखनी चाहिए?</h1>
+    <p class="sub">
+      तारीख़ के परीक्षण का आधा हिस्सा घड़ी को आगे बढ़ाना है। बाकी आधा यह जानना कि उसे कहाँ तक ले जाना है। कोई ऑनलाइन कैलकुलेटर बता देगा कि आज से नब्बे दिन बाद कौन-सा दिन है। वह यह नहीं बताएगा कि वह जवाब बैंक की छुट्टी है, या तिमाही का आख़िरी दिन।
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock का कैलकुलेटर। बाईं ओर खोजने योग्य परिदृश्यों की सूची उनके स्पष्टीकरणों के साथ है, बीच में तारीख़ बनाने वाला हिस्सा है, और दाईं ओर नतीजे का कॉलम हर फ़ॉर्मैट को सूचीबद्ध करता है, हर एक के आगे कॉपी बटन है और उनके नीचे Use this date है। बिल्डर के नीचे, चिपकाई गई 04/08/2008 अस्पष्ट बताई गई है और अमेरिकी तथा पोलिश दोनों पठन दिखाए गए हैं।">
+      <figcaption>बिल्डर के नीचे उलटी दिशा है: <code>04/08/2008</code> चिपकाया गया, और एक का अंदाज़ा लगाने की जगह दोनों पठन दिखाए गए।</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>कार्यदिवस, असली छुट्टियों के साथ</h2>
+    <div class="prose">
+      <p>
+        “दस कार्यदिवस बाद” कोई अंकगणित नहीं है - यह इस पर निर्भर करता है कि आप किस देश के कैलेंडर में गिन रहे हैं। वही शुरुआती तारीख़, वही दस दिन, दो अलग जवाब:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        एक दिन का फ़र्क, और अगर आप बीच की तारीख़ के बारे में पूछें तो कैलकुलेटर बता देगा कि क्यों:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        संयुक्त राज्य अमेरिका और पोलैंड संदर्भ कैलेंडर के रूप में साथ आते हैं, और इन्हें इसलिए चुना गया कि दोनों मिलकर हर तरह के नियम को आज़माते हैं: निश्चित तारीख़ें, महीने का n-वाँ सप्ताह-दिवस, ईस्टर से निकाली गई तारीख़ें, और वह अमेरिकी नियम जिसमें शनिवार पर पड़ने वाली छुट्टी पिछले शुक्रवार को मानी जाती है। किसी देश को जोड़ना एक डेटा फ़ाइल है, कोड में बदलाव नहीं।
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>हर फ़ॉर्मैट एक साथ</h2>
+    <div class="prose">
+      <p>
+        परीक्षणाधीन ऐप्लिकेशन को तारीख़ उसी रूप में चाहिए जिसकी वह अपेक्षा करता है। आपसे बदलवाने की जगह कैलकुलेटर सब छाप देता है - और जो किसी मानक में नहीं बैठता उसके लिए अपना मास्क भी।
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        वह एपॉक मान संयोग नहीं है - <code>2147483647</code> ठीक वह सबसे बड़ी संख्या है जो हस्ताक्षरित 32-बिट पूर्णांक में समाती है, और इसी वजह से यह तारीख़ मायने रखती है।
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>तारीख़ को उलटा पढ़ना</h2>
+    <div class="prose">
+      <p>
+        उलटी दिशा भी उतनी ही उपयोगी है: किसी लॉग से तारीख़ चिपकाएँ और जानें कि वह क्या है। जब फ़ॉर्मैट अस्पष्ट हो - और <code>04/08</code> आधी दुनिया में अस्पष्ट है - तो <strong>अंदाज़ा लगाने की जगह दोनों पठन दिखाए जाते हैं</strong>, क्योंकि मूल बग रिपोर्ट अंदाज़े से ही आई थी।
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        चार महीने का अंतर, और अलग सप्ताह-दिवस पर। ISO तारीख़ अस्पष्ट नहीं होती और उसी रूप में पढ़ी जाती है, और जो तारीख़ है ही नहीं उसे अंदाज़े से पढ़ने की जगह अस्वीकार कर दिया जाता है।
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>स्टेप से बना, वाक्य से नहीं</h2>
+    <div class="prose">
+      <p>
+        एक क्षण एक शुरुआती बिंदु और कुछ स्टेप है, और हर स्टेप के बाद बीच का नतीजा दिखता है, इसलिए कोई चौंकाने वाला जवाब देने वाला व्यंजक आपको दिखा देता है कि वह कहाँ मुड़ा। स्टेप पाँच तरह के हैं: किसी इकाई से शिफ़्ट, दिन का समय तय करना, अवधि की सीमा पर छलाँग, निकटतम कार्यदिवस पर जाना, और दूसरे टाइम ज़ोन में फिर से व्यक्त करना।
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># साल पलटने से पहले का आख़िरी सेकंड</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># नब्बे कार्यदिवस आगे, अमेरिकी बैंकिंग कैलेंडर में</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># उम्र जाँचने के लिए, अठारह साल और एक दिन पीछे</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        कोई भी निकाली गई तारीख़ सीधे बदलाव वाले सत्र में जाती है, और <code>--json</code> वही नतीजा मशीनी रूप में देता है।
+        <a href="/hi/date-test-scenarios/">परखने लायक तारीख़ें &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>आज़माएँ</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/hi/download/">Windows के लिए डाउनलोड करें</a>
+      <a class="btn btn-ghost" href="/hi/date-test-scenarios/">परिदृश्य देखें</a>
+      <a class="btn btn-ghost" href="/hi/cli-reference/">कैलकुलेटर का हर फ़्लैग</a>
+    </div>
+  </section>
+
+</div>

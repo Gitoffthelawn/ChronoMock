@@ -1,0 +1,26 @@
+{
+  "//": "ข้อความภาษาไทยของเว็บไซต์ - คีย์ตรงกับ en.json ทุกตัว (ถ้าขาดคีย์ใดคีย์หนึ่ง การบิลด์จะล้มเหลว)",
+
+  "html_lang": "th",
+  "dir": "ltr",
+  "og_locale": "th_TH",
+
+  "social_image_alt": "Chrono Mock - รันแอป Windows ที่วันและเวลาใดก็ได้ โดยไม่ต้องเปลี่ยนนาฬิกาของระบบ",
+
+  "skip_to_content": "ข้ามไปยังเนื้อหา",
+  "nav_label": "เมนูหลัก",
+
+  "language_name": "ไทย",
+  "language_title": "หน้านี้ในภาษาไทย",
+  "language_menu_label": "ภาษา",
+
+  "footer_nav_label": "แผนผังเว็บไซต์",
+  "footer_group_start": "เริ่มต้นที่นี่",
+  "footer_group_tools": "ทางเลือกอื่นและรันไทม์",
+  "footer_group_features": "ทำอะไรได้บ้าง",
+
+  "footer_summary": "Chrono Mock - GPL-3.0 ไม่ต้องมีบัญชี ไม่มีเทเลเมทรี และไม่เชื่อมต่ออินเทอร์เน็ตเลย",
+  "footer_source": "ซอร์สโค้ดบน GitHub",
+  "footer_releases": "รุ่นที่เผยแพร่",
+  "footer_license": "สัญญาอนุญาต"
+}

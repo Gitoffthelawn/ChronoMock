@@ -18,6 +18,126 @@
       "link_text": "Dokumentacja CLI",
       "title": "Dokumentacja CLI Chrono Mock - flagi i kody wyjścia",
       "description": "Pełna dokumentacja chrono run i chrono calc: wszystkie flagi wiersza poleceń, obie tabele kodów wyjścia i jak czytać raport sesji."
+    },
+    "de": {
+      "slug": "cli-referenz",
+      "link_text": "CLI-Referenz",
+      "title": "Chrono Mock CLI-Referenz - alle Optionen und Exit-Codes",
+      "description": "Vollständige Referenz zu chrono run und chrono calc: jede Kommandozeilenoption, beide Exit-Code-Tabellen und wie man den Sitzungsbericht liest."
+    },
+    "fr": {
+      "slug": "reference-cli",
+      "link_text": "Référence CLI",
+      "title": "Référence CLI de Chrono Mock - toutes les options et codes de sortie",
+      "description": "Référence complète de chrono run et chrono calc : chaque option de la ligne de commande, les deux tableaux de codes de sortie, et comment lire le rapport de session."
+    },
+    "es": {
+      "slug": "referencia-cli",
+      "link_text": "Referencia CLI",
+      "title": "Referencia CLI de Chrono Mock - todas las opciones y códigos de salida",
+      "description": "Referencia completa de chrono run y chrono calc: cada opción de la línea de comandos, las dos tablas de códigos de salida y cómo leer el informe de sesión."
+    },
+    "pt-br": {
+      "slug": "referencia-cli",
+      "link_text": "Referência da CLI",
+      "title": "Referência da CLI do Chrono Mock - todas as opções e códigos de saída",
+      "description": "Referência completa de chrono run e chrono calc: cada opção da linha de comando, as duas tabelas de códigos de saída e como ler o relatório de sessão."
+    },
+    "it": {
+      "slug": "riferimento-cli",
+      "link_text": "Riferimento CLI",
+      "title": "Riferimento CLI di Chrono Mock - ogni opzione e codice di uscita",
+      "description": "Riferimento completo di chrono run e chrono calc: ogni opzione da riga di comando, le due tabelle dei codici di uscita e come leggere il report di sessione."
+    },
+    "nl": {
+      "slug": "cli-referentie",
+      "link_text": "CLI-referentie",
+      "title": "Chrono Mock CLI-referentie - elke optie en afsluitcode",
+      "description": "Volledige referentie voor chrono run en chrono calc: elke opdrachtregeloptie, beide tabellen met afsluitcodes en hoe je het sessierapport leest."
+    },
+    "ro": {
+      "slug": "referinta-cli",
+      "link_text": "Referința CLI",
+      "title": "Referința CLI Chrono Mock - fiecare opțiune și cod de ieșire",
+      "description": "Referința completă pentru chrono run și chrono calc: fiecare opțiune de linie de comandă, ambele tabele de coduri de ieșire și cum se citește raportul sesiunii."
+    },
+    "cs": {
+      "slug": "reference-cli",
+      "link_text": "Reference CLI",
+      "title": "Reference CLI Chrono Mock - každý přepínač a návratový kód",
+      "description": "Úplná reference pro chrono run a chrono calc: každý přepínač příkazového řádku, obě tabulky návratových kódů a jak číst zprávu o sezení."
+    },
+    "tr": {
+      "slug": "cli-basvuru",
+      "link_text": "CLI başvurusu",
+      "title": "Chrono Mock CLI başvurusu - her seçenek ve çıkış kodu",
+      "description": "chrono run ve chrono calc için tam başvuru: her komut satırı seçeneği, her iki çıkış kodu tablosu ve oturum raporunun nasıl okunacağı."
+    },
+    "id": {
+      "slug": "referensi-cli",
+      "link_text": "Referensi CLI",
+      "title": "Referensi CLI Chrono Mock - setiap opsi dan kode keluar",
+      "description": "Referensi lengkap chrono run dan chrono calc: setiap opsi baris perintah, kedua tabel kode keluar, dan cara membaca laporan sesi."
+    },
+    "vi": {
+      "slug": "tham-chieu-cli",
+      "link_text": "Tham chiếu CLI",
+      "title": "Tham chiếu CLI Chrono Mock - mọi tùy chọn và mã thoát",
+      "description": "Tham chiếu đầy đủ cho chrono run và chrono calc: mọi tùy chọn dòng lệnh, cả hai bảng mã thoát và cách đọc báo cáo phiên."
+    },
+    "ru": {
+      "slug": "cli-reference",
+      "link_text": "Справочник CLI",
+      "title": "Справочник CLI Chrono Mock — все флаги и коды завершения",
+      "description": "Полный справочник по chrono run и chrono calc: каждый флаг командной строки, обе таблицы кодов завершения и как читать отчёт сессии."
+    },
+    "uk": {
+      "slug": "cli-reference",
+      "link_text": "Довідник CLI",
+      "title": "Довідник CLI Chrono Mock — усі прапорці й коди завершення",
+      "description": "Повний довідник із chrono run і chrono calc: кожен прапорець командного рядка, обидві таблиці кодів завершення й те, як читати звіт сесії."
+    },
+    "ja": {
+      "slug": "cli-reference",
+      "link_text": "CLI リファレンス",
+      "title": "Chrono Mock CLI リファレンス - 全オプションと終了コード",
+      "description": "chrono run と chrono calc の完全なリファレンス。すべてのコマンドラインフラグ、2 つの終了コード表、セッションレポートの読み方を網羅しています。"
+    },
+    "ko": {
+      "slug": "cli-reference",
+      "link_text": "CLI 레퍼런스",
+      "title": "Chrono Mock CLI 레퍼런스 - 모든 옵션과 종료 코드",
+      "description": "chrono run과 chrono calc의 전체 레퍼런스. 모든 명령줄 플래그, 두 가지 종료 코드 표, 세션 보고서를 읽는 방법을 담았습니다."
+    },
+    "zh-hans": {
+      "slug": "cli-reference",
+      "link_text": "CLI 参考",
+      "title": "Chrono Mock 命令行参考 - 全部参数与退出码",
+      "description": "chrono run 与 chrono calc 的完整参考：每一个命令行参数、两张退出码表，以及如何阅读会话报告。"
+    },
+    "zh-hant": {
+      "slug": "cli-reference",
+      "link_text": "CLI 參考",
+      "title": "Chrono Mock 命令列參考 - 全部參數與結束代碼",
+      "description": "chrono run 與 chrono calc 的完整參考：每一個命令列參數、兩張結束代碼表，以及如何閱讀工作階段報告。"
+    },
+    "ar": {
+      "slug": "cli-reference",
+      "link_text": "مرجع CLI",
+      "title": "مرجع سطر أوامر Chrono Mock - كل الخيارات ورموز الخروج",
+      "description": "المرجع الكامل لـ chrono run وchrono calc: كل خيار في سطر الأوامر، وجدولا رموز الخروج، وكيفية قراءة تقرير الجلسة."
+    },
+    "hi": {
+      "slug": "cli-reference",
+      "link_text": "CLI संदर्भ",
+      "title": "Chrono Mock कमांड-लाइन संदर्भ - हर फ़्लैग और एग्ज़िट कोड",
+      "description": "chrono run और chrono calc का पूरा संदर्भ: कमांड लाइन का हर फ़्लैग, दोनों एग्ज़िट कोड तालिकाएँ, और सत्र की रिपोर्ट पढ़ने का तरीका।"
+    },
+    "th": {
+      "slug": "cli-reference",
+      "link_text": "เอกสารอ้างอิง CLI",
+      "title": "เอกสารอ้างอิงบรรทัดคำสั่ง Chrono Mock - ทุกตัวเลือกและรหัสออก",
+      "description": "เอกสารอ้างอิงฉบับเต็มของ chrono run และ chrono calc: ทุกตัวเลือกบรรทัดคำสั่ง ตารางรหัสออกสองตาราง และวิธีอ่านรายงานเซสชัน"
     }
   }
 }

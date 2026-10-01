@@ -1,0 +1,149 @@
+<!-- Tanggal yang layak diuji, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Tanggal yang layak diuji</h1>
+    <p class="sub">
+      Perangkat lunak tidak rusak pada hari Selasa biasa. Ia rusak pada hari terakhir kuartal, pada
+      29 Februari, tepat saat tahun berganti, dan satu detik setelah lisensi kedaluwarsa. Inilah
+      tanggal-tanggal yang menemukan bug semacam itu - <strong>{{preset_count}}</strong> di antaranya
+      disertakan sebagai skenario bernama.
+    </p>
+  </section>
+
+  <section>
+    <h2>Batas periode</h2>
+    <div class="prose">
+      <p>
+        Apa pun yang menutup periode, menomori dokumen berdasarkan tahun, atau mengakumulasi sampai batas
+        waktu tertentu akan salah di sini lebih dulu.
+      </p>
+      <ul>
+        <li><strong>Hari terakhir bulan</strong> - apakah penutupan akhir bulan dan akrual periode
+          berperilaku benar pada hari terakhir bulan?</li>
+        <li><strong>Hari terakhir kuartal</strong> - apakah penutupan akhir kuartal dan pelaporannya
+          berperilaku benar pada hari terakhir kuartal?</li>
+        <li><strong>Hari terakhir tahun fiskal</strong> - apakah aplikasi menutup tahun fiskal pada hari
+          yang tepat, sehari sebelum tahun fiskal dimulai?</li>
+        <li><strong>Pergantian tahun, langsung</strong> - apakah penomoran dokumen, tahun dalam nama, dan
+          pelaporan tahunan menangani pergantian <em>saat itu terjadi</em>, bukan baru dimulai ulang
+          sesudahnya?</li>
+      </ul>
+      <p>
+        Yang terakhir biasanya tidak dapat diuji sama sekali, karena membutuhkan jam melintasi tengah malam
+        31 Desember sementara aplikasi berjalan. Dengan jam yang dipercepat, itu pekerjaan sepuluh detik.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tepi kalender dan representasi</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29 Februari</strong> - hari kabisat yang hanya ada setiap empat tahun, dan yang
+          ditolak mentah-mentah oleh sejumlah mengejutkan kode validasi.</li>
+        <li><strong>Epoch Unix nol</strong> - apakah aplikasi memperlakukan 1 Januari 1970 sebagai tanggal
+          nyata, atau sebagai nilai kosong yang seharusnya ia tolak untuk disimpan?</li>
+        <li><strong>Batas 2038</strong> - saat <code>time_t</code> 32-bit bertanda habis, pada
+          <code>2038-01-19T03:14:07Z</code>. Satu detik kemudian penghitung meluap ke tahun 1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lisensi, masa percobaan, dan instalasi</h2>
+    <div class="prose">
+      <p>
+        Ini untuk menguji pelisensian <em>Anda sendiri</em>, kasus yang menjadi alasan penulisannya.
+      </p>
+      <ul>
+        <li><strong>Hari terakhir masa percobaan</strong> - apakah aplikasi masih berfungsi pada saat
+          paling akhir masa percobaan?</li>
+        <li><strong>Hari pertama setelah masa percobaan berakhir</strong> - apakah akses ditolak tepat saat
+          masa percobaan berakhir, dan bagaimana? Pesan yang masuk akal, atau stack trace?</li>
+        <li><strong>Lisensi kedaluwarsa setahun lalu</strong> - apakah aplikasi menangani lisensi yang
+          kedaluwarsa sejak lama, bukan hanya kemarin?</li>
+        <li><strong>Tanggal sebelum instalasi</strong> - apakah aplikasi berperilaku benar ketika jam
+          disetel sebelum tanggal instalasinya sendiri? Ini membaca tanggal file target itu sendiri,
+          sehingga tidak memerlukan parameter.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Aturan bisnis dan perilaku jam</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Pembayaran jatuh tempo, +N hari kerja</strong> - apakah pembayaran yang jatuh tempo N
+          hari kerja ke depan jatuh pada hari yang tepat, melewati akhir pekan dan hari libur negara yang
+          tepat? Satu-satunya skenario yang memerlukan kalender, dan jawabannya berbeda antarpasar.</li>
+        <li><strong>Batas usia dewasa</strong> - apakah aplikasi menerima seseorang tepat di batas, dan
+          menolak seseorang yang kurang satu hari?</li>
+        <li><strong>Selisih jam, +90 s</strong> - apakah aplikasi sanggup ketika jamnya berjalan sembilan
+          puluh detik lebih cepat dari waktu nyata? Inilah kasus yang merusak kata sandi sekali pakai
+          berbasis waktu dan validasi token.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cara memakainya</h2>
+    <div class="prose">
+      <p>
+        Skenario adalah ekspresi tanggal bernama. Kalkulator menghitung artinya, dan penggantian waktu
+        menjalankan aplikasi pada tanggal itu - nama yang sama di kedua tempat.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Tanggal berapa itu, dan apa yang diuji tanggal tersebut?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Jalankan aplikasi pada tanggal itu</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Skenario percobaan mengambil tanggal mulai dari tanggal file target itu sendiri</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        Di jendela, skenario berupa chip di atas kolom tanggal - satu klik mengisinya. Masing-masing
+        membawa kalimatnya sendiri yang menyatakan apa yang ditangkapnya, bagian yang tidak dapat
+        diberikan oleh kalkulator tanggal daring.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Layar pengaturan Chrono Mock dengan bagian Scenarios terbuka: kolom pencarian di atas daftar, lalu setiap tanggal siap pakai beserta pertanyaan yang dijawabnya - batas 2038, 29 Februari, jam yang berjalan sembilan puluh detik lebih cepat, hari terakhir bulan - dan di bawah daftar sebuah baris yang menyatakan tiga lagi memerlukan nilai yang Anda pilih. Bagian bawah membacakan kembali momen dalam bahasa biasa di atas tombol Start.">
+      <figcaption>Setiap skenario membawa pertanyaan yang dijawabnya, bukan sekadar tanggal. Tiga yang
+        memerlukan nilai pilihan Anda disebutkan di bawah daftar, bukan disembunyikan.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Yang tidak ada di sini</h2>
+    <div class="prose">
+      <p>
+        <strong>Transisi waktu musim panas.</strong> Memaksa aplikasi melewati batas maju atau mundur jam
+        adalah pengujian yang benar-benar berguna dan <em>sengaja tidak ada</em>, karena zona waktu sesi
+        adalah selisih tetap tanpa waktu musim panas - belum ada transisi yang dapat disimulasikan.
+        Menyertakan skenario yang diam-diam tidak melakukan apa pun akan lebih buruk daripada tidak
+        menyertakannya.
+      </p>
+      <p>
+        Ia akan kembali bersama model aturan zona waktu.
+        <a href="/id/pengujian-zona-waktu/">Apa yang dilakukan dan tidak dilakukan zona waktu &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/kalkulator-tanggal/">Kalkulatornya</a>
+    </div>
+  </section>
+
+</div>

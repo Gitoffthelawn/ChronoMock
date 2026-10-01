@@ -1,0 +1,161 @@
+<!-- Datumcalculator, Nederlands. Structuur, klassen en tokens zoals in en.html. Elk terminalblok is echte
+     uitvoer van het meegeleverde programma en blijft daarom Engels. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Welke datum moet je testen?</h1>
+    <p class="sub">
+      De helft van datumtesten is de klok verplaatsen. De andere helft is weten waarheen. Een online
+      calculator vertelt je welke dag het over negentig dagen is. Hij vertelt je niet dat die dag een
+      bankfeestdag is, of de laatste dag van het kwartaal.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="De calculator van Chrono Mock. Links loopt een doorzoekbare scenariolijst met uitleg, in het midden staat de datumbouwer, en de resultaatkolom rechts toont elk formaat met een kopieerknop erbij en Use this date eronder. Onder de bouwer wordt een geplakte 04/08/2008 als dubbelzinnig gemeld, met de Amerikaanse en de Poolse lezing.">
+      <figcaption>Onder de bouwer zit de omgekeerde richting: <code>04/08/2008</code> geplakt, en beide
+        lezingen getoond in plaats van er een te raden.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Werkdagen, met echte feestdagen</h2>
+    <div class="prose">
+      <p>
+        “Tien werkdagen verder” is geen rekenwerk - het hangt ervan af welke kalender van welk land je
+        telt. Dezelfde startdatum, dezelfde tien dagen, twee verschillende antwoorden:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        Een dag verschil, en de calculator vertelt je waarom als je hem naar de datum ertussen vraagt:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        De Verenigde Staten en Polen worden meegeleverd als referentiekalenders, gekozen omdat ze samen elk
+        bestaand regeltype oefenen: vaste datums, de n-de weekdag van een maand, datums berekend vanaf
+        Pasen, en de Amerikaanse regel waarbij een feestdag die op zaterdag valt op de voorgaande vrijdag
+        wordt geviereerd. Een land toevoegen is een gegevensbestand, geen codewijziging.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Alle formaten tegelijk</h2>
+    <div class="prose">
+      <p>
+        De geteste applicatie wil de datum in de vorm die ze verwacht. In plaats van jou te laten
+        omrekenen, drukt de calculator ze allemaal af - en een eigen masker voor die welke in geen enkele
+        standaard passen.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        Die epochwaarde is geen toeval - <code>2147483647</code> is precies het grootste getal dat een
+        32-bits geheel getal met teken kan bevatten, en dat is de hele reden waarom de datum ertoe doet.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Een datum achterstevoren lezen</h2>
+    <div class="prose">
+      <p>
+        De andere richting is even nuttig: plak een datum uit een logboek en ontdek wat het is. Als het
+        formaat dubbelzinnig is - en <code>04/08</code> is dat in de halve wereld - worden
+        <strong>beide lezingen getoond in plaats van er een te raden</strong>, want uit raden kwam het
+        oorspronkelijke bugrapport.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        Vier maanden uit elkaar, op verschillende weekdagen. Een ISO-datum is ondubbelzinnig en wordt als
+        zodanig gelezen, en iets wat helemaal geen datum is, wordt geweigerd in plaats van geraden.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Opgebouwd uit stappen, niet uit een zin</h2>
+    <div class="prose">
+      <p>
+        Een moment is een beginpunt plus stappen, en het tussenresultaat wordt na elke stap getoond, zodat
+        een expressie die een verrassend antwoord geeft laat zien waar ze afsloeg. Vijf soorten stappen:
+        verschuiven met een eenheid, het tijdstip van de dag instellen, aansluiten op een periodegrens,
+        naar de dichtstbijzijnde werkdag gaan en opnieuw uitdrukken in een andere tijdzone.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># De laatste seconde voordat een jaar omslaat</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Negentig werkdagen verder, in de Amerikaanse bankkalender</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># Achttien jaar en een dag terug, voor een leeftijdscontrole</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Elke berekende datum gaat rechtstreeks in een vervangingssessie, en <code>--json</code> geeft
+        hetzelfde resultaat in machinevorm.
+        <a href="/nl/datum-testscenarios/">De datums die het testen waard zijn &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/datum-testscenarios/">Bekijk de scenario's</a>
+      <a class="btn btn-ghost" href="/nl/cli-referentie/">Elke calculatoroptie</a>
+    </div>
+  </section>
+
+</div>

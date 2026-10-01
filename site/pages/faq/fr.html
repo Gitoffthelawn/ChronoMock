@@ -1,0 +1,208 @@
+<!-- FAQ, français. Structure, classes et jetons comme dans en.html. Les affirmations doivent correspondre
+     à la matrice de prise en charge du README.md - en cas de désaccord, c'est le README qui fait foi. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Questions et réponses</h1>
+    <p class="sub">
+      Des réponses courtes, y compris sur ce que cet outil ne fera pas.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Est-ce que cela modifie l'horloge de mon ordinateur&nbsp;?</h3>
+      <p>
+        Non, et cela n'arrivera jamais - c'est tout l'intérêt de l'outil. L'heure décalée n'est visible que
+        par <strong>un seul processus et les enfants qu'il lance</strong>. Votre connexion au domaine, vos
+        certificats, Windows Update et toutes les autres applications voient la vraie date en permanence.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Ai-je besoin des droits d'administrateur&nbsp;?</h3>
+      <p>
+        Non. Il n'y a pas d'installateur, rien n'est écrit dans le registre, et il fonctionne depuis un
+        dossier que vous pouvez emporter sur une clé USB.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Est-ce que cela fonctionnera avec mon application&nbsp;?</h3>
+      <p>
+        La réponse honnête est qu'aucun outil de ce genre ne peut le promettre d'avance - alors celui-ci
+        le mesure. Chaque session se termine par un verdict
+        (<strong>fonctionne, fonctionne partiellement, ne fonctionne pas</strong>), la liste des canaux de
+        temps que l'application a réellement lus avec le nombre d'appels pour chacun, et la liste des
+        canaux qui n'ont pas été couverts.
+      </p>
+      <p>
+        Une application peut lire l'horloge par une voie que rien n'a interceptée - depuis un serveur,
+        une base de données, une couche d'exécution. Quand cela arrive, vous en êtes informé, au lieu de
+        supposer que le test est passé.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Cela fonctionne-t-il avec les applications .NET, Java et Python&nbsp;?</h3>
+      <p>
+        En partie, et les différences comptent. Les trois sont marquées <strong>expérimentales</strong> :
+        elles fonctionnent sur les cibles de test, n'ont pas été testées largement, et l'audit intégré est
+        votre source de vérité, pas ce paragraphe.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - l'horloge murale et le fuseau horaire de la session sont couverts.
+          <code>Stopwatch</code> reste sur le vrai compteur haute résolution, sauf si vous activez sa mise
+          à l'échelle.</li>
+        <li><strong>Java</strong> - l'horloge murale, le temps écoulé et le fuseau horaire de la session
+          sont couverts. Le fuseau arrive sous forme de décalage fixe, nommé par exemple
+          <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> et <code>datetime</code> sont couverts.
+          <code>perf_counter</code>, et <code>monotonic</code> à partir de Python 3.13, reposent sur le
+          compteur haute résolution, sauf si vous activez la mise à l'échelle.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Cela fonctionne-t-il avec les applications Electron et Chromium&nbsp;?</h3>
+      <p>
+        Oui, par un autre mécanisme. Leur horloge vit dans un moteur de rendu isolé que l'injection
+        n'atteint pas : l'application est donc lancée avec un port de débogage et un profil propre et
+        jetable, et ses propres API de temps JavaScript sont placées sur l'horloge de la session - y
+        compris dans les Web Workers, où le minuteur se trouve souvent en réalité.
+      </p>
+      <p>
+        Une limite à connaître : dans ce mode, la session suit le fuseau horaire de l'hôte. L'instant est
+        falsifié, pas les accesseurs d'heure locale.
+      </p>
+      <p>
+        <a href="/fr/electron-chromium/">Comment fonctionne le mode Chromium et Electron</a> - ce qu'il
+        atteint, ce qu'il n'atteint pas, et pourquoi le port de débogage est le point auquel il faut
+        faire attention.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Puis-je faire s'écouler le temps plus vite que le temps réel&nbsp;?</h3>
+      <p>
+        Oui. Choisissez un multiplicateur entier et l'horloge de l'application avance à cette vitesse -
+        <code>x1440</code> fait d'un jour une minute, si bien qu'un essai de 30 jours expire en une demi-heure
+        environ. Vous pouvez aussi figer l'horloge, ou sauter en avant et en arrière en pleine session.
+      </p>
+      <p>
+        Les comptes à rebours et les minuteurs sont sur un axe distinct, et les accélérer est un
+        interrupteur distinct, parce que leur mise à l'échelle change un comportement dont beaucoup
+        d'applications dépendent.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Puis-je ne changer que le fuseau horaire, sans changer la date&nbsp;?</h3>
+      <p>
+        Oui. La session porte son propre décalage fixe, visible de ce processus pendant que le fuseau du
+        système reste exactement où il était. C'est ce que la plupart des outils omettent, et c'est ainsi
+        que l'on reproduit le bug qui n'apparaît que chez le client situé à cinq fuseaux horaires de là.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Et l'heure d'été&nbsp;?</h3>
+      <p>
+        Le fuseau de la session est un <strong>décalage fixe sans heure d'été</strong>. Une session réglée
+        sur la Pologne reste au décalage choisi, que son horloge indique mars ou juillet : une exécution
+        qui franchit un vrai changement d'heure dérive donc d'une heure par rapport à ce que ce fuseau
+        afficherait réellement.
+      </p>
+      <p>
+        Faire traverser un changement d'heure d'été à une application n'est donc pas encore possible avec
+        cet outil, et le calculateur de dates le dit au lieu de deviner.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Pourquoi mon antivirus le signale-t-il&nbsp;?</h3>
+      <p>
+        Parce qu'injecter une bibliothèque dans un autre processus est une technique Windows légitime et
+        documentée que les logiciels malveillants utilisent aussi. C'est un faux positif déclenché par la
+        technique, pas par quoi que ce soit que l'outil fait à votre machine. La bibliothèque injectée est
+        <code>chrono_hook.dll</code>, construite à partir du code source public sous GPL-3.0, et vous
+        pouvez la reconstruire vous-même. Le mode Chromium et Electron n'injecte rien du tout.
+      </p>
+      <p>
+        <a href="/fr/telecharger/">La page de téléchargement</a> dit quoi faire.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Est-ce un moyen de prolonger un essai ou de contourner une licence&nbsp;?</h3>
+      <p>
+        Non, et il n'est pas conçu pour cela. Chrono Mock sert à tester des logiciels dont vous êtes
+        responsable - votre propre expiration de licence, votre propre logique de renouvellement, votre
+        propre rapport de fin de mois. Aucun exemple, aucun scénario et aucune page ici ne montrera jamais
+        comment prolonger la période d'essai d'un logiciel qui n'est pas le vôtre.
+      </p>
+      <p>
+        Les logiciels protégés par licence sont en fait le cas le plus susceptible de mettre cet outil en
+        échec : le code antifalsification lit souvent l'heure par des voies choisies exprès pour être
+        difficiles à intercepter, et un retour en arrière de l'horloge est une condition que ces logiciels
+        sont écrits pour détecter. Une fonctionnalité allant dans l'autre sens est prévue - un mode qui
+        exécute une série de manipulations du temps contre <em>votre propre</em> application et indique
+        lesquelles votre protection a détectées.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Puis-je l'utiliser en intégration continue&nbsp;?</h3>
+      <p>
+        Oui. La version en ligne de commande est un téléchargement séparé d'environ 1,6 Mo, sans
+        environnement d'exécution à installer. Chaque commande comprend <code>--json</code> et se termine
+        par un code sur lequel un pipeline peut bifurquer, et une session peut écrire sa preuve dans un
+        fichier.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>En quoi est-ce différent de RunAsDate&nbsp;?</h3>
+      <p>
+        RunAsDate intercepte cinq fonctions d'horloge murale et le fait bien. Cet outil couvre
+        {{channel_count}} canaux de temps, peut accélérer l'horloge, donne au processus son propre fuseau
+        horaire, suit les processus enfants et vous dit ensuite quels canaux ont réellement été couverts.
+        Il est aussi open source, alors que RunAsDate est un freeware fermé.
+      </p>
+      <p>
+        <a href="/fr/alternative-a-runasdate/">La comparaison complète</a> dit aussi dans quels cas
+        RunAsDate est le meilleur choix.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Est-ce libfaketime pour Windows&nbsp;?</h3>
+      <p>
+        Dans l'esprit, oui - la même idée de déplacer le temps pour un programme plutôt que pour la
+        machine. En pratique, c'est une implémentation différente, car
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> dépend de
+        <code>LD_PRELOAD</code>, qui n'existe pas sous Windows. Il y a
+        <a href="/fr/libfaketime-windows/">une page consacrée à ce sujet</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Est-il gratuit, et envoie-t-il quelque chose quelque part&nbsp;?</h3>
+      <p>
+        Gratuit et open source sous GPL-3.0. Sans compte, sans télémétrie, et il ne se connecte jamais à
+        Internet - l'outil entier fonctionne câble réseau débranché.
+      </p>
+      <p>
+        La fenêtre comporte un seul contrôle qui mène vers l'extérieur, autant le nommer plutôt que vous
+        laisser le découvrir : un bouton <strong>Donate</strong> dans la barre de titre. Un clic transmet
+        une adresse à votre navigateur, et c'est votre navigateur qui se connecte. Chrono Mock n'ouvre
+        aucune connexion dans les deux cas, et rien de ce qu'il a mesuré à propos de votre application ne
+        part nulle part.
+      </p>
+    </div>
+
+  </section>
+
+</div>

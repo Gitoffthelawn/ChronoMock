@@ -1,0 +1,115 @@
+<!-- Schimbarea datei sistemului pentru teste, română. Structura, clasele și tokenii ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Schimbarea datei sistemului pentru a testa o aplicație</h1>
+    <p class="sub">
+      Este cel mai vechi truc care există: pui ceasul Windows pe data pe care vrei s-o testezi, rulezi
+      programul, apoi îl pui la loc. Merge - iar cât timp ceasul e mutat, mută și tot restul mașinii.
+    </p>
+  </section>
+
+  <section>
+    <h2>Ce se mută de fapt odată cu ceasul</h2>
+    <div class="prose">
+      <p>
+        Ceasul sistemului nu aparține doar programului pe care îl testezi. Fiecare proces, serviciu și
+        conversație de rețea de pe mașină îl citește pe același, așa că o schimbare făcută pentru un test
+        este o schimbare făcută pentru toate.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Ce citește ceasul</th><th>Ce se întâmplă când îl muți</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Autentificarea în domeniu și folderele partajate</td><td>Kerberos tolerează implicit o diferență de ceas de cinci minute. Peste aceasta, tichetele sale sunt respinse, iar autentificarea sau accesul la o partajare eșuează.</td></tr>
+          <tr><td>Certificatele și HTTPS</td><td>Dacă un certificat este valid se decide după ceas. Pune-l după data de sfârșit a unui certificat și orice conexiune care se bazează pe el este respinsă ca expirată; dă-l destul de mult înapoi și certificatul nu este încă valid.</td></tr>
+          <tr><td>Serviciul Windows Time</td><td>O mașină din domeniu preia ora de la un controler de domeniu, iar implicit serviciul corectează ceasul oricât de mare ar fi diferența. Data pe care ai setat-o poate fi anulată cât timp încă testezi.</td></tr>
+          <tr><td>Tot ce înregistrează o oră</td><td>Fișierele, jurnalele, rândurile din baze de date și e-mailurile trimise cât timp ceasul este mutat poartă data testului și o păstrează după ce ai pus ceasul la loc.</td></tr>
+          <tr><td>Software care ține minte ultima dată văzută</td><td>Unele programe citesc un ceas care merge înapoi drept manipulare - și exact asta se întâmplă când restabilești data reală.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Cu cât data e mai îndepărtată, cu atât întâlnești mai multe dintre acestea. O mașină setată pe
+        2038 vede ca expirat orice certificat emis astăzi.
+        <a href="/ro/testarea-problemei-anului-2038/">Testarea anului 2038 fără asta &rarr;</a>
+      </p>
+      <p>
+        Mai este nevoie și de un drept pe care majoritatea conturilor nu îl au: schimbarea orei sistemului
+        este un privilegiu de administrator, iar pe o mașină administrată adesea nu este al tău.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Când schimbarea ceasului este răspunsul potrivit</h2>
+    <div class="prose">
+      <p>
+        O mașină virtuală pe care n-o mai folosește nimeni altcineva, cu propria sincronizare a ceasului
+        oprită, este un banc de test cât se poate de bun. O arunci după aceea, așa că nimic din ce a
+        înregistrat nu contează. Dacă ai una și testul privește o singură dată, este cel mai simplu lucru
+        care funcționează.
+      </p>
+      <p>
+        Necazurile încep când este mașina pe care lucrezi, cea din domeniu sau una pe care rulează în
+        același timp ceva ce nu are voie să observe nimic.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mută în schimb ceasul unui singur program</h2>
+    <div class="prose">
+      <p>
+        Ora mutată este vizibilă pentru <strong>un proces și copiii pe care îi pornește</strong>.
+        Autentificarea ta în domeniu, certificatele tale și Windows Update n-o văd niciodată, așa că nimic
+        din tabelul de mai sus nu se mută - și nu e nimic de pus la loc după aceea.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aplicația vede 31 decembrie 2027, 23:59:50. Restul păstrează data reală.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Pornește cu zece minute înainte de miezul nopții și rulează la viteza x60 - anul se schimbă în zece secunde</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Dacă o dată mutată pentru un program a ajuns cu adevărat la el nu e ceva de presupus. Fiecare
+        sesiune se termină cu un verdict și cu lista canalelor de timp pe care programul le-a citit de
+        fapt.
+        <a href="/ro/auditul-surselor-de-timp/">De unde știi că a funcționat &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce nu înlocuiește asta</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Un program care cere ora de la un server</strong> este în afara razei unei substituiri
+          locale. Sesiunea spune asta când vede programul deschizând o conexiune de rețea, în loc să te
+          lase să presupui că testul a trecut.</li>
+        <li><strong>Testarea sistemului însuși</strong> - un serviciu care reacționează la schimbarea
+          ceasului real, o sarcină programată, comportamentul Windows în jurul unei schimbări de ceas - nu
+          are înlocuitor pentru schimbarea ceasului, pe o mașină pe care ți-o poți permite.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/scenarii-de-testare-a-datelor/">Date de testat</a>
+    </div>
+  </section>
+
+</div>

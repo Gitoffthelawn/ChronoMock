@@ -1,0 +1,140 @@
+<!-- Comparația cu RunAsDate, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>O alternativă la RunAsDate, cu părțile care lipseau</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> este de ani de zile răspunsul
+      la <em>„rulează acest program la o altă dată pe Windows”</em> și este unul bun. Această pagină
+      vorbește despre unde diferă cele două și despre unde RunAsDate rămâne alegerea mai bună.
+    </p>
+  </section>
+
+  <section>
+    <h2>Față în față</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Rulează o aplicație la o dată falsă</td><td class="y">da</td><td class="y">da</td></tr>
+          <tr><td>Lasă ceasul sistemului în pace</td><td class="y">da</td><td class="y">da</td></tr>
+          <tr><td>Funcții de timp interceptate</td><td class="n">5</td><td class="y">{{channel_count}} canale</td></tr>
+          <tr><td>Ceas mai rapid decât cel real</td><td class="n">nu este oferit</td><td class="y">orice multiplicator întreg</td></tr>
+          <tr><td>Oprirea ceasului</td><td class="n">nu este oferită</td><td class="y">da</td></tr>
+          <tr><td>Salt cât timp aplicația rulează</td><td class="n">nu este oferit</td><td class="y">înainte și înapoi</td></tr>
+          <tr><td>Fus orar doar pentru acel proces</td><td class="n">nedocumentat</td><td class="y">da, decalaj fix</td></tr>
+          <tr><td>Procesele copil moștenesc sesiunea</td><td class="n">nedocumentat</td><td class="y">da</td></tr>
+          <tr><td>Îți spune dacă a funcționat</td><td class="n">nu</td><td class="y">verdict, pe canale, cu numărul de apeluri</td></tr>
+          <tr><td>Aplicații Electron și Chromium</td><td class="n">nu este oferit</td><td class="y">mecanism separat</td></tr>
+          <tr><td>Linie de comandă pentru CI</td><td class="y">da</td><td class="y">da, cu coduri de ieșire și JSON</td></tr>
+          <tr><td>Cod sursă</td><td class="n">freeware, închis</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Dimensiune</td><td class="y">sub 40 KB</td><td class="n">1,6 MB CLI, 69 MB cu fereastra</td></tr>
+          <tr><td>Versiuni vechi de Windows</td><td class="y">până la Windows 2000</td><td class="n">Windows 10 și 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>„Nedocumentat”</em> înseamnă că funcția nu este menționată pe pagina RunAsDate.
+      Nu este o afirmație că instrumentul nu o are.
+    </p>
+  </section>
+
+  <section>
+    <h2>Diferența care contează cel mai mult</h2>
+    <div class="prose">
+      <p>
+        Nu este numărul de canale. Este faptul că RunAsDate îți spune sincer, în propria documentație, că
+        <strong>„nu va afecta aplicațiile care iau data/ora curentă dintr-o altă sursă”</strong> - și apoi
+        te lasă să afli singur dacă a ta este una dintre ele.
+      </p>
+      <p>
+        Chrono Mock tratează aceeași propoziție ca pe ceva de <strong>măsurat</strong>. Fiecare sesiune se
+        încheie cu un verdict, canalele pe care aplicația le-a citit efectiv, cu un număr pentru fiecare,
+        canalele ratate și un avertisment când aplicația a fost văzută deschizând o conexiune de rețea
+        înainte să întrebe vreodată ceasul.
+      </p>
+      <p>
+        O aplicație care pare mutată în timp, dar nu este, e mai rea decât una care nu a pornit niciodată -
+        produce un test trecut care nu înseamnă nimic.
+        <a href="/ro/auditul-surselor-de-timp/">Cum funcționează auditul &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cinci funcții sau {{channel_count}} canale</h2>
+    <div class="prose">
+      <p>
+        RunAsDate interceptează <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code> și
+        <code>GetSystemTimePreciseAsFileTime</code>. Pentru foarte multe aplicații asta este cu adevărat
+        suficient, pentru că acolo se citește ceasul de perete.
+      </p>
+      <p>
+        Restul suprafeței este locul unde tinde să se ascundă codul care depinde de dată:
+      </p>
+      <ul>
+        <li><strong>fusul orar</strong> - patru funcții, plus întreaga familie care convertește între
+          fusuri, așa ajunge un raport în ziua greșită</li>
+        <li><strong>axa timpului scurs</strong> - contoarele de tick-uri și timpul de întrerupere
+          nepolarizat, ceea ce măsoară de obicei o numărătoare inversă de probă</li>
+        <li><strong>sleep-urile și așteptările</strong>, ca o întârziere să fie o întârziere pe ceasul
+          sesiunii, nu pe cel real</li>
+        <li><strong>temporizatoarele</strong> - waitable, de fereastră, de thread-pool și multimedia</li>
+        <li><strong>crearea de procese</strong>, ca procesele copil ale unui instalator să ruleze în aceeași
+          sesiune, nu în ziua de azi</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Când RunAsDate este alegerea mai bună</h2>
+    <div class="prose">
+      <p>Cu adevărat, și nu rar:</p>
+      <ul>
+        <li><strong>Ai nevoie de o singură dată, la viteză normală, chiar acum.</strong> RunAsDate are sub
+          40 KB, nu are o fereastră de învățat și face exact asta de mulți ani.</li>
+        <li><strong>Ești pe un Windows mai vechi.</strong> RunAsDate merge până la Windows 2000. Acest
+          instrument vizează Windows 10 și 11 și nu este testat pe nimic mai vechi.</li>
+        <li><strong>Dimensiunea contează.</strong> 40 KB față de 1,6 MB pentru linia de comandă sau 69 MB
+          cu fereastra nu este o comparație apropiată.</li>
+        <li><strong>Nu vrei un verdict.</strong> Măsurarea acoperirii înseamnă citirea rezultatului. Dacă
+          testul este de unică folosință, este un efort pe care nu l-ai cerut.</li>
+      </ul>
+      <p>
+        Cele două coexistă. Nimic de aici nu te oprește să păstrezi RunAsDate pentru cazul rapid.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pentru ce nu este niciunul dintre ele</h2>
+    <div class="prose">
+      <p>
+        Ambele instrumente apar în căutări despre prelungirea perioadelor de probă. <strong>Acesta nu este
+        construit pentru asta</strong>, iar niciun exemplu, preset sau pagină de aici nu va demonstra
+        vreodată așa ceva. Chrono Mock este pentru testarea software-ului pentru care răspunzi tu -
+        expirarea propriei licențe, propria logică de reînnoire, propriul raport de final de lună.
+      </p>
+      <p>
+        Este și cazul cel mai puțin probabil să funcționeze. Protecția prin licență citește de rutină ora
+        pe căi alese ca să fie greu de interceptat - pagina de date partajată din user-mode, apeluri
+        sistem directe, un server - iar un ceas care merge înapoi este o condiție pe care un asemenea cod
+        este scris să o detecteze. Auditul îți va spune că nu a funcționat, ceea ce este răspunsul onest,
+        nu unul folositor.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/faq/">Citește mai întâi FAQ-ul</a>
+    </div>
+  </section>
+
+</div>

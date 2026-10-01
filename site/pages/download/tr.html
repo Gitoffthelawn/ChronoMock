@@ -1,0 +1,127 @@
+<!-- İndirme sayfası, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Chrono Mock’u indirin</h1>
+    <p class="sub">
+      Aynı motorun iki derlemesi: keşfetmek için bir pencere, CI için bir komut satırı.
+      İkisinden birini istediğiniz yere açıp çalıştırın - yükleyici yok, kayıt defterine hiçbir şey
+      yazılmaz ve yönetici hakkı gerekmez.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Son sürümü alın</a>
+      <a class="btn btn-ghost" href="{{repo}}">Kodu GitHub’da görün</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Dosya</th><th>Nedir</th><th>Boyut</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>Masaüstü uygulaması, kendi kendine yeten - .NET kurulumu gerekmez</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Yalnızca komut satırı aracı, CI ve betikler için</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ne gerekir</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 ya da Windows 11.</strong> macOS veya Linux derlemesi yok -
+          Linux’ta bunu <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> zaten iyi
+          karşılıyor.</li>
+        <li><strong>Başka hiçbir şey.</strong> Masaüstü derlemesi kendi çalışma zamanını taşır, komut
+          satırı derlemesi ise hiçbir şey taşımaz.</li>
+        <li><strong>Hem 32 bit hem 64 bit uygulamalar desteklenir.</strong> Paket ikisini de içerir ve
+          işaret ettiğiniz uygulamaya uyanı seçer.</li>
+      </ul>
+      <p>
+        ARM64, 1.0 sürümüne kadar kapsam dışıdır ve paketlenmiş Store uygulamaları (UWP ve MSIX)
+        desteklenmez - başlatma modelleri buna izin vermez.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Çalıştırma</h2>
+    <div class="prose">
+      <p>
+        Dosyaları açın, ardından pencere için <code>ChronoMock.exe</code>’yi ya da komut satırı için
+        <code>chrono.exe</code>’yi çalıştırın. İlk oturum üç karardır: hangi uygulama, hangi an ve saatin
+        ne kadar hızlı çalışacağı.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Bir uygulamayı 2027’nin son saniyesiymiş gibi çalıştırın</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Aynı şey, saat dakikada bir gün hızla çalışarak</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Önce okunması gereken iki şey</h2>
+
+    <div class="note warning">
+      <p><strong>Gelecek tarihli ilk oturumdan önce uygulamanın veri dizinini yedekleyin.</strong></p>
+      <p>
+        2028’de çalışan bir uygulama, verilerini sakladığı her yere 2028 tarihleri yazar: veritabanına,
+        yapılandırmasına, önbelleğine, lisans dosyasına. Bu değerler gerçek zamana döndükten sonra da
+        orada kalır. Lisans korumalı yazılımlarda bu kalıcı olabilir -
+        <em>“clock rollback detected, licence invalidated”</em> sektörde standart bir kalıptır ve tam
+        da tasarlandığı şeyi yapacaktır.
+      </p>
+      <p>
+        Chrono Mock kendi arkasını toplar. Test ettiğiniz uygulamanın arkasını toplayamaz.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Antivirüsünüz bunu işaretleyebilir ve bu beklenen bir durumdur.</strong></p>
+      <p>
+        Zaman, hedef sürece küçük bir kitaplık enjekte edilerek kaydırılır. Bu meşru, belgelenmiş bir
+        Windows tekniğidir - ve kötü amaçlı yazılımların da kullandığı bir tekniktir; bu yüzden Microsoft
+        Defender ve diğerleri enjekte edilen kitaplığı işaretleyebilir ya da enjeksiyonu tümüyle
+        engelleyebilir. Bu, tekniğin tetiklediği bir yanlış pozitiftir.
+      </p>
+      <p>
+        Bir oturum başlamayı reddeder ve Defender bir tehdit bildirirse klasörü değil kitaplığı hariç
+        tutun: Windows Güvenliği’nde <strong>File</strong>’ı seçin ve <code>chrono_hook.dll</code> için
+        tam yolu verin. Klasör hariç tutma, aracın enjekte ettiği dizindeki hiçbir şeyin taranmamasına yol
+        açar. Ya da bunu yapmanıza izin verilen bir makinede çalıştırın. Enjekte edilen kitaplık bu
+        depodaki koddan GPL-3.0 altında derlenir - kendiniz yeniden derleyebilirsiniz. Chromium ve Electron
+        kipi hiç enjeksiyon yapmaz ve etkilenmez.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Geride ne bırakır</h2>
+    <div class="prose">
+      <p>
+        Sisteminizde hiçbir şey: kalıcı hook yok, kayıt defteri girdisi yok ve kendi klasörünün dışında,
+        size adını söyleyeceği üç şey dışında hiçbir şey yok - aracın kendi klasörü yazılabilir
+        olmadığında <code>%LOCALAPPDATA%\ChronoMock\</code> altına taşınan oturum geçmişi ve tanılama
+        günlüğü ve bir Electron ya da Chromium hedefi için, oturum bittiğinde silinen ve silinemediyse
+        oturum özetinde bildirilen, <code>%TEMP%</code> altındaki tek kullanımlık bir tarayıcı profili.
+      </p>
+      <p>
+        İnternetle asla konuşmaz, hesap tutmaz ve telemetri göndermez.
+      </p>
+    </div>
+  </section>
+
+</div>

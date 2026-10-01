@@ -1,0 +1,93 @@
+<!-- 时区，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>让应用在另一个时区运行</h1>
+    <p class="sub">
+      落在错误日期的报表、提前一小时响起的提醒、读起来像是明天的时间戳——这些问题大多只会出现在你自己并不身处的时区里。这个工具给一个进程单独的偏移量，而你的系统时区原封不动。
+    </p>
+  </section>
+
+  <section>
+    <h2>为什么常见的办法帮不上忙</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>修改 Windows 时区</strong>会改动所有东西——你的日历、你的日志、你的会议——而在受管理的机器上，这也许根本不由你来改。</li>
+        <li><strong>设置 <code>TZ</code></strong> 对一些运行时有效，对另一些无效。读取 <code>GetTimeZoneInformation</code> 的原生 Windows 应用完全不会察觉。</li>
+        <li><strong>浏览器开发者工具</strong>可以覆盖网页的时区，这很好，但与桌面应用无关。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>一个进程，一个偏移量</h2>
+    <div class="prose">
+      <p>
+        会话带有自己的偏移量。应用向 Windows 询问自己处于哪个时区，得到的就是这个答案，而机器上的其他所有程序得到的是真实的答案。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 同一个时刻，从美国西海岸看过去</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># 只改时区——今天的真实日期，别人的时钟</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        计算器回答问题的另一半——某个时刻在别处实际读作什么。转换会保持时刻不变，只改变墙上时钟，一个日期落在错误的一天，恰恰就是这么发生的：
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        中欧的上午九点，在美国西海岸是<strong>午夜</strong>。同一个时刻，而按本地日期分组的日报，会因为运行的位置不同而把它归到不同的一天。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>如实说明的局限，在这里尤其重要</h2>
+
+    <div class="note warning">
+      <p><strong>会话时区是没有夏令时的固定偏移量。</strong></p>
+      <p>
+        设为 <code>+01:00</code> 的会话，无论它的时钟读到的是一月还是七月，都停留在 <code>+01:00</code>。因此，跨越真实切换的运行，会与该时区实际显示的时间相差一小时，而让应用经历夏令时切换，目前还不是这个工具能做的事。日期计算器会如实说明这一点，而不是猜测。
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>该时区会把自己报告为“Chrono Session”</strong>，这是任何 Windows 注册表都不认识的名字。凡是把这个名字映射回时区的东西——包括 .NET 的 <code>TimeZoneInfo.Local</code>——都会退回到使用偏移量，这是正确的答案。坚持要用注册表中名称的应用则找不到。</li>
+        <li><strong>Java 会把会话时区当作偏移量来接收。</strong>会话时区没有夏令时，背后也没有城市，所以 Java 用它的偏移量来命名——对于 +05:30 的会话就是 <code>GMT+05:30</code>。</li>
+        <li><strong>在 Chromium 和 Electron 模式下，时区跟随宿主机。</strong>时刻是伪造的，本地时间的取值方法则不是。</li>
+        <li><strong>偏移量的范围是 -14:00 到 +14:00</strong>，以整分钟为单位。超出这个范围的值会被拒绝，而不是悄悄回绕。</li>
+      </ul>
+      <p>
+        其中哪一条适用于你的应用，是可以测量的，而不是靠猜。
+        <a href="/zh-hans/time-source-audit/">会话会报告它自己的覆盖情况 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/faq/">阅读常见问题</a>
+    </div>
+  </section>
+
+</div>

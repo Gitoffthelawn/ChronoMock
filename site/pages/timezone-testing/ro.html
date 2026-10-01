@@ -1,0 +1,115 @@
+<!-- Fusuri orare, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Rulează o aplicație într-un alt fus orar</h1>
+    <p class="sub">
+      Raportul care ajunge în ziua greșită, memento-ul care sună cu o oră mai devreme, marcajul de timp
+      care se citește ca mâine - cea mai mare parte apare doar într-un fus în care nu te afli. Aici dai unui
+      singur proces propriul decalaj, în timp ce fusul sistemului rămâne exact unde era.
+    </p>
+  </section>
+
+  <section>
+    <h2>De ce nu ajută răspunsurile obișnuite</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Schimbarea fusului orar din Windows</strong> îl schimbă pentru tot - calendarul tău,
+          jurnalele, ședințele - iar pe o mașină administrată s-ar putea să nu fie al tău dreptul de a-l
+          schimba.</li>
+        <li><strong>Setarea <code>TZ</code></strong> funcționează pentru unele runtime-uri și pentru altele
+          nu. O aplicație Windows nativă care citește <code>GetTimeZoneInformation</code> nici nu o va
+          observa.</li>
+        <li><strong>Uneltele de dezvoltator din browser</strong> suprascriu fusul pentru o pagină web, ceea
+          ce este excelent și irelevant pentru o aplicație desktop.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Un proces, un decalaj</h2>
+    <div class="prose">
+      <p>
+        Sesiunea poartă propriul decalaj. Aplicația întreabă Windows în ce fus se află și primește acel
+        răspuns, în timp ce fiecare alt program de pe mașină primește răspunsul real.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Același moment, văzut de pe coasta de vest a Americii</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Doar fusul - data reală de azi, ceasul altcuiva</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        Calculatorul răspunde celeilalte jumătăți a întrebării - cum se citește de fapt un anumit moment în
+        altă parte. Conversia păstrează momentul și schimbă doar ceasul de perete, exact așa ajunge o dată
+        în ziua greșită:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Ora nouă dimineața în Europa Centrală este <strong>miezul nopții</strong> pe coasta de vest a
+        Americii. Același moment, iar un raport zilnic care grupează după data locală îl pune într-o zi
+        diferită în funcție de locul unde rulează.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limite oneste, și contează aici</h2>
+
+    <div class="note warning">
+      <p><strong>Fusul sesiunii este un decalaj fix, fără ora de vară.</strong></p>
+      <p>
+        O sesiune setată la <code>+01:00</code> rămâne la <code>+01:00</code> indiferent dacă ceasul ei
+        arată ianuarie sau iulie. O rulare care trece peste o tranziție reală se abate deci cu o oră de la
+        ce ar arăta de fapt acel fus, iar trecerea unei aplicații printr-o tranziție la ora de vară nu este
+        ceva ce face încă acest instrument. Calculatorul de date o spune, în loc să ghicească.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>Fusul se raportează drept „Chrono Session”</strong>, un nume pe care niciun registru
+          Windows nu îl cunoaște. Orice mapează acel nume înapoi la un fus - printre ele
+          <code>TimeZoneInfo.Local</code> din .NET - revine în schimb la decalaj, ceea ce este răspunsul
+          corect. O aplicație care insistă pe un nume din registru nu va găsi unul.</li>
+        <li><strong>Java preia fusul sesiunii ca decalaj.</strong> Fusul sesiunii nu are ora de vară și nici
+          un oraș în spate, așa că Java îl numește după decalajul lui - <code>GMT+05:30</code> pentru o
+          sesiune la +05:30.</li>
+        <li><strong>În modul Chromium și Electron, fusul urmează gazda.</strong> Momentul este falsificat,
+          getter-ele de oră locală nu.</li>
+        <li><strong>Decalajele merg de la -14:00 la +14:00</strong>, în minute întregi. Orice în afara
+          acestui interval este refuzat, nu rotit pe tăcute.</li>
+      </ul>
+      <p>
+        Care dintre ele se aplică aplicației tale se poate măsura, nu ghici.
+        <a href="/ro/auditul-surselor-de-timp/">Sesiunea își raportează propria acoperire &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/faq/">Citește FAQ-ul</a>
+    </div>
+  </section>
+
+</div>

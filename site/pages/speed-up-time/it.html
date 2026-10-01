@@ -1,0 +1,141 @@
+<!-- Accelerare l'orologio, italiano. Struttura, classi e segnaposto come in en.html.
+
+     La tabella dei moltiplicatori è aritmetica, verificata e non stimata: x1440 sono 1440 minuti finti per
+     minuto reale, esattamente un giorno. Il tetto di un milione è chrono_core::MULTIPLIER_MAX. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Fai correre più veloce l'orologio di un'app</h1>
+    <p class="sub">
+      Una prova di 30 giorni impiega 30 giorni a scadere, a meno che tu non possa spostare il tempo. Il
+      consiglio abituale è portare avanti l'orologio di sistema, il che richiede i diritti di
+      amministratore e si trascina dietro ogni altro programma della macchina. Questo sposta un solo
+      processo.
+    </p>
+  </section>
+
+  <section>
+    <h2>Quanto veloce</h2>
+    <div class="prose">
+      <p>
+        Scegli un moltiplicatore intero. L'orologio dell'applicazione avanza quel numero di volte più
+        veloce di quello reale, a partire dal momento in cui la sessione inizia.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Moltiplicatore</th><th>Un minuto reale diventa</th><th>Utile per</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>un'ora</td><td>job orari, timeout di sessione, durata dei token</td></tr>
+          <tr><td><code>x1440</code></td><td>un giorno</td><td>passaggi giornalieri, una prova di 30 giorni in mezz'ora</td></tr>
+          <tr><td><code>x43200</code></td><td>una prova di 30 giorni</td><td>vedere finire l'intera prova mentre leggi questo</td></tr>
+          <tr><td><code>x525600</code></td><td>un anno</td><td>rinnovi annuali, scadenza dei certificati</td></tr>
+          <tr><td><code>x1000000</code></td><td>circa 1,9 anni</td><td>il tetto</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Partire dall'ora reale di adesso e correre di un giorno al minuto</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Partire da una data scelta e accelerare da lì</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Tenere invece l'orologio completamente fermo</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Una registrazione di una sessione che pilota un'altra applicazione Windows. La finestra a sinistra è Chrono Mock, con l'orologio dell'applicazione al 2038-01-19 che sale a sessanta volte la velocità reale mentre l'orologio reale accanto avanza di pochi secondi. La finestra a destra è l'applicazione testata, il cui registro di sessione mostra che è partita il 2038-01-19 e gira da minuti contro appena mezzo minuto nella stanza.">
+      <figcaption>Una sessione vera, che pilota un'applicazione vera. Guarda la finestra a destra: il
+        programma testato ha registrato il proprio avvio al <strong>19 gennaio 2038</strong>, e la sua
+        sessione è durata minuti mentre l'orologio nella stanza avanzava di secondi. La velocità viene
+        cambiata mentre gira, senza riavviare nulla.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>La parte che coglie di sorpresa: ci sono due orologi</h2>
+    <div class="prose">
+      <p>
+        Accelerare l'<strong>orologio a muro</strong> - ciò che restituiscono <code>DateTime.Now</code> e
+        i suoi equivalenti - non accelera di per sé un <strong>conto alla rovescia</strong>. Sono due
+        domande diverse che un'applicazione può porre al sistema operativo, e molto software misura
+        «trenta giorni» con la seconda invece che con la prima.
+      </p>
+      <p>
+        Quindi l'asse delle durate - conteggi di tick, sleep, attese e timer - è un interruttore a parte:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> mette anche sleep, attese e timer sull'orologio della sessione.
+          Senza, <code>x1440</code> porta avanti a razzo il calendario mentre un timer di cinque secondi
+          continua a durare cinque secondi reali.</li>
+        <li><code>--scale-qpc</code> scala in aggiunta il contatore ad alta risoluzione. È da lì che Python
+          3.13+ <code>monotonic</code>, .NET <code>Stopwatch</code> e Java <code>nanoTime</code> leggono il
+          tempo trascorso, ed è disattivato per impostazione predefinita perché scalarlo ha destabilizzato
+          il rendering nei test.</li>
+      </ul>
+      <p>
+        Se il moltiplicatore sembra non fare nulla a un conto alla rovescia, quasi sempre è per questo.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Un'app timer: accelerare il calendario E i conti alla rovescia</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Un'app Python o .NET che misura il tempo trascorso sul contatore ad alta risoluzione</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Cambiare velocità senza riavviare</h2>
+    <div class="prose">
+      <p>
+        Il moltiplicatore può cambiare a sessione in corso, e l'orologio viene riancorato invece che fatto
+        saltare, quindi non va mai all'indietro quando la velocità scende. Puoi anche far saltare
+        l'orologio di colpo - in avanti, o all'indietro come fa un portatile dopo essersi risincronizzato
+        con un server orario, che è il caso che rompe tutto ciò che misura il tempo trascorso senza una
+        protezione.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Correre a x60, poi passare a x1440 dopo due secondi</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Correre, poi far saltare l'orologio a un momento scelto dopo cinque secondi</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Che cosa non fa</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Non tocca l'orologio di sistema.</strong> È il punto, non un limite - ma significa che
+          tutto ciò che legge l'ora da un server, da un database o da un'altra macchina non ne è
+          influenzato, e l'audit ti dice quando succede.</li>
+        <li><strong>Un salto cambia ciò che l'applicazione vede, non quando si sveglia.</strong> I timer già
+          consegnati al kernel girano in tempo reale. La maggior parte delle applicazioni interroga
+          l'orologio, quindi i salti funzionano in pratica - non tutte lo fanno.</li>
+        <li><strong>Non rallenta il tempo.</strong> I moltiplicatori sono numeri interi da uno in su, più un
+          orologio congelato a zero.</li>
+      </ul>
+      <p>
+        Se qualcosa di tutto questo sia arrivato alla tua applicazione non è da dare per scontato.
+        <a href="/it/audit-delle-fonti-di-tempo/">Lo dice la sessione &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Provalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/it/scarica/">Scarica per Windows</a>
+      <a class="btn btn-ghost" href="/it/faq/">Leggi le FAQ</a>
+    </div>
+  </section>
+
+</div>

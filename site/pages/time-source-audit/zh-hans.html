@@ -1,0 +1,147 @@
+<!-- 时间源审计，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>你怎么知道它生效了？</h1>
+    <p class="sub">
+      用其他任何同类工具，你都无从知道。应用启动了，显示出某个日期，而你只能假定一切正常。可它也许通过一条没有被拦截的途径读取时钟——到那时，<em>“测试通过”</em>就毫无意义。
+    </p>
+  </section>
+
+  <section>
+    <h2>没有症状的失败</h2>
+    <div class="prose">
+      <p>
+        漏掉一个通道的时间偏移工具既不会崩溃，也不会警告。应用只是通过那个没人挂钩的函数读到了真实日期，然后像任何一个普通的下午那样照常运行。测试变绿了，缺陷就这样上线了。
+      </p>
+      <p>
+        RunAsDate 在自己的文档里对此很坦诚——它说自己<strong>“对从其他来源获取当前日期/时间的应用不起作用”</strong>——然后让你自己去弄清楚你的应用是不是其中之一。这个工具把同一句话当作需要测量的东西。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>会话实际报告了什么</h2>
+    <div class="prose">
+      <p>
+        真实的输出，来自对本项目自带的一个测试探针运行该工具——这个探针会故意打开一个网络连接：
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        最后两块才是重点。这里没有任何东西失败——判定是<strong>生效</strong>——可报告仍然主动告诉你，这个应用在结束之前与网络通信过，所以本地钩子可能不是事情的全部。这句话，就是一个你能信任的测试和一个你不能信任的测试之间的区别。
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock 的结果界面，What the application read 已展开：一张包含 Function、Read from 和 Reads 列的表。NtCreateUserProcess 被标为按设计读取真实时钟，connect 被标为按设计读取真实时钟且较晚才挂钩，其余各行——GetSystemTimeAsFileTime、NtQuerySystemTime、GetTimeZoneInformation 等——读取的是伪造的时钟，每一行都有各自的次数。表格下方有两条警告。">
+      <figcaption>窗口里的同一个答案。应用本来可能询问的每一个函数、它实际读取的来源，以及次数——包括那些有意留在真实时钟上的函数，它们会被点名，而不是被悄悄算作通过。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>四种判定，各有一个退出码</h2>
+    <div class="prose">
+      <p>
+        判定是在运行中的进程内部得出的，早于你开始工作，并且它就是工具自己的退出码，因此流水线可以据此分支。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>判定</th><th>退出码</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td class="y">生效</td><td>0</td><td>所有读取过时间的进程看到的都是会话时钟</td></tr>
+          <tr><td>部分生效</td><td>10</td><td>部分通道已覆盖，部分未覆盖——未覆盖的会逐一列出</td></tr>
+          <tr><td class="n">未生效</td><td>11</td><td>替换没有到达关键通道</td></tr>
+          <tr><td>无法确定</td><td>4</td><td>无法确认覆盖情况——一句诚实的“我不知道”</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>当判定为“未生效”时，进程会被立即停止</strong>，在你与它交互之前。判定不可能先于启动，因为唯一的事实依据，是从运行中的进程内部取得的读数。能保证的是你在开始工作之前就会得知真相——而不是注定失败的启动永远不会发生。你可以选择覆盖并继续，此后这个会话会在它出现的所有地方——包括你导出的任何证据——被标记为不可靠。
+      </p>
+      <p>
+        另外还有三个代码，对应的根本不是判定的情形：<code>1</code> 表示用法错误，<code>2</code> 表示无法启动目标程序或无法向其注入，<code>12</code> 表示目标程序以一种表明单实例应用把工作交给了已在运行的副本的方式消失了。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>已覆盖、已观察、未覆盖</h2>
+    <div class="prose">
+      <p>通道分为三类，而中间那一类最值得注意。</p>
+      <ul>
+        <li><strong>已覆盖</strong>——已挂钩并被替换。应用询问了，得到的是会话时钟。调用次数说明了询问的次数。</li>
+        <li><strong>已观察</strong>——已挂钩、已计数，并且刻意让它如实回答。高分辨率计数器默认在这一类，因为缩放它会让渲染不稳定。多媒体定时器在这一类，因为缩放它们会让音频和 MIDI 的时序错位。网络连接和一条进程创建路径在这一类，因为它们是证据，而不是时钟。</li>
+        <li><strong>未覆盖</strong>——应用读取过、而替换没有触及的通道。正是它让判定变成<em>部分生效</em>，并且会逐个点名列出，而不是被概括掉。</li>
+      </ul>
+      <p>
+        次数为零同样是信息：通道已被挂钩，而应用从未询问过。这就是报告把它们列出来而不是隐藏的原因。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>审计看不到的东西</h2>
+    <div class="prose">
+      <p>
+        报告对覆盖情况是诚实的，这意味着对它自身的边界也是诚实的。下面这些，读取时没有可供拦截的函数调用，或者完全发生在进程之外：
+      </p>
+      <ul>
+        <li>对共享用户模式数据页的直接读取——数值就在内存里，所以没有什么可挂钩的。在普通应用中很少见，在授权和防篡改代码中很常见</li>
+        <li>绕过标准导出函数的直接系统调用——同样的模式</li>
+        <li>在进程外通过 WMI、进程外 COM 服务器或 RPC 获得的时间</li>
+        <li>来自网络的时间——HTTP 的 <code>Date</code> 头、NTP、API 响应，或者数据库服务器自己的时钟</li>
+        <li>来自内核驱动的时间</li>
+      </ul>
+      <p>
+        网络这一种，是审计至少能<em>察觉</em>的，这就是上面的报告里为什么有那条警告。对于其余的情形，<em>生效</em>的判定意味着这个工具能看到的通道已被覆盖——而不是不存在其他途径。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>在流水线中</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> 以机器可读的形式输出同样的事实，<code>--report</code> 把给人读的版本写入文件，判定不是<em>生效</em>的会话，会在该文件开头放一条证据不可靠的横幅，而不是把它埋在末尾。
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/runasdate-alternative/">与 RunAsDate 对比</a>
+    </div>
+  </section>
+
+</div>

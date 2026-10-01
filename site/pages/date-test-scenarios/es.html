@@ -1,0 +1,153 @@
+<!-- Fechas que merece la pena probar, español. Estructura, clases y marcadores como en en.html. Los nombres
+     y explicaciones siguen presets/*.json; el número es un marcador. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Fechas que merece la pena probar</h1>
+    <p class="sub">
+      El software no falla en un martes cualquiera. Falla el último día del trimestre, el 29 de febrero,
+      en el momento en que cambia el año y un segundo después de que caduque una licencia. Estas son las
+      fechas que encuentran esos errores - <strong>{{preset_count}}</strong> de ellas se incluyen como
+      escenarios con nombre.
+    </p>
+  </section>
+
+  <section>
+    <h2>Límites de periodo</h2>
+    <div class="prose">
+      <p>
+        Todo lo que cierra un periodo, numera un documento por año o devenga hasta una fecha de corte
+        falla primero aquí.
+      </p>
+      <ul>
+        <li><strong>Último día del mes</strong> - ¿se comportan bien el cierre mensual y el devengo del
+          periodo el último día del mes?</li>
+        <li><strong>Último día del trimestre</strong> - ¿se comportan bien el cierre trimestral y los
+          informes el último día del trimestre?</li>
+        <li><strong>Último día del año fiscal</strong> - ¿cierra la aplicación el año fiscal el día
+          correcto, el día antes de que empiece el siguiente?</li>
+        <li><strong>Cambio de año, en vivo</strong> - ¿la numeración de documentos, el año en el nombre y
+          los informes anuales gestionan el cambio <em>mientras ocurre</em>, en lugar de reiniciarse
+          después?</li>
+      </ul>
+      <p>
+        El último es el que normalmente no se puede probar de ninguna manera, porque necesita que el reloj
+        cruce la medianoche del 31 de diciembre mientras la aplicación está en marcha. Con un reloj
+        acelerado es cuestión de diez segundos.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bordes del calendario y de la representación</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29 de febrero</strong> - el día bisiesto que solo existe cada cuatro años y que una
+          cantidad sorprendente de código de validación rechaza sin más.</li>
+        <li><strong>Epoch Unix cero</strong> - ¿trata la aplicación el 1 de enero de 1970 como una fecha
+          real, o como un valor vacío que debería haberse negado a guardar?</li>
+        <li><strong>Límite de 2038</strong> - el momento en que se agota un <code>time_t</code> de 32 bits
+          con signo, en <code>2038-01-19T03:14:07Z</code>. Un segundo después, el contador se desborda
+          hasta 1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Licencias, pruebas e instalación</h2>
+    <div class="prose">
+      <p>
+        Estos sirven para probar <em>tu propio</em> sistema de licencias, que es el caso para el que se
+        escribieron.
+      </p>
+      <ul>
+        <li><strong>Último día de la prueba</strong> - ¿sigue funcionando la aplicación en el último
+          instante de la prueba?</li>
+        <li><strong>Primer día tras caducar la prueba</strong> - ¿niega el acceso en el momento en que
+          termina la prueba, y cómo? ¿Con un mensaje razonable o con un volcado de pila?</li>
+        <li><strong>Licencia caducada hace un año</strong> - ¿gestiona una licencia caducada hace mucho,
+          no solo ayer?</li>
+        <li><strong>Fecha anterior a la instalación</strong> - ¿se comporta bien cuando el reloj está
+          puesto antes de su propia fecha de instalación? Este lee la fecha de archivo del propio objetivo,
+          así que no necesita ningún parámetro.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Reglas de negocio y comportamiento del reloj</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Pago vencido, +N días laborables</strong> - ¿un pago que vence dentro de N días
+          laborables cae en el día correcto, saltándose los fines de semana y los festivos del país
+          correcto? El único escenario que necesita un calendario, y la respuesta difiere entre
+          mercados.</li>
+        <li><strong>Límite de la mayoría de edad</strong> - ¿admite la aplicación a alguien justo en el
+          límite y rechaza a alguien que está a un día?</li>
+        <li><strong>Desfase de reloj, +90 s</strong> - ¿se las arregla la aplicación cuando su reloj va
+          noventa segundos adelantado? Es el caso que rompe las contraseñas de un solo uso basadas en
+          tiempo y la validación de tokens.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Usar uno</h2>
+    <div class="prose">
+      <p>
+        Un escenario es una expresión de fecha con nombre. La calculadora averigua qué significa, y la
+        sustitución ejecuta una aplicación en esa fecha - el mismo nombre en ambos sitios.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># ¿Qué fecha es y qué prueba esa fecha?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Ejecutar una aplicación en ella</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Los escenarios de prueba toman la fecha de inicio de la fecha de archivo del propio objetivo</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        En la ventana son chips sobre el campo de fecha - un clic lo rellena. Cada uno lleva su propia
+        frase que dice qué detecta, que es lo que una calculadora de fechas en línea no puede darte.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="La pantalla de configuración de Chrono Mock con la sección Scenarios abierta: un campo de búsqueda sobre la lista, y luego cada fecha preparada con la pregunta a la que responde - el límite de 2038, el 29 de febrero, un reloj adelantado noventa segundos, el último día del mes - y bajo la lista una línea que dice que tres más necesitan un valor que tú elijas. El pie lee el momento en lenguaje llano sobre el botón Start.">
+      <figcaption>Cada escenario lleva la pregunta a la que responde, y no solo una fecha. Los tres que
+        necesitan un valor que tú elijas se nombran bajo la lista en lugar de ocultarse.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Lo que no está aquí</h2>
+    <div class="prose">
+      <p>
+        <strong>Los cambios de horario de verano.</strong> Hacer pasar a una aplicación por el límite del
+        cambio a horario de verano o de vuelta es una prueba realmente útil y está
+        <em>deliberadamente ausente</em>, porque la zona horaria de la sesión es un desfase fijo sin
+        horario de verano - todavía no hay ninguna transición que simular. Incluir un escenario que
+        silenciosamente no hiciera nada sería peor que no incluirlo.
+      </p>
+      <p>
+        Volverá con un modelo de las reglas de zona horaria.
+        <a href="/es/pruebas-de-zonas-horarias/">Lo que la zona horaria hace y lo que no &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pruébalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/es/descargar/">Descargar para Windows</a>
+      <a class="btn btn-ghost" href="/es/calculadora-de-fechas/">La calculadora</a>
+    </div>
+  </section>
+
+</div>

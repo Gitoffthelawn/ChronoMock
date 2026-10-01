@@ -1,0 +1,160 @@
+<!-- Калькулятор дат, українська. Структура, класи й токени ті самі, що в en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Яку дату варто протестувати?</h1>
+    <p class="sub">
+      Половина тестування дат — зсунути годинник. Друга половина — знати, куди його зсувати. Онлайн-калькулятор
+      скаже, яке число буде за дев’яносто днів від сьогодні. Він не скаже, що це банківський вихідний
+      або останній день кварталу.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Калькулятор Chrono Mock. Ліворуч іде список сценаріїв із пошуком і їхніми поясненнями, посередині — конструктор дати, а колонка результатів праворуч перелічує всі формати з кнопкою копіювання біля кожного та Use this date під ними. Під конструктором вставлена дата 04/08/2008 позначена як неоднозначна, з показом і американського, і польського прочитання.">
+      <figcaption>Під конструктором — зворотний напрям: вставлено <code>04/08/2008</code>, і показано
+        обидва прочитання, а не одне вгадане.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Робочі дні зі справжніми святами</h2>
+    <div class="prose">
+      <p>
+        «Через десять робочих днів» — це не арифметика: усе залежить від того, за календарем якої країни
+        ви рахуєте. Та сама початкова дата, ті самі десять днів, дві різні відповіді:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        Різниця в один день, і калькулятор пояснить чому, якщо запитати його про дату посередині:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        Сполучені Штати й Польща постачаються як еталонні календарі, обрані тому, що разом вони
+        задіюють усі наявні типи правил: фіксовані дати, n-й день тижня місяця, дати, що обчислюються від
+        Великодня, і американське правило, за яким свято, що випало на суботу, відзначається в
+        попередню п’ятницю. Додати країну — це файл даних, а не зміна коду.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Усі формати одразу</h2>
+    <div class="prose">
+      <p>
+        Застосунку, що тестується, потрібна дата в тому вигляді, якого він чекає. Замість того щоб
+        змушувати вас конвертувати, калькулятор друкує всі формати — і власну маску для тих, що не
+        вкладаються в жоден стандарт.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        Це значення epoch — не збіг: <code>2147483647</code> — це точно найбільше число, яке вміщує
+        знакове 32-розрядне ціле, і вся причина, чому ця дата важлива.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Читання дати у зворотний бік</h2>
+    <div class="prose">
+      <p>
+        Зворотний напрям не менш корисний: вставте дату з логу й дізнайтеся, що це таке. Коли формат
+        неоднозначний — а <code>04/08</code> неоднозначне в половині світу, — <strong>показуються обидва
+        прочитання, а не вгадується одне</strong>, бо саме з вгадування народився початковий звіт про
+        помилку.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        Різниця в чотири місяці, і дні тижня різні. Дата у форматі ISO однозначна й читається як є, а те,
+        що взагалі не є датою, відхиляється, а не вгадується.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Будується з кроків, а не з фрази</h2>
+    <div class="prose">
+      <p>
+        Момент — це відправна точка плюс кроки, і проміжний результат показується після кожного, тож
+        вираз, що дав несподівану відповідь, показує, де він звернув не туди. П’ять видів кроків:
+        зсув на одиницю, встановлення часу доби, стрибок на межу періоду, перехід до найближчого робочого
+        дня й переписування в іншому часовому поясі.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Остання секунда перед зміною року</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Дев’яносто робочих днів уперед за американським банківським календарем</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># Вісімнадцять років і день тому — перевірка віку</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Будь-яка обчислена дата одразу йде в сесію підміни, а
+        <code>--json</code> видає той самий результат у машинному вигляді.
+        <a href="/uk/date-test-scenarios/">Дати, які варто тестувати &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Спробуйте</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/uk/download/">Завантажити для Windows</a>
+      <a class="btn btn-ghost" href="/uk/date-test-scenarios/">Переглянути сценарії</a>
+      <a class="btn btn-ghost" href="/uk/cli-reference/">Усі прапорці калькулятора</a>
+    </div>
+  </section>
+
+</div>

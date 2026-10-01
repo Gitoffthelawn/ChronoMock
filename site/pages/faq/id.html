@@ -1,0 +1,202 @@
+<!-- FAQ, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. Setiap judul ditulis seperti orang mengetikkan pertanyaannya. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Tanya jawab</h1>
+    <p class="sub">
+      Jawaban singkat, termasuk yang tentang apa yang tidak akan dilakukan alat ini.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Apakah ini mengubah jam komputer saya?</h3>
+      <p>
+        Tidak, dan tidak akan pernah - itulah inti alat ini. Waktu yang digeser terlihat oleh
+        <strong>satu proses dan proses anak yang dimulainya</strong>. Login domain, sertifikat, Windows
+        Update, dan setiap aplikasi lain terus melihat tanggal asli sepanjang waktu.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah saya memerlukan hak administrator?</h3>
+      <p>
+        Tidak. Tidak ada installer, tidak ada yang ditulis ke registry, dan ia berjalan dari folder yang
+        dapat Anda taruh di flash disk USB.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah ini akan berfungsi dengan aplikasi saya?</h3>
+      <p>
+        Jawaban jujurnya, tidak ada alat sejenis ini yang dapat menjanjikannya sebelumnya - maka alat ini
+        mengukurnya. Setiap sesi berakhir dengan putusan
+        (<strong>berhasil, berhasil sebagian, tidak berhasil</strong>), daftar kanal waktu yang benar-benar
+        dibaca aplikasi beserta jumlah panggilan untuk masing-masing, dan daftar kanal yang tidak
+        tercakup.
+      </p>
+      <p>
+        Aplikasi dapat membaca jam lewat jalur yang tidak dicegat apa pun - dari server, dari database,
+        melalui lapisan runtime. Ketika itu terjadi, Anda diberi tahu, bukan dibiarkan mengira
+        pengujiannya lulus.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah berfungsi dengan aplikasi .NET, Java, dan Python?</h3>
+      <p>
+        Sebagian, dan perbedaannya penting. Ketiganya ditandai <strong>eksperimental</strong>: berfungsi
+        pada target uji, belum diuji secara luas, dan audit bawaan adalah sumber kebenaran Anda, bukan
+        paragraf ini.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - jam dinding dan zona waktu sesi tercakup. <code>Stopwatch</code> tetap
+          pada penghitung beresolusi tinggi yang nyata kecuali Anda memilih untuk menskalakannya.</li>
+        <li><strong>Java</strong> - jam dinding, waktu berlalu, dan zona waktu sesi tercakup. Zona datang
+          sebagai selisih tetap, bernama seperti <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> dan <code>datetime</code> tercakup.
+          <code>perf_counter</code>, dan <code>monotonic</code> pada Python 3.13 dan yang lebih baru,
+          berada pada penghitung beresolusi tinggi kecuali Anda memilih.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah berfungsi dengan aplikasi Electron dan Chromium?</h3>
+      <p>
+        Ya, melalui mekanisme yang berbeda. Jam mereka berada di renderer terisolasi yang tidak dijangkau
+        injeksi, sehingga aplikasi diluncurkan dengan port debug dan profil bersih sekali pakai, dan API
+        waktu JavaScript miliknya dipasang ke jam sesi - termasuk di dalam Web Worker, tempat timer sering
+        kali benar-benar berada.
+      </p>
+      <p>
+        Satu batasan yang perlu diketahui: dalam mode ini sesi mengikuti zona waktu host. Instan
+        dipalsukan, getter waktu lokal tidak.
+      </p>
+      <p>
+        <a href="/id/electron-chromium/">Cara kerja mode Chromium dan Electron</a> - apa yang
+        dijangkaunya, apa yang tidak, dan mengapa port debug adalah bagian yang perlu diwaspadai.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bisakah saya membuat waktu berjalan lebih cepat dari waktu nyata?</h3>
+      <p>
+        Bisa. Pilih pengali bilangan bulat dan jam aplikasi berjalan pada kecepatan itu - <code>x1440</code>
+        mengubah satu hari menjadi satu menit, sehingga masa percobaan 30 hari habis dalam sekitar setengah
+        jam. Anda juga dapat membekukan jam, atau melompat maju dan mundur di tengah sesi.
+      </p>
+      <p>
+        Hitung mundur dan timer berada pada sumbu yang terpisah, dan mempercepatnya adalah switch yang
+        terpisah, karena menskalakannya mengubah perilaku yang menjadi tumpuan banyak aplikasi.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bisakah saya mengubah zona waktu saja, tanpa mengubah tanggal?</h3>
+      <p>
+        Bisa. Sesi membawa selisih tetapnya sendiri, terlihat oleh proses itu sementara zona sistem tetap
+        persis di tempatnya. Ini bagian yang dilewati kebanyakan alat, dan inilah cara mereproduksi bug
+        yang hanya muncul pada pelanggan yang berjarak lima zona waktu.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bagaimana dengan waktu musim panas?</h3>
+      <p>
+        Zona sesi adalah <strong>selisih tetap tanpa waktu musim panas</strong>. Sesi yang disetel ke
+        Polandia tetap pada selisih yang Anda pilih, entah jamnya menunjukkan Maret atau Juli, sehingga
+        eksekusi yang melintasi transisi nyata menyimpang satu jam dari apa yang sebenarnya akan
+        ditunjukkan zona itu.
+      </p>
+      <p>
+        Memaksa aplikasi melewati transisi waktu musim panas karenanya belum dilakukan alat ini, dan
+        kalkulator tanggal menyatakannya, bukan menebak.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Mengapa antivirus saya menandainya?</h3>
+      <p>
+        Karena menyuntikkan pustaka ke proses lain adalah teknik Windows yang sah dan terdokumentasi, yang
+        juga dipakai malware. Ini positif palsu yang dipicu oleh tekniknya, bukan oleh apa pun yang
+        dilakukan alat ini pada mesin Anda. Pustaka yang disuntikkan adalah <code>chrono_hook.dll</code>,
+        dibangun dari sumber publik di bawah GPL-3.0, dan Anda dapat membangunnya ulang sendiri. Mode
+        Chromium dan Electron tidak menyuntik sama sekali.
+      </p>
+      <p>
+        <a href="/id/unduh/">Halaman unduhan</a> menyebutkan apa yang harus dilakukan.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah ini cara untuk memperpanjang masa percobaan atau menyiasati lisensi?</h3>
+      <p>
+        Tidak, dan alat ini tidak dibuat untuk itu. Chrono Mock untuk menguji perangkat lunak yang menjadi
+        tanggung jawab Anda - masa berlaku lisensi Anda sendiri, logika perpanjangan Anda sendiri, laporan
+        akhir bulan Anda sendiri. Tidak ada contoh, skenario, atau halaman di sini yang akan pernah
+        mendemonstrasikan perpanjangan masa percobaan milik orang lain.
+      </p>
+      <p>
+        Perangkat lunak dengan perlindungan lisensi sebenarnya adalah kasus yang paling mungkin
+        mengalahkan alat ini: kode anti-tamper sering membaca waktu lewat jalur yang sengaja dipilih agar
+        sulit dicegat, dan memundurkan jam adalah kondisi yang ditulis untuk dideteksi perangkat lunak
+        semacam itu. Fitur yang mengarah ke sisi sebaliknya direncanakan - mode yang menjalankan
+        serangkaian manipulasi waktu terhadap aplikasi <em>Anda sendiri</em> dan melaporkan mana yang
+        tertangkap oleh perlindungan Anda.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bisakah saya memakainya dalam integrasi berkelanjutan?</h3>
+      <p>
+        Bisa. Build baris perintah adalah unduhan terpisah sekitar 1,6 MB tanpa runtime yang perlu
+        dipasang. Setiap perintah berbicara <code>--json</code> dan keluar dengan kode yang dapat dijadikan
+        percabangan oleh pipeline, dan sesi dapat menulis buktinya ke file.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apa bedanya dengan RunAsDate?</h3>
+      <p>
+        RunAsDate mencegat lima fungsi jam dinding dan melakukannya dengan baik. Alat ini mencakup
+        {{channel_count}} kanal waktu, dapat mempercepat jam, memberi proses zona waktunya sendiri,
+        mengikuti proses anak, dan setelahnya memberi tahu kanal mana yang benar-benar tercakup. Alat ini
+        juga open source, sedangkan RunAsDate adalah freeware tertutup.
+      </p>
+      <p>
+        <a href="/id/alternatif-runasdate/">Perbandingan lengkapnya</a> juga menyebutkan di mana
+        RunAsDate menjadi pilihan yang lebih baik.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah ini libfaketime untuk Windows?</h3>
+      <p>
+        Secara semangat, ya - gagasan yang sama untuk menggeser waktu bagi satu program, bukan bagi mesin.
+        Dalam praktiknya ia implementasi yang berbeda, karena
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> bergantung pada
+        <code>LD_PRELOAD</code>, yang tidak ada di Windows. Ada
+        <a href="/id/libfaketime-windows/">halaman khusus tentang hal itu</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Apakah gratis, dan apakah mengirim sesuatu ke mana pun?</h3>
+      <p>
+        Gratis dan open source di bawah GPL-3.0. Tanpa akun, tanpa telemetri, dan sama sekali tidak
+        berkomunikasi dengan internet - seluruh alat berfungsi dengan kabel jaringan dicabut.
+      </p>
+      <p>
+        Jendelanya memang memiliki satu kontrol yang mengarah ke luar, jadi layak disebutkan agar Anda
+        tidak perlu menemukannya sendiri: tombol <strong>Donate</strong> di bilah judul. Menekannya
+        menyerahkan sebuah alamat ke peramban Anda, dan peramban Andalah yang terhubung. Chrono Mock tidak
+        membuka koneksi pada kedua kasus, dan tidak ada yang diukurnya tentang aplikasi Anda yang dikirim
+        ke mana pun.
+      </p>
+    </div>
+
+  </section>
+
+</div>

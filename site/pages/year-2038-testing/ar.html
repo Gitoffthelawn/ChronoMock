@@ -1,0 +1,102 @@
+<!-- مشكلة عام 2038 على Windows، العربية. البنية والأصناف والرموز كما في en.html. التواريخ والأرقام ذات الإشارة داخل النص تُلفّ بـ span dir="ltr". -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>اختبار مشكلة عام 2038 على Windows</h1>
+    <p class="sub">
+      في <span dir="ltr">03:14:07 UTC</span> يوم 19 يناير 2038 ينفد عدّاد ذو إشارة بحجم 32 بتًّا لثوانٍ منذ 1970. وساعة Windows تتابع بعد ذلك - أما البرامج وصيغ الملفات والمكتبات التي احتفظت بنسختها الخاصة ذات 32 بتًّا فلا. وإليك كيف تجدها في تطبيق واحد، من دون ضبط تاريخ الجهاز كله على 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>أين قد يختبئ الخطأ بعدُ</h2>
+    <div class="prose">
+      <p>
+        ساعة Windows عدّاد بحجم 64 بتًّا لخطوات مدتها 100 نانوثانية منذ 1601، فليس فيها 2038. ونوع <code>time_t</code> في مكتبة تشغيل C بحجم 64 بتًّا افتراضيًا منذ Visual Studio 2005. فما يبقى هو الشيفرة التي اختارت وقتًا بحجم 32 بتًّا أو فقدت نصفه الأعلى في الطريق:
+      </p>
+      <ul>
+        <li><strong>إصدارات 32 بتًّا مُصرَّفة بـ <code>_USE_32BIT_TIME_T</code></strong>، أو التي تستدعي <code>_time32</code> و<code>__time32_t</code> مباشرة. وتحذّر وثائق Microsoft نفسها من أن تطبيقًا كهذا قد يفشل بعد 18 يناير 2038.</li>
+        <li><strong>وقت بحجم 64 بتًّا مخزَّن في <code>int</code> أو <code>long</code>.</strong> وفي Windows كلاهما بحجم 32 بتًّا، حتى في برنامج 64 بتًّا.</li>
+        <li><strong>مكتبات وصيغ ملفات وبروتوكولات شبكية وأعمدة قواعد بيانات</strong> تحفظ الثواني منذ 1970 في 32 بتًّا.</li>
+        <li><strong>شيفرة تضيف سنوات.</strong> فترخيص لعشرين عامًا، أو جدول سداد لثلاثين عامًا، أو شهادة سارية حتى 2040، يعبر هذا الحد قبل وصول 2038 بزمن طويل.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>عبور الحد في تطبيق واحد</h2>
+    <div class="prose">
+      <p>
+        الحد معرَّف بالتوقيت العالمي المنسّق، و<code>--at</code> يُقرأ بمنطقة الجلسة، فثبّت المنطقة على UTC حين تكتب اللحظة بنفسك. أما السيناريو الجاهز فيحمل لحظة UTC مطلقة ولا يحتاج إلى منطقة.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># السيناريو: تبدأ الجلسة عند الحد نفسه، 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># ابدأ قبله بسبع عشرة ثانية ودع التطبيق يعبره مباشرة</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># ابدأ أبكر وشغّل بسرعة x60 - يصل الحد بعد نحو 14 ثانية</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># أو شغّل بتاريخ اليوم واقفز فوقه والتطبيق مفتوح</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        بعد الحد بثانية يصبح العدّاد ذو الإشارة بحجم 32 بتًّا <span dir="ltr">-2,147,483,648</span>، ويُقرأ <strong>13 ديسمبر 1901، <span dir="ltr">20:45:52 UTC</span></strong>. تاريخ في 1901، أو رقم سالب، أو عنصر ينتهي فجأة أو يُرتَّب أولًا، أو استثناء يُطلق من شيفرة التواريخ - هذا ما يبدو عليه الفيض من الخارج.
+      </p>
+      <p>
+        ضبط الساعة الحقيقية على 2038 هو الطريق الآخر إلى هنا، وهو الذي يكسر أكثر ما يكسر.
+        <a href="/ar/change-system-date-testing/">ماذا يحدث حين تغيّر تاريخ النظام &larr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>التحقق من أنه وصل إلى البرنامج</h2>
+    <div class="prose">
+      <p>
+        اختبار ينجح لأن البرنامج لم يرَ 2038 قط أسوأ من عدم وجود اختبار. وتقرير نهاية كل جلسة يقول أي ساعة قرأها البرنامج وكم مرة:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        يؤكد سطر <strong>session</strong> أن ساعة التطبيق تجاوزت الحد. والحكم <em>works</em> مع أعداد الاستدعاءات يعني أن البرنامج قرأ الساعة وسُلّم تاريخ 2038؛ أما <em>works partially</em> فيسمّي القنوات التي قرأها بطريق آخر.
+        <a href="/ar/time-source-audit/">ماذا تعني الأحكام &larr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>ما لا يثبته الاختبار الناجح</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>الذي تحرك هو ساعة البرنامج وحدها.</strong> فالتاريخ الذي يحمّله من ملف أو قاعدة بيانات هو ما خُزّن هناك، ولذا فتاريخ من 2038 داخل البيانات اختبار منفصل. وتحسب لك حاسبة التواريخ مثل هذه التواريخ: <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>الخادم الذي يتحدث إليه البرنامج يبقى على التاريخ الحقيقي.</strong> وحدّ 32 بتًّا من ذلك الجانب خارج المتناول، وتحذّر الجلسة حين ترى البرنامج يفتح اتصالًا شبكيًا.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>جرّبه</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ar/download/">نزّل نسخة Windows</a>
+      <a class="btn btn-ghost" href="/ar/date-test-scenarios/">تواريخ أخرى للاختبار</a>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,151 @@
+<!-- Datums die het testen waard zijn, Nederlands. Structuur, klassen en tokens zoals in en.html. Namen en
+     uitleg volgen presets/*.json; het aantal is een token. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Datums die het testen waard zijn</h1>
+    <p class="sub">
+      Software gaat niet stuk op gewone dinsdagen. Ze gaat stuk op de laatste dag van het kwartaal, op
+      29 februari, op het moment dat een jaar omslaat, en een seconde nadat een licentie is verlopen. Dit
+      zijn de datums die die bugs vinden - <strong>{{preset_count}}</strong> ervan worden meegeleverd als
+      benoemde scenario's.
+    </p>
+  </section>
+
+  <section>
+    <h2>Periodegrenzen</h2>
+    <div class="prose">
+      <p>
+        Alles wat een periode afsluit, een document per jaar nummert of oploopt tot een stopdatum, maakt
+        hier als eerste fouten.
+      </p>
+      <ul>
+        <li><strong>Laatste dag van de maand</strong> - gedragen maandafsluiting en periodetoerekening zich
+          goed op de laatste dag van de maand?</li>
+        <li><strong>Laatste dag van het kwartaal</strong> - gedragen kwartaalafsluiting en rapportage zich
+          goed op de laatste dag van het kwartaal?</li>
+        <li><strong>Laatste dag van het boekjaar</strong> - sluit de app het boekjaar op de juiste dag
+          af, de dag voordat het nieuwe boekjaar begint?</li>
+        <li><strong>Jaarwisseling, live</strong> - verwerken documentnummering, jaar in de naam en
+          jaarrapportage de omslag <em>terwijl die gebeurt</em>, in plaats van achteraf opnieuw te
+          worden gestart?</li>
+      </ul>
+      <p>
+        De laatste is degene die mensen meestal helemaal niet kunnen testen, omdat de klok dan om
+        middernacht van 31 december moet passeren terwijl de applicatie draait. Met een versnelde klok is
+        dat een klus van tien seconden.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kalender- en weergavegrenzen</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29 februari</strong> - de schrikkeldag die maar eens in de vier jaar bestaat en die
+          verrassend veel validatiecode botweg afwijst.</li>
+        <li><strong>Unix-epoch nul</strong> - behandelt de app 1 januari 1970 als een echte datum, of als
+          een lege waarde die ze nooit had mogen opslaan?</li>
+        <li><strong>De grens van 2038</strong> - het moment waarop een 32-bits <code>time_t</code> met
+          teken opraakt, op <code>2038-01-19T03:14:07Z</code>. Een seconde later loopt de teller over naar
+          1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Licenties, proefperiodes en installatie</h2>
+    <div class="prose">
+      <p>
+        Deze zijn bedoeld om <em>je eigen</em> licentiebeheer te testen, het geval waarvoor ze geschreven
+        zijn.
+      </p>
+      <ul>
+        <li><strong>Laatste dag van de proefperiode</strong> - werkt de app nog op het allerlaatste moment
+          van de proefperiode?</li>
+        <li><strong>Eerste dag na het verlopen van de proefperiode</strong> - weigert ze de toegang op het
+          moment dat de proefperiode eindigt, en hoe? Met een verstandige melding of met een stacktrace?</li>
+        <li><strong>Licentie een jaar geleden verlopen</strong> - gaat ze om met een licentie die lang
+          geleden verliep, niet alleen gisteren?</li>
+        <li><strong>Datum vóór installatie</strong> - gedraagt ze zich als de klok vóór haar eigen
+          installatiedatum is gezet? Deze leest de bestandsdatum van het doel zelf, dus heeft geen
+          parameter nodig.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bedrijfsregels en klokgedrag</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Betaling verschuldigd, +N werkdagen</strong> - valt een betaling die over N werkdagen
+          verschuldigd is op de juiste dag, met overslaan van weekenden en de feestdagen van het juiste
+          land? Het enige scenario dat een kalender nodig heeft, en het antwoord verschilt per markt.</li>
+        <li><strong>Grens van de meerderjarigheid</strong> - laat de app iemand precies op de grens toe en
+          weigert ze iemand die een dag tekortkomt?</li>
+        <li><strong>Klokafwijking, +90 s</strong> - redt de app het als haar klok negentig seconden voorloopt
+          op de echte tijd? Dit is het geval dat tijdgebaseerde eenmalige wachtwoorden en tokenvalidatie
+          breekt.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Er een gebruiken</h2>
+    <div class="prose">
+      <p>
+        Een scenario is een benoemde datumexpressie. De calculator rekent uit wat ze betekent, en de
+        vervanging draait een applicatie erop - dezelfde naam op beide plekken.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Welke datum is het, en wat test die datum?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Een applicatie erop draaien</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># De proefscenario's nemen de startdatum uit de bestandsdatum van het doel zelf</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        In het venster zijn het chips boven het datumveld - een klik vult het in. Elk draagt zijn eigen
+        zin die zegt wat het opspoort, het onderdeel dat een online datumcalculator je niet kan geven.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Het instelscherm van Chrono Mock met het gedeelte Scenarios geopend: een zoekveld boven de lijst, dan elke kant-en-klare datum met de vraag die hij beantwoordt - de grens van 2038, 29 februari, een klok die negentig seconden voorloopt, de laatste dag van de maand - en onder de lijst een regel die zegt dat er nog drie een waarde nodig hebben die jij kiest. De voettekst leest het moment in gewone taal terug boven de knop Start.">
+      <figcaption>Elk scenario draagt de vraag die het beantwoordt, en niet alleen een datum. De drie die
+        een waarde nodig hebben die jij kiest, worden onder de lijst genoemd in plaats van verborgen.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Wat hier niet staat</h2>
+    <div class="prose">
+      <p>
+        <strong>De zomertijdovergangen.</strong> Een applicatie door de grens van de overgang naar of van
+        zomertijd sturen is een werkelijk nuttige test en ontbreekt <em>bewust</em>, omdat de
+        sessietijdzone een vaste offset zonder zomertijd is - er is nog geen overgang om te simuleren. Een
+        scenario meeleveren dat stilzwijgend niets deed, zou erger zijn dan het niet meeleveren.
+      </p>
+      <p>
+        Het komt terug met een model van de tijdzoneregels.
+        <a href="/nl/tijdzones-testen/">Wat de tijdzone wel en niet doet &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/datumcalculator/">De calculator</a>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,126 @@
+<!-- Stránka ke stažení, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Stáhnout Chrono Mock</h1>
+    <p class="sub">
+      Dvě sestavení téhož jádra: okno pro zkoumání, příkazový řádek pro CI.
+      Rozbalte kterékoli kamkoli a spusťte - není tu instalátor, nic se nezapisuje do registru
+      a nejsou potřeba práva správce.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Získat nejnovější vydání</a>
+      <a class="btn btn-ghost" href="{{repo}}">Zobrazit kód na GitHubu</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Soubor</th><th>Co to je</th><th>Velikost</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>Desktopová aplikace, samostatná - není třeba instalovat .NET</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Jen nástroj pro příkazový řádek, pro CI a skripty</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co potřebujete</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 nebo Windows 11.</strong> Sestavení pro macOS ani Linux neexistuje -
+          na Linuxu to dobře pokrývá už <a href="https://github.com/wolfcw/libfaketime">libfaketime</a>.</li>
+        <li><strong>Nic dalšího.</strong> Desktopové sestavení nese vlastní běhové prostředí a sestavení
+          pro příkazový řádek nenese vůbec nic.</li>
+        <li><strong>Podporovány jsou 32bitové i 64bitové aplikace.</strong> Balíček obsahuje obě a vybere
+          tu, která odpovídá aplikaci, na kterou ho namíříte.</li>
+      </ul>
+      <p>
+        ARM64 je do verze 1.0 mimo rozsah a zabalené aplikace z Obchodu (UWP a MSIX) nejsou podporovány -
+        jejich model spouštění to neumožňuje.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jak ho spustit</h2>
+    <div class="prose">
+      <p>
+        Rozbalte a spusťte <code>ChronoMock.exe</code> pro okno nebo
+        <code>chrono.exe</code> pro příkazový řádek. První sezení jsou tři
+        rozhodnutí: která aplikace, který okamžik a jak rychle mají hodiny běžet.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Spusťte aplikaci, jako by byla poslední vteřina roku 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Totéž, s hodinami běžícími den za minutu</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Dvě věci, které si přečtěte jako první</h2>
+
+    <div class="note warning">
+      <p><strong>Zálohujte datový adresář aplikace před prvním sezením s datem v budoucnosti.</strong></p>
+      <p>
+        Aplikace běžící v roce 2028 zapisuje data z roku 2028 všude, kam ukládá data: do databáze, do
+        konfigurace, do mezipaměti, do souboru licence. Tyto hodnoty tam zůstanou i po návratu ke
+        skutečnému času. U softwaru s ochranou licence to může být trvalé -
+        <em>„clock rollback detected, licence invalidated“</em> je běžný vzorec v oboru a udělá přesně
+        to, k čemu byl navržen.
+      </p>
+      <p>
+        Chrono Mock po sobě uklízí. Nemůže uklidit po aplikaci, kterou jste testovali.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Váš antivirus ho může označit a je to očekávané.</strong></p>
+      <p>
+        Čas se posouvá vložením malé knihovny do cílového procesu. To je legitimní, zdokumentovaná
+        technika Windows - a zároveň ji používá malware, takže Microsoft Defender a další mohou
+        injektovanou knihovnu označit, nebo injektáž rovnou zablokovat. Je to falešný poplach
+        vyvolaný samotnou technikou.
+      </p>
+      <p>
+        Pokud se sezení odmítne spustit a Defender hlásí hrozbu, vyloučte knihovnu, ne složku: ve
+        Zabezpečení Windows zvolte <strong>File</strong> a zadejte úplnou cestu k
+        <code>chrono_hook.dll</code>. Vyloučení složky by zastavilo skenování čehokoli právě v adresáři,
+        ze kterého nástroj injektuje. Nebo ho spusťte na počítači, kde to smíte. Injektovaná knihovna se
+        sestavuje z kódu v tomto repozitáři pod GPL-3.0 - můžete si ji sestavit sami. Režim Chromium a
+        Electron neinjektuje vůbec a není dotčen.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co po sobě zanechává</h2>
+    <div class="prose">
+      <p>
+        Nic ve vašem systému: žádné trvalé hooky, žádné záznamy v registru a nic mimo vlastní složku,
+        kromě tří věcí, které vám pojmenuje - historie sezení a diagnostický log, které se přesunou do
+        <code>%LOCALAPPDATA%\ChronoMock\</code>, když do vlastní složky nástroje nelze zapisovat, a u
+        cíle Electron nebo Chromium jednorázový profil prohlížeče v <code>%TEMP%</code>, který se po
+        skončení sezení smaže a v souhrnu sezení se ohlásí, pokud to nešlo.
+      </p>
+      <p>
+        Nikdy nekomunikuje s internetem, nevede žádný účet a neposílá telemetrii.
+      </p>
+    </div>
+  </section>
+
+</div>

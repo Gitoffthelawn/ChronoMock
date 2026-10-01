@@ -1,0 +1,139 @@
+<!-- Srovnání s RunAsDate, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Alternativa k RunAsDate, s tím, co chybělo</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> je už léta odpovědí na
+      <em>„spusť tento program v jiném datu na Windows“</em> a je to dobrá odpověď. Tato stránka je o
+      tom, v čem se oba liší a kdy je RunAsDate stále lepší volba.
+    </p>
+  </section>
+
+  <section>
+    <h2>Vedle sebe</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Spustí aplikaci s falešným datem</td><td class="y">ano</td><td class="y">ano</td></tr>
+          <tr><td>Nechá systémové hodiny na pokoji</td><td class="y">ano</td><td class="y">ano</td></tr>
+          <tr><td>Zachycené časové funkce</td><td class="n">5</td><td class="y">{{channel_count}} kanálů</td></tr>
+          <tr><td>Hodiny rychlejší než skutečný čas</td><td class="n">nenabízí</td><td class="y">libovolný celočíselný násobitel</td></tr>
+          <tr><td>Zastavení hodin</td><td class="n">nenabízí</td><td class="y">ano</td></tr>
+          <tr><td>Skok, zatímco aplikace běží</td><td class="n">nenabízí</td><td class="y">dopředu i zpět</td></tr>
+          <tr><td>Časové pásmo jen pro tento proces</td><td class="n">nezdokumentováno</td><td class="y">ano, pevný posun</td></tr>
+          <tr><td>Podřízené procesy dědí sezení</td><td class="n">nezdokumentováno</td><td class="y">ano</td></tr>
+          <tr><td>Řekne vám, jestli to zabralo</td><td class="n">ne</td><td class="y">verdikt, po kanálech, s počtem volání</td></tr>
+          <tr><td>Aplikace Electron a Chromium</td><td class="n">nenabízí</td><td class="y">samostatný mechanismus</td></tr>
+          <tr><td>Příkazový řádek pro CI</td><td class="y">ano</td><td class="y">ano, s návratovými kódy a JSON</td></tr>
+          <tr><td>Zdrojový kód</td><td class="n">freeware, uzavřený</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Velikost</td><td class="y">pod 40 KB</td><td class="n">1,6 MB CLI, 69 MB s oknem</td></tr>
+          <tr><td>Starší verze Windows</td><td class="y">až po Windows 2000</td><td class="n">Windows 10 a 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>„Nezdokumentováno“</em> znamená, že funkce není na stránce RunAsDate zmíněna.
+      Není to tvrzení, že ji nástroj nemá.
+    </p>
+  </section>
+
+  <section>
+    <h2>Rozdíl, na kterém záleží nejvíc</h2>
+    <div class="prose">
+      <p>
+        Není to počet kanálů. Je to to, že RunAsDate vám ve vlastní dokumentaci upřímně říká, že
+        <strong>„neovlivní aplikace, které berou aktuální datum a čas z jiného zdroje“</strong> - a pak
+        vás nechá, ať si zjistíte, jestli je ta vaše jednou z nich.
+      </p>
+      <p>
+        Chrono Mock tutéž větu bere jako něco, co se má <strong>změřit</strong>. Každé sezení končí
+        verdiktem, kanály, které aplikace skutečně četla, s počtem u každého, kanály, které se minuly, a
+        varováním, když byla aplikace spatřena při otevírání síťového spojení dřív, než se vůbec zeptala
+        hodin.
+      </p>
+      <p>
+        Aplikace, která vypadá posunutá v čase, ale není, je horší než ta, která se nikdy nespustila -
+        vyrábí prošlý test, který nic neznamená.
+        <a href="/cs/audit-zdroju-casu/">Jak funguje audit &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pět funkcí, nebo {{channel_count}} kanálů</h2>
+    <div class="prose">
+      <p>
+        RunAsDate zachycuje <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code> a
+        <code>GetSystemTimePreciseAsFileTime</code>. Pro velkou řadu aplikací to opravdu stačí, protože
+        právě tam se čtou kalendářní hodiny.
+      </p>
+      <p>
+        Zbytek povrchu je tam, kde se kód závislý na datu rád skrývá:
+      </p>
+      <ul>
+        <li><strong>časové pásmo</strong> - čtyři funkce plus celá rodina, která převádí mezi pásmy,
+          a tak končí sestava ve špatný den</li>
+        <li><strong>osa uplynulého času</strong> - počty ticků a nezkreslený čas přerušení, což je to, co
+          obvykle měří odpočet zkušební doby</li>
+        <li><strong>uspání a čekání</strong>, aby zpoždění bylo zpožděním na hodinách sezení, ne na
+          skutečných</li>
+        <li><strong>časovače</strong> - waitable, okenní, thread-pool a multimediální</li>
+        <li><strong>vytváření procesů</strong>, aby podřízené procesy instalátoru běžely ve stejném
+          sezení, ne v dnešním dni</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kdy je lepší volba RunAsDate</h2>
+    <div class="prose">
+      <p>Opravdu, a nezřídka:</p>
+      <ul>
+        <li><strong>Potřebujete jedno datum, běžnou rychlostí, hned teď.</strong> RunAsDate má pod
+          40 KB, nemá okno, které by se bylo třeba učit, a přesně tohle dělá už mnoho let.</li>
+        <li><strong>Jste na starších Windows.</strong> RunAsDate sahá až k Windows 2000. Tento nástroj
+          cílí na Windows 10 a 11 a na starších není testován.</li>
+        <li><strong>Záleží na velikosti.</strong> 40 KB oproti 1,6 MB pro příkazový řádek, nebo 69 MB
+          s oknem, není těsné srovnání.</li>
+        <li><strong>Nechcete verdikt.</strong> Měření pokrytí znamená číst výsledek. Pokud je test
+          na jedno použití, je to režie, o kterou jste nežádali.</li>
+      </ul>
+      <p>
+        Oba také mohou koexistovat. Nic tu vám nebrání ponechat si RunAsDate pro rychlý případ.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>K čemu není ani jeden z nich</h2>
+    <div class="prose">
+      <p>
+        Oba nástroje se objevují ve vyhledávání o prodlužování zkušebních dob. <strong>Tento k tomu
+        není určen</strong> a žádný příklad, preset ani stránka tu to nikdy nebude předvádět. Chrono Mock
+        slouží k testování softwaru, za který odpovídáte - vaše vlastní vypršení licence, vaše vlastní
+        logika obnovení, vaše vlastní měsíční uzávěrka.
+      </p>
+      <p>
+        Je to také případ, který nejspíš nebude fungovat. Ochrana licence běžně čte čas cestami
+        zvolenými tak, aby se těžko zachytávaly - sdílená datová stránka v uživatelském režimu, přímá
+        systémová volání, server - a posun hodin zpět je podmínka, kterou je takový kód napsán
+        detekovat. Audit vám řekne, že to nezabralo, což je upřímná odpověď, ne užitečná.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/faq/">Nejdřív si přečtěte FAQ</a>
+    </div>
+  </section>
+
+</div>

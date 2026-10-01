@@ -20,6 +20,126 @@
       "link_text": "Audyt",
       "title": "Skąd wiadomo, że fałszywa data dotarła do aplikacji",
       "description": "Każda sesja kończy się werdyktem, listą kanałów czasu naprawdę czytanych przez aplikację z liczbą wywołań, listą pominiętych i ostrzeżeniami. Cicha porażka to jedyny odrzucany wynik."
+    },
+    "de": {
+      "slug": "zeitquellen-pruefung",
+      "link_text": "Die Prüfung",
+      "title": "So erkennen Sie, ob das gefälschte Datum Ihre App erreicht hat",
+      "description": "Jede Sitzung endet mit einem Urteil, den tatsächlich gelesenen Zeitkanälen samt Aufrufzahlen, den verfehlten Kanälen und Warnungen. Ein stiller Fehlschlag ist das einzige ausgeschlossene Ergebnis."
+    },
+    "fr": {
+      "slug": "audit-des-sources-de-temps",
+      "link_text": "L'audit",
+      "title": "Savoir si la fausse date a vraiment atteint votre appli",
+      "description": "Chaque session se termine par un verdict, les canaux de temps réellement lus avec leur nombre d'appels, ceux qui ont été manqués, et des avertissements. Un échec silencieux est le seul résultat refusé."
+    },
+    "es": {
+      "slug": "auditoria-de-fuentes-de-tiempo",
+      "link_text": "La auditoría",
+      "title": "Cómo saber si la fecha falsa llegó de verdad a tu app",
+      "description": "Cada sesión termina con un veredicto, los canales de tiempo que la aplicación leyó con su número de llamadas, los que se pasaron por alto y avisos. Un fallo silencioso es el único resultado que se rechaza."
+    },
+    "pt-br": {
+      "slug": "auditoria-das-fontes-de-tempo",
+      "link_text": "A auditoria",
+      "title": "Como saber se a data falsa realmente chegou ao seu app",
+      "description": "Toda sessão termina com um veredito, os canais de tempo que o aplicativo leu com a contagem de chamadas, os que foram perdidos e avisos. Uma falha silenciosa é o único resultado recusado."
+    },
+    "it": {
+      "slug": "audit-delle-fonti-di-tempo",
+      "link_text": "L'audit",
+      "title": "Come sapere se la data falsa è davvero arrivata alla tua app",
+      "description": "Ogni sessione termina con un verdetto, i canali di tempo realmente letti con il conteggio delle chiamate, quelli mancati e gli avvisi. Un fallimento silenzioso è l'unico esito rifiutato."
+    },
+    "nl": {
+      "slug": "tijdbronnen-audit",
+      "link_text": "De audit",
+      "title": "Zo weet je of de valse datum je app echt bereikte",
+      "description": "Elke sessie eindigt met een oordeel, de tijdkanalen die werkelijk zijn gelezen met aantal aanroepen, de gemiste en waarschuwingen. Een stil falen is de enige uitkomst die wordt geweigerd."
+    },
+    "ro": {
+      "slug": "auditul-surselor-de-timp",
+      "link_text": "Auditul",
+      "title": "Cum afli dacă data falsă a ajuns cu adevărat la aplicație",
+      "description": "Fiecare sesiune se încheie cu un verdict, canalele de timp citite efectiv, cu numărul de apeluri, cele ratate și avertismentele. Un eșec tăcut este singurul rezultat care nu este acceptat."
+    },
+    "cs": {
+      "slug": "audit-zdroju-casu",
+      "link_text": "Audit",
+      "title": "Jak poznáte, že falešné datum aplikaci opravdu dosáhlo",
+      "description": "Každé sezení končí verdiktem, skutečně čtenými časovými kanály s počtem volání, minutými kanály a varováními. Tiché selhání je jediný výsledek, který se nepřipouští."
+    },
+    "tr": {
+      "slug": "zaman-kaynagi-denetimi",
+      "link_text": "Denetim",
+      "title": "Sahte tarihin uygulamaya gerçekten ulaştığını nasıl anlarsınız",
+      "description": "Her oturum bir kararla, gerçekten okunan zaman kanallarıyla ve çağrı sayılarıyla, kaçırılanlarla ve uyarılarla biter. Sessiz başarısızlık, kabul edilmeyen tek sonuçtur."
+    },
+    "id": {
+      "slug": "audit-sumber-waktu",
+      "link_text": "Audit",
+      "title": "Cara tahu apakah tanggal palsu benar-benar sampai ke aplikasi",
+      "description": "Setiap sesi berakhir dengan putusan, kanal waktu yang benar-benar dibaca beserta jumlah panggilan, yang terlewat, dan peringatan. Kegagalan diam-diam adalah satu-satunya hasil yang ditolak."
+    },
+    "vi": {
+      "slug": "kiem-toan-nguon-thoi-gian",
+      "link_text": "Kiểm toán",
+      "title": "Làm sao biết ngày giả có thực sự đến được ứng dụng",
+      "description": "Mỗi phiên kết thúc bằng một kết luận, các kênh thời gian thực sự đã đọc kèm số lần gọi, các kênh bị bỏ sót và cảnh báo. Thất bại thầm lặng là kết quả duy nhất không được chấp nhận."
+    },
+    "ru": {
+      "slug": "time-source-audit",
+      "link_text": "Аудит",
+      "title": "Как понять, что поддельная дата дошла до приложения",
+      "description": "Каждая сессия заканчивается вердиктом, реально прочитанными каналами времени со счётчиками вызовов, упущенными каналами и предупреждениями. Тихий сбой — единственный недопустимый исход."
+    },
+    "uk": {
+      "slug": "time-source-audit",
+      "link_text": "Аудит",
+      "title": "Як зрозуміти, що підроблена дата дійшла до застосунку",
+      "description": "Кожна сесія закінчується вердиктом, реально прочитаними каналами часу з лічильниками викликів, пропущеними каналами й попередженнями. Тихий збій — єдиний неприпустимий наслідок."
+    },
+    "ja": {
+      "slug": "time-source-audit",
+      "link_text": "監査",
+      "title": "偽の日付が本当にアプリに届いたかを知る方法",
+      "description": "すべてのセッションは、判定、実際に読まれた時刻チャネルと呼び出し回数、取りこぼし、警告で終わります。黙って失敗することだけは許されません。"
+    },
+    "ko": {
+      "slug": "time-source-audit",
+      "link_text": "감사",
+      "title": "가짜 날짜가 앱에 실제로 닿았는지 아는 방법",
+      "description": "모든 세션은 판정, 실제로 읽은 시간 채널과 호출 횟수, 놓친 채널, 경고로 끝납니다. 조용한 실패만은 허용되지 않는 유일한 결과입니다."
+    },
+    "zh-hans": {
+      "slug": "time-source-audit",
+      "link_text": "审计",
+      "title": "如何知道伪造的日期真的作用到了应用",
+      "description": "每次会话都以判定、实际读取的时间通道及调用次数、被遗漏的通道和警告结束。唯一不允许的结果是悄无声息的失败。"
+    },
+    "zh-hant": {
+      "slug": "time-source-audit",
+      "link_text": "稽核",
+      "title": "如何知道偽造的日期真的作用到了應用程式",
+      "description": "每次工作階段都以判定、實際讀取的時間通道及呼叫次數、被遺漏的通道與警告結束。唯一不允許的結果是悄無聲息的失敗。"
+    },
+    "ar": {
+      "slug": "time-source-audit",
+      "link_text": "التدقيق",
+      "title": "كيف تعرف أن التاريخ المزيّف وصل إلى التطبيق فعلًا",
+      "description": "كل جلسة تنتهي بحكم، وبقنوات الوقت التي قُرئت مع عدد الاستدعاءات، والقنوات الفائتة، والتحذيرات. والنتيجة الوحيدة غير المسموح بها هي الإخفاق الصامت."
+    },
+    "hi": {
+      "slug": "time-source-audit",
+      "link_text": "ऑडिट",
+      "title": "कैसे जानें कि नक़ली तारीख़ ऐप तक सचमुच पहुँची",
+      "description": "हर सत्र एक निर्णय, पढ़े गए समय चैनल और कॉल-गिनती, छूटे चैनल और चेतावनियों के साथ ख़त्म होता है। एकमात्र नतीजा जो नहीं होने दिया जाता वह चुपचाप विफल होना है।"
+    },
+    "th": {
+      "slug": "time-source-audit",
+      "link_text": "การตรวจสอบ",
+      "title": "จะรู้ได้อย่างไรว่าวันที่ปลอมไปถึงแอปจริง",
+      "description": "ทุกเซสชันจบด้วยผลสรุป ช่องทางเวลาที่อ่านจริงพร้อมจำนวนครั้ง ช่องทางที่ตกหล่น และคำเตือน ผลลัพธ์เดียวที่ไม่อนุญาตคือการล้มเหลวอย่างเงียบ ๆ"
     }
   }
 }

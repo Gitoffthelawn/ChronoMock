@@ -1,5 +1,5 @@
 {
-  "//": "GitHub Pages serves one 404 document for the whole site, including addresses under /pl/, so this page cannot be language-specific the way the others are. It is declared in English and carries a short Polish line in its own body. The generator treats it specially: it lands at /404.html, it is marked noindex, it carries no canonical and no hreflang, and it never appears in the sitemap.",
+  "//": "GitHub Pages serves one 404 document for the whole site, including addresses under /pl/, so this page cannot be language-specific the way the others are. It is declared in English, says its one sentence in English, and lists every language's home page in that language's own name. The generator treats it specially: it lands at /404.html, it is marked noindex, it carries no canonical and no hreflang, and it never appears in the sitemap.",
 
   "id": "404",
   "order": 999,

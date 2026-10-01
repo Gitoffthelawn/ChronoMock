@@ -18,6 +18,126 @@
       "link_text": "CLI i CI",
       "title": "Testowanie dat w CI - kody wyjścia i wyjście JSON",
       "description": "Wersja konsolowa o rozmiarze 1,6 MB, bez środowiska do instalowania. Kod wyjścia to werdykt pokrycia, a nie kod celu, więc potok może paść na nieudanej podmianie."
+    },
+    "de": {
+      "slug": "cli-und-ci",
+      "link_text": "CLI und CI",
+      "title": "Datumstests in der CI - Exit-Codes und JSON-Ausgabe",
+      "description": "Ein 1,6 MB großer Kommandozeilen-Build ohne Laufzeitumgebung. Der Exit-Code ist das Abdeckungsurteil, nicht der des Zielprogramms - die Pipeline scheitert, wenn die Zeitersetzung nicht gegriffen hat."
+    },
+    "fr": {
+      "slug": "cli-et-ci",
+      "link_text": "CLI et CI",
+      "title": "Tests de dates en CI - codes de sortie et sortie JSON",
+      "description": "Une version en ligne de commande de 1,6 Mo, sans environnement d'exécution. Le code de sortie est le verdict de couverture, pas celui de la cible : le pipeline échoue si la substitution n'a pas pris."
+    },
+    "es": {
+      "slug": "cli-y-ci",
+      "link_text": "CLI y CI",
+      "title": "Pruebas de fechas en CI - códigos de salida y salida JSON",
+      "description": "Una compilación de línea de comandos de 1,6 MB sin entorno de ejecución. El código de salida es el veredicto de cobertura, no el del objetivo: el pipeline falla si la sustitución no tuvo efecto."
+    },
+    "pt-br": {
+      "slug": "cli-e-ci",
+      "link_text": "CLI e CI",
+      "title": "Testes de data em CI - códigos de saída e saída JSON",
+      "description": "Uma versão de linha de comando de 1,6 MB, sem ambiente de execução. O código de saída é o veredito de cobertura, não o do alvo: o pipeline falha se a substituição não pegou."
+    },
+    "it": {
+      "slug": "cli-e-ci",
+      "link_text": "CLI e CI",
+      "title": "Test sulle date in CI - codici di uscita e output JSON",
+      "description": "Una build da riga di comando di 1,6 MB, senza runtime. Il codice di uscita è il verdetto di copertura, non quello del target: la pipeline fallisce se la sostituzione non ha attecchito."
+    },
+    "nl": {
+      "slug": "cli-en-ci",
+      "link_text": "CLI en CI",
+      "title": "Datumtesten in CI - afsluitcodes en JSON-uitvoer",
+      "description": "Een opdrachtregelbuild van 1,6 MB zonder runtime. De afsluitcode is het dekkingsoordeel, niet dat van het doel: de pipeline faalt als de vervanging niet is aangeslagen."
+    },
+    "ro": {
+      "slug": "cli-si-ci",
+      "link_text": "CLI și CI",
+      "title": "Testarea datelor în CI - coduri de ieșire și ieșire JSON",
+      "description": "Un build de linie de comandă de 1,6 MB, fără runtime. Codul de ieșire este verdictul de acoperire, nu cel al țintei: pipeline-ul pică dacă înlocuirea nu a avut efect."
+    },
+    "cs": {
+      "slug": "cli-a-ci",
+      "link_text": "CLI a CI",
+      "title": "Testování dat v CI - návratové kódy a výstup JSON",
+      "description": "Sestavení pro příkazový řádek o velikosti 1,6 MB bez běhového prostředí. Návratový kód je verdikt o pokrytí, ne kód cíle: pipeline selže, pokud náhrada času nezabrala."
+    },
+    "tr": {
+      "slug": "cli-ve-ci",
+      "link_text": "CLI ve CI",
+      "title": "CI’da tarih testi - çıkış kodları ve JSON çıktısı",
+      "description": "Çalışma zamanı gerektirmeyen 1,6 MB’lık bir komut satırı derlemesi. Çıkış kodu hedefin değil kapsama kararıdır: değişiklik tutmadıysa pipeline başarısız olur."
+    },
+    "id": {
+      "slug": "cli-dan-ci",
+      "link_text": "CLI dan CI",
+      "title": "Pengujian tanggal di CI - kode keluar dan keluaran JSON",
+      "description": "Build baris perintah 1,6 MB tanpa runtime. Kode keluarnya adalah putusan cakupan, bukan milik target: pipeline gagal jika penggantian waktu tidak berlaku."
+    },
+    "vi": {
+      "slug": "cli-va-ci",
+      "link_text": "CLI và CI",
+      "title": "Kiểm thử ngày tháng trong CI - mã thoát và đầu ra JSON",
+      "description": "Bản dựng dòng lệnh 1,6 MB không cần runtime. Mã thoát là kết luận về độ bao phủ chứ không phải của mục tiêu: pipeline sẽ lỗi nếu việc thay thế thời gian không có hiệu lực."
+    },
+    "ru": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI и CI",
+      "title": "Тестирование дат в CI — коды завершения и вывод JSON",
+      "description": "Сборка для командной строки на 1,6 МБ без среды выполнения. Код завершения — вердикт о покрытии, а не код цели: конвейер падает, если подмена времени не сработала."
+    },
+    "uk": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI і CI",
+      "title": "Тестування дат у CI — коди завершення й вивід JSON",
+      "description": "Збірка для командного рядка на 1,6 МБ без середовища виконання. Код завершення — вердикт про покриття, а не код цілі: конвеєр падає, якщо підміна часу не спрацювала."
+    },
+    "ja": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI と CI",
+      "title": "CI での日付テスト - 終了コードと JSON 出力",
+      "description": "ランタイム不要の約 1.6 MB のコマンドライン版。終了コードは対象アプリのものではなくカバレッジの判定で、時刻の置き換えが効かなければパイプラインが失敗します。"
+    },
+    "ko": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI와 CI",
+      "title": "CI에서의 날짜 테스트 - 종료 코드와 JSON 출력",
+      "description": "설치할 런타임이 없는 1.6MB 명령줄 빌드. 종료 코드는 대상이 아니라 커버리지 판정이며, 시간 대체가 적용되지 않으면 파이프라인이 실패합니다."
+    },
+    "zh-hans": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI 与 CI",
+      "title": "CI 中的日期测试 - 退出码与 JSON 输出",
+      "description": "仅 1.6 MB 的命令行版本，无需安装运行时。退出码是覆盖情况的判定，而非目标程序的返回值，替换未生效时流水线会失败。"
+    },
+    "zh-hant": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI 與 CI",
+      "title": "CI 中的日期測試 - 結束代碼與 JSON 輸出",
+      "description": "僅 1.6 MB 的命令列版本，無需安裝執行階段。結束代碼是涵蓋情況的判定，而非目標程式的回傳值，替換未生效時管線會失敗。"
+    },
+    "ar": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI وCI",
+      "title": "اختبار التواريخ في CI - رموز الخروج ومخرجات JSON",
+      "description": "نسخة سطر أوامر بحجم 1.6 ميغابايت دون بيئة تشغيل. رمز الخروج هو حكم التغطية لا رمز الهدف، فيفشل خط الأنابيب إن لم يسرِ استبدال الوقت."
+    },
+    "hi": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI और CI",
+      "title": "CI में तारीख़ का परीक्षण - एग्ज़िट कोड और JSON आउटपुट",
+      "description": "1.6 MB का कमांड-लाइन बिल्ड, कोई रनटाइम नहीं। एग्ज़िट कोड टारगेट का नहीं, कवरेज का निर्णय है, इसलिए बदलाव लागू न हो तो पाइपलाइन फ़ेल होती है।"
+    },
+    "th": {
+      "slug": "cli-and-ci",
+      "link_text": "CLI และ CI",
+      "title": "ทดสอบวันที่ใน CI - รหัสออกและเอาต์พุต JSON",
+      "description": "บิลด์บรรทัดคำสั่งขนาด 1.6 MB ไม่ต้องติดตั้งรันไทม์ รหัสออกคือผลสรุปความครอบคลุม ไม่ใช่ค่าของโปรแกรมเป้าหมาย ไปป์ไลน์จึงล้มเมื่อการแทนที่เวลาไม่มีผล"
     }
   }
 }

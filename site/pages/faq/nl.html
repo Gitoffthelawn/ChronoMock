@@ -1,0 +1,202 @@
+<!-- Veelgestelde vragen, Nederlands. Structuur, klassen en tokens zoals in en.html. Beweringen moeten
+     overeenkomen met de ondersteuningsmatrix in README.md - bij verschil geldt de README. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Vragen en antwoorden</h1>
+    <p class="sub">
+      Korte antwoorden, ook op de vragen over wat dit gereedschap niet doet.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Verandert het de klok van mijn computer?</h3>
+      <p>
+        Nee, en dat zal het nooit doen - dat is het hele punt van het gereedschap. De verschoven tijd is
+        zichtbaar voor <strong>één proces en de kinderen die het start</strong>. Je domeinaanmelding, je
+        certificaten, Windows Update en elke andere applicatie zien de hele tijd de echte datum.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Heb ik beheerdersrechten nodig?</h3>
+      <p>
+        Nee. Er is geen installatieprogramma, er wordt niets in het register geschreven en het draait
+        vanuit een map die je op een usb-stick kunt meenemen.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Werkt het met mijn applicatie?</h3>
+      <p>
+        Het eerlijke antwoord is dat geen enkel gereedschap van dit soort dat vooraf kan beloven - dus
+        meet dit het in plaats daarvan. Elke sessie eindigt met een oordeel
+        (<strong>werkt, werkt gedeeltelijk, werkt niet</strong>), de lijst met tijdkanalen die de
+        applicatie werkelijk heeft gelezen met het aantal aanroepen per kanaal, en de lijst met kanalen
+        die niet gedekt waren.
+      </p>
+      <p>
+        Een applicatie kan de klok lezen via een route die niets heeft onderschept - van een server, uit
+        een database, via een runtimelaag. Als dat gebeurt, hoor je het, in plaats van dat je aanneemt dat
+        de test geslaagd is.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Werkt het met .NET-, Java- en Python-applicaties?</h3>
+      <p>
+        Gedeeltelijk, en de verschillen tellen. Alle drie zijn gemarkeerd als <strong>experimenteel</strong>:
+        ze werken op de testdoelen, zijn niet breed getest, en de ingebouwde audit is jouw bron van
+        waarheid, niet deze alinea.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - de wandklok en de sessietijdzone zijn gedekt.
+          <code>Stopwatch</code> blijft op de echte high-resolution teller, tenzij je de schaling ervan
+          inschakelt.</li>
+        <li><strong>Java</strong> - de wandklok, de verstreken tijd en de sessietijdzone zijn gedekt. De
+          zone komt aan als een vaste offset, genoemd als <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> en <code>datetime</code> zijn gedekt.
+          <code>perf_counter</code>, en vanaf Python 3.13 ook <code>monotonic</code>, zitten op de
+          high-resolution teller, tenzij je de schaling inschakelt.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Werkt het met Electron- en Chromium-applicaties?</h3>
+      <p>
+        Ja, via een ander mechanisme. Hun klok leeft in een afgeschermde renderer waar injectie niet bij
+        komt, dus de applicatie wordt gestart met een debugpoort en een schoon wegwerpprofiel, en haar
+        eigen JavaScript-tijd-API's worden op de sessieklok gezet - ook binnen de Web Workers, waar de
+        timer vaak echt zit.
+      </p>
+      <p>
+        Een beperking om te kennen: in deze modus volgt de sessie de tijdzone van de host. Het moment wordt
+        vervalst, de getters voor de lokale tijd niet.
+      </p>
+      <p>
+        <a href="/nl/electron-chromium/">Hoe de Chromium- en Electron-modus werkt</a> - wat het bereikt,
+        wat niet, en waarom de debugpoort het onderdeel is om op te letten.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Kan ik de tijd sneller laten lopen dan de echte tijd?</h3>
+      <p>
+        Ja. Kies een geheel getal als vermenigvuldiger en de klok van de applicatie loopt in die snelheid -
+        <code>x1440</code> maakt van een dag een minuut, dus een proefperiode van 30 dagen verloopt in
+        ongeveer een half uur. Je kunt de klok ook bevriezen, of tijdens de sessie vooruit en achteruit
+        springen.
+      </p>
+      <p>
+        Afteltijden en timers zitten op een aparte as, en die versnellen is een aparte schakelaar, omdat
+        het schalen ervan gedrag verandert waar veel applicaties van afhangen.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Kan ik alleen de tijdzone veranderen, zonder de datum te veranderen?</h3>
+      <p>
+        Ja. De sessie draagt haar eigen vaste offset, zichtbaar voor dat proces terwijl de systeemzone
+        precies blijft waar hij was. Dit is het onderdeel dat de meeste gereedschappen overslaan, en zo
+        reproduceer je de bug die alleen optreedt bij de klant vijf tijdzones verderop.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>En de zomertijd?</h3>
+      <p>
+        De sessiezone is een <strong>vaste offset zonder zomertijd</strong>. Een sessie die op Polen is
+        gezet, blijft op de offset die je koos, of haar klok nu maart of juli aangeeft, dus een run die een
+        echte overgang passeert, wijkt een uur af van wat die zone werkelijk zou tonen.
+      </p>
+      <p>
+        Een applicatie door een zomertijdovergang sturen is dus iets wat dit gereedschap nog niet doet, en
+        de datumcalculator zegt dat in plaats van te gokken.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Waarom waarschuwt mijn antivirus?</h3>
+      <p>
+        Omdat het injecteren van een bibliotheek in een ander proces een legitieme, gedocumenteerde
+        Windows-techniek is die ook malware gebruikt. Het is een vals alarm, veroorzaakt door de techniek,
+        niet door iets wat het gereedschap met je machine doet. De geïnjecteerde bibliotheek is
+        <code>chrono_hook.dll</code>, gebouwd uit de openbare broncode onder GPL-3.0, en je kunt haar zelf
+        opnieuw bouwen. De Chromium- en Electron-modus injecteert helemaal niet.
+      </p>
+      <p>
+        <a href="/nl/downloaden/">De downloadpagina</a> zegt wat je eraan kunt doen.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Is dit een manier om een proefperiode te verlengen of een licentie te omzeilen?</h3>
+      <p>
+        Nee, en het is er niet voor gebouwd. Chrono Mock is bedoeld om software te testen waarvoor je zelf
+        verantwoordelijk bent - je eigen licentieverloop, je eigen verlengingslogica, je eigen
+        maandrapportage. Geen enkel voorbeeld, scenario of pagina hier zal ooit laten zien hoe je de
+        proefperiode van andermans software verlengt.
+      </p>
+      <p>
+        Software met licentiebeveiliging is in feite het geval dat dit gereedschap het eerst verslaat:
+        anti-tampercode leest de tijd vaak via routes die bewust moeilijk te onderscheppen zijn gekozen, en
+        een klok terugdraaien is een toestand die zulke software geschreven is om te detecteren. Een
+        functie in de andere richting is gepland - een modus die een reeks tijdmanipulaties uitvoert tegen
+        <em>je eigen</em> applicatie en meldt welke je beveiliging heeft opgemerkt.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Kan ik het gebruiken in continuous integration?</h3>
+      <p>
+        Ja. De opdrachtregelbuild is een aparte download van ongeveer 1,6 MB zonder runtime om te
+        installeren. Elk commando begrijpt <code>--json</code> en eindigt met een code waarop een pipeline
+        kan vertakken, en een sessie kan haar bewijs naar een bestand schrijven.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Wat is het verschil met RunAsDate?</h3>
+      <p>
+        RunAsDate onderschept vijf wandklokfuncties en doet dat goed. Dit gereedschap dekt
+        {{channel_count}} tijdkanalen, kan de klok versnellen, geeft het proces een eigen tijdzone, volgt
+        kindprocessen en vertelt je achteraf welke kanalen daadwerkelijk gedekt waren. Het is ook open
+        source, terwijl RunAsDate gesloten freeware is.
+      </p>
+      <p>
+        <a href="/nl/runasdate-alternatief/">De volledige vergelijking</a> zegt ook waar RunAsDate de
+        betere keuze is.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Is dit libfaketime voor Windows?</h3>
+      <p>
+        In geest wel - hetzelfde idee om de tijd voor één programma te verplaatsen in plaats van voor de
+        machine. In de praktijk is het een andere implementatie, omdat
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> afhangt van
+        <code>LD_PRELOAD</code>, dat op Windows niet bestaat. Er is
+        <a href="/nl/libfaketime-windows/">een pagina over precies dat</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Is het gratis, en stuurt het iets ergens naartoe?</h3>
+      <p>
+        Gratis en open source onder GPL-3.0. Geen account, geen telemetrie, en het maakt helemaal nooit
+        verbinding met internet - het hele gereedschap werkt met de netwerkkabel eruit getrokken.
+      </p>
+      <p>
+        Het venster heeft wel één knop die naar buiten leidt, dus die noemen we liever dan dat je hem zelf
+        moet vinden: een <strong>Donate</strong>-knop in de titelbalk. Als je erop drukt, wordt een adres
+        aan je browser doorgegeven, en je browser maakt de verbinding. Chrono Mock opent in geen van beide
+        gevallen een verbinding, en niets wat het over je applicatie heeft gemeten gaat ergens naartoe.
+      </p>
+    </div>
+
+  </section>
+
+</div>

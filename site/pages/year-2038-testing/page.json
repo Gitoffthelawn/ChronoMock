@@ -1,0 +1,143 @@
+{
+  "//": "Weak competition for 'test Y2038 on Windows' - forum threads that say 'set the system date to 2038', which on a real machine breaks TLS and the domain. The page is honest that Windows' own clock is 64-bit and says where the 32-bit bug can still live (Microsoft's documented time_t, int and long behaviour). The commands pin the zone to +00:00 because the limit is defined in UTC and --at is read in the session zone.",
+
+  "id": "year-2038-testing",
+  "order": 45,
+  "nav": true,
+  "group": "features",
+
+  "languages": {
+    "en": {
+      "slug": "year-2038-testing",
+      "link_text": "Year 2038",
+      "title": "Year 2038 problem: test a Windows app past 03:14:07 UTC",
+      "description": "The Windows clock runs on past 2038. The bugs are in 32-bit time fields. How to run one app across 19 January 2038 without moving the system date."
+    },
+    "pl": {
+      "slug": "testowanie-roku-2038",
+      "link_text": "Rok 2038",
+      "title": "Problem roku 2038: test aplikacji Windows po 03:14:07 UTC",
+      "description": "Zegar Windows radzi sobie z rokiem 2038. Błędy siedzą w 32-bitowych polach czasu. Jak uruchomić jedną aplikację ponad 19 stycznia 2038 bez ruszania daty systemu."
+    },
+    "de": {
+      "slug": "jahr-2038-testen",
+      "link_text": "Jahr 2038",
+      "title": "Jahr-2038-Problem: Windows-App über 03:14:07 UTC testen",
+      "description": "Die Windows-Uhr läuft über 2038 hinaus. Die Fehler stecken in 32-Bit-Zeitfeldern. So führen Sie eine App über den 19. Januar 2038, ohne das Systemdatum zu ändern."
+    },
+    "fr": {
+      "slug": "tester-le-bug-de-l-an-2038",
+      "link_text": "An 2038",
+      "title": "Bug de l'an 2038 : tester une appli Windows après 03:14:07 UTC",
+      "description": "L'horloge de Windows passe 2038 ; les champs de temps sur 32 bits, non. Faire franchir le 19 janvier 2038 à une appli, sans toucher à la date système."
+    },
+    "es": {
+      "slug": "probar-el-problema-del-ano-2038",
+      "link_text": "Año 2038",
+      "title": "Problema del año 2038: probar una app de Windows (03:14:07 UTC)",
+      "description": "El reloj de Windows pasa de 2038; los campos de tiempo de 32 bits, no. Cómo cruzar el 19 de enero de 2038 con una sola app sin tocar la fecha del sistema."
+    },
+    "pt-br": {
+      "slug": "testar-o-problema-do-ano-2038",
+      "link_text": "Ano 2038",
+      "title": "Problema do ano 2038: testar um app do Windows (03:14:07 UTC)",
+      "description": "O relógio do Windows passa de 2038; os campos de tempo de 32 bits, não. Como cruzar 19 de janeiro de 2038 com um único app sem mexer na data do sistema."
+    },
+    "it": {
+      "slug": "testare-il-problema-dell-anno-2038",
+      "link_text": "Anno 2038",
+      "title": "Problema dell'anno 2038: testare un'app Windows (03:14:07 UTC)",
+      "description": "L'orologio di Windows supera il 2038; i campi di tempo a 32 bit no. Come far attraversare il 19 gennaio 2038 a una sola app senza toccare la data di sistema."
+    },
+    "nl": {
+      "slug": "jaar-2038-testen",
+      "link_text": "Jaar 2038",
+      "title": "Jaar-2038-probleem: een Windows-app testen na 03:14:07 UTC",
+      "description": "De Windows-klok loopt door na 2038; 32-bits tijdvelden niet. Zo laat je één app 19 januari 2038 passeren zonder de systeemdatum te wijzigen."
+    },
+    "ro": {
+      "slug": "testarea-problemei-anului-2038",
+      "link_text": "Anul 2038",
+      "title": "Problema anului 2038: testează o aplicație Windows (03:14:07 UTC)",
+      "description": "Ceasul Windows trece de 2038; câmpurile de timp pe 32 de biți, nu. Cum treci o aplicație peste 19 ianuarie 2038 fără să atingi data sistemului."
+    },
+    "cs": {
+      "slug": "testovani-problemu-roku-2038",
+      "link_text": "Rok 2038",
+      "title": "Problém roku 2038: test aplikace pro Windows (03:14:07 UTC)",
+      "description": "Hodiny Windows rok 2038 přežijí, 32bitová pole času ne. Jak provést jednu aplikaci přes 19. ledna 2038, aniž byste měnili systémové datum."
+    },
+    "tr": {
+      "slug": "2038-yili-sorunu-testi",
+      "link_text": "2038 yılı",
+      "title": "2038 sorunu: Windows uygulamasını 03:14:07 UTC sonrası test edin",
+      "description": "Windows saati 2038’i aşar; 32 bitlik zaman alanları aşamaz. Sistem tarihine dokunmadan tek bir uygulamayı 19 Ocak 2038’in ötesine nasıl taşırsınız."
+    },
+    "id": {
+      "slug": "menguji-masalah-tahun-2038",
+      "link_text": "Tahun 2038",
+      "title": "Masalah tahun 2038: uji aplikasi Windows lewat 03:14:07 UTC",
+      "description": "Jam Windows berjalan melewati 2038; kolom waktu 32 bit tidak. Cara melewatkan satu aplikasi melintasi 19 Januari 2038 tanpa mengubah tanggal sistem."
+    },
+    "vi": {
+      "slug": "kiem-thu-loi-nam-2038",
+      "link_text": "Năm 2038",
+      "title": "Lỗi năm 2038: kiểm thử ứng dụng Windows qua 03:14:07 UTC",
+      "description": "Đồng hồ Windows chạy qua 2038, trường thời gian 32 bit thì không. Cách cho một ứng dụng vượt ngày 19 tháng 1 năm 2038 mà không đổi ngày hệ thống."
+    },
+    "ru": {
+      "slug": "year-2038-testing",
+      "link_text": "Год 2038",
+      "title": "Проблема 2038 года: тест приложения Windows после 03:14:07",
+      "description": "Часы Windows идут дальше 2038 года, а 32-разрядные поля времени — нет. Как провести одно приложение через 19 января 2038 года, не трогая системную дату."
+    },
+    "uk": {
+      "slug": "year-2038-testing",
+      "link_text": "Рік 2038",
+      "title": "Проблема 2038 року: тест застосунку Windows після 03:14:07",
+      "description": "Годинник Windows іде далі 2038 року, а 32-розрядні поля часу — ні. Як провести один застосунок через 19 січня 2038 року, не чіпаючи системну дату."
+    },
+    "ja": {
+      "slug": "year-2038-testing",
+      "link_text": "2038 年問題",
+      "title": "2038 年問題 - Windows アプリで 03:14:07 UTC を越える",
+      "description": "Windows の時計は 2038 年を越えて進みます。バグがあるのは 32 ビットの時刻です。システム日付を動かさずに 1 つのアプリで 2038 年 1 月 19 日を越える方法。"
+    },
+    "ko": {
+      "slug": "year-2038-testing",
+      "link_text": "2038년 문제",
+      "title": "2038년 문제 - Windows 앱, 03:14:07 UTC 너머 테스트",
+      "description": "Windows 시계는 2038년을 넘어 갑니다. 버그는 32비트 시간 필드에 있습니다. 시스템 날짜를 옮기지 않고 앱 하나로 2038년 1월 19일을 넘는 방법."
+    },
+    "zh-hans": {
+      "slug": "year-2038-testing",
+      "link_text": "2038 年问题",
+      "title": "2038 年问题 - 测试 Windows 应用越过 03:14:07 UTC",
+      "description": "Windows 的时钟能走过 2038 年，32 位时间字段则不能。如何不改系统日期，让单个应用越过 2038 年 1 月 19 日。"
+    },
+    "zh-hant": {
+      "slug": "year-2038-testing",
+      "link_text": "2038 年問題",
+      "title": "2038 年問題 - 測試 Windows 應用程式越過界線",
+      "description": "Windows 的時鐘能走過 2038 年，32 位元時間欄位則不能。如何不改系統日期，讓單一應用程式越過 2038 年 1 月 19 日。"
+    },
+    "ar": {
+      "slug": "year-2038-testing",
+      "link_text": "عام 2038",
+      "title": "مشكلة عام 2038: اختبار تطبيق Windows بعد 03:14:07 UTC",
+      "description": "ساعة Windows تتجاوز 2038، أما حقول الوقت بحجم 32 بتًّا فلا. كيف تعبر بتطبيق واحد يوم 19 يناير 2038 دون المساس بتاريخ النظام."
+    },
+    "hi": {
+      "slug": "year-2038-testing",
+      "link_text": "वर्ष 2038",
+      "title": "वर्ष 2038 की समस्या: Windows ऐप को 03:14:07 UTC के पार परखें",
+      "description": "Windows की घड़ी 2038 के आगे चलती है, 32-बिट समय वाले फ़ील्ड नहीं। सिस्टम की तारीख़ छुए बिना एक ऐप को 19 जनवरी 2038 के पार कैसे ले जाएँ।"
+    },
+    "th": {
+      "slug": "year-2038-testing",
+      "link_text": "ปี 2038",
+      "title": "ปัญหาปี 2038 - ทดสอบแอป Windows ให้เลย 03:14:07 UTC",
+      "description": "นาฬิกา Windows เดินเลยปี 2038 ได้ ส่วนฟิลด์เวลา 32 บิตทำไม่ได้ วิธีพาแอปเดียวข้ามวันที่ 19 มกราคม 2038 โดยไม่แตะวันที่ของระบบ"
+    }
+  }
+}

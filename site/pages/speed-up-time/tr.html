@@ -1,0 +1,137 @@
+<!-- Saati hızlandırma, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Tek bir uygulamanın saatini hızlandırın</h1>
+    <p class="sub">
+      30 günlük bir deneme süresinin dolması 30 gün sürer; zamanı oynatamıyorsanız. Olağan tavsiye, sistem
+      saatini ileri itmektir; bu yönetici hakkı gerektirir ve makinedeki diğer her programı da peşinden
+      sürükler. Bu ise bunun yerine tek bir süreci oynatır.
+    </p>
+  </section>
+
+  <section>
+    <h2>Ne kadar hızlı</h2>
+    <div class="prose">
+      <p>
+        Tam sayı bir çarpan seçin. Uygulamanın saati, oturumun başladığı andan itibaren gerçek saatten o
+        kadar kat hızlı ilerler.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Çarpan</th><th>Bir gerçek dakika şu olur</th><th>Ne için yararlı</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>bir saat</td><td>saatlik işler, oturum zaman aşımları, belirteç ömürleri</td></tr>
+          <tr><td><code>x1440</code></td><td>bir gün</td><td>günlük dönüşümler, yarım saatte 30 günlük deneme</td></tr>
+          <tr><td><code>x43200</code></td><td>30 günlük bir deneme</td><td>bunu okurken denemenin tamamının bitişini izlemek</td></tr>
+          <tr><td><code>x525600</code></td><td>bir yıl</td><td>yıllık yenilemeler, sertifika süresi dolumu</td></tr>
+          <tr><td><code>x1000000</code></td><td>yaklaşık 1,9 yıl</td><td>üst sınır</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Şimdiki gerçek zamandan başlayın ve dakikada bir gün hızla çalıştırın</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Seçtiğiniz bir tarihte başlayın ve oradan hızlandırın</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Bunun yerine saati tamamen sabit tutun</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Başka bir Windows uygulamasını yöneten bir oturumun kaydı. Soldaki pencere Chrono Mock; uygulamanın saati 2038-01-19’da gerçek hızın altmış katıyla ilerlerken yanındaki gerçek saat birkaç saniye oynuyor. Sağdaki pencere test edilen uygulama; kendi oturum kaydı, 2038-01-19’da başladığını ve odadaki zamanın yalnızca yarım dakikasına karşılık dakikalardır çalıştığını gösteriyor.">
+      <figcaption>Gerçek bir uygulamayı yöneten gerçek bir oturum. Sağdaki pencereye dikkat edin: test
+        edilen program kendi başlangıcını <strong>19 Ocak 2038</strong> olarak kaydetti ve odadaki saat
+        saniyeler oynarken oturumu dakikalarca sürdü. Hız, hiçbir şey yeniden başlatılmadan çalışırken
+        değiştirilir.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>İnsanları yanıltan kısım: iki saat var</h2>
+    <div class="prose">
+      <p>
+        <strong>Duvar saatini</strong> - <code>DateTime.Now</code> ve eşdeğerlerinin döndürdüğü şeyi -
+        hızlandırmak, kendi başına bir <strong>geri sayımı</strong> hızlandırmaz. Bunlar bir uygulamanın
+        işletim sistemine sorabileceği iki farklı sorudur ve pek çok yazılım “otuz günü” birincisiyle
+        değil ikincisiyle ölçer.
+      </p>
+      <p>
+        Bu yüzden süre ekseni - tick sayıları, uykular, beklemeler ve zamanlayıcılar - ayrı bir anahtardır:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> uykuları, beklemeleri ve zamanlayıcıları da oturum saatine alır.
+          Onsuz, <code>x1440</code> takvimi ileri doğru koştururken beş saniyelik bir zamanlayıcı hâlâ beş
+          gerçek saniye sürer.</li>
+        <li><code>--scale-qpc</code> ek olarak yüksek çözünürlüklü sayacı ölçekler. Python 3.13+
+          <code>monotonic</code>, .NET <code>Stopwatch</code> ve Java <code>nanoTime</code> geçen zamanı
+          burada okur ve varsayılan olarak kapalıdır; çünkü onu ölçeklemek testlerde render’ı
+          kararsızlaştırdı.</li>
+      </ul>
+      <p>
+        Çarpan bir geri sayıma hiçbir şey yapmıyor gibi görünüyorsa, bu neredeyse her zaman bunun
+        nedeniyledir.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Bir zamanlayıcı uygulaması: takvimi VE geri sayımları hızlandırın</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Geçen zamanı yüksek çözünürlüklü sayaçla ölçen bir Python ya da .NET uygulaması</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Yeniden başlatmadan hızı değiştirmek</h2>
+    <div class="prose">
+      <p>
+        Çarpan oturum ortasında değiştirilebilir ve saat atlatılmak yerine yeniden demirlenir; böylece hız
+        düştüğünde asla geriye gitmez. Saati doğrudan da atlatabilirsiniz - ileri ya da bir dizüstü
+        bilgisayarın zaman sunucusuyla yeniden eşitlendikten sonra yaptığı gibi geri; bu, geçen zamanı
+        korumasız ölçen her şeyi bozan durumdur.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># x60’ta çalıştırın, sonra iki saniye sonra x1440’a geçin</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Çalıştırın, sonra beş saniye sonra saati seçtiğiniz bir ana atlatın</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Neyi yapmaz</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Sistem saatine dokunmaz.</strong> Amaç bu, bir sınırlama değil - ama zamanı bir
+          sunucudan, bir veritabanından ya da başka bir makineden okuyan her şeyin etkilenmediği anlamına
+          gelir ve denetim bu olduğunda size söyler.</li>
+        <li><strong>Bir atlama, uygulamanın ne gördüğünü değiştirir; ne zaman uyandığını değil.</strong>
+          Çekirdeğe zaten verilmiş zamanlayıcılar gerçek zamanda çalışır. Çoğu uygulama saati yoklar, bu
+          yüzden atlamalar pratikte çalışır - ama hepsi değil.</li>
+        <li><strong>Zamanı yavaşlatmaz.</strong> Çarpanlar bir ve üzeri tam sayılardır, artı sıfırda
+          dondurulmuş bir saat.</li>
+      </ul>
+      <p>
+        Bunların herhangi birinin uygulamanıza ulaşıp ulaşmadığı varsayılacak bir şey değildir.
+        <a href="/tr/zaman-kaynagi-denetimi/">Oturum bunu söyler &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/sss/">SSS’yi okuyun</a>
+    </div>
+  </section>
+
+</div>

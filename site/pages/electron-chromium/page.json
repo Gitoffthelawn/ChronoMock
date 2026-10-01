@@ -20,6 +20,126 @@
       "link_text": "Electron i Chromium",
       "title": "Podmiana daty w aplikacji Electron albo Chromium",
       "description": "Ich zegar mieszka w piaskowanym rendererze, do którego wstrzyknięcie nie sięga. Inny mechanizm przestawia własne API czasu aplikacji na zegar sesji, razem z workerami."
+    },
+    "de": {
+      "slug": "electron-chromium",
+      "link_text": "Electron und Chromium",
+      "title": "Datum in einer Electron- oder Chromium-App fälschen",
+      "description": "Ihre Uhr liegt in einem abgeschotteten Renderer, den keine Injektion erreicht. Ein anderer Mechanismus legt die JavaScript-Zeit-APIs der App auf die Sitzungsuhr, Worker eingeschlossen."
+    },
+    "fr": {
+      "slug": "electron-chromium",
+      "link_text": "Electron et Chromium",
+      "title": "Falsifier la date dans une application Electron ou Chromium",
+      "description": "Leur horloge vit dans un moteur de rendu isolé que l'injection n'atteint pas. Un autre mécanisme place les API de temps JavaScript de l'appli sur l'horloge de session, workers compris."
+    },
+    "es": {
+      "slug": "electron-chromium",
+      "link_text": "Electron y Chromium",
+      "title": "Falsear la fecha en una aplicación Electron o Chromium",
+      "description": "Su reloj vive en un renderizador aislado al que la inyección no llega. Otro mecanismo pone las API de tiempo de JavaScript de la app en el reloj de la sesión, workers incluidos."
+    },
+    "pt-br": {
+      "slug": "electron-chromium",
+      "link_text": "Electron e Chromium",
+      "title": "Falsificar a data em um aplicativo Electron ou Chromium",
+      "description": "O relógio deles vive em um renderizador isolado que a injeção não alcança. Outro mecanismo coloca as APIs de tempo JavaScript do app no relógio da sessão, workers incluídos."
+    },
+    "it": {
+      "slug": "electron-chromium",
+      "link_text": "Electron e Chromium",
+      "title": "Falsificare la data in un'app Electron o Chromium",
+      "description": "Il loro orologio vive in un renderer isolato che l'iniezione non raggiunge. Un altro meccanismo porta le API di tempo JavaScript dell'app sull'orologio di sessione, worker compresi."
+    },
+    "nl": {
+      "slug": "electron-chromium",
+      "link_text": "Electron en Chromium",
+      "title": "De datum vervalsen in een Electron- of Chromium-app",
+      "description": "Hun klok leeft in een afgeschermde renderer die injectie niet bereikt. Een ander mechanisme zet de JavaScript-tijd-API's van de app op de sessieklok, workers inbegrepen."
+    },
+    "ro": {
+      "slug": "electron-chromium",
+      "link_text": "Electron și Chromium",
+      "title": "Falsifică data într-o aplicație Electron sau Chromium",
+      "description": "Ceasul lor trăiește într-un renderer izolat, în care injecția nu ajunge. Un alt mecanism pune API-urile de timp JavaScript ale aplicației pe ceasul sesiunii, inclusiv în workeri."
+    },
+    "cs": {
+      "slug": "electron-chromium",
+      "link_text": "Electron a Chromium",
+      "title": "Falšování data v aplikaci Electron nebo Chromium",
+      "description": "Jejich hodiny žijí v izolovaném rendereru, kam injektáž nedosáhne. Jiný mechanismus přepne časová API JavaScriptu aplikace na hodiny sezení, včetně workerů."
+    },
+    "tr": {
+      "slug": "electron-chromium",
+      "link_text": "Electron ve Chromium",
+      "title": "Bir Electron ya da Chromium uygulamasında tarihi sahtelemek",
+      "description": "Saatleri enjeksiyonun ulaşmadığı yalıtılmış bir renderer’da yaşar. Farklı bir mekanizma, uygulamanın JavaScript zaman API’lerini Worker’lar dahil oturum saatine alır."
+    },
+    "id": {
+      "slug": "electron-chromium",
+      "link_text": "Electron dan Chromium",
+      "title": "Memalsukan tanggal di aplikasi Electron atau Chromium",
+      "description": "Jam mereka berada di renderer terisolasi yang tidak dijangkau injeksi. Mekanisme lain memasang API waktu JavaScript aplikasi ke jam sesi, termasuk di dalam worker."
+    },
+    "vi": {
+      "slug": "electron-chromium",
+      "link_text": "Electron và Chromium",
+      "title": "Làm giả ngày trong ứng dụng Electron hoặc Chromium",
+      "description": "Đồng hồ của chúng nằm trong renderer bị cô lập mà việc chèn mã không với tới. Một cơ chế khác đặt các API thời gian JavaScript của ứng dụng lên đồng hồ phiên, kể cả trong worker."
+    },
+    "ru": {
+      "slug": "electron-chromium",
+      "link_text": "Electron и Chromium",
+      "title": "Подмена даты в приложении на Electron или Chromium",
+      "description": "Их часы живут в изолированном рендерере, куда внедрение не достаёт. Другой механизм переводит API времени JavaScript приложения на часы сессии, включая воркеры."
+    },
+    "uk": {
+      "slug": "electron-chromium",
+      "link_text": "Electron і Chromium",
+      "title": "Підміна дати в застосунку на Electron або Chromium",
+      "description": "Їхній годинник живе в ізольованому рендерері, куди впровадження не сягає. Інший механізм переводить API часу JavaScript застосунку на годинник сесії, зокрема й воркери."
+    },
+    "ja": {
+      "slug": "electron-chromium",
+      "link_text": "Electron と Chromium",
+      "title": "Electron / Chromium アプリで日付を偽装する",
+      "description": "これらの時計はインジェクションが届かないサンドボックス化されたレンダラー内にあります。別の仕組みで、Worker を含むアプリの JavaScript の時間 API をセッションの時計に載せ替えます。"
+    },
+    "ko": {
+      "slug": "electron-chromium",
+      "link_text": "Electron과 Chromium",
+      "title": "Electron·Chromium 앱에서 날짜 속이기",
+      "description": "이들의 시계는 인젝션이 닿지 않는 샌드박스 렌더러 안에 있습니다. 다른 메커니즘으로 Worker를 포함한 앱의 JavaScript 시간 API를 세션 시계에 올립니다."
+    },
+    "zh-hans": {
+      "slug": "electron-chromium",
+      "link_text": "Electron 与 Chromium",
+      "title": "在 Electron 和 Chromium 应用中伪造日期",
+      "description": "它们的时钟位于注入够不到的沙盒渲染进程中。另一种机制把应用的 JavaScript 时间 API（包括 Worker 内部）放到会话时钟上。"
+    },
+    "zh-hant": {
+      "slug": "electron-chromium",
+      "link_text": "Electron 與 Chromium",
+      "title": "在 Electron 與 Chromium 應用程式中偽造日期",
+      "description": "它們的時鐘位於注入搆不到的沙盒轉譯處理序中。另一種機制把應用程式的 JavaScript 時間 API（包括 Worker 內部）放到工作階段時鐘上。"
+    },
+    "ar": {
+      "slug": "electron-chromium",
+      "link_text": "Electron وChromium",
+      "title": "تزييف التاريخ في تطبيقات Electron وChromium",
+      "description": "ساعتهما في عملية عرض معزولة لا يصل إليها الحقن. آلية مختلفة تضع واجهات الوقت في JavaScript، بما فيها Workers، على ساعة الجلسة."
+    },
+    "hi": {
+      "slug": "electron-chromium",
+      "link_text": "Electron और Chromium",
+      "title": "Electron और Chromium ऐप में तारीख़ बदलना",
+      "description": "इनकी घड़ी एक सैंडबॉक्स्ड रेंडरर में रहती है जहाँ इंजेक्शन नहीं पहुँचता। एक अलग तंत्र Worker समेत ऐप के JavaScript समय API को सत्र की घड़ी पर रखता है।"
+    },
+    "th": {
+      "slug": "electron-chromium",
+      "link_text": "Electron และ Chromium",
+      "title": "ปลอมวันที่ในแอป Electron และ Chromium",
+      "description": "นาฬิกาของมันอยู่ในเรนเดอเรอร์แบบแซนด์บ็อกซ์ที่การฉีดไปไม่ถึง กลไกอีกแบบย้าย API เวลา JavaScript ของแอป รวมถึงใน Worker ไปอยู่บนนาฬิกาของเซสชัน"
     }
   }
 }

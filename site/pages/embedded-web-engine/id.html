@@ -1,0 +1,170 @@
+<!-- WebView2 dan Qt WebEngine, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Halaman web di dalam aplikasi native</h1>
+    <p class="sub">
+      Aplikasi desktop dengan web engine bawaan menjalankan halamannya di proses terpisah yang
+      terisolasi. Mekanisme native mencakup aplikasinya dan berhenti di batas itu - sehingga jendela
+      berpindah ke tanggal yang Anda minta, sedangkan panel di dalamnya tidak. Ini menutup celah tersebut.
+    </p>
+  </section>
+
+  <section>
+    <h2>Kegagalan yang tampak seperti keberhasilan</h2>
+    <div class="prose">
+      <p>
+        Banyak aplikasi Windows yang native di luar dan halaman web di dalam. Layar pengaturan, dasbor,
+        tampilan laporan, panel lisensi - dibuat sekali dalam HTML dan di-host di
+        <strong>WebView2</strong> atau <strong>Qt WebEngine</strong>, bukan ditulis dua kali.
+      </p>
+      <p>
+        Engine menjalankan halaman-halaman itu di prosesnya sendiri, dan proses itu terisolasi. Pustaka
+        yang disuntikkan ke aplikasi tidak dapat masuk ke dalamnya. Segala sesuatu yang diminta aplikasi
+        dari Windows berpindah ke tanggal sesi, dan segala sesuatu yang diminta halaman dari JavaScript
+        tidak:
+      </p>
+      <ul>
+        <li>Bilah judul, log, dan file menyatakan <strong>2038</strong>.</li>
+        <li>Panel di dalam jendela yang sama menyatakan <strong>hari ini</strong>.</li>
+        <li>Tidak ada yang error, tidak ada yang memperingatkan, dan kedua belahnya tampak sama yakinnya.</li>
+      </ul>
+      <p>
+        Itulah versi mahal dari bug ini, karena pengujian tampak sudah berjalan. Perilaku yang lebih lama
+        melaporkan sesi semacam itu sebagai lulus bersih, klaim yang tidak dapat didukung oleh alatnya.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Apa yang dilakukan sesi sebagai gantinya</h2>
+    <div class="prose">
+      <p>
+        Sesi menjalankan <strong>kedua mekanisme sekaligus</strong>. Hook native masuk ke aplikasi seperti
+        biasa, dan halaman dijangkau dengan satu-satunya cara untuk menjangkau renderer terisolasi:
+        dengan bertanya kepada engine itu sendiri.
+      </p>
+      <p>
+        Saat peluncuran, aplikasi mewarisi dua variabel lingkungan yang meminta engine-nya membuka port
+        debug lokal. Keduanya ditambahkan ke switch apa pun yang sudah diteruskan aplikasi, bukan
+        menggantikannya. Sesi lalu mengawasi proses-prosesnya sendiri hingga port itu muncul, dan ketika
+        muncul, setiap halaman dan setiap worker di baliknya berpindah ke jam yang sama dengan aplikasi.
+      </p>
+      <p>
+        Satu awal, satu kecepatan, satu linimasa. Perubahan kecepatan atau lompatan mencapai aplikasi dan
+        halamannya bersama-sama, dan timer halaman berjalan dengan laju aplikasi, bukan laju miliknya
+        sendiri.
+      </p>
+      <p>
+        Ini aktif secara bawaan dan dimatikan dengan satu switch, yang tidak membuka port sama sekali dan
+        membiarkan halaman pada jam nyata.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Tidak ada yang perlu dikonfigurasi - engine ditemukan jika ada</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Atau biarkan halaman apa adanya, dan jangan buka port</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Apa yang dikatakan laporan tentang halaman</h2>
+    <div class="prose">
+      <p>
+        Halaman tidak dilebur ke dalam angka milik aplikasi. Mereka dihitung sebagai unit tersendiri,
+        karena proses dan halaman adalah hal yang berbeda dan menjumlahkannya akan mengarang angka yang
+        tidak berarti:
+      </p>
+      <ul>
+        <li>Judul laporan menghitung keduanya - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Setiap halaman mendapat barisnya sendiri, seperti <code>context 1: page Date.now (12 calls)</code>
+          di baris perintah dan <em>page Date.now - fake clock</em> di tabel audit jendela.</li>
+        <li>Engine yang dijangkau disebutkan beserta portnya, sehingga Anda dapat mengarahkan DevTools
+          Anda sendiri tepat ke halaman yang dikendalikan sesi.</li>
+      </ul>
+      <p>
+        Dry run menyatakan apakah halaman akan dijangkau sebelum apa pun dimulai.
+        <a href="/id/audit-sumber-waktu/">Arti setiap putusan &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tiga batasan yang perlu diketahui sebelum Anda mulai</h2>
+
+    <div class="note warning">
+      <p><strong>Port debug tetap terbuka selama engine berjalan.</strong></p>
+      <p>
+        Ia hanya mendengarkan di komputer ini, tetapi terbuka bagi <em>program apa pun</em> di komputer ini
+        selama engine berjalan, dan apa pun yang dapat menjangkaunya dapat mengendalikan halaman-halaman
+        itu. Sesi memperingatkannya setiap kali port dibuka, dan menyebutkan nomor port-nya, bukan
+        sekadar menyinggungnya secara abstrak. Pada mesin bersama atau yang tidak tepercaya, pakai switch
+        yang tidak membuka apa pun.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Aplikasi yang berjalan dengan hak tinggi berada di luar jangkauan.</strong></p>
+      <p>
+        Engine yang di-host oleh aplikasi dengan hak tinggi mengabaikan variabel yang disetel sesi,
+        sehingga halamannya tetap pada jam nyata. Ini aturan engine itu sendiri, bukan pengaturan, dan
+        tidak ada cara untuk menyiasatinya dari luar.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Sesi seperti itu melaporkan PARTIAL, dan itu jawaban yang jujur.</strong></p>
+      <p>
+        Proses pembantu engine, dan panggilan waktu native renderer sendiri, tetap pada jam nyata.
+        Halaman ada di jam sesi dan sisa keluarga itu tidak, sehingga putusan menyatakan
+        <em>sebagian</em> dan menyebutkan apa yang tertinggal, bukan membulatkan ke atas menjadi lulus.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Dua yang lebih kecil, disampaikan terus terang. Halaman mempertahankan <strong>zona waktu mesin
+        ini</strong>, sehingga zona sesi yang mandiri hanyalah fitur mode native. Dan timer yang sudah
+        dijadwalkan <em>sebelum</em> sesi menjangkau halaman mempertahankan laju lamanya, sama seperti
+        pada sesi Chromium murni - sesi memperingatkan, bukan membiarkan Anda menyimpulkan tidak terjadi
+        apa-apa.
+      </p>
+      <p>
+        Jika engine dikonfigurasi melalui kebijakan argumen peramban di registry, variabel sesi
+        diutamakan selama sesi berlangsung, dan laporan menyatakannya - karena port debug yang Anda
+        siapkan di sana tidak akan diterapkan.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Seberapa baik pengujiannya</h2>
+    <div class="prose">
+      <p>
+        <strong>Eksperimental</strong>, dengan arti yang ditetapkan sama seperti di tempat lain di sini:
+        ia berfungsi pada target tempat ia dibangun, belum diuji secara luas, dan audit bawaan adalah
+        sumber kebenaran Anda, bukan halaman ini. Ia diukur secara manual terhadap host WebView2 dan host
+        Qt WebEngine di Windows 64-bit, bukan dengan rangkaian otomatis. Pada eksekusi itu, halaman
+        membaca tahun sesi pada laju sesi dan mengikuti lompatan.
+      </p>
+      <p>
+        Pada Windows 32-bit ada satu kerumitan yang lebih baik diketahui daripada ditemukan sendiri: runtime
+        WebView2 adalah 64-bit bahkan ketika aplikasi yang menjadi host-nya 32-bit, sehingga sesi 32-bit
+        tidak dapat menyebutkan proses engine atau perannya. Kanal ke halaman tetap berfungsi. Laporannya
+        hanya kurang spesifik tentang apa yang tidak dapat diidentifikasinya, dan menyatakan mana dari
+        keduanya itu.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/faq/">Baca FAQ</a>
+    </div>
+  </section>
+
+</div>

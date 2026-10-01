@@ -1,0 +1,159 @@
+<!-- Kalkulačka dat, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Které datum byste měli testovat?</h1>
+    <p class="sub">
+      Polovina testování dat je posunout hodiny. Druhá polovina je vědět, kam je posunout. Online
+      kalkulačka vám řekne, kolik je devadesát dní od dneška. Neřekne vám, že výsledek je bankovní
+      svátek, nebo že je to poslední den čtvrtletí.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Kalkulačka Chrono Mock. Vlevo je seznam scénářů s vyhledáváním a jejich vysvětlením, uprostřed je skládání data a sloupec výsledků vpravo uvádí každý formát s tlačítkem pro kopírování u každého a pod nimi Use this date. Pod skládáním je vložené datum 04/08/2008 ohlášeno jako nejednoznačné s ukázaným americkým i polským čtením.">
+      <figcaption>Pod skládáním je opačný směr: vložené <code>04/08/2008</code> a
+        ukázaná obě čtení, místo aby se jedno hádalo.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Pracovní dny se skutečnými svátky</h2>
+    <div class="prose">
+      <p>
+        „Deset pracovních dnů odsud“ není aritmetika - záleží na tom, podle kalendáře které země
+        počítáte. Stejné počáteční datum, stejných deset dní, dvě různé odpovědi:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        Rozdíl o jeden den a kalkulačka vám řekne proč, když se zeptáte na datum mezi nimi:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        Spojené státy a Polsko jsou dodávány jako referenční kalendáře, vybrané proto, že spolu
+        procvičí každý existující typ pravidla: pevná data, n-tý den v týdnu v měsíci, data počítaná
+        od Velikonoc a americké pravidlo, kdy se svátek připadající na sobotu slaví v předchozí pátek.
+        Přidání země je datový soubor, ne změna kódu.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Všechny formáty najednou</h2>
+    <div class="prose">
+      <p>
+        Testovaná aplikace chce datum v takové podobě, jakou očekává. Místo toho, abyste převáděli,
+        kalkulačka vypíše všechny - a vlastní masku pro ty, které nezapadají do žádného standardu.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        Ta hodnota epochy není náhoda - <code>2147483647</code> je přesně největší číslo, které se vejde
+        do 32bitového celého čísla se znaménkem, a to je celý důvod, proč na tomto datu záleží.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Čtení data pozpátku</h2>
+    <div class="prose">
+      <p>
+        Opačný směr je stejně užitečný: vložíte datum z logu a zjistíte, co to je. Když je formát
+        nejednoznačný - a <code>04/08</code> je nejednoznačné v polovině světa - <strong>ukážou se obě
+        čtení, místo aby se jedno hádalo</strong>, protože právě z hádání pocházelo původní hlášení
+        chyby.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        Čtyři měsíce od sebe, v jiných dnech v týdnu. Datum ISO je jednoznačné a čte se jako takové a
+        něco, co vůbec není datum, se odmítne, ne uhodne.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Složené z kroků, ne z věty</h2>
+    <div class="prose">
+      <p>
+        Okamžik je výchozí bod plus kroky a mezivýsledek se ukáže po každém z nich, takže výraz, který
+        dá překvapivou odpověď, ukáže, kde se zlomil. Pět druhů kroků: posun o jednotku, nastavení času
+        dne, skok na hranici období, přesun na nejbližší pracovní den a přepsání do jiného časového
+        pásma.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Poslední vteřina před přechodem roku</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Devadesát pracovních dnů odsud, v americkém bankovním kalendáři</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># Osmnáct let a den zpět, pro kontrolu věku</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Jakékoli vypočtené datum jde rovnou do sezení s náhradou času a
+        <code>--json</code> vypíše tentýž výsledek ve strojové podobě.
+        <a href="/cs/testovaci-scenare-dat/">Data, která stojí za testování &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/testovaci-scenare-dat/">Zobrazit scénáře</a>
+      <a class="btn btn-ghost" href="/cs/reference-cli/">Všechny přepínače kalkulačky</a>
+    </div>
+  </section>
+
+</div>

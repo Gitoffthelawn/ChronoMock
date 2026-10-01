@@ -1,0 +1,184 @@
+<!-- Audit sumber waktu, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Bagaimana Anda tahu itu berhasil?</h1>
+    <p class="sub">
+      Dengan alat lain sejenis ini, Anda tidak tahu. Aplikasi menyala, menampilkan suatu tanggal, dan Anda
+      berasumsi. Padahal aplikasi bisa membaca jam lewat jalur yang tidak dicegat apa pun - dan saat itu
+      <em>“pengujian lulus”</em> sama sekali tidak berarti.
+    </p>
+  </section>
+
+  <section>
+    <h2>Kegagalan yang tidak punya gejala</h2>
+    <div class="prose">
+      <p>
+        Alat penggeser waktu yang melewatkan satu kanal tidak crash dan tidak memperingatkan. Aplikasi
+        sekadar membaca tanggal asli lewat satu fungsi yang tidak di-hook siapa pun, dan berperilaku
+        persis seperti pada sore biasa mana pun. Pengujian menjadi hijau. Bug dirilis.
+      </p>
+      <p>
+        RunAsDate jujur soal ini dalam dokumentasinya sendiri - ia menyatakan ia
+        <strong>“tidak akan memengaruhi aplikasi yang mengambil tanggal/waktu saat ini dari sumber
+        lain”</strong> - lalu membiarkan Anda mencari tahu sendiri apakah aplikasi Anda salah satunya.
+        Alat ini memperlakukan kalimat yang sama itu sebagai sesuatu yang diukur.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Apa yang sebenarnya dilaporkan sebuah sesi</h2>
+    <div class="prose">
+      <p>
+        Keluaran nyata, dari menjalankan alat ini terhadap salah satu probe uji milik proyek ini -
+        probe yang sengaja membuka koneksi jaringan:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Dua blok terakhir adalah intinya. Tidak ada yang gagal di sini - putusannya adalah
+        <strong>berhasil</strong> - dan laporan tetap menyatakan, tanpa diminta, bahwa aplikasi ini
+        berbicara dengan jaringan sebelum selesai, sehingga hook lokal mungkin bukan keseluruhan ceritanya.
+        Kalimat itulah perbedaan antara pengujian yang dapat Anda percaya dan yang tidak.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Layar hasil Chrono Mock dengan What the application read terbuka: tabel berisi Function, Read from, dan Reads. NtCreateUserProcess ditandai dibaca dari jam nyata secara sengaja dan connect ditandai dibaca dari jam nyata secara sengaja serta di-hook terlambat, sedangkan baris lainnya - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation, dan seterusnya - membaca dari jam palsu, masing-masing dengan hitungannya sendiri. Dua peringatan berada di bawah tabel.">
+      <figcaption>Jawaban yang sama di jendela. Setiap fungsi yang dapat ditanyakan aplikasi, dari mana ia
+        benar-benar membaca, dan berapa kali - termasuk yang sengaja dibiarkan pada jam nyata, yang
+        disebutkan namanya, bukan diam-diam dihitung sebagai lulus.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Empat putusan, dan satu kode keluar untuk masing-masing</h2>
+    <div class="prose">
+      <p>
+        Putusan dicapai dari dalam proses yang berjalan, sebelum Anda mulai bekerja, dan merupakan kode
+        keluar alat itu sendiri sehingga pipeline dapat bercabang berdasarkan itu.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Putusan</th><th>Keluar</th><th>Arti</th></tr></thead>
+        <tbody>
+          <tr><td class="y">berhasil</td><td>0</td><td>setiap proses yang membaca waktu melihat jam sesi</td></tr>
+          <tr><td>berhasil sebagian</td><td>10</td><td>sebagian kanal tercakup, sebagian tidak - yang tidak tercakup didaftarkan</td></tr>
+          <tr><td class="n">tidak berhasil</td><td>11</td><td>penggantian tidak sampai ke kanal-kanal kunci</td></tr>
+          <tr><td>tidak dapat ditentukan</td><td>4</td><td>cakupan tidak dapat dipastikan - “saya tidak tahu” yang jujur</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Ketika putusannya “tidak berhasil”, proses segera dihentikan</strong>, sebelum Anda dapat
+        berinteraksi dengannya. Putusan tidak dapat mendahului peluncuran, karena satu-satunya sumber
+        kebenaran adalah pembacaan yang diambil dari dalam proses yang berjalan. Yang dijamin adalah Anda
+        mengetahui kebenarannya sebelum mulai bekerja - bukan bahwa peluncuran yang ditakdirkan gagal tidak
+        pernah terjadi. Anda dapat menimpanya dan melanjutkan, dan sesi lalu ditandai tidak andal di mana
+        pun ia muncul, termasuk pada bukti apa pun yang Anda ekspor.
+      </p>
+      <p>
+        Tiga kode lain ada untuk hal-hal yang sama sekali bukan putusan: <code>1</code> untuk kesalahan
+        penggunaan, <code>2</code> ketika target tidak dapat diluncurkan atau disuntik, dan <code>12</code>
+        ketika target menghilang dengan cara yang menunjukkan aplikasi satu-instans menyerahkan kendali ke
+        salinan yang sudah berjalan.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tercakup, diamati, tidak tercakup</h2>
+    <div class="prose">
+      <p>Kanal terbagi dalam tiga kelompok, dan yang di tengah adalah yang menarik.</p>
+      <ul>
+        <li><strong>Tercakup</strong> - di-hook dan diganti. Aplikasi bertanya, dan mendapat jam sesi.
+          Hitungan panggilan menyatakan berapa kali.</li>
+        <li><strong>Diamati</strong> - di-hook, dihitung, dan sengaja dibiarkan mengatakan yang sebenarnya.
+          Penghitung beresolusi tinggi ada di sini secara bawaan karena menskalakannya mengacaukan
+          stabilitas rendering. Timer multimedia ada di sini karena menskalakannya akan menggeser waktu
+          audio dan MIDI. Koneksi jaringan dan satu jalur pembuatan proses ada di sini karena mereka bukti,
+          bukan jam.</li>
+        <li><strong>Tidak tercakup</strong> - kanal yang dibaca aplikasi yang tidak dijangkau penggantian.
+          Inilah yang mengubah putusan menjadi <em>berhasil sebagian</em>, dan ia didaftarkan namanya,
+          bukan diringkas sampai hilang.</li>
+      </ul>
+      <p>
+        Hitungan nol juga informasi: kanal itu di-hook dan aplikasi tidak pernah bertanya. Itulah sebabnya
+        laporan mendaftarkannya, bukan menyembunyikannya.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Apa yang tidak dapat dilihat audit</h2>
+    <div class="prose">
+      <p>
+        Laporan jujur soal cakupan, yang berarti jujur pula soal batasnya sendiri. Ini dibaca tanpa
+        panggilan fungsi apa pun yang dapat dicegat, atau sepenuhnya di luar proses:
+      </p>
+      <ul>
+        <li>pembacaan langsung halaman data bersama mode pengguna - nilainya ada di memori, sehingga tidak
+          ada yang bisa di-hook. Jarang pada aplikasi biasa, lazim pada kode pelisensian dan anti-tamper</li>
+        <li>system call langsung yang melewati ekspor standar - pola yang sama</li>
+        <li>waktu yang diperoleh di luar proses, melalui WMI, server COM di luar proses, atau RPC</li>
+        <li>waktu dari jaringan - header HTTP <code>Date</code>, NTP, respons API, atau jam server database
+          itu sendiri</li>
+        <li>waktu dari driver kernel</li>
+      </ul>
+      <p>
+        Kasus jaringan adalah yang setidaknya dapat <em>disadari</em> audit, itulah sebabnya peringatan
+        dalam laporan di atas ada. Untuk sisanya, putusan <em>berhasil</em> berarti kanal yang dapat
+        dilihat alat ini tercakup - bukan bahwa tidak ada jalur lain.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dalam pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> mengeluarkan fakta yang sama dalam bentuk mesin, <code>--report</code> menulis
+        versi untuk manusia ke file, dan sesi yang putusannya selain <em>berhasil</em> membuka file itu
+        dengan banner bukti tidak andal, bukan mengubur peringatan di bagian bawah.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/alternatif-runasdate/">Dibandingkan dengan RunAsDate</a>
+    </div>
+  </section>
+
+</div>

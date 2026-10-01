@@ -1,0 +1,129 @@
+<!-- Halaman unduhan, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Unduh Chrono Mock</h1>
+    <p class="sub">
+      Dua build dari engine yang sama: satu jendela untuk menjelajah, satu baris perintah untuk CI.
+      Ekstrak salah satunya di mana saja dan jalankan - tidak ada installer, tidak ada yang ditulis ke
+      registry, dan tidak diperlukan hak administrator.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Dapatkan rilis terbaru</a>
+      <a class="btn btn-ghost" href="{{repo}}">Lihat kodenya di GitHub</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>File</th><th>Apa itu</th><th>Ukuran</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>Aplikasi desktop, mandiri - tidak perlu memasang .NET</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Hanya alat baris perintah, untuk CI dan skrip</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Yang Anda butuhkan</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 atau Windows 11.</strong> Tidak ada build macOS atau Linux -
+          di Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> sudah menangani hal
+          ini dengan baik.</li>
+        <li><strong>Tidak ada yang lain.</strong> Build desktop membawa runtime sendiri, dan build baris
+          perintah tidak membawa apa pun sama sekali.</li>
+        <li><strong>Aplikasi 32-bit maupun 64-bit didukung.</strong> Paket ini menyertakan keduanya, dan
+          memilih yang sesuai dengan aplikasi yang Anda tuju.</li>
+      </ul>
+      <p>
+        ARM64 di luar cakupan hingga versi 1.0, dan aplikasi Store yang dikemas (UWP dan MSIX) tidak
+        didukung - model peluncurannya tidak memungkinkannya.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Menjalankannya</h2>
+    <div class="prose">
+      <p>
+        Ekstrak, lalu jalankan <code>ChronoMock.exe</code> untuk jendela atau
+        <code>chrono.exe</code> untuk baris perintah. Sesi pertama adalah tiga keputusan:
+        aplikasi mana, momen mana, dan secepat apa jam harus berjalan.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Jalankan aplikasi seolah-olah ini detik terakhir tahun 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Hal yang sama, dengan jam berjalan sehari per menit</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Dua hal yang perlu dibaca lebih dulu</h2>
+
+    <div class="note warning">
+      <p><strong>Cadangkan direktori data aplikasi sebelum sesi pertama dengan tanggal di masa depan.</strong></p>
+      <p>
+        Aplikasi yang berjalan di tahun 2028 menulis tanggal 2028 di mana pun ia menyimpan data: database,
+        konfigurasi, cache, file lisensinya. Nilai-nilai itu tetap ada setelah Anda kembali ke waktu
+        nyata. Untuk perangkat lunak dengan perlindungan lisensi, ini bisa permanen -
+        <em>“clock rollback detected, licence invalidated”</em> adalah pola standar di industri, dan ia
+        akan melakukan persis apa yang dirancang untuk dilakukan.
+      </p>
+      <p>
+        Chrono Mock membereskan jejaknya sendiri. Ia tidak dapat membereskan jejak aplikasi yang Anda uji.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Antivirus Anda mungkin menandainya, dan itu wajar.</strong></p>
+      <p>
+        Waktu digeser dengan menyuntikkan pustaka kecil ke proses target. Itu teknik Windows yang sah dan
+        terdokumentasi - dan juga teknik yang dipakai malware, sehingga Microsoft Defender dan lainnya
+        dapat menandai pustaka yang disuntikkan atau memblokir injeksinya sekaligus. Ini positif palsu
+        yang dipicu oleh tekniknya.
+      </p>
+      <p>
+        Jika sesi menolak dimulai dan Defender melaporkan ancaman, kecualikan pustakanya, bukan folder:
+        pilih <strong>File</strong> di Windows Security dan berikan jalur lengkap ke
+        <code>chrono_hook.dll</code>. Pengecualian folder akan menghentikan pemindaian apa pun tepat di
+        direktori tempat alat menyuntik. Atau jalankan di mesin tempat Anda diizinkan melakukannya.
+        Pustaka yang disuntikkan dibangun dari kode di repositori ini di bawah GPL-3.0 - Anda dapat
+        membangunnya ulang sendiri. Mode Chromium dan Electron tidak menyuntik sama sekali dan tidak
+        terpengaruh.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Apa yang ditinggalkannya</h2>
+    <div class="prose">
+      <p>
+        Tidak ada di sistem Anda: tidak ada hook yang menetap, tidak ada entri registry, dan tidak ada
+        apa pun di luar foldernya sendiri kecuali tiga hal yang akan disebutkannya - riwayat sesi dan log
+        diagnostik, yang pindah ke <code>%LOCALAPPDATA%\ChronoMock\</code> ketika folder alat itu sendiri
+        tidak dapat ditulisi, dan, untuk target Electron atau Chromium, profil peramban sekali pakai di
+        bawah <code>%TEMP%</code> yang dihapus ketika sesi berakhir dan dilaporkan dalam ringkasan sesi
+        jika tidak dapat dihapus.
+      </p>
+      <p>
+        Tidak pernah terhubung ke internet, tidak menyimpan akun, dan tidak mengirim telemetri.
+      </p>
+    </div>
+  </section>
+
+</div>

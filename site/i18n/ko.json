@@ -1,0 +1,26 @@
+{
+  "//": "사이트의 한국어 텍스트 - en.json과 같은 키를 사용합니다(키가 하나라도 빠지면 빌드가 중단됩니다).",
+
+  "html_lang": "ko",
+  "dir": "ltr",
+  "og_locale": "ko_KR",
+
+  "social_image_alt": "Chrono Mock - 시스템 시계를 바꾸지 않고 Windows 앱을 원하는 날짜와 시간으로 실행",
+
+  "skip_to_content": "본문으로 건너뛰기",
+  "nav_label": "주 메뉴",
+
+  "language_name": "한국어",
+  "language_title": "이 페이지를 한국어로 보기",
+  "language_menu_label": "언어",
+
+  "footer_nav_label": "사이트 맵",
+  "footer_group_start": "시작하기",
+  "footer_group_tools": "대안과 런타임",
+  "footer_group_features": "주요 기능",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. 계정 없음, 텔레메트리 없음, 인터넷에는 절대 연결하지 않습니다.",
+  "footer_source": "GitHub의 소스 코드",
+  "footer_releases": "릴리스",
+  "footer_license": "라이선스"
+}

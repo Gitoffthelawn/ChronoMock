@@ -20,6 +20,126 @@
       "link_text": "WebView2 i Qt WebEngine",
       "title": "Podmiana daty dla stron wewnątrz natywnej aplikacji",
       "description": "Natywna aplikacja z wbudowanym silnikiem web trzyma strony w procesie, do którego wstrzyknięcie nie wchodzi, więc zostają na prawdziwej dacie, gdy reszta aplikacji się przesuwa. Sesja sięga do nich portem diagnostycznym silnika."
+    },
+    "de": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 und Qt WebEngine",
+      "title": "Datum für die Webseiten in einer nativen App fälschen",
+      "description": "Eine native Anwendung mit eingebauter Web-Engine führt ihre Seiten in einem Prozess aus, den Injektion nicht betreten kann - sie behalten das echte Datum. Die Sitzung erreicht sie über den Debug-Port der Engine."
+    },
+    "fr": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 et Qt WebEngine",
+      "title": "Falsifier la date des pages web d'une application native",
+      "description": "Une application native dotée d'un moteur web exécute ses pages dans un processus que l'injection ne peut pas atteindre : elles gardent la vraie date. La session les atteint par le port de débogage du moteur."
+    },
+    "es": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 y Qt WebEngine",
+      "title": "Falsear la fecha de las páginas web dentro de una app nativa",
+      "description": "Una aplicación nativa con motor web integrado ejecuta sus páginas en un proceso al que la inyección no puede entrar, así que conservan la fecha real. La sesión las alcanza por el puerto de depuración del motor."
+    },
+    "pt-br": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 e Qt WebEngine",
+      "title": "Falsificar a data das páginas web dentro de um app nativo",
+      "description": "Um aplicativo nativo com motor web embutido executa as páginas em um processo que a injeção não consegue entrar, então elas ficam com a data real. A sessão as alcança pela porta de depuração do motor."
+    },
+    "it": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 e Qt WebEngine",
+      "title": "Falsificare la data delle pagine web dentro un'app nativa",
+      "description": "Un'applicazione nativa con un motore web integrato esegue le pagine in un processo in cui l'iniezione non entra, quindi restano sulla data reale. La sessione le raggiunge dalla porta di debug del motore."
+    },
+    "nl": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 en Qt WebEngine",
+      "title": "De datum vervalsen voor de webpagina's in een native app",
+      "description": "Een native applicatie met een ingebouwde webengine draait haar pagina's in een proces waar injectie niet in kan, dus ze houden de echte datum. De sessie bereikt ze via de debugpoort van de engine."
+    },
+    "ro": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 și Qt WebEngine",
+      "title": "Falsifică data paginilor web dintr-o aplicație nativă",
+      "description": "O aplicație nativă cu motor web încorporat își rulează paginile într-un proces în care injecția nu intră, deci ele păstrează data reală. Sesiunea ajunge la ele prin portul de depanare al motorului."
+    },
+    "cs": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 a Qt WebEngine",
+      "title": "Falšování data pro webové stránky v nativní aplikaci",
+      "description": "Nativní aplikace s vestavěným webovým enginem spouští své stránky v procesu, do kterého injektáž nevstoupí, takže si drží skutečné datum. Sezení se k nim dostane přes ladicí port enginu."
+    },
+    "tr": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 ve Qt WebEngine",
+      "title": "Yerel bir uygulamadaki web sayfaları için tarihi sahtelemek",
+      "description": "Yerleşik web motoru olan yerel bir uygulama, sayfalarını enjeksiyonun giremediği bir süreçte çalıştırır; bu yüzden gerçek tarihi korurlar. Oturum onlara motorun hata ayıklama portundan ulaşır."
+    },
+    "id": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 dan Qt WebEngine",
+      "title": "Memalsukan tanggal untuk halaman web di aplikasi native",
+      "description": "Aplikasi native dengan web engine bawaan menjalankan halamannya di proses yang tidak dapat dimasuki injeksi, sehingga halaman tetap memakai tanggal asli. Sesi menjangkaunya lewat port debug engine."
+    },
+    "vi": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 và Qt WebEngine",
+      "title": "Làm giả ngày cho các trang web trong một ứng dụng native",
+      "description": "Ứng dụng native có động cơ web tích hợp chạy các trang của nó trong một tiến trình mà việc chèn mã không vào được, nên chúng giữ ngày thật. Phiên tiếp cận chúng qua cổng gỡ lỗi của động cơ."
+    },
+    "ru": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 и Qt WebEngine",
+      "title": "Подмена даты для веб-страниц внутри нативного приложения",
+      "description": "Нативное приложение со встроенным веб-движком запускает страницы в процессе, куда внедрение не попадает, и они сохраняют настоящую дату. Сессия достаёт их через порт отладки движка."
+    },
+    "uk": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 і Qt WebEngine",
+      "title": "Підміна дати для вебсторінок усередині нативного застосунку",
+      "description": "Нативний застосунок із вбудованим вебрушієм запускає сторінки в процесі, куди впровадження не потрапляє, тож вони зберігають справжню дату. Сесія дістає їх через порт налагодження рушія."
+    },
+    "ja": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 と Qt WebEngine",
+      "title": "ネイティブアプリ内の Web ページの日付を偽装する",
+      "description": "Web エンジンを内蔵したネイティブアプリは、インジェクションが入れないプロセスでページを動かすため、実際の日付のままです。セッションはエンジンのデバッグポート経由でそこへ届きます。"
+    },
+    "ko": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2와 Qt WebEngine",
+      "title": "네이티브 앱 안의 웹 페이지 날짜 속이기",
+      "description": "웹 엔진이 내장된 네이티브 앱은 인젝션이 들어가지 못하는 프로세스에서 페이지를 실행하므로 실제 날짜를 유지합니다. 세션은 엔진의 디버깅 포트를 통해 이들에 닿습니다."
+    },
+    "zh-hans": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 与 Qt WebEngine",
+      "title": "在原生应用内的网页中伪造日期",
+      "description": "内置网页引擎的原生应用在注入进不去的进程中运行页面，因此保持真实日期。会话通过引擎的调试端口到达它们。"
+    },
+    "zh-hant": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 與 Qt WebEngine",
+      "title": "在原生應用程式內的網頁中偽造日期",
+      "description": "內建網頁引擎的原生應用程式在注入進不去的處理序中執行頁面，因此保持真實日期。工作階段透過引擎的偵錯連接埠到達它們。"
+    },
+    "ar": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 وQt WebEngine",
+      "title": "تزييف التاريخ في صفحات الويب داخل التطبيقات الأصلية",
+      "description": "التطبيقات الأصلية ذات محرّك الويب المدمج تشغّل صفحاتها في عملية لا يدخلها الحقن، فتبقى على التاريخ الحقيقي. وتصل إليها الجلسة عبر منفذ تصحيح الأخطاء في المحرّك."
+    },
+    "hi": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 और Qt WebEngine",
+      "title": "नेटिव ऐप के भीतर के वेब पेज में तारीख़ बदलना",
+      "description": "अंतर्निहित वेब इंजन वाले नेटिव ऐप अपने पेज ऐसी प्रोसेस में चलाते हैं जहाँ इंजेक्शन नहीं पहुँचता, इसलिए वे असली तारीख़ पर रहते हैं। सत्र इंजन के डीबगिंग पोर्ट से उन तक पहुँचता है।"
+    },
+    "th": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 และ Qt WebEngine",
+      "title": "ปลอมวันที่ในเว็บเพจภายในแอปเนทีฟ",
+      "description": "แอปเนทีฟที่มีเว็บเอนจินในตัวรันหน้าเว็บในโพรเซสที่การฉีดเข้าไม่ถึง จึงคงวันที่จริงไว้ เซสชันเข้าถึงหน้าเหล่านั้นผ่านพอร์ตดีบักของเอนจิน"
     }
   }
 }

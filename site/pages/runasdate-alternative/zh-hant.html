@@ -1,0 +1,113 @@
+<!-- 與 RunAsDate 的比較，繁體中文。結構、class 與預留位置和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>RunAsDate 替代品，補上了缺少的部分</h1>
+    <p class="sub">
+      多年來，<a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> 一直是<em>「在 Windows 上讓這個程式以另一個日期執行」</em>的答案，而且是個好答案。本頁談的是兩者的不同之處，以及 RunAsDate 在哪些情況下仍是更好的選擇。
+    </p>
+  </section>
+
+  <section>
+    <h2>並排比較</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>讓一個應用程式以虛擬日期執行</td><td class="y">是</td><td class="y">是</td></tr>
+          <tr><td>不動系統時鐘</td><td class="y">是</td><td class="y">是</td></tr>
+          <tr><td>被攔截的時間函式</td><td class="n">5</td><td class="y">{{channel_count}} 個通道</td></tr>
+          <tr><td>比真實時間更快的時鐘</td><td class="n">不提供</td><td class="y">任意整數倍率</td></tr>
+          <tr><td>凍結時鐘</td><td class="n">不提供</td><td class="y">是</td></tr>
+          <tr><td>應用程式執行期間跳轉</td><td class="n">不提供</td><td class="y">往前與往後</td></tr>
+          <tr><td>僅對該處理序生效的時區</td><td class="n">文件中未提及</td><td class="y">是，固定偏移量</td></tr>
+          <tr><td>子處理序繼承工作階段</td><td class="n">文件中未提及</td><td class="y">是</td></tr>
+          <tr><td>告訴你是否生效</td><td class="n">否</td><td class="y">判定，逐個通道，附呼叫次數</td></tr>
+          <tr><td>Electron 與 Chromium 應用程式</td><td class="n">不提供</td><td class="y">獨立的機制</td></tr>
+          <tr><td>可用於 CI 的命令列</td><td class="y">是</td><td class="y">是，附結束代碼與 JSON</td></tr>
+          <tr><td>原始碼</td><td class="n">免費軟體，封閉原始碼</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>大小</td><td class="y">不到 40 KB</td><td class="n">命令列版 1.6 MB，含視窗版 69 MB</td></tr>
+          <tr><td>舊版 Windows</td><td class="y">最早到 Windows 2000</td><td class="n">Windows 10 與 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>「文件中未提及」</em>的意思是 RunAsDate 的頁面沒有提到這項功能，並不是宣稱該工具沒有這項功能。
+    </p>
+  </section>
+
+  <section>
+    <h2>最重要的差別</h2>
+    <div class="prose">
+      <p>
+        不在於通道的數量。而在於 RunAsDate 在它自己的文件裡老實地告訴你，它<strong>「對從其他來源取得目前日期／時間的應用程式不起作用」</strong>——然後讓你自己去弄清楚你的應用程式是不是其中之一。
+      </p>
+      <p>
+        Chrono Mock 把同一句話當作需要<strong>量測</strong>的東西。每次工作階段都以一個判定、應用程式實際讀取過的通道及各自的次數、被遺漏的通道，以及在應用程式還沒詢問時鐘之前就被發現開啟了網路連線時的警告結束。
+      </p>
+      <p>
+        一個看起來時間被改了、其實沒有的應用程式，比一個根本沒有啟動的應用程式更糟——它會產出一個毫無意義的通過的測試。
+        <a href="/zh-hant/time-source-audit/">稽核是如何運作的 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>五個函式，還是 {{channel_count}} 個通道</h2>
+    <div class="prose">
+      <p>
+        RunAsDate 攔截 <code>GetSystemTime</code>、<code>GetLocalTime</code>、<code>GetSystemTimeAsFileTime</code>、<code>NtQuerySystemTime</code> 與 <code>GetSystemTimePreciseAsFileTime</code>。對非常多的應用程式來說，這確實足夠了，因為掛鐘時間就是在這些地方被讀取的。
+      </p>
+      <p>
+        其餘的部分，則是與日期相關的程式碼容易藏身之處：
+      </p>
+      <ul>
+        <li><strong>時區</strong>——四個函式，加上在時區之間轉換的整個函式族，報表落在錯誤的一天，就是經由它們發生的</li>
+        <li><strong>經過時間軸</strong>——計時刻度與無偏的中斷時間，試用期倒數通常量測的正是它們</li>
+        <li><strong>睡眠與等待</strong>，讓一次延遲是工作階段時鐘上的延遲，而不是真實時鐘上的延遲</li>
+        <li><strong>計時器</strong>——可等候計時器、視窗計時器、執行緒集區計時器與多媒體計時器</li>
+        <li><strong>處理序建立</strong>，讓安裝程式的子處理序在同一個工作階段中執行，而不是跑在當下的日期</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>什麼時候 RunAsDate 是更好的選擇</h2>
+    <div class="prose">
+      <p>說真的，而且並不少見：</p>
+      <ul>
+        <li><strong>你只需要一個日期、正常速度、馬上就要。</strong>RunAsDate 不到 40 KB，沒有需要學習的視窗，多年來一直在做的正是這件事。</li>
+        <li><strong>你在用較舊的 Windows。</strong>RunAsDate 最早支援到 Windows 2000。這個工具以 Windows 10 與 11 為目標，在更舊的系統上沒有測試過。</li>
+        <li><strong>大小很重要。</strong>40 KB 對比命令列版 1.6 MB、含視窗版 69 MB，根本沒得比。</li>
+        <li><strong>你不想要判定。</strong>量測涵蓋情況意味著要去讀結果。如果這個測試是用完即棄的，那就是你沒有要求的額外負擔。</li>
+      </ul>
+      <p>
+        兩者也可以並存。這裡沒有任何東西會阻止你為快速的場景繼續保留 RunAsDate。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>兩者都不是為此而生的</h2>
+    <div class="prose">
+      <p>
+        兩個工具都會出現在關於延長試用期的搜尋裡。<strong>這個工具不是為此而做的</strong>，這裡也不會有任何範例、預設或頁面示範這一點。Chrono Mock 是用來測試你自己負責的軟體的——你自己的授權到期、你自己的續約邏輯、你自己的月底報表。
+      </p>
+      <p>
+        這也是最不可能奏效的情形。授權保護通常透過刻意選擇的、難以攔截的途徑讀取時間——共用的使用者模式資料頁、直接系統呼叫、伺服器——而時鐘往後走正是這類程式碼被撰寫來偵測的情況。稽核會告訴你它沒有生效，這是誠實的答案，而不是有用的答案。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/faq/">先讀常見問題</a>
+    </div>
+  </section>
+
+</div>

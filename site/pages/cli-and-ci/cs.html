@@ -1,0 +1,133 @@
+<!-- CLI a CI, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testování dat v pipeline</h1>
+    <p class="sub">
+      Okno slouží ke zkoumání. Tohle je druhá polovina: sestavení pro příkazový řádek o velikosti
+      zhruba <strong>1,6 MB</strong>, bez běhového prostředí k instalaci, jehož návratový kód je
+      verdikt o pokrytí, ne kód cílové aplikace.
+    </p>
+  </section>
+
+  <section>
+    <h2>Návratový kód je verdikt</h2>
+    <div class="prose">
+      <p>
+        Toto je rozhodnutí v návrhu, které z nástroje dělá skriptovatelný nástroj. Když sezení skončí,
+        návratový kód odpovídá na otázku <em>„zabrala náhrada času?“</em>, ne <em>„co vrátila
+        aplikace?“</em>. Pipeline tak může selhat na náhradě, která se tiše neuskutečnila - což je přesně
+        to selhání, na kterém má smysl selhat, protože vše, co po něm následuje, je test, který nic
+        neprokázal.
+      </p>
+      <p>
+        Vlastní návratový kód cílové aplikace se hlásí dál, v datech sezení.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Kód</th><th>Význam</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>funguje - každý proces, který četl čas, viděl hodiny sezení</td></tr>
+          <tr><td>10</td><td>funguje částečně - některé kanály pokryté, jiné ne</td></tr>
+          <tr><td class="n">11</td><td>nefunguje - náhrada času se nedostala ke klíčovým kanálům</td></tr>
+          <tr><td>4</td><td>neurčeno - pokrytí se nepodařilo zjistit</td></tr>
+          <tr><td>1</td><td>chyba použití - špatný přepínač nebo špatný výraz</td></tr>
+          <tr><td>2</td><td>cíl se nepodařilo spustit nebo do něj injektovat</td></tr>
+          <tr><td>12</td><td>cíl zmizel, což naznačuje aplikaci s jedinou instancí</td></tr>
+          <tr><td>3</td><td>vnitřní chyba - jádro se nepodařilo spustit, narazilo na nečekaný stav, nebo se zastavilo dřív, než sezení uzavřelo (bez ohledu na vlastní návratový kód cíle). Takový běh nemá verdikt</td></tr>
+          <tr><td>5</td><td>operace není v tomto vydání sestavena</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Všechny přepínače obou příkazů a stejná tabulka pro kalkulačku jsou v
+        <a href="/cs/reference-cli/">referenci příkazového řádku</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Omezené běhy</h2>
+    <div class="prose">
+      <p>
+        Pipeline nemůže čekat, až člověk zavře desktopovou aplikaci.
+        <code>--ticks N</code> ukončí sezení po N tepech - každý trvá jednu skutečnou vteřinu - a
+        ohlásí, co do té doby zjistilo. Pokrytí se stejně určí v prvních okamžicích procesu, takže
+        obvykle stačí krátký limit.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Deset vteřin, pak zastavit a ohlásit</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Strojový výstup a důkazy</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> vypíše sezení jako strojově čitelné záznamy místo zprávy pro lidi -
+          stejná fakta, včetně pokrytí po jednotlivých kanálech.</li>
+        <li><code>--report &lt;path&gt;</code> zapíše zprávu pro lidi do souboru, který dobře poslouží
+          jako artefakt sestavení. Sezení, jehož verdikt je jiný než <em>funguje</em>, začíná tento
+          soubor bannerem o nespolehlivých důkazech, místo aby výhradu schovalo na konec.</li>
+        <li>Kalkulačka umí <code>--json</code> také, takže pipeline může datum, které potřebuje, vypočítat
+          a poslat zpět.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Vypočítat datum a pak spustit s ním</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Krok zhruba takto</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># nenulový návratový kód znamená, že náhrada času nezabrala, takže</span>
+    <span class="c"># test za ním by nic neprokázal</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Dvě upřímná upozornění k runnerům</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Potřebuje runner s Windows.</strong> Sestavení pro Linux ani macOS neexistuje a
+          nebude - na Linuxu tuto roli už plní
+          <a href="https://github.com/wolfcw/libfaketime">libfaketime</a>.</li>
+        <li><strong>Antivirus na hostovaném runneru může injektáž zablokovat.</strong> Posun času
+          znamená vložení knihovny do cílového procesu, což je zdokumentovaná technika Windows, kterou
+          používá i malware. Runner, který ji zablokuje, vrátí návratový kód, který to říká, místo
+          falešného úspěchu - ale je to věc, kterou je dobré zjistit dřív, než se na ni spolehnete.</li>
+      </ul>
+      <p>
+        Ze stejného důvodu běží komplexní testovací sada tohoto projektu na skutečných strojích, ne na
+        hostovaném runneru. Jeho kontinuální integrace všechno sestaví a otestuje jednotkovými testy a
+        samotná náhrada času se před každým vydáním zkouší ručně na skutečných aplikacích, a to v 32bitové
+        i 64bitové variantě.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/audit-zdroju-casu/">Co verdikty znamenají</a>
+    </div>
+  </section>
+
+</div>

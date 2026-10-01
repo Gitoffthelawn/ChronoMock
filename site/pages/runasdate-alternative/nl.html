@@ -1,0 +1,144 @@
+<!-- Vergelijking met RunAsDate, Nederlands. Structuur, klassen en tokens zoals in en.html.
+
+     Elke bewering over RunAsDate komt van zijn eigen pagina op nirsoft.net. "Niet gedocumenteerd" betekent
+     precies dat - de functie wordt daar niet genoemd - en is geen bewering dat ze ontbreekt. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Een RunAsDate-alternatief, met de onderdelen die ontbraken</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> is al jaren het antwoord op
+      <em>“draai dit programma op een andere datum onder Windows”</em>, en een goed antwoord. Deze pagina
+      gaat over waar de twee verschillen en waar RunAsDate nog steeds de betere keuze is.
+    </p>
+  </section>
+
+  <section>
+    <h2>Naast elkaar</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Draait één applicatie op een valse datum</td><td class="y">ja</td><td class="y">ja</td></tr>
+          <tr><td>Laat de systeemklok met rust</td><td class="y">ja</td><td class="y">ja</td></tr>
+          <tr><td>Onderschepte tijdfuncties</td><td class="n">5</td><td class="y">{{channel_count}} kanalen</td></tr>
+          <tr><td>Klok sneller dan echte tijd</td><td class="n">niet aangeboden</td><td class="y">elke gehele vermenigvuldiger</td></tr>
+          <tr><td>De klok bevriezen</td><td class="n">niet aangeboden</td><td class="y">ja</td></tr>
+          <tr><td>Springen terwijl de app draait</td><td class="n">niet aangeboden</td><td class="y">vooruit en achteruit</td></tr>
+          <tr><td>Tijdzone alleen voor dat proces</td><td class="n">niet gedocumenteerd</td><td class="y">ja, vaste offset</td></tr>
+          <tr><td>Kindprocessen erven de sessie</td><td class="n">niet gedocumenteerd</td><td class="y">ja</td></tr>
+          <tr><td>Zegt of het gewerkt heeft</td><td class="n">nee</td><td class="y">oordeel, per kanaal, met aantal aanroepen</td></tr>
+          <tr><td>Electron- en Chromium-applicaties</td><td class="n">niet aangeboden</td><td class="y">apart mechanisme</td></tr>
+          <tr><td>Opdrachtregel voor CI</td><td class="y">ja</td><td class="y">ja, met afsluitcodes en JSON</td></tr>
+          <tr><td>Broncode</td><td class="n">freeware, gesloten</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Grootte</td><td class="y">minder dan 40 KB</td><td class="n">1,6 MB de CLI, 69 MB met het venster</td></tr>
+          <tr><td>Oude Windows-versies</td><td class="y">terug tot Windows 2000</td><td class="n">Windows 10 en 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>“Niet gedocumenteerd”</em> betekent dat de functie niet op de RunAsDate-pagina wordt genoemd. Het
+      is geen bewering dat het gereedschap haar mist.
+    </p>
+  </section>
+
+  <section>
+    <h2>Het verschil dat het meest telt</h2>
+    <div class="prose">
+      <p>
+        Het is niet het aantal kanalen. Het is dat RunAsDate in zijn eigen documentatie eerlijk zegt dat
+        het <strong>“geen invloed heeft op applicaties die de huidige datum en tijd uit een andere bron
+        halen”</strong> - en je vervolgens laat uitzoeken of de jouwe er een is.
+      </p>
+      <p>
+        Chrono Mock behandelt diezelfde zin als iets om te <strong>meten</strong>. Elke sessie eindigt met
+        een oordeel, de kanalen die de applicatie werkelijk las met een aantal per kanaal, de gemiste
+        kanalen, en een waarschuwing als de applicatie werd gezien terwijl ze een netwerkverbinding opende
+        voordat ze ooit de klok had gevraagd.
+      </p>
+      <p>
+        Een applicatie die tijdverschoven lijkt maar het niet is, is erger dan een die nooit startte - ze
+        levert een geslaagde test op die niets betekent.
+        <a href="/nl/tijdbronnen-audit/">Hoe de audit werkt &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vijf functies, of {{channel_count}} kanalen</h2>
+    <div class="prose">
+      <p>
+        RunAsDate onderschept <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code> en
+        <code>GetSystemTimePreciseAsFileTime</code>. Voor heel veel applicaties is dat werkelijk genoeg,
+        want daar wordt de wandklok gelezen.
+      </p>
+      <p>
+        De rest van het oppervlak is waar datumafhankelijke code zich graag verstopt:
+      </p>
+      <ul>
+        <li>de <strong>tijdzone</strong> - vier functies, plus de hele familie die tussen zones omrekent,
+          waardoor een rapport op de verkeerde dag belandt</li>
+        <li>de <strong>as van de verstreken tijd</strong> - tickteller en onbevooroordeelde
+          interrupttijd, wat een proefperiode-aftelling meestal meet</li>
+        <li><strong>sleeps en wachten</strong>, zodat een vertraging een vertraging op de sessieklok is en
+          niet op de echte</li>
+        <li><strong>timers</strong> - wachtbare, venster-, threadpool- en multimediatimers</li>
+        <li><strong>het aanmaken van processen</strong>, zodat de kinderen van een installatieprogramma in
+          dezelfde sessie draaien in plaats van op de dag van vandaag</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wanneer RunAsDate de betere keuze is</h2>
+    <div class="prose">
+      <p>Echt, en niet zelden:</p>
+      <ul>
+        <li><strong>Je hebt één datum nodig, op normale snelheid, nu meteen.</strong> RunAsDate is kleiner
+          dan 40 KB, heeft geen venster om te leren en doet precies dit al vele jaren.</li>
+        <li><strong>Je zit op een ouder Windows.</strong> RunAsDate gaat terug tot Windows 2000. Dit
+          gereedschap richt zich op Windows 10 en 11 en is nergens ouder getest.</li>
+        <li><strong>Grootte telt.</strong> 40 KB tegenover 1,6 MB voor de opdrachtregel, of 69 MB met het
+          venster, is geen nek-aan-nekvergelijking.</li>
+        <li><strong>Je wilt geen oordeel.</strong> De dekking meten betekent het resultaat lezen. Als de
+          test een wegwerptest is, is dat overhead waar je niet om vroeg.</li>
+      </ul>
+      <p>
+        De twee kunnen ook naast elkaar bestaan. Niets hier houdt je tegen RunAsDate te bewaren voor het
+        snelle geval.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Waar geen van beide voor bedoeld is</h2>
+    <div class="prose">
+      <p>
+        Beide gereedschappen duiken op in zoekopdrachten over het verlengen van proefperiodes.
+        <strong>Dit is er niet voor gebouwd</strong>, en geen enkel voorbeeld, scenario of pagina hier zal
+        dat ooit laten zien. Chrono Mock is bedoeld om software te testen waarvoor je verantwoordelijk bent
+        - je eigen licentieverloop, je eigen verlengingslogica, je eigen maandrapportage.
+      </p>
+      <p>
+        Het is ook het geval dat het minst waarschijnlijk werkt. Licentiebeveiliging leest de tijd
+        routinematig via routes die gekozen zijn om moeilijk te onderscheppen te zijn - de gedeelde
+        gegevenspagina in gebruikersmodus, directe systeemaanroepen, een server - en een klok die achteruit
+        loopt is een toestand die zulke code geschreven is om te detecteren. De audit vertelt je dat het
+        niet werkte, wat het eerlijke antwoord is en geen nuttig antwoord.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/faq/">Lees eerst de FAQ</a>
+    </div>
+  </section>
+
+</div>

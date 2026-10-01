@@ -1,0 +1,128 @@
+<!-- Het jaar-2038-probleem in Windows, Nederlands. Structuur, klassen en tokens als in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Het jaar-2038-probleem testen in Windows</h1>
+    <p class="sub">
+      Op 19 januari 2038 om 03:14:07 UTC raakt een 32-bits teller met teken voor seconden sinds 1970 op.
+      De Windows-klok loopt er gewoon doorheen - de programma's, bestandsformaten en bibliotheken die hun
+      eigen 32-bits kopie hielden, niet. Zo vind je die in één applicatie, zonder de datum van de hele
+      machine op 2038 te zetten.
+    </p>
+  </section>
+
+  <section>
+    <h2>Waar de bug nog kan zitten</h2>
+    <div class="prose">
+      <p>
+        De Windows-klok is een 64-bits teller van stappen van 100 nanoseconden sinds 1601, dus hij kent
+        geen 2038. Het type <code>time_t</code> van de C-runtimebibliotheek is sinds Visual Studio 2005
+        standaard 64 bits. Wat overblijft is code die een 32-bits tijd koos of onderweg de bovenste helft
+        kwijtraakte:
+      </p>
+      <ul>
+        <li><strong>32-bits builds die met <code>_USE_32BIT_TIME_T</code> zijn gecompileerd</strong>, of
+          die <code>_time32</code> en <code>__time32_t</code> rechtstreeks aanroepen. De documentatie van
+          Microsoft waarschuwt dat zo'n applicatie na 18 januari 2038 kan uitvallen.</li>
+        <li><strong>Een 64-bits tijd opgeslagen in een <code>int</code> of <code>long</code>.</strong> In
+          Windows zijn beide 32 bits, ook in een 64-bits programma.</li>
+        <li><strong>Bibliotheken, bestandsformaten, netwerkprotocollen en databasekolommen</strong> die
+          seconden sinds 1970 in 32 bits bewaren.</li>
+        <li><strong>Code die jaren optelt.</strong> Een licentie van twintig jaar, een aflossingsschema van
+          dertig jaar of een certificaat dat tot 2040 geldt, passeren de grens lang voordat 2038
+          aanbreekt.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>De grens oversteken in één applicatie</h2>
+    <div class="prose">
+      <p>
+        De grens is gedefinieerd in UTC en <code>--at</code> wordt gelezen in de sessiezone, dus zet de
+        zone op UTC wanneer je het moment zelf schrijft. Het kant-en-klare scenario bevat al een absoluut
+        UTC-moment en heeft geen zone nodig.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Het scenario: de sessie start op de grens zelf, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Zeventien seconden ervoor starten en de applicatie hem live laten oversteken</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Eerder starten en op x60 snelheid draaien - de grens komt na ongeveer 14 seconden</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Of draaien op de datum van vandaag en eroverheen springen terwijl de applicatie open staat</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Een seconde voorbij de grens wordt een 32-bits teller met teken -2.147.483.648, wat gelezen wordt
+        als <strong>13 december 1901, 20:45:52 UTC</strong>. Een datum in 1901, een negatief getal, een
+        item dat plotseling verlopen is of vooraan gesorteerd staat, een uitzondering uit de datumcode -
+        zo ziet de overflow er van buiten uit.
+      </p>
+      <p>
+        De echte klok op 2038 zetten is de andere manier om hier te komen, en de manier die het meeste
+        kapotmaakt.
+        <a href="/nl/systeemdatum-wijzigen-testen/">Wat er gebeurt als je de systeemdatum wijzigt &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Controleren dat het het programma bereikte</h2>
+    <div class="prose">
+      <p>
+        Een test die slaagt omdat het programma 2038 nooit zag, is erger dan geen test. Het rapport aan
+        het einde van elke sessie zegt welke klok het programma las en hoe vaak:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        De regel <strong>session</strong> bevestigt dat de klok van de applicatie voorbij de grens ging.
+        Een oordeel <em>works</em> met aantallen aanroepen betekent dat het programma de klok las en de
+        datum uit 2038 kreeg; <em>works partially</em> noemt de kanalen die het op een andere manier las.
+        <a href="/nl/tijdbronnen-audit/">Wat de oordelen betekenen &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat een geslaagde test niet bewijst</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Alleen de eigen klok van het programma is verschoven.</strong> Een datum die het uit
+          een bestand of database laadt, is wat daar is opgeslagen, dus een datum uit 2038 in de gegevens
+          is een aparte test. De datumrekenmachine rekent zulke datums voor je uit:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Een server waarmee het programma praat, draait nog op de echte datum.</strong> Een
+          32-bits limiet aan die kant is onbereikbaar, en de sessie waarschuwt wanneer ze ziet dat het
+          programma een netwerkverbinding opent.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/datum-testscenarios/">Meer datums om te testen</a>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,132 @@
+<!-- libfaketime di Windows, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>libfaketime untuk Windows</h1>
+    <p class="sub">
+      <strong>Jawaban singkat:</strong> libfaketime tidak berjalan di Windows, dan tidak bisa - ia dibangun
+      di atas <code>LD_PRELOAD</code>, yang tidak dimiliki Windows. Chrono Mock adalah gagasan yang sama,
+      dibangun dengan cara yang diizinkan Windows.
+    </p>
+  </section>
+
+  <section>
+    <h2>Mengapa ia tidak bisa begitu saja dipindahkan</h2>
+    <div class="prose">
+      <p>
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> bekerja dengan membuat dynamic
+        loader menempatkan pustaka kecil di depan pustaka C, sehingga panggilan program ke
+        <code>time()</code> sampai lebih dulu ke penggantinya. Kait itu adalah <code>LD_PRELOAD</code> di
+        Linux dan <code>DYLD_INSERT_LIBRARIES</code> di macOS. README-nya sendiri mencantumkan persis dua
+        platform itu.
+      </p>
+      <p>
+        Windows tidak punya padanannya, dan jamnya toh tidak berada di balik satu fungsi. Aplikasi membaca
+        waktu lewat API Win32, lewat API native di bawahnya, dan lewat apa pun yang dibungkus runtime
+        mereka di sekeliling keduanya - sehingga versi Windows dari gagasan ini adalah pustaka yang
+        disuntikkan ke proses target, mengalihkan sekumpulan fungsi yang diekspor, bukan satu simbol.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Flag-nya, dipetakan satu per satu</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>bawaan di sini - lihat di bawah</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>tidak ada yang perlu disetel - alat ini menyuntik</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">Jadi kedua sisi dari pengujian yang sama tampak seperti ini:</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>Di mana keduanya benar-benar berbeda</h2>
+    <div class="prose">
+      <p>
+        <strong>Jam monotonik terbalik.</strong> libfaketime memalsukannya secara bawaan dan memberi Anda
+        <code>FAKETIME_DONT_FAKE_MONOTONIC</code> untuk menghentikannya. Di sini penghitung beresolusi
+        tinggi tetap nyata secara bawaan, karena menskalakannya mengacaukan stabilitas rendering dalam
+        pengujian, dan <code>--scale-qpc</code> mengaktifkannya. Switch itulah yang membuat
+        <code>monotonic</code> Python 3.13+, <code>Stopwatch</code> .NET, dan <code>nanoTime</code> Java
+        mengikuti jam sesi.
+      </p>
+      <p>
+        <strong>Windows punya lebih banyak tempat untuk dicegat.</strong> Di luar jam dinding ada zona
+        waktu, sumbu waktu berlalu, empat keluarga timer, fungsi sleep dan wait, serta pembuatan proses -
+        total {{channel_count}} kanal.
+      </p>
+      <p>
+        <strong>Alat ini melaporkan cakupannya sendiri.</strong> Setiap sesi berakhir dengan putusan,
+        kanal yang benar-benar dibaca aplikasi beserta hitungan untuk masing-masing, dan kanal yang
+        terlewat. Itulah bagian yang tidak memiliki padanan di kedua platform.
+      </p>
+      <p>
+        <strong>libfaketime lebih tua dan lebih luas di wilayahnya sendiri.</strong> Ia punya bertahun-tahun
+        pemakaian, mencakup beragam titik masuk pustaka C, dan di Linux ia adalah alat yang tepat. Tidak
+        ada di sini yang menggantikannya di sana.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jika Anda sebenarnya menginginkan libfaketime itu sendiri</h2>
+    <div class="prose">
+      <p>
+        Dua jalur yang jujur, keduanya memindahkan program yang diuji ke Linux:
+      </p>
+      <ul>
+        <li><strong>WSL</strong> - bangun dan jalankan libfaketime di dalam subsistem Linux. Cocok bila yang
+          diuji adalah program Linux yang kebetulan Anda kembangkan di Windows.</li>
+        <li><strong>Container</strong> - gagasan yang sama, lebih dapat direproduksi.</li>
+      </ul>
+      <p>
+        Tidak satu pun membantu untuk aplikasi Windows, yang merupakan kasus tempat alat ini ada.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/faq/">Baca FAQ</a>
+    </div>
+  </section>
+
+</div>

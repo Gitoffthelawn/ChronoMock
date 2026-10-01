@@ -1,0 +1,141 @@
+<!-- Die Uhr beschleunigen, Deutsch. Aufbau, Klassen und Tokens wie in en.html.
+
+     Die Faktortabelle ist Arithmetik, geprüft und nicht geschätzt: x1440 sind 1440 gefälschte Minuten
+     pro realer Minute, also genau ein Tag. Die Obergrenze von einer Million ist
+     chrono_core::MULTIPLIER_MAX. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Die Uhr einer App schneller laufen lassen</h1>
+    <p class="sub">
+      Eine 30-Tage-Testversion braucht 30 Tage, um abzulaufen, solange man die Zeit nicht verschieben
+      kann. Der übliche Rat ist, die Systemuhr vorzustellen, was Administratorrechte erfordert und jedes
+      andere Programm auf dem Rechner mitreißt. Dies verschiebt stattdessen einen einzigen Prozess.
+    </p>
+  </section>
+
+  <section>
+    <h2>Wie schnell</h2>
+    <div class="prose">
+      <p>
+        Wählen Sie einen ganzzahligen Faktor. Die Uhr der Anwendung läuft so viel Mal schneller als die
+        echte, ab dem Zeitpunkt, an dem die Sitzung beginnt.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Faktor</th><th>Eine reale Minute wird zu</th><th>Nützlich für</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>einer Stunde</td><td>stündliche Jobs, Sitzungs-Timeouts, Token-Laufzeiten</td></tr>
+          <tr><td><code>x1440</code></td><td>einem Tag</td><td>tägliche Wechsel, eine 30-Tage-Testversion in einer halben Stunde</td></tr>
+          <tr><td><code>x43200</code></td><td>einer 30-Tage-Testversion</td><td>die ganze Testphase enden sehen, während Sie das hier lesen</td></tr>
+          <tr><td><code>x525600</code></td><td>einem Jahr</td><td>jährliche Verlängerungen, Zertifikatsablauf</td></tr>
+          <tr><td><code>x1000000</code></td><td>etwa 1,9 Jahren</td><td>die Obergrenze</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Mit der echten Zeit von jetzt starten und einen Tag pro Minute laufen lassen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># An einem gewählten Datum starten und von dort beschleunigen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Stattdessen die Uhr komplett anhalten</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Eine Aufnahme einer Sitzung, die eine andere Windows-Anwendung steuert. Das linke Fenster ist Chrono Mock, in dem die Uhr der Anwendung am 2038-01-19 mit sechzigfacher Echtzeitgeschwindigkeit hochzählt, während die echte Uhr daneben nur einige Sekunden weiterrückt. Das rechte Fenster ist die getestete Anwendung, deren eigenes Sitzungsprotokoll zeigt, dass sie am 2038-01-19 gestartet ist und seit Minuten läuft, während im Raum kaum eine halbe Minute vergangen ist.">
+      <figcaption>Eine echte Sitzung, die eine echte Anwendung steuert. Achten Sie auf das rechte Fenster:
+        Das getestete Programm hat seinen eigenen Start als <strong>19. Januar 2038</strong> aufgezeichnet,
+        und seine Sitzung hat Minuten gedauert, während die Uhr im Raum Sekunden weitergerückt ist. Die
+        Geschwindigkeit wird während des Laufs geändert, ohne dass etwas neu gestartet wird.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Was Leute überrascht: Es gibt zwei Uhren</h2>
+    <div class="prose">
+      <p>
+        Die <strong>Wanduhr</strong> zu beschleunigen - das, was <code>DateTime.Now</code> und seine
+        Entsprechungen liefern - beschleunigt für sich genommen keinen <strong>Countdown</strong>. Das sind
+        zwei verschiedene Fragen, die eine Anwendung dem Betriebssystem stellen kann, und viel Software
+        misst „dreißig Tage“ mit der zweiten statt mit der ersten.
+      </p>
+      <p>
+        Die Dauerachse - Tick-Zähler, Sleeps, Waits und Timer - ist deshalb ein eigener Schalter:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> legt Sleeps, Waits und Timer ebenfalls auf die Sitzungsuhr. Ohne
+          ihn jagt <code>x1440</code> den Kalender voran, während ein Fünf-Sekunden-Timer weiter fünf
+          reale Sekunden braucht.</li>
+        <li><code>--scale-qpc</code> skaliert zusätzlich den hochauflösenden Zähler. Dort lesen
+          Python-3.13+-<code>monotonic</code>, .NET-<code>Stopwatch</code> und Java-<code>nanoTime</code>
+          die verstrichene Zeit, und er ist standardmäßig aus, weil seine Skalierung im Test das
+          Rendering destabilisiert hat.</li>
+      </ul>
+      <p>
+        Wenn der Faktor einem Countdown scheinbar nichts tut, ist das fast immer der Grund.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Eine Timer-App: den Kalender UND die Countdowns beschleunigen</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Eine Python- oder .NET-App, die verstrichene Zeit am hochauflösenden Zähler misst</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Die Geschwindigkeit ändern, ohne neu zu starten</h2>
+    <div class="prose">
+      <p>
+        Der Faktor lässt sich mitten in der Sitzung ändern, und die Uhr wird neu verankert statt
+        gesprungen, sie geht also nie rückwärts, wenn die Geschwindigkeit sinkt. Sie können die Uhr auch
+        direkt springen lassen - vorwärts oder rückwärts, wie ein Laptop es nach dem Abgleich mit einem
+        Zeitserver tut, und das ist der Fall, der alles bricht, was verstrichene Zeit ohne Absicherung
+        misst.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Mit x60 laufen, dann nach zwei Sekunden auf x1440 wechseln</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Laufen, dann nach fünf Sekunden die Uhr auf einen gewählten Zeitpunkt springen lassen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Was es nicht tut</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Es berührt die Systemuhr nicht.</strong> Das ist der Zweck, keine Einschränkung - aber
+          es bedeutet, dass alles, was die Zeit von einem Server, einer Datenbank oder einem anderen
+          Rechner liest, unberührt bleibt, und die Prüfung sagt Ihnen, wenn das passiert.</li>
+        <li><strong>Ein Sprung ändert, was die Anwendung sieht, nicht, wann sie aufwacht.</strong> Timer,
+          die schon an den Kernel übergeben wurden, laufen in echter Zeit. Die meisten Anwendungen fragen
+          die Uhr ab, sodass Sprünge in der Praxis funktionieren - nicht bei allen.</li>
+        <li><strong>Es verlangsamt die Zeit nicht.</strong> Faktoren sind ganze Zahlen ab eins, dazu eine
+          eingefrorene Uhr bei null.</li>
+      </ul>
+      <p>
+        Ob etwas davon Ihre Anwendung erreicht hat, sollte man nicht annehmen.
+        <a href="/de/zeitquellen-pruefung/">Die Sitzung sagt es &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/faq/">Die FAQ lesen</a>
+    </div>
+  </section>
+
+</div>

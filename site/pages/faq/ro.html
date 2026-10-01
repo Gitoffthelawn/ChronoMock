@@ -1,0 +1,202 @@
+<!-- FAQ, română. Structura, clasele și token-urile ca în en.html. Fiecare titlu este scris așa cum ar tasta cineva întrebarea. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Întrebări și răspunsuri</h1>
+    <p class="sub">
+      Răspunsuri scurte, inclusiv cele despre ce nu va face acest instrument.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Îmi schimbă ceasul calculatorului?</h3>
+      <p>
+        Nu, și nu o va face niciodată - acesta este tot rostul instrumentului. Ora mutată este vizibilă
+        pentru <strong>un singur proces și pentru copiii pe care îi pornește</strong>. Autentificarea ta în
+        domeniu, certificatele, Windows Update și toate celelalte aplicații văd în tot acest timp data
+        reală.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Am nevoie de drepturi de administrator?</h3>
+      <p>
+        Nu. Nu există instalator, nu se scrie nimic în registru, iar rulează dintr-un folder pe care îl
+        poți pune pe un stick USB.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Va funcționa cu aplicația mea?</h3>
+      <p>
+        Răspunsul onest este că niciun instrument de acest fel nu poate promite asta dinainte - așa că
+        acesta o măsoară. Fiecare sesiune se încheie cu un verdict
+        (<strong>funcționează, funcționează parțial, nu funcționează</strong>), lista canalelor de timp pe
+        care aplicația le-a citit efectiv, cu un număr de apeluri pentru fiecare, și lista canalelor care
+        nu au fost acoperite.
+      </p>
+      <p>
+        O aplicație poate citi ceasul pe o cale pe care nimic nu a interceptat-o - de la un server, dintr-o
+        bază de date, printr-un strat al runtime-ului. Când se întâmplă asta, ești informat, în loc să fii
+        lăsat să presupui că testul a trecut.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Funcționează cu aplicații .NET, Java și Python?</h3>
+      <p>
+        Parțial, iar diferențele contează. Toate trei sunt marcate <strong>experimentale</strong>:
+        funcționează pe țintele de test, nu au fost testate pe scară largă, iar auditul încorporat este
+        sursa ta de adevăr, nu acest paragraf.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - ceasul de perete și fusul orar al sesiunii sunt acoperite.
+          <code>Stopwatch</code> rămâne pe contorul real de înaltă rezoluție, dacă nu optezi pentru
+          scalarea lui.</li>
+        <li><strong>Java</strong> - ceasul de perete, timpul scurs și fusul orar al sesiunii sunt acoperite.
+          Fusul ajunge ca un decalaj fix, numit de exemplu <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> și <code>datetime</code> sunt acoperite.
+          <code>perf_counter</code>, și <code>monotonic</code> începând cu Python 3.13, stau pe contorul
+          de înaltă rezoluție, dacă nu optezi.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Funcționează cu aplicații Electron și Chromium?</h3>
+      <p>
+        Da, printr-un mecanism diferit. Ceasul lor trăiește într-un renderer izolat în care injecția nu
+        ajunge, așa că aplicația este lansată cu un port de depanare și cu un profil curat, de unică
+        folosință, iar propriile ei API-uri JavaScript de timp sunt puse pe ceasul sesiunii - inclusiv în
+        Web Worker-e, unde de multe ori trăiește de fapt temporizatorul.
+      </p>
+      <p>
+        O limită bună de știut: în acest mod, sesiunea urmează fusul orar al gazdei. Momentul este
+        falsificat, dar getter-ele de oră locală nu.
+      </p>
+      <p>
+        <a href="/ro/electron-chromium/">Cum funcționează modul Chromium și Electron</a> - la ce ajunge, la
+        ce nu și de ce portul de depanare este partea de care să fii conștient.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Pot face timpul să meargă mai repede decât timpul real?</h3>
+      <p>
+        Da. Alege un multiplicator întreg, iar ceasul aplicației merge la acea viteză - <code>x1440</code>
+        face dintr-o zi un minut, așa că o probă de 30 de zile expiră în aproximativ o jumătate de oră. Poți
+        și să oprești ceasul sau să sari înainte și înapoi în timpul sesiunii.
+      </p>
+      <p>
+        Numărătorile inverse și temporizatoarele stau pe o axă separată, iar accelerarea lor este un
+        comutator separat, pentru că scalarea lor schimbă un comportament de care depind multe aplicații.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Pot schimba doar fusul orar, fără să schimb data?</h3>
+      <p>
+        Da. Sesiunea poartă propriul decalaj fix, vizibil pentru acel proces, în timp ce fusul sistemului
+        rămâne exact unde era. Aceasta este partea pe care majoritatea instrumentelor o sar și așa
+        reproduci bug-ul care apare doar la clientul aflat la cinci fusuri orare distanță.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Dar ora de vară?</h3>
+      <p>
+        Fusul sesiunii este un <strong>decalaj fix, fără ora de vară</strong>. O sesiune setată pe Polonia
+        rămâne la decalajul ales, indiferent dacă ceasul ei arată martie sau iulie, așa că o rulare care
+        trece peste o tranziție reală se abate cu o oră de la ce ar arăta cu adevărat acel fus.
+      </p>
+      <p>
+        Trecerea unei aplicații printr-o tranziție la ora de vară nu este deci ceva ce face încă acest
+        instrument, iar calculatorul de date o spune, în loc să ghicească.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>De ce îl semnalează antivirusul meu?</h3>
+      <p>
+        Pentru că injectarea unei biblioteci într-un alt proces este o tehnică Windows legitimă,
+        documentată, pe care o folosește și malware-ul. Este un fals pozitiv declanșat de tehnică, nu de
+        ceva ce face instrumentul mașinii tale. Biblioteca injectată este <code>chrono_hook.dll</code>,
+        construită din sursa publică sub GPL-3.0, și o poți recompila singur. Modul Chromium și Electron
+        nu injectează deloc.
+      </p>
+      <p>
+        <a href="/ro/descarcare/">Pagina de descărcare</a> spune ce să faci în privința asta.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Este o cale de a prelungi o probă sau de a ocoli o licență?</h3>
+      <p>
+        Nu, și nu este construit pentru asta. Chrono Mock este pentru testarea software-ului pentru care
+        răspunzi tu - expirarea propriei licențe, propria logică de reînnoire, propriul raport de final de
+        lună. Niciun exemplu, preset sau pagină de aici nu va demonstra vreodată prelungirea perioadei de
+        probă a altcuiva.
+      </p>
+      <p>
+        Software-ul cu protecție prin licență este de fapt cazul cel mai probabil să învingă acest
+        instrument: codul anti-tamper citește adesea ora pe căi alese deliberat ca să fie greu de
+        interceptat, iar derularea ceasului înapoi este o condiție pe care un asemenea software este scris
+        să o detecteze. Este planificată o funcție îndreptată în sens invers - un mod care rulează o serie
+        de manipulări ale timpului împotriva <em>propriei</em> tale aplicații și raportează pe care le-a
+        prins protecția ta.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Îl pot folosi în integrare continuă?</h3>
+      <p>
+        Da. Build-ul de linie de comandă este o descărcare separată de circa 1,6 MB, fără runtime de
+        instalat. Fiecare comandă vorbește <code>--json</code> și iese cu un cod pe care un pipeline îl
+        poate folosi pentru ramificare, iar o sesiune își poate scrie dovezile într-un fișier.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Cu ce diferă de RunAsDate?</h3>
+      <p>
+        RunAsDate interceptează cinci funcții de ceas de perete și o face bine. Acest instrument acoperă
+        {{channel_count}} canale de timp, poate accelera ceasul, dă procesului propriul fus orar,
+        urmărește procesele copil și îți spune ulterior care canale au fost acoperite efectiv. Este și
+        open source, în timp ce RunAsDate este freeware închis.
+      </p>
+      <p>
+        <a href="/ro/alternativa-la-runasdate/">Comparația completă</a> spune și unde RunAsDate este
+        alegerea mai bună.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Este libfaketime pentru Windows?</h3>
+      <p>
+        În spirit, da - aceeași idee de a muta timpul pentru un program, nu pentru mașină. În practică este
+        o implementare diferită, pentru că
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> depinde de
+        <code>LD_PRELOAD</code>, care nu există pe Windows. Există
+        <a href="/ro/libfaketime-windows/">o pagină despre exact asta</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Este gratuit și trimite ceva undeva?</h3>
+      <p>
+        Gratuit și open source sub GPL-3.0. Fără cont, fără telemetrie, și nu comunică deloc cu
+        internetul - întregul instrument funcționează cu cablul de rețea scos.
+      </p>
+      <p>
+        Fereastra are totuși un singur control care duce în exterior, așa că merită numit, nu lăsat să-l
+        descoperi singur: un buton <strong>Donate</strong> în bara de titlu. Apăsarea lui predă o adresă
+        browserului tău, iar browserul este cel care se conectează. Chrono Mock nu deschide nicio conexiune
+        în niciunul dintre cazuri, iar nimic din ce a măsurat despre aplicația ta nu pleacă nicăieri.
+      </p>
+    </div>
+
+  </section>
+
+</div>

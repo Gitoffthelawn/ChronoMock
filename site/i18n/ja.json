@@ -1,0 +1,26 @@
+{
+  "//": "サイトの日本語テキスト - en.json と同じキー（キーが欠けるとビルドが止まります）。",
+
+  "html_lang": "ja",
+  "dir": "ltr",
+  "og_locale": "ja_JP",
+
+  "social_image_alt": "Chrono Mock - システム時計を変更せずに、Windows アプリを好きな日時で実行",
+
+  "skip_to_content": "本文へスキップ",
+  "nav_label": "メインナビゲーション",
+
+  "language_name": "日本語",
+  "language_title": "このページを日本語で見る",
+  "language_menu_label": "言語",
+
+  "footer_nav_label": "サイトマップ",
+  "footer_group_start": "はじめに",
+  "footer_group_tools": "代替ツールとランタイム",
+  "footer_group_features": "できること",
+
+  "footer_summary": "Chrono Mock - GPL-3.0。アカウント不要、テレメトリなし、インターネットには一切接続しません。",
+  "footer_source": "GitHub のソースコード",
+  "footer_releases": "リリース",
+  "footer_license": "ライセンス"
+}

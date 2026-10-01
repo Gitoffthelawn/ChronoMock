@@ -20,6 +20,126 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - pytania o podmianę daty w aplikacji",
       "description": "Czy zmienia zegar systemowy? Czy wymaga uprawnień administratora? Czy zadziała z moją aplikacją, z .NET, Javą albo Electronem? Krótkie odpowiedzi, razem z tym, czego nie robi."
+    },
+    "de": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Fragen zum Datum-Fälschen unter Windows",
+      "description": "Ändert es die Systemuhr? Braucht es Adminrechte? Funktioniert es mit meiner App, mit .NET, Java oder Electron? Kurze Antworten, auch dazu, was es nicht kann."
+    },
+    "fr": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ Chrono Mock - questions sur la falsification de date sous Windows",
+      "description": "Cela change-t-il l'horloge système ? Faut-il être administrateur ? Cela marche-t-il avec mon appli, .NET, Java ou Electron ? Des réponses courtes, y compris sur ce qu'il ne fait pas."
+    },
+    "es": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ de Chrono Mock - preguntas sobre falsear fechas en Windows",
+      "description": "¿Cambia el reloj del sistema? ¿Necesita permisos de administrador? ¿Funcionará con mi app, con .NET, Java o Electron? Respuestas breves, incluido lo que no hará."
+    },
+    "pt-br": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ do Chrono Mock - perguntas sobre falsificar datas no Windows",
+      "description": "Ele altera o relógio do sistema? Precisa de administrador? Funciona com o meu app, com .NET, Java ou Electron? Respostas curtas, inclusive sobre o que ele não faz."
+    },
+    "it": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ di Chrono Mock - domande sul falsificare le date su Windows",
+      "description": "Cambia l'orologio di sistema? Servono i diritti di amministratore? Funziona con la mia app, con .NET, Java o Electron? Risposte brevi, anche su ciò che non fa."
+    },
+    "nl": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - vragen over datums vervalsen onder Windows",
+      "description": "Verandert het de systeemklok? Zijn beheerdersrechten nodig? Werkt het met mijn app, met .NET, Java of Electron? Korte antwoorden, ook over wat het niet doet."
+    },
+    "ro": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - întrebări despre data falsă pe Windows",
+      "description": "Schimbă ceasul sistemului? Sunt necesare drepturi de administrator? Merge cu aplicația mea, cu .NET, Java sau Electron? Răspunsuri scurte, inclusiv despre ce nu face."
+    },
+    "cs": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - otázky o falešném datu ve Windows",
+      "description": "Mění systémové hodiny? Jsou potřeba práva správce? Funguje s mou aplikací, s .NET, Javou nebo Electronem? Krátké odpovědi, i o tom, co nedělá."
+    },
+    "tr": {
+      "slug": "sss",
+      "link_text": "SSS",
+      "title": "Chrono Mock SSS - Windows’ta sahte tarih hakkında sorular",
+      "description": "Sistem saatini değiştiriyor mu? Yönetici hakkı gerekir mi? Uygulamamla, .NET, Java ya da Electron ile çalışır mı? Yapmadıkları dahil kısa cevaplar."
+    },
+    "id": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ Chrono Mock - tanya jawab tentang tanggal palsu di Windows",
+      "description": "Apakah mengubah jam sistem? Perlu hak administrator? Cocok dengan aplikasi saya, .NET, Java, atau Electron? Jawaban singkat, termasuk tentang yang tidak dilakukannya."
+    },
+    "vi": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ Chrono Mock - hỏi đáp về ngày giả trên Windows",
+      "description": "Nó có đổi đồng hồ hệ thống không? Có cần quyền quản trị viên không? Có chạy với ứng dụng của tôi, .NET, Java hay Electron không? Trả lời ngắn, kể cả về điều nó không làm."
+    },
+    "ru": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ — вопросы о подмене даты в Windows",
+      "description": "Меняет ли он системные часы? Нужны ли права администратора? Подойдёт ли моему приложению, .NET, Java или Electron? Короткие ответы, включая то, чего он не делает."
+    },
+    "uk": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ — запитання про підміну дати у Windows",
+      "description": "Чи змінює він системний годинник? Чи потрібні права адміністратора? Чи підійде моєму застосунку, .NET, Java або Electron? Короткі відповіді, зокрема про те, чого він не робить."
+    },
+    "ja": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Windows での日付偽装に関する質問",
+      "description": "システム時計は変わる? 管理者権限は必要? 自分のアプリや .NET、Java、Electron で動く? できないことも含めた短い回答です。"
+    },
+    "ko": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Windows 날짜 속이기에 관한 질문",
+      "description": "시스템 시계가 바뀌나요? 관리자 권한이 필요한가요? 내 앱, .NET, Java, Electron에서 동작하나요? 하지 않는 일을 포함한 짧은 답변입니다."
+    },
+    "zh-hans": {
+      "slug": "faq",
+      "link_text": "常见问题",
+      "title": "Chrono Mock 常见问题 - 关于伪造 Windows 日期",
+      "description": "会改动系统时钟吗？需要管理员权限吗？能用在我的应用、.NET、Java 或 Electron 上吗？简短的回答，包括它不会做的事。"
+    },
+    "zh-hant": {
+      "slug": "faq",
+      "link_text": "常見問題",
+      "title": "Chrono Mock 常見問題 - 關於偽造 Windows 日期",
+      "description": "會更動系統時鐘嗎？需要系統管理員權限嗎？能用在我的應用程式、.NET、Java 或 Electron 上嗎？簡短的回答，包括它不會做的事。"
+    },
+    "ar": {
+      "slug": "faq",
+      "link_text": "الأسئلة الشائعة",
+      "title": "الأسئلة الشائعة عن Chrono Mock - تزييف تاريخ Windows",
+      "description": "هل يغيّر ساعة النظام؟ هل يحتاج صلاحيات مسؤول؟ هل يعمل مع تطبيقي أو .NET أو Java أو Electron؟ إجابات قصيرة، بما فيها ما لا يفعله."
+    },
+    "hi": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Windows में तारीख़ बदलने पर सवाल",
+      "description": "क्या यह सिस्टम घड़ी बदलता है? क्या एडमिनिस्ट्रेटर अधिकार चाहिए? क्या यह मेरे ऐप, .NET, Java, Electron के साथ चलेगा? छोटे जवाब, जो यह भी बताते हैं कि यह क्या नहीं करता।"
+    },
+    "th": {
+      "slug": "faq",
+      "link_text": "คำถามที่พบบ่อย",
+      "title": "คำถามที่พบบ่อยเกี่ยวกับ Chrono Mock - การปลอมวันที่บน Windows",
+      "description": "เปลี่ยนนาฬิกาของระบบไหม ต้องใช้สิทธิ์ผู้ดูแลระบบไหม ใช้กับแอปของฉัน .NET Java หรือ Electron ได้ไหม คำตอบสั้น ๆ รวมถึงสิ่งที่มันไม่ทำ"
     }
   }
 }

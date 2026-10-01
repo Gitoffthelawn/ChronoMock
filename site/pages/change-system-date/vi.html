@@ -1,0 +1,114 @@
+<!-- Đổi ngày hệ thống để kiểm thử, tiếng Việt. Cấu trúc, lớp và token như trong en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Đổi ngày hệ thống để kiểm thử một ứng dụng</h1>
+    <p class="sub">
+      Đây là mẹo cũ nhất còn tồn tại: đặt đồng hồ Windows về ngày bạn muốn kiểm thử, chạy chương trình rồi
+      đặt lại. Cách này hiệu quả - và chừng nào đồng hồ còn bị dời, nó dời luôn mọi thứ khác trên máy.
+    </p>
+  </section>
+
+  <section>
+    <h2>Điều gì thực sự dịch chuyển theo đồng hồ</h2>
+    <div class="prose">
+      <p>
+        Đồng hồ hệ thống không phải của riêng chương trình bạn đang kiểm thử. Mọi tiến trình, dịch vụ và
+        cuộc trao đổi mạng trên máy đều đọc cùng một chiếc, nên một thay đổi làm cho một bài kiểm thử là
+        thay đổi cho tất cả.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Cái đọc đồng hồ</th><th>Điều xảy ra khi bạn dời nó</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Đăng nhập miền và thư mục chia sẻ</td><td>Mặc định Kerberos chấp nhận độ lệch đồng hồ năm phút. Vượt quá mức đó, vé của nó bị từ chối, việc đăng nhập hoặc truy cập thư mục chia sẻ thất bại.</td></tr>
+          <tr><td>Chứng chỉ và HTTPS</td><td>Chứng chỉ có hợp lệ hay không do đồng hồ quyết định. Đặt đồng hồ qua ngày kết thúc của chứng chỉ và mọi kết nối dựa vào nó đều bị từ chối vì hết hạn; lùi đủ xa thì chứng chỉ chưa có hiệu lực.</td></tr>
+          <tr><td>Dịch vụ Windows Time</td><td>Một máy đã gia nhập miền lấy giờ từ bộ điều khiển miền, và mặc định dịch vụ sửa đồng hồ bất kể độ lệch lớn đến đâu. Ngày bạn đặt có thể bị hoàn lại khi bạn vẫn đang kiểm thử.</td></tr>
+          <tr><td>Mọi thứ ghi lại thời gian</td><td>Tệp, nhật ký, dòng cơ sở dữ liệu và thư đã gửi được tạo ra khi đồng hồ bị dời đều mang ngày của bài kiểm thử, và giữ nguyên sau khi bạn đặt lại đồng hồ.</td></tr>
+          <tr><td>Phần mềm ghi nhớ ngày muộn nhất từng thấy</td><td>Một số chương trình xem đồng hồ chạy lùi là hành vi can thiệp - và đó chính xác là điều xảy ra khi bạn khôi phục ngày thật.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Ngày càng xa, bạn càng gặp nhiều điều này. Một máy đặt ở năm 2038 thấy mọi chứng chỉ cấp hôm nay
+        đều đã hết hạn.
+        <a href="/vi/kiem-thu-loi-nam-2038/">Kiểm thử năm 2038 mà không cần thế &rarr;</a>
+      </p>
+      <p>
+        Việc này còn cần một quyền mà phần lớn tài khoản không có: đổi giờ hệ thống là đặc quyền của quản
+        trị viên, và trên máy được quản lý thì thường không phải của bạn.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Khi nào đổi đồng hồ là câu trả lời đúng</h2>
+    <div class="prose">
+      <p>
+        Một máy ảo không ai khác dùng, với tính năng đồng bộ đồng hồ riêng đã tắt, là một bàn thử hoàn
+        toàn tốt. Bạn bỏ nó sau đó, nên mọi thứ nó ghi lại đều không quan trọng. Nếu bạn có sẵn một máy và
+        bài kiểm thử chỉ về một ngày, đó là cách đơn giản nhất mà vẫn chạy được.
+      </p>
+      <p>
+        Rắc rối bắt đầu khi đó là chiếc máy bạn đang làm việc, chiếc máy trong miền, hoặc chiếc máy đồng
+        thời chạy thứ gì đó không được phép nhận ra điều gì.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Thay vào đó, hãy dời đồng hồ của một chương trình</h2>
+    <div class="prose">
+      <p>
+        Giờ bị dời chỉ hiển thị với <strong>một tiến trình và các tiến trình con nó khởi chạy</strong>.
+        Đăng nhập miền, chứng chỉ của bạn và Windows Update không bao giờ thấy nó, nên không thứ gì trong
+        bảng ở trên dịch chuyển - và sau đó không có gì cần đặt lại.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Ứng dụng thấy ngày 31 tháng 12 năm 2027, 23:59:50. Mọi thứ khác giữ ngày thật.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Bắt đầu mười phút trước nửa đêm và chạy với tốc độ x60 - giao thừa đến sau mười giây</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Ngày được dời cho một chương trình có thực sự đến được nó hay không không phải là điều để giả
+        định. Mỗi phiên kết thúc bằng một kết luận và danh sách các kênh thời gian mà chương trình thực sự
+        đã đọc.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Làm sao bạn biết nó đã hiệu quả &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Điều này không thay thế được gì</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Một chương trình hỏi máy chủ về giờ</strong> nằm ngoài tầm với của việc thay thế cục
+          bộ. Phiên sẽ báo khi thấy chương trình mở kết nối mạng, thay vì để bạn tự cho rằng bài kiểm thử
+          đã đạt.</li>
+        <li><strong>Kiểm thử chính hệ thống</strong> - một dịch vụ phản ứng với việc đồng hồ thật thay
+          đổi, một tác vụ theo lịch, cách Windows cư xử quanh một lần đổi giờ - không có gì thay thế được
+          việc đổi đồng hồ, trên một máy bạn có thể chấp nhận hy sinh.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/kich-ban-kiem-thu-ngay/">Ngày cần kiểm thử</a>
+    </div>
+  </section>
+
+</div>

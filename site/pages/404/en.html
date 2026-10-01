@@ -1,5 +1,8 @@
-<!-- The one 404 document for the whole site, in both languages, because GitHub Pages
-     serves this same file for a missing address under /pl/ as well. -->
+<!-- The one 404 document for the whole site, because GitHub Pages serves this same file
+     for a missing address under every language directory. It cannot know which language the
+     reader was in, so it says its one sentence in English and then offers every language's
+     home page, each in its own name. The list is made by the generator from site.json (the
+     language_homes token), so a language added there appears here with no edit. -->
 
 <div class="shell">
   <section class="plain">
@@ -10,9 +13,7 @@
       Start from the <a href="/">home page</a>.
     </p>
 
-    <p class="sub" lang="pl" style="margin-bottom:0">
-      Tej strony tu nie ma. Adres mógł zostać źle przepisany albo nigdy nie istniał.
-      Zacznij od <a href="/pl/">strony głównej</a>.
-    </p>
+    <ul class="homes">
+{{language_homes}}    </ul>
   </section>
 </div>

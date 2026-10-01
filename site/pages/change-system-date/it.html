@@ -1,0 +1,116 @@
+<!-- Cambiare la data di sistema per testare, italiano. Struttura, classi e token come in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Cambiare la data di sistema per testare un'applicazione</h1>
+    <p class="sub">
+      È il trucco più vecchio che esista: impostare l'orologio di Windows sulla data che vuoi testare,
+      eseguire il programma, rimettere l'orologio a posto. Funziona - e finché l'orologio è spostato,
+      sposta anche tutto il resto della macchina.
+    </p>
+  </section>
+
+  <section>
+    <h2>Che cosa si sposta davvero con l'orologio</h2>
+    <div class="prose">
+      <p>
+        L'orologio di sistema non è privato del programma che stai testando. Ogni processo, servizio e
+        conversazione di rete sulla macchina legge lo stesso, quindi una modifica fatta per un test è una
+        modifica fatta per tutti.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Che cosa legge l'orologio</th><th>Che cosa succede quando lo sposti</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>L'accesso al dominio e le cartelle condivise</td><td>Kerberos tollera per impostazione predefinita una differenza di orologio di cinque minuti. Oltre, rifiuta i suoi ticket e l'accesso o l'apertura di una condivisione fallisce.</td></tr>
+          <tr><td>Certificati e HTTPS</td><td>La validità di un certificato si decide con l'orologio. Impostalo oltre la data di fine di un certificato e ogni connessione che vi si appoggia viene rifiutata come scaduta; riportalo abbastanza indietro e il certificato non è ancora valido.</td></tr>
+          <tr><td>Il servizio Ora di Windows</td><td>Un computer aggiunto a un dominio prende l'ora da un controller di dominio e, per impostazione predefinita, il servizio corregge l'orologio qualunque sia la differenza. La data che hai impostato può essere annullata mentre stai ancora testando.</td></tr>
+          <tr><td>Tutto ciò che registra un'ora</td><td>File, log, righe di database e e-mail inviate mentre l'orologio è spostato portano la data del test e la conservano dopo che hai rimesso l'orologio.</td></tr>
+          <tr><td>Il software che ricorda l'ultima data vista</td><td>Alcuni programmi leggono un orologio che va indietro come una manomissione - ed è esattamente ciò che accade quando ripristini la data reale.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Più la data è lontana, più cose di queste incontri. Una macchina impostata sul 2038 vede come
+        scaduto ogni certificato emesso oggi.
+        <a href="/it/testare-il-problema-dell-anno-2038/">Testare il 2038 senza tutto questo &rarr;</a>
+      </p>
+      <p>
+        Serve anche un diritto che la maggior parte degli account non ha: cambiare l'ora di sistema è un
+        privilegio da amministratore e, su una macchina gestita, spesso non è tuo.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quando cambiare l'orologio è la risposta giusta</h2>
+    <div class="prose">
+      <p>
+        Una macchina virtuale che nessun altro usa, con la propria sincronizzazione dell'orologio
+        disattivata, è un banco di prova perfettamente valido. La butti via dopo, quindi nulla di ciò che
+        ha registrato conta. Se ne hai una e il test riguarda una sola data, è la cosa più semplice che
+        funziona.
+      </p>
+      <p>
+        I guai iniziano quando è la macchina su cui lavori, quella nel dominio o una su cui gira anche
+        qualcosa che non deve accorgersi di niente.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sposta invece l'orologio di un solo programma</h2>
+    <div class="prose">
+      <p>
+        L'ora spostata è visibile a <strong>un processo e ai figli che avvia</strong>. Il tuo accesso al
+        dominio, i tuoi certificati e Windows Update non la vedono mai, quindi nulla della tabella qui
+        sopra si sposta - e non c'è niente da rimettere a posto dopo.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># L'applicazione vede il 31 dicembre 2027, 23:59:50. Tutto il resto mantiene la data reale.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Partire dieci minuti prima di mezzanotte e andare a velocità x60 - il cambio d'anno arriva in dieci secondi</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Che una data spostata per un programma lo abbia davvero raggiunto non è qualcosa da dare per
+        scontato. Ogni sessione termina con un verdetto e l'elenco dei canali di tempo che il programma ha
+        letto davvero.
+        <a href="/it/audit-delle-fonti-di-tempo/">Come fai a sapere che ha funzionato &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Che cosa questo non sostituisce</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Un programma che chiede l'ora a un server</strong> è fuori dalla portata di una
+          sostituzione locale. La sessione lo dice quando vede il programma aprire una connessione di rete,
+          invece di lasciarti supporre che il test sia passato.</li>
+        <li><strong>Testare il sistema stesso</strong> - un servizio che reagisce al cambio dell'orologio
+          reale, un'attività pianificata, il comportamento di Windows attorno a una modifica dell'orologio
+          - non ha sostituti per il cambio dell'orologio, su una macchina che puoi permetterti.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Provalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/it/scarica/">Scarica per Windows</a>
+      <a class="btn btn-ghost" href="/it/scenari-di-test-delle-date/">Date da testare</a>
+    </div>
+  </section>
+
+</div>

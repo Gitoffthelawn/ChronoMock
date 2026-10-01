@@ -1,0 +1,92 @@
+<!-- タイムゾーン（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>アプリを別のタイムゾーンで実行する</h1>
+    <p class="sub">
+      誤った日に着地するレポート、1 時間早く鳴るリマインダー、明日として読まれるタイムスタンプ。こうした問題の多くは、自分がいないタイムゾーンでしか現れません。これは、1 つのプロセスに独自のオフセットを与え、システムのタイムゾーンはそのままにしておくものです。
+    </p>
+  </section>
+
+  <section>
+    <h2>よくある対処法が役に立たない理由</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows のタイムゾーンを変更する</strong>と、すべてに影響します。カレンダー、ログ、会議のすべてです。管理されているマシンでは、そもそも自分に変更する権限がないこともあります。</li>
+        <li><strong><code>TZ</code> を設定する</strong>方法は、効くランタイムと効かないランタイムがあります。<code>GetTimeZoneInformation</code> を読むネイティブの Windows アプリは、まったく気づきません。</li>
+        <li><strong>ブラウザーの開発者ツール</strong>は、Web ページのゾーンを上書きできます。それ自体は優れていますが、デスクトップアプリには無関係です。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>1 つのプロセスに、1 つのオフセット</h2>
+    <div class="prose">
+      <p>
+        セッションは独自のオフセットを持ちます。アプリは Windows に自分のゾーンを尋ねるとその答えを受け取り、マシン上のほかのプログラムは本物の答えを受け取ります。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 同じ時点を、アメリカ西海岸から見たところ</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># ゾーンだけ - 今日の本物の日付と、他人の時計</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        電卓は、問いのもう半分、つまり特定の時点がほかの場所では実際にどう読まれるかに答えます。変換は瞬間を保ち、壁時計だけを変えます。日付が誤った日に着地するのは、まさにこのためです。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        中央ヨーロッパの午前 9 時は、アメリカ西海岸では<strong>午前 0 時</strong>です。同じ瞬間でも、ローカルの日付でグループ化する日次レポートは、動作している場所によって別の日に振り分けます。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>正直な制約。ここでは重要です</h2>
+
+    <div class="note warning">
+      <p><strong>セッションのタイムゾーンは、夏時間のない固定オフセットです。</strong></p>
+      <p>
+        <code>+01:00</code> に設定したセッションは、時計が 1 月を指していても 7 月を指していても <code>+01:00</code> のままです。そのため、実際の切り替えをまたぐ実行は、そのゾーンが本来示すはずの時刻から 1 時間ずれ、アプリを夏時間の切り替えに通すことは、このツールではまだできません。日付電卓は、推測するのではなくそのことを明記します。
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>ゾーンは自身を「Chrono Session」と名乗ります。</strong>どの Windows のレジストリにもない名前です。その名前をゾーンに対応づけ直すもの、たとえば .NET の <code>TimeZoneInfo.Local</code> などは、代わりにオフセットにフォールバックし、それが正しい答えです。レジストリ上の名前にこだわるアプリは、それを見つけられません。</li>
+        <li><strong>Java はセッションのゾーンをオフセットとして取り込みます。</strong>セッションのゾーンには夏時間も背後にある都市もないため、Java はオフセットにちなんだ名前を付けます。+05:30 のセッションなら <code>GMT+05:30</code> です。</li>
+        <li><strong>Chromium と Electron のモードでは、ゾーンはホストに従います。</strong>時点は偽装されますが、ローカル時刻のゲッターは偽装されません。</li>
+        <li><strong>オフセットは -14:00 から +14:00 までの、分単位の整数です。</strong>それを超える値は、黙って丸められずに拒否されます。</li>
+      </ul>
+      <p>
+        そのどれがあなたのアプリに当てはまるかは、推測するものではなく、測定できるものです。<a href="/ja/time-source-audit/">セッションは自分のカバレッジを報告します &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/faq/">FAQ を読む</a>
+    </div>
+  </section>
+
+</div>

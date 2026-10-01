@@ -1,0 +1,134 @@
+<!-- CLI ve CI, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Bir pipeline’da tarih testi</h1>
+    <p class="sub">
+      Pencere keşfetmek içindir. Bu ise diğer yarısı: kurulacak bir çalışma zamanı gerektirmeyen,
+      yaklaşık <strong>1,6 MB</strong>’lık bir komut satırı derlemesi; çıkış kodu, hedefin kendi kodu
+      değil, kapsama kararıdır.
+    </p>
+  </section>
+
+  <section>
+    <h2>Çıkış kodu karardır</h2>
+    <div class="prose">
+      <p>
+        Aracı betiklenebilir kılan tasarım kararı budur. Bir oturum bittiğinde çıkış kodu,
+        <em>“uygulama ne döndürdü”</em> değil, <em>“zaman değişikliği etkili oldu mu”</em> sorusunu
+        yanıtlar. Böylece bir pipeline, sessizce gerçekleşmeyen bir değişiklik yüzünden başarısız
+        olabilir - ki başarısız olmaya değer hata budur, çünkü ondan sonra gelen her şey hiçbir şeyi
+        kanıtlamayan bir testtir.
+      </p>
+      <p>
+        Hedefin kendi çıkış kodu da oturum verisinde yine bildirilir.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Kod</th><th>Anlamı</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>çalışıyor - zamanı okuyan her süreç oturum saatini gördü</td></tr>
+          <tr><td>10</td><td>kısmen çalışıyor - bazı kanallar kapsandı, bazıları kapsanmadı</td></tr>
+          <tr><td class="n">11</td><td>çalışmıyor - değişiklik kilit kanallara ulaşmadı</td></tr>
+          <tr><td>4</td><td>belirsiz - kapsama belirlenemedi</td></tr>
+          <tr><td>1</td><td>kullanım hatası - hatalı bir bayrak ya da hatalı bir ifade</td></tr>
+          <tr><td>2</td><td>hedef başlatılamadı ya da içine enjekte edilemedi</td></tr>
+          <tr><td>12</td><td>hedef ortadan kayboldu; bu, tek örnekli bir uygulamaya işaret ediyor</td></tr>
+          <tr><td>3</td><td>iç hata - motor başlatılamadı, beklenmedik bir durumla karşılaştı ya da oturumu kapatmadan önce durdu (kendi çıkış kodu ne olursa olsun). Böyle bir çalıştırmanın kararı yoktur</td></tr>
+          <tr><td>5</td><td>işlem bu sürümde derlenmemiş</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        İki komutun tüm bayrakları ve hesap makinesi için aynı tablo
+        <a href="/tr/cli-basvuru/">komut satırı başvurusunda</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sınırlı çalıştırmalar</h2>
+    <div class="prose">
+      <p>
+        Bir pipeline, bir masaüstü uygulamasının bir insan tarafından kapatılmasını bekleyemez.
+        <code>--ticks N</code>, oturumu N kalp atışından sonra - her biri bir gerçek saniye - sonlandırır
+        ve o ana kadar bulduklarını bildirir. Kapsama zaten sürecin ilk anlarında belirlenir, dolayısıyla
+        genellikle kısa bir sınır yeterlidir.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># On saniye, sonra dur ve bildir</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Makine çıktısı ve kanıt</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code>, oturumu insan raporu yerine makinece okunabilir kayıtlar olarak verir -
+          kanal başına kapsama dahil, aynı bilgiler.</li>
+        <li><code>--report &lt;path&gt;</code>, insan raporunu bir dosyaya yazar; bu da makul bir derleme
+          çıktısı olur. Kararı <em>çalışıyor</em> dışında bir şey olan bir oturum, uyarıyı en alta
+          gömmek yerine dosyaya güvenilmez-kanıt başlığıyla başlar.</li>
+        <li>Hesap makinesi de <code>--json</code> konuşur; böylece bir pipeline ihtiyaç duyduğu tarihi
+          hesaplayıp geri besleyebilir.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Tarihi hesaplayın, sonra o tarihte çalıştırın</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Yaklaşık bir adım</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># buradaki sıfırdan farklı bir çıkış kodu, değişikliğin tutmadığı anlamına gelir; bunun</span>
+    <span class="c"># ardındaki test hiçbir şeyi kanıtlamamış olurdu</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Runner’lar hakkında iki dürüst uyarı</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Bir Windows runner’ı gerekir.</strong> Linux ya da macOS derlemesi yok ve olmayacak -
+          Linux’ta bu işi zaten
+          <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> karşılıyor.</li>
+        <li><strong>Barındırılan bir runner’daki antivirüs enjeksiyonu engelleyebilir.</strong> Zamanı
+          kaydırmak, hedef sürece bir kitaplık enjekte etmek demektir; bu, kötü amaçlı yazılımların da
+          kullandığı, belgelenmiş bir Windows tekniğidir. Bunu engelleyen bir runner, sahte bir başarı
+          yerine bunu söyleyen bir çıkış kodu üretir - ama ona güvenmeden önce öğrenilmesi gereken bir
+          şeydir.</li>
+      </ul>
+      <p>
+        Aynı nedenle bu projenin kendi uçtan uca test paketi, barındırılan bir runner’da değil, gerçek
+        makinelerde çalışır. Sürekli entegrasyonu her şeyi derler ve birim testlerinden geçirir; değişikliğin
+        kendisi ise her sürümden önce gerçek uygulamalar üzerinde hem 32 bit hem de 64 bit derlemelerle elle
+        denenir.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/zaman-kaynagi-denetimi/">Kararlar ne anlama geliyor</a>
+    </div>
+  </section>
+
+</div>

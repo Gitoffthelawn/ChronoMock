@@ -1,0 +1,100 @@
+<!-- Windows 上的 2038 年问题，简体中文。结构、类名和占位符与 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>在 Windows 上测试 2038 年问题</h1>
+    <p class="sub">
+      2038 年 1 月 19 日 03:14:07 UTC，从 1970 年起计秒数的带符号 32 位计数器会用尽。Windows 的时钟会继续走下去——而保留了自己那份 32 位副本的程序、文件格式和库则不会。下面介绍如何在不把整台机器的日期设到 2038 年的前提下，在单个应用里找出它们。
+    </p>
+  </section>
+
+  <section>
+    <h2>这个缺陷还可能藏在哪里</h2>
+    <div class="prose">
+      <p>
+        Windows 的时钟是从 1601 年起以 100 纳秒为步长计数的 64 位计数器，所以它没有 2038 年这个坎。C 运行时库的 <code>time_t</code> 自 Visual Studio 2005 起默认就是 64 位。剩下的是选用了 32 位时间、或在途中丢掉了高半部分的代码：
+      </p>
+      <ul>
+        <li><strong>用 <code>_USE_32BIT_TIME_T</code> 编译的 32 位构建</strong>，或直接调用 <code>_time32</code> 和 <code>__time32_t</code> 的代码。Microsoft 自己的文档就警告，这样的应用可能在 2038 年 1 月 18 日之后失败。</li>
+        <li><strong>把 64 位时间存进 <code>int</code> 或 <code>long</code>。</strong> 在 Windows 上这两者都是 32 位，即使在 64 位程序里也一样。</li>
+        <li><strong>用 32 位保存 1970 年起秒数的库、文件格式、网络协议和数据库列。</strong></li>
+        <li><strong>会加年份的代码。</strong> 二十年的许可证、三十年的还款计划，或有效期到 2040 年的证书，在 2038 年到来之前很久就越过了这条界线。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>在单个应用里越过这条界线</h2>
+    <div class="prose">
+      <p>
+        这个上限是以 UTC 定义的，而 <code>--at</code> 按会话时区读取，所以自己写时刻时请把时区固定为 UTC。现成的场景已经带有绝对的 UTC 时刻，不需要时区。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 场景：会话恰好从上限处开始，03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># 提前十七秒开始，让应用现场越过这条界线</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># 更早开始并以 60 倍速运行——大约 14 秒后到达上限</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># 或者用今天的日期运行，在应用打开时直接跳过去</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        越过上限一秒后，带符号的 32 位计数器变成 -2,147,483,648，读作 <strong>1901 年 12 月 13 日 20:45:52 UTC</strong>。1901 年的日期、负数、突然过期或排到最前面的条目、从日期代码里抛出的异常——从外面看，溢出就是这个样子。
+      </p>
+      <p>
+        把真实时钟设到 2038 年是到达这里的另一条路，也是破坏最大的一条。<a href="/zh-hans/change-system-date-testing/">修改系统日期会发生什么 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>确认它确实到达了程序</h2>
+    <div class="prose">
+      <p>
+        一个只是因为程序从未见过 2038 年才通过的测试，比没有测试更糟。每次会话结束时的报告会说明程序读取了哪个时钟、读了多少次：
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        <strong>session</strong> 这一行确认应用的时钟越过了上限。带调用次数的 <em>works</em> 判定表示程序读取了时钟并拿到了 2038 年的日期；<em>works partially</em> 则会列出它通过其他途径读取的通道。<a href="/zh-hans/time-source-audit/">判定的含义 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>通过的测试没有证明什么</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>只有程序自己的时钟动了。</strong> 它从文件或数据库里加载的日期就是存在那里的值，所以数据里出现的 2038 年日期是另一项测试。日期计算器可以替你算出这类日期：<code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>程序所通信的服务器仍然运行在真实日期上。</strong> 那一侧的 32 位上限无法触及，会话会在发现程序打开网络连接时发出警告。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/date-test-scenarios/">其他值得测试的日期</a>
+    </div>
+  </section>
+
+</div>

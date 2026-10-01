@@ -1,0 +1,172 @@
+<!-- WebView2 și Qt WebEngine, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Paginile web dintr-o aplicație nativă</h1>
+    <p class="sub">
+      O aplicație desktop cu un motor web încorporat își rulează paginile într-un proces separat, izolat.
+      Mecanismul nativ acoperă aplicația și se oprește la această graniță - așa că fereastra se mută la
+      data cerută, iar panoul din interiorul ei nu. Aici se închide acest gol.
+    </p>
+  </section>
+
+  <section>
+    <h2>Eșecul care arată ca un succes</h2>
+    <div class="prose">
+      <p>
+        Multe aplicații Windows sunt native pe dinafară și pagină web pe dinăuntru. Un ecran de setări, un
+        dashboard, o vizualizare de raport, un panou de licență - construite o singură dată în HTML și
+        găzduite în <strong>WebView2</strong> sau <strong>Qt WebEngine</strong>, în loc să fie scrise de
+        două ori.
+      </p>
+      <p>
+        Motorul își rulează paginile în propriul proces, iar acel proces este izolat. O bibliotecă
+        injectată în aplicație nu pătrunde în el. Tot ce cere aplicația de la Windows se mută la data
+        sesiunii, iar tot ce cere pagina de la JavaScript nu se mută:
+      </p>
+      <ul>
+        <li>Bara de titlu, jurnalele și fișierele spun <strong>2038</strong>.</li>
+        <li>Panoul din aceeași fereastră spune <strong>azi</strong>.</li>
+        <li>Nimic nu dă eroare, nimic nu avertizează, iar ambele jumătăți par la fel de sigure pe ele.</li>
+      </ul>
+      <p>
+        Aceasta este versiunea costisitoare a acestui bug, pentru că testul pare să fi rulat. Comportamentul
+        mai vechi raporta o asemenea sesiune drept trecere curată, o afirmație pe care instrumentul nu o
+        putea susține.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce face în schimb sesiunea</h2>
+    <div class="prose">
+      <p>
+        Sesiunea rulează <strong>ambele mecanisme deodată</strong>. Hook-ul nativ intră în aplicație ca
+        de obicei, iar paginile sunt atinse în singurul fel în care se ajunge la un renderer izolat: întrebând
+        chiar motorul.
+      </p>
+      <p>
+        La lansare, aplicația moștenește două variabile de mediu care cer motorului ei să deschidă un
+        port local de depanare. Ele sunt adăugate la comutatoarele pe care aplicația le transmite deja,
+        nu le înlocuiesc. Apoi sesiunea își urmărește propriile procese până apare acel port, iar când
+        apare, fiecare pagină și fiecare worker din spatele lui trece pe același ceas ca aplicația.
+      </p>
+      <p>
+        Un singur început, o singură viteză, o singură cronologie. O schimbare de viteză sau un salt ajunge
+        la aplicație și la paginile ei deodată, iar temporizatoarele paginilor merg în ritmul aplicației,
+        nu într-unul propriu.
+      </p>
+      <p>
+        Este activat implicit și se dezactivează cu un singur comutator, care nu deschide niciun port și
+        lasă paginile pe ceasul real.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Nimic de configurat - motorul este găsit dacă există</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Sau lasă paginile în pace și nu deschide niciun port</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Ce spune raportul despre pagini</h2>
+    <div class="prose">
+      <p>
+        Paginile nu sunt topite în cifrele proprii ale aplicației. Sunt numărate ca unități separate,
+        pentru că un proces și o pagină sunt lucruri diferite, iar însumarea lor ar inventa un număr fără
+        sens:
+      </p>
+      <ul>
+        <li>Titlul le numără pe amândouă - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Fiecare pagină primește propriile rânduri, de exemplu <code>context 1: page Date.now (12 calls)</code>
+          în linia de comandă și <em>page Date.now - fake clock</em> în tabelul de audit din fereastră.</li>
+        <li>Motorul la care s-a ajuns este numit împreună cu portul lui, ca să-ți poți îndrepta propriul
+          DevTools exact spre paginile pe care le conduce sesiunea.</li>
+      </ul>
+      <p>
+        O rulare de probă (dry run) spune dacă paginile ar fi atinse înainte să pornească ceva.
+        <a href="/ro/auditul-surselor-de-timp/">Ce înseamnă verdictele &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Trei limite bune de știut înainte să începi</h2>
+
+    <div class="note warning">
+      <p><strong>Un port de depanare rămâne deschis cât rulează motorul.</strong></p>
+      <p>
+        Ascultă doar pe acest calculator, dar este deschis pentru <em>orice</em> program de pe acest
+        calculator cât timp rulează motorul, iar orice îl poate atinge poate conduce acele pagini.
+        Sesiunea avertizează de fiecare dată când s-a deschis unul și numește portul, în loc să-l
+        menționeze în abstract. Pe o mașină partajată sau neîncrezătoare, folosește comutatorul care nu
+        deschide nimic.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>O aplicație care rulează cu drepturi ridicate este de neatins.</strong></p>
+      <p>
+        Un motor găzduit de o aplicație ridicată (elevated) ignoră variabilele pe care le setează
+        sesiunea, deci paginile lui rămân pe ceasul real. Aceasta este regula proprie a motorului, nu o
+        setare, și nu există nicio cale de a o ocoli din exterior.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>O asemenea sesiune raportează PARTIAL, iar acesta este răspunsul onest.</strong></p>
+      <p>
+        Procesele ajutătoare ale motorului și apelurile native de timp ale renderer-ului rămân pe ceasul
+        real. Paginile sunt pe ceasul sesiunii, iar restul familiei nu, așa că verdictul spune
+        <em>parțial</em> și numește ce a rămas pe dinafară, în loc să rotunjească în sus până la o
+        trecere.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Încă două, mai mici, spuse pe șleau. Paginile păstrează <strong>fusul orar al acestei mașini</strong>,
+        deci un fus orar independent al sesiunii este o funcție doar a modului nativ. Iar un temporizator
+        deja programat <em>înainte</em> ca sesiunea să ajungă la pagină își păstrează vechiul ritm, la fel
+        ca într-o sesiune Chromium pură - sesiunea avertizează, în loc să te lase să concluzionezi că nu
+        s-a întâmplat nimic.
+      </p>
+      <p>
+        Dacă motorul este configurat printr-o politică de argumente de browser în registru, variabila
+        sesiunii are prioritate pe durata ei, iar raportul spune asta - pentru că un port de depanare
+        configurat acolo nu ar fi fost aplicat.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cât de bine este testat</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimental</strong>, cu același sens definit ca în restul site-ului: funcționează pe
+        țintele pentru care a fost construit, nu a fost testat pe scară largă, iar auditul încorporat este
+        sursa ta de adevăr, nu această pagină. A fost măsurat manual pe o gazdă WebView2 și pe o gazdă
+        Qt WebEngine, pe Windows pe 64 de biți, nu prin suita automată. În acele rulări, paginile au citit
+        anul sesiunii în ritmul sesiunii și au urmat un salt.
+      </p>
+      <p>
+        Pe Windows pe 32 de biți există o particularitate pe care e mai bine s-o știi decât s-o descoperi:
+        runtime-ul WebView2 este pe 64 de biți chiar și când aplicația care îl găzduiește este pe 32, așa
+        că o sesiune pe 32 de biți nu poate numi procesele motorului sau rolurile lor. Canalul către pagini
+        funcționează în continuare. Raportul este pur și simplu mai puțin specific despre ce nu a putut
+        identifica și spune care dintre cele două este cazul.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/faq/">Citește FAQ-ul</a>
+    </div>
+  </section>
+
+</div>

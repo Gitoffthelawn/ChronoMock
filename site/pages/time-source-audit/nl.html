@@ -1,0 +1,190 @@
+<!-- De audit van tijdbronnen, Nederlands. Structuur, klassen en tokens zoals in en.html.
+
+     Het sessierapport hieronder is echte uitvoer en blijft Engels: het programma is Engels. De
+     netwerkwaarschuwing erin is echt - die sonde opent met opzet een verbinding, en precies daarvoor is de
+     waarschuwing er. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Hoe weet je dat het gewerkt heeft?</h1>
+    <p class="sub">
+      Bij elk ander gereedschap van dit soort weet je het niet. De applicatie start, toont een datum, en jij
+      gaat ervan uit dat het klopt. Maar ze kan de klok lezen via een route die niets heeft onderschept - en
+      dan betekent <em>“de test is geslaagd”</em> helemaal niets.
+    </p>
+  </section>
+
+  <section>
+    <h2>Het falen zonder symptoom</h2>
+    <div class="prose">
+      <p>
+        Een tijdverschuivend gereedschap dat een kanaal mist, crasht niet en waarschuwt niet. De applicatie
+        leest de echte datum gewoon via de ene functie die niemand heeft onderschept, en gedraagt zich precies
+        zoals ze zich op elke gewone middag zou hebben gedragen. De test wordt groen. De bug gaat de deur
+        uit.
+      </p>
+      <p>
+        RunAsDate is hier eerlijk over in zijn eigen documentatie - het zegt dat het
+        <strong>“geen invloed heeft op applicaties die de huidige datum en tijd uit een andere bron
+        halen”</strong> - en laat je vervolgens uitzoeken of de jouwe er een is. Dit gereedschap behandelt
+        diezelfde zin als iets om te meten.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat een sessie werkelijk rapporteert</h2>
+    <div class="prose">
+      <p>
+        Echte uitvoer, van het draaien van het gereedschap tegen een van de testsondes van dit project - een
+        die met opzet een netwerkverbinding opent:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        De laatste twee blokken zijn het punt. Hier is niets mislukt - het oordeel is
+        <strong>werkt</strong> - en het rapport zegt toch, ongevraagd, dat deze applicatie met het netwerk
+        sprak voordat ze klaar was, zodat een lokale hook misschien niet het hele verhaal is. Die zin is het
+        verschil tussen een test die je kunt vertrouwen en een die je niet kunt vertrouwen.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Het resultaatscherm van Chrono Mock met What the application read geopend: een tabel met Function, Read from en Reads. NtCreateUserProcess staat als bewust van de echte klok gelezen en connect als bewust van de echte klok gelezen en laat gehaakt, terwijl de overige rijen - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation en de rest - van de valse klok lezen, elk met zijn eigen aantal. Twee waarschuwingen staan onder de tabel.">
+      <figcaption>Hetzelfde antwoord in het venster. Elke functie die de applicatie had kunnen opvragen,
+        waarvan ze werkelijk las en hoe vaak - inclusief die welke bewust op de echte klok zijn gelaten, die
+        worden genoemd in plaats van stilletjes als slagen geteld.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Vier oordelen, en een afsluitcode voor elk</h2>
+    <div class="prose">
+      <p>
+        Het oordeel wordt bereikt van binnenuit het lopende proces, voordat je begint te werken, en het is de
+        eigen afsluitcode van het gereedschap, zodat een pipeline erop kan vertakken.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Oordeel</th><th>Afsluitcode</th><th>Betekenis</th></tr></thead>
+        <tbody>
+          <tr><td class="y">werkt</td><td>0</td><td>elk proces dat de tijd las, zag de sessieklok</td></tr>
+          <tr><td>werkt gedeeltelijk</td><td>10</td><td>sommige kanalen gedekt, andere niet - de niet-gedekte worden vermeld</td></tr>
+          <tr><td class="n">werkt niet</td><td>11</td><td>de vervanging heeft de belangrijkste kanalen niet bereikt</td></tr>
+          <tr><td>onbepaald</td><td>4</td><td>de dekking kon niet worden vastgesteld - een eerlijk “ik weet het niet”</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Als het oordeel “werkt niet” is, wordt het proces onmiddellijk gestopt</strong>, voordat je
+        ermee kunt werken. Het oordeel kan de start niet voorafgaan, omdat de enige bron van waarheid een
+        meting is van binnenuit het lopende proces. Wat gegarandeerd is, is dat je de waarheid hoort voordat
+        je begint te werken - niet dat een gedoemde start nooit plaatsvindt. Je kunt het negeren en
+        doorgaan, en de sessie wordt dan overal waar ze verschijnt als onbetrouwbaar gemarkeerd, ook in elk
+        bewijs dat je exporteert.
+      </p>
+      <p>
+        Er bestaan nog drie codes voor dingen die helemaal geen oordelen zijn: <code>1</code> voor een
+        gebruiksfout, <code>2</code> als het doel niet kon worden gestart of geïnjecteerd en <code>12</code>
+        als het doel verdween op een manier die erop wijst dat een applicatie met één instantie is
+        overgedragen aan een al lopende kopie.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Gedekt, waargenomen, niet gedekt</h2>
+    <div class="prose">
+      <p>Kanalen vallen in drie bakken, en de middelste is de interessante.</p>
+      <ul>
+        <li><strong>Gedekt</strong> - gehaakt en vervangen. De applicatie vroeg en kreeg de sessieklok. Het
+          aantal aanroepen zegt hoe vaak.</li>
+        <li><strong>Waargenomen</strong> - gehaakt, geteld en bewust de waarheid laten vertellen. De
+          high-resolution teller staat hier standaard omdat schalen de rendering destabiliseerde.
+          Multimediatimers staan hier omdat schalen de timing van audio en MIDI zou verschuiven.
+          Netwerkverbindingen en één pad voor het aanmaken van processen staan hier omdat het bewijs is en
+          geen klokken.</li>
+        <li><strong>Niet gedekt</strong> - een kanaal dat de applicatie las en dat de vervanging niet
+          bereikte. Dit maakt van een oordeel <em>werkt gedeeltelijk</em>, en het wordt met naam vermeld in
+          plaats van samengevat.</li>
+      </ul>
+      <p>
+        Een aantal van nul is ook informatie: het kanaal was gehaakt en de applicatie vroeg er nooit om. Daarom
+        vermeldt het rapport ze in plaats van ze te verbergen.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat de audit niet kan zien</h2>
+    <div class="prose">
+      <p>
+        Het rapport is eerlijk over de dekking, en dat betekent eerlijk zijn over zijn eigen randen. Deze
+        worden gelezen zonder enige functieaanroep om te onderscheppen, of helemaal buiten het proces:
+      </p>
+      <ul>
+        <li>directe lezingen van de gedeelde gegevenspagina in gebruikersmodus - de waarde staat in het
+          geheugen, dus er valt niets te haken. Zeldzaam in gewone applicaties, gebruikelijk in licentie- en
+          anti-tampercode</li>
+        <li>directe systeemaanroepen die de standaardexports omzeilen - hetzelfde patroon</li>
+        <li>tijd verkregen buiten het proces, via WMI, een COM-server buiten het proces of RPC</li>
+        <li>tijd van het netwerk - een HTTP-<code>Date</code>-header, NTP, een API-antwoord of de eigen klok
+          van een databaseserver</li>
+        <li>tijd van kerneldrivers</li>
+      </ul>
+      <p>
+        Het netwerkgeval is er een dat de audit tenminste kan <em>opmerken</em>, en daarom bestaat de
+        waarschuwing in het rapport hierboven. Voor de rest betekent een oordeel <em>werkt</em> dat de
+        kanalen die dit gereedschap kan zien gedekt waren - niet dat er geen andere route bestaat.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>In een pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> geeft dezelfde feiten in machinevorm, <code>--report</code> schrijft de versie
+        voor mensen naar een bestand, en een sessie waarvan het oordeel iets anders is dan <em>werkt</em>
+        opent dat bestand met een banner over onbetrouwbaar bewijs in plaats van die onderaan te begraven.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Probeer het</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/nl/downloaden/">Downloaden voor Windows</a>
+      <a class="btn btn-ghost" href="/nl/runasdate-alternatief/">Vergeleken met RunAsDate</a>
+    </div>
+  </section>
+
+</div>

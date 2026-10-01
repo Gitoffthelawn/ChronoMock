@@ -1,5 +1,5 @@
 {
-  "//": "Global facts about the website. Everything that appears on more than one page lives here rather than in the page fragments, because a value repeated across twenty-four pages drifts on the day one of them is edited alone. The generator (crates/site) refuses to emit a page that still contains an unresolved {{token}}, so a name removed from this file breaks the build instead of leaving a hole on a published page.",
+  "//": "Global facts about the website. Everything that appears on more than one page lives here rather than in the page fragments, because a value repeated across three hundred pages drifts on the day one of them is edited alone. The generator (crates/site) refuses to emit a page that still contains an unresolved {{token}}, so a name removed from this file breaks the build instead of leaving a hole on a published page.",
 
   "host": "https://chronomock.donislawdev.com",
   "cname": "chronomock.donislawdev.com",
@@ -7,14 +7,18 @@
   "product": "Chrono Mock",
   "repo": "https://github.com/donislawdev/ChronoMock",
 
-  "//languages": "The first entry is the default: it owns the site root and is what hreflang x-default points at. Adding a language here without adding its file under i18n/ fails the build.",
-  "languages": ["en", "pl"],
+  "//languages": "The first entry is the default: it owns the site root and is what hreflang x-default points at. Every other entry is the directory its pages live under (/pl/, /pt-br/, /zh-hans/), so it is lower case, and the build refuses a code that does not equal the language's own html_lang lower-cased - the address and the hreflang cannot be allowed to name two different languages. Adding a language here without adding its file under i18n/ fails the build, and so does an indexable page that has no version in it. The order is the order of the language menu.",
+  "languages": [
+    "en", "pl", "zh-hans", "ja", "de", "fr", "es", "pt-br",
+    "it", "id", "ru", "tr", "cs", "vi", "hi", "ko",
+    "ar", "ro", "nl", "zh-hant", "uk", "th"
+  ],
 
   "//theme": "Taken from the product icon (assets/chrono-bean.svg), not chosen separately - #C0392B is the bean body and #E4573F its highlight. The background matches the application's dark theme.",
   "theme_color": "#0f1013",
 
+  "//social_image": "The picture is shared by every language; its alternative text is not - it is the social_image_alt key in each i18n/<lang>.json, so a link preview read aloud is in the language of the page that was shared.",
   "social_image": "/assets/social-preview.png",
   "social_image_width": 1280,
-  "social_image_height": 640,
-  "social_image_alt": "Chrono Mock - run a Windows application at any date and time, without changing the system clock"
+  "social_image_height": 640
 }

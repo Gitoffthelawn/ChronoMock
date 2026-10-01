@@ -1,0 +1,114 @@
+<!-- 加速時鐘，繁體中文。結構、class 與預留位置和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>讓一個應用程式的時鐘走得更快</h1>
+    <p class="sub">
+      30 天的試用期要等 30 天才會到期，除非你能撥動時間。常見的建議是把系統時鐘往前撥，這需要系統管理員權限，還會把電腦上的其他所有程式一起拖走。這個工具改為只撥動一個處理序。
+    </p>
+  </section>
+
+  <section>
+    <h2>能快多少</h2>
+    <div class="prose">
+      <p>
+        選擇一個整數倍率。應用程式的時鐘會從工作階段開始的那個時刻起，以真實時鐘的這麼多倍速度前進。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>倍率</th><th>真實的一分鐘變成</th><th>適用於</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>一小時</td><td>每小時的工作、工作階段逾時、權杖壽命</td></tr>
+          <tr><td><code>x1440</code></td><td>一天</td><td>每日翻篇，半小時跑完 30 天試用期</td></tr>
+          <tr><td><code>x43200</code></td><td>30 天的試用期</td><td>趁你讀這段話的工夫，看著整個試用期結束</td></tr>
+          <tr><td><code>x525600</code></td><td>一年</td><td>年度續約、憑證到期</td></tr>
+          <tr><td><code>x1000000</code></td><td>約 1.9 年</td><td>上限</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># 從目前的真實時間開始，每分鐘跑一天</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># 從選定的日期開始，並從那裡加速</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># 反過來，讓時鐘完全靜止</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="一段工作階段驅動另一個 Windows 應用程式的螢幕錄影。左側視窗是 Chrono Mock，應用程式的時鐘停在 2038-01-19 並以六十倍真實速度攀升，旁邊的真實時鐘只走了幾秒。右側視窗是受測的應用程式，它自己的工作階段記錄顯示它從 2038-01-19 開始，已經執行了好幾分鐘，而現實中才過去不到半分鐘。">
+      <figcaption>一次真實的工作階段，驅動著一個真實的應用程式。請看右側的視窗：受測程式把自己的啟動記錄為 <strong>2038 年 1 月 19 日</strong>，它的工作階段已經持續了幾分鐘，而房間裡的時鐘只走了幾秒。速度是在執行時改變的，不需要重新啟動任何東西。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>容易讓人栽跟頭的地方：時鐘有兩個</h2>
+    <div class="prose">
+      <p>
+        加快<strong>掛鐘時間</strong>——也就是 <code>DateTime.Now</code> 及其同類回傳的值——本身並不會加快<strong>倒數</strong>。這是應用程式可以向作業系統提出的兩個不同的問題，而很多軟體是用後者而不是前者來衡量「三十天」的。
+      </p>
+      <p>
+        所以時長軸——計時刻度、睡眠、等待與計時器——是一個單獨的開關：
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> 把睡眠、等待與計時器也放到工作階段時鐘上。沒有它，<code>x1440</code> 會讓日曆飛速向前，而一個五秒的計時器仍然要花五個真實秒。</li>
+        <li><code>--scale-qpc</code> 額外縮放高解析度計數器。Python 3.13+ 的 <code>monotonic</code>、.NET 的 <code>Stopwatch</code> 與 Java 的 <code>nanoTime</code> 都是從這裡讀取經過的時間，它預設關閉，因為在測試中縮放它會讓畫面轉譯不穩定。</li>
+      </ul>
+      <p>
+        如果倍率看起來對倒數毫無作用，幾乎總是這個原因。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 計時器應用程式：日曆與倒數一起加速</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># 用高解析度計數器量測經過時間的 Python 或 .NET 應用程式</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>不重新啟動就改變速度</h2>
+    <div class="prose">
+      <p>
+        倍率可以在工作階段中途改變，時鐘是被重新錨定而不是跳變的，所以速度降低時它絕不會倒退。你也可以直接讓時鐘跳轉——往前，或是像筆電與時間伺服器重新同步後那樣往後，這正是會破壞任何沒有保護措施地量測經過時間的東西的情形。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 以 x60 執行，兩秒之後切換到 x1440</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># 執行，五秒之後把時鐘跳到選定的時刻</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>它不會做的事</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>它不會動系統時鐘。</strong>這是重點，而不是限制——但這意味著任何從伺服器、資料庫或另一台電腦讀取時間的東西都不會受影響，出現這種情況時稽核會告訴你。</li>
+        <li><strong>跳轉改變的是應用程式看到的時間，而不是它何時被喚醒。</strong>已經交給核心的計時器依真實時間執行。大多數應用程式會輪詢時鐘，所以跳轉在實務上是有效的——但並非全部如此。</li>
+        <li><strong>它不會讓時間變慢。</strong>倍率是一及以上的整數，外加零倍率的凍結時鐘。</li>
+      </ul>
+      <p>
+        這一切是否到達了你的應用程式，不應該靠假定。
+        <a href="/zh-hant/time-source-audit/">工作階段會告訴你 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/faq/">閱讀常見問題</a>
+    </div>
+  </section>
+
+</div>

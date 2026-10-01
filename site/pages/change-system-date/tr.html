@@ -1,0 +1,115 @@
+<!-- Test için sistem tarihini değiştirmek, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynı. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Bir uygulamayı test etmek için sistem tarihini değiştirmek</h1>
+    <p class="sub">
+      Var olan en eski hile: Windows saatini test etmek istediğiniz tarihe ayarlarsınız, programı
+      çalıştırırsınız, saati geri alırsınız. İşe yarar - ve saat kaydırılmış olduğu sürece makinedeki
+      geri kalan her şeyi de kaydırır.
+    </p>
+  </section>
+
+  <section>
+    <h2>Saatle birlikte gerçekte neler kayar</h2>
+    <div class="prose">
+      <p>
+        Sistem saati, test ettiğiniz programa özel değildir. Makinedeki her süreç, hizmet ve ağ
+        konuşması aynı saati okur; dolayısıyla tek bir test için yapılan değişiklik hepsi için
+        yapılmış demektir.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Saati okuyan şey</th><th>Kaydırdığınızda ne olur</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Etki alanı oturumu ve paylaşılan klasörler</td><td>Kerberos varsayılan olarak beş dakikalık bir saat farkını tolere eder. Bunun ötesinde biletleri reddedilir; oturum açma ya da bir paylaşıma erişim başarısız olur.</td></tr>
+          <tr><td>Sertifikalar ve HTTPS</td><td>Bir sertifikanın geçerli olup olmadığına saat karar verir. Saati bir sertifikanın bitiş tarihinin ötesine alırsanız ona dayanan her bağlantı süresi dolmuş diye reddedilir; yeterince geriye alırsanız sertifika henüz geçerli değildir.</td></tr>
+          <tr><td>Windows Zaman hizmeti</td><td>Etki alanına katılmış bir makine saatini bir etki alanı denetleyicisinden alır ve hizmet varsayılan olarak farkın büyüklüğüne bakmadan saati düzeltir. Ayarladığınız tarih siz hâlâ test ederken geri alınabilir.</td></tr>
+          <tr><td>Zaman kaydeden her şey</td><td>Saat kaydırılmışken oluşan dosyalar, günlükler, veritabanı satırları ve gönderilen e-postalar test tarihini taşır ve saati geri aldıktan sonra da taşımaya devam eder.</td></tr>
+          <tr><td>Gördüğü en son tarihi hatırlayan yazılımlar</td><td>Bazı programlar geriye giden bir saati kurcalama olarak okur - gerçek tarihi geri yüklediğinizde olan tam da budur.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Tarih ne kadar uzaksa bunların o kadarıyla karşılaşırsınız. 2038’e ayarlanmış bir makine bugün
+        verilmiş her sertifikayı süresi dolmuş görür.
+        <a href="/tr/2038-yili-sorunu-testi/">Bunsuz 2038’i test etmek &rarr;</a>
+      </p>
+      <p>
+        Ayrıca çoğu hesapta olmayan bir hak gerekir: sistem saatini değiştirmek bir yönetici ayrıcalığıdır
+        ve yönetilen bir makinede çoğu zaman sizin kullanımınıza açık değildir.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Saati değiştirmenin doğru cevap olduğu durumlar</h2>
+    <div class="prose">
+      <p>
+        Başka kimsenin kullanmadığı, kendi saat eşitlemesi kapatılmış bir sanal makine gayet iyi bir test
+        tezgâhıdır. Sonra onu atarsınız, yani kaydettiği hiçbir şey önemli olmaz. Elinizde böyle bir
+        makine varsa ve test tek bir tarihle ilgiliyse, işe yarayan en basit şey budur.
+      </p>
+      <p>
+        Sorun, bu makinenin üzerinde çalıştığınız makine, etki alanındaki makine ya da aynı anda hiçbir şeyi
+        fark etmemesi gereken bir şey çalıştıran makine olmasıyla başlar.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bunun yerine tek bir programın saatini kaydırın</h2>
+    <div class="prose">
+      <p>
+        Kaydırılan zamanı <strong>tek bir süreç ve başlattığı alt süreçler</strong> görür. Etki alanı
+        oturumunuz, sertifikalarınız ve Windows Update onu hiç görmez; dolayısıyla yukarıdaki tablodan
+        hiçbir şey kaymaz - ve sonradan geri alınacak bir şey de kalmaz.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Uygulama 31 Aralık 2027, 23:59:50’yi görür. Geri kalan her şey gerçek tarihi korur.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Gece yarısından on dakika önce başlayıp x60 hızla çalıştırın - yıl on saniyede dönüyor</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Bir program için kaydırılan tarihin ona gerçekten ulaşıp ulaşmadığı varsayılacak bir şey değildir.
+        Her oturum bir kararla ve programın gerçekten okuduğu zaman kanallarının listesiyle biter.
+        <a href="/tr/zaman-kaynagi-denetimi/">İşe yaradığını nereden bileceksiniz &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bunun yerine geçmeyen şeyler</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Zamanı bir sunucudan soran bir program</strong>, yerel bir yer değiştirmenin
+          erişiminin dışındadır. Oturum, programın bir ağ bağlantısı açtığını görünce bunu söyler; testin
+          geçtiğini varsaymanızı beklemez.</li>
+        <li><strong>Sistemin kendisini test etmek</strong> - gerçek saatin değişmesine tepki veren bir
+          hizmet, zamanlanmış bir görev, Windows’un saat değişikliği çevresindeki davranışı - saati
+          değiştirmenin yerini tutacak bir şeye sahip değildir; bunu göze alabileceğiniz bir makinede
+          yapın.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/tarih-test-senaryolari/">Test edilecek tarihler</a>
+    </div>
+  </section>
+
+</div>

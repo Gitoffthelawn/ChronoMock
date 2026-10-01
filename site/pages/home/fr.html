@@ -1,0 +1,237 @@
+<!-- Page d'accueil, français. Structure, classes et jetons comme dans en.html. -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>Lancez une application Windows à <span class="hl">n'importe quelle date</span> - sans toucher à l'horloge système</h1>
+
+        <p class="lede">
+          Réglez l'horloge d'une seule application sur l'année prochaine, figez-la, ou
+          <strong>accélérez-la pour qu'un essai de 30 jours expire le temps de faire un café</strong>.
+          Le reste de la machine garde l'heure réelle : votre connexion au domaine, vos certificats et
+          tous les autres programmes continuent comme d'habitude.
+        </p>
+        <p class="lede">
+          Ensuite, il vous dit si la substitution a <strong>vraiment fonctionné</strong>.
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+          <a class="btn btn-ghost" href="{{repo}}">Voir le code sur GitHub</a>
+        </div>
+
+        <p class="trust">
+          <span>Gratuit et open source, GPL-3.0</span>
+          <span>Sans installateur</span>
+          <span>Sans droits d'administrateur</span>
+          <span>Ne se connecte jamais à Internet</span>
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="panel-cap">À quoi ressemble une session</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">L'application voit</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">fuseau de la session -05:00</div>
+          </div>
+          <div class="clock">
+            <div class="who">La machine voit toujours</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">fuseau de l'hôte +02:00</div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>Fonctionne</b> - la substitution a atteint ce processus</span>
+        </div>
+        <div class="chan">
+          <span>Canaux de temps couverts</span>
+          <span class="n">26 sur {{channel_count}} &middot; avec nombre d'appels</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Le panneau de session de Chrono Mock. L'horloge de l'application indique 2038-01-19 03:14:14 et l'horloge réelle à côté 2026-09-22 15:50:30, chacune avec son propre temps écoulé. En dessous, les vitesses vont de x1 à x1440 avec un bouton Freeze, puis les sauts relatifs et un saut vers une date saisie ; dans le pied de page, une coche verte accompagne le mot Works à côté d'un bouton rouge pour arrêter la session.">
+      <figcaption>Une session en cours. L'application est en 2038, la machine non, et le verdict dit que
+        la substitution l'a atteinte.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">Pourquoi cet outil existe</p>
+    <h2>Tester tout ce qui dépend d'une date oblige à déplacer le temps. Les deux solutions habituelles sont mauvaises.</h2>
+    <p class="sub">
+      Expiration de licence, périodes d'essai, renouvellements d'abonnement, validité des certificats,
+      durée de vie des jetons, clôtures de fin de mois et d'année, calcul d'intérêts, rappels.
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">Solution 1 - changer l'horloge système</p>
+        <p>
+          Cela casse l'ouverture de session sur le domaine et Kerberos, invalide les certificats TLS au
+          point que le navigateur ne marche plus, perturbe Windows Update et fait écrire de mauvais
+          horodatages à toutes les autres applications de la machine. Sur une machine jointe à un domaine,
+          la stratégie de groupe bloque généralement le changement ou l'annule quelques minutes plus tard,
+          et le test n'est donc même pas reproductible.
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">Solution 2 - attendre</p>
+        <p>
+          Ce qui veut dire : ne pas tester. Les cas qui dépendent de la date sont sautés, et
+          <em>«&nbsp;la licence n'expire jamais&nbsp;»</em> part chez le client.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce qu'il fait</h2>
+    <p class="sub">Un seul processus voyage dans le temps. Le reste de la machine, non.</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>N'importe quel moment</h3>
+        <p>Une date et une heure précises, ou un moment relatif - <code>+30 days</code>, <code>-1 year</code>.</p>
+      </div>
+      <div class="feat">
+        <h3>Qui s'écoule, figé ou accéléré</h3>
+        <p>Vitesse normale, horloge arrêtée, ou multiplicateur entier. <code>x1440</code> fait d'une
+          journée une minute.</p>
+      </div>
+      <div class="feat">
+        <h3>Son propre fuseau horaire</h3>
+        <p>Un décalage fixe pour ce seul processus, pendant que le fuseau du système reste exactement où
+          il était.</p>
+      </div>
+      <div class="feat">
+        <h3>Les processus enfants suivent</h3>
+        <p>Les installateurs et les lanceurs créent des processus enfants. Sans cela, le test ne couvre
+          que la moitié de ce qui s'est exécuté.</p>
+      </div>
+      <div class="feat">
+        <h3>Des sauts en pleine session</h3>
+        <p>En avant ou en arrière - y compris le saut en arrière que fait un portable après s'être
+          resynchronisé avec un serveur de temps.</p>
+      </div>
+      <div class="feat">
+        <h3>Electron et Chromium aussi</h3>
+        <p>Par un autre mécanisme, car leur horloge vit dans un moteur de rendu isolé où l'injection
+          n'arrive pas.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">Ce que personne d'autre ne fait</p>
+      <h2>Comment savoir si cela a fonctionné&nbsp;?</h2>
+      <p class="sub">
+        Avec tous les autres outils, vous ne le savez pas. L'application démarre, affiche une date, et vous
+        supposez. Mais elle peut lire l'horloge par un canal que l'outil n'a jamais intercepté - depuis un
+        serveur, une base de données, une couche d'exécution - et alors <em>«&nbsp;le test est
+        passé&nbsp;»</em> ne veut plus rien dire.
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&rarr;</span><span>Un verdict avant le début du vrai test :
+          <b>fonctionne / fonctionne partiellement / ne fonctionne pas</b></span></li>
+        <li><span class="tick">&rarr;</span><span>Lesquels des <b>{{channel_count}} canaux de temps</b>
+          ont été couverts, et combien de fois l'application a interrogé chacun</span></li>
+        <li><span class="tick">&rarr;</span><span><b>Lesquels ne l'ont pas été</b> - dits clairement,
+          jamais omis</span></li>
+        <li><span class="tick">&rarr;</span><span>Des avertissements avec leurs conséquences :
+          <em>«&nbsp;cette application lit l'heure sur le réseau - la substitution locale peut ne pas
+          suffire&nbsp;»</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/fr/audit-des-sources-de-temps/">Comment fonctionne l'audit des sources de temps &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deux minutes pour l'essayer</h2>
+    <p class="sub">Une fenêtre pour explorer, une ligne de commande pour la CI. Le même moteur derrière les deux.</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># Exécuter une application comme si c'était la dernière seconde de 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Voir expirer un essai de 30 jours le temps d'un café : x1440, c'est un jour par minute</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Utiliser un scénario nommé plutôt qu'une date, et écrire la preuve dans un fichier</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        Le calculateur répond à l'autre moitié du test de dates - <em>quelle</em> date utiliser&nbsp;:
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Comparé à ce que vous utilisez probablement</p>
+    <h2>Comme RunAsDate, avec les parties qui manquaient</h2>
+    <p class="sub">
+      RunAsDate intercepte cinq fonctions d'horloge murale et le fait bien. Voici où les deux diffèrent -
+      et la page complète dit aussi dans quels cas RunAsDate reste le meilleur choix.
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Lance une appli à une fausse date</td><td class="y">oui</td><td class="y">oui</td></tr>
+          <tr><td>Canaux de temps interceptés</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>Accélérer l'horloge</td><td class="n">non</td><td class="y">oui</td></tr>
+          <tr><td>Fuseau horaire indépendant</td><td class="n">non documenté</td><td class="y">oui</td></tr>
+          <tr><td>Suit les processus enfants</td><td class="n">non documenté</td><td class="y">oui</td></tr>
+          <tr><td>Dit si cela a fonctionné</td><td class="n">non</td><td class="y">oui, par canal</td></tr>
+          <tr><td>Code source disponible</td><td class="n">freeware, code fermé</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/fr/alternative-a-runasdate/">La comparaison complète, y compris là où RunAsDate gagne &rarr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>L'obtenir</h2>
+    <p class="sub">
+      Décompressez où vous voulez et lancez. Sans installateur, sans rien écrire dans le registre, sans
+      droits d'administrateur.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="{{repo}}">Voir le code sur GitHub</a>
+    </div>
+  </section>
+
+</div>

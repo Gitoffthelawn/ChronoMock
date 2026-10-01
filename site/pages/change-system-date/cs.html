@@ -1,0 +1,113 @@
+<!-- Změna systémového data kvůli testu, čeština. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Změna systémového data kvůli otestování aplikace</h1>
+    <p class="sub">
+      Je to nejstarší trik, jaký existuje: nastavit hodiny Windows na datum, které chcete otestovat,
+      spustit program a hodiny vrátit. Funguje to - a dokud jsou hodiny posunuté, posouvají i všechno
+      ostatní na počítači.
+    </p>
+  </section>
+
+  <section>
+    <h2>Co se s hodinami skutečně posune</h2>
+    <div class="prose">
+      <p>
+        Systémové hodiny nepatří jen programu, který testujete. Každý proces, služba i síťová komunikace
+        na počítači čte tytéž hodiny, takže změna udělaná kvůli jednomu testu je změnou pro všechny.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Co čte hodiny</th><th>Co se stane, když je posunete</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Přihlášení do domény a sdílené složky</td><td>Kerberos ve výchozím nastavení toleruje rozdíl hodin pět minut. Nad tuto hodnotu odmítá své tikety a přihlášení nebo otevření sdílené složky selže.</td></tr>
+          <tr><td>Certifikáty a HTTPS</td><td>Platnost certifikátu se posuzuje podle hodin. Nastavte je za datum konce certifikátu a každé spojení, které se o něj opírá, je odmítnuto jako propadlé; vraťte je dost zpět a certifikát ještě neplatí.</td></tr>
+          <tr><td>Služba Čas systému Windows</td><td>Počítač v doméně přebírá čas z řadiče domény a služba ve výchozím nastavení opravuje hodiny bez ohledu na velikost rozdílu. Datum, které jste nastavili, se může vrátit, zatímco ještě testujete.</td></tr>
+          <tr><td>Všechno, co zaznamenává čas</td><td>Soubory, logy, řádky databáze a odeslané e-maily vzniklé při posunutých hodinách nesou datum testu a ponesou ho i poté, co hodiny vrátíte.</td></tr>
+          <tr><td>Software, který si pamatuje nejpozdější viděné datum</td><td>Některé programy čtou hodiny jdoucí zpět jako manipulaci - a přesně to se stane, když obnovíte skutečné datum.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Čím vzdálenější datum, tím víc z toho potkáte. Počítač nastavený na rok 2038 vidí každý dnes
+        vydaný certifikát jako propadlý.
+        <a href="/cs/testovani-problemu-roku-2038/">Jak testovat rok 2038 bez toho &rarr;</a>
+      </p>
+      <p>
+        Je k tomu zapotřebí i právo, které většina účtů nemá: změna systémového času je oprávnění
+        správce a na spravovaném počítači často nepatří vám.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kdy je změna hodin správná odpověď</h2>
+    <div class="prose">
+      <p>
+        Virtuální počítač, který nepoužívá nikdo jiný, s vypnutou vlastní synchronizací hodin, je
+        naprosto dobrá zkušební stolice. Pak ho zahodíte, takže na ničem, co zaznamenal, nezáleží. Pokud
+        ho máte a test se týká jediného data, je to nejjednodušší věc, která funguje.
+      </p>
+      <p>
+        Potíže začínají, když je to počítač, na kterém pracujete, ten v doméně, nebo ten, na němž zároveň
+        běží něco, co si ničeho nesmí všimnout.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Posuňte místo toho hodiny jediného programu</h2>
+    <div class="prose">
+      <p>
+        Posunutý čas vidí <strong>jeden proces a potomci, které spustí</strong>. Vaše přihlášení do
+        domény, vaše certifikáty a Windows Update ho nikdy nevidí, takže se nic z tabulky výše neposune -
+        a potom není co vracet.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aplikace vidí 31. prosince 2027, 23:59:50. Všechno ostatní má skutečné datum.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Začít deset minut před půlnocí a běžet rychlostí x60 - přelom roku nastane za deset sekund</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Že datum posunuté pro jeden program k němu skutečně dorazilo, není něco, co se má předpokládat.
+        Každé sezení končí verdiktem a seznamem časových kanálů, které program opravdu četl.
+        <a href="/cs/audit-zdroju-casu/">Jak poznáte, že to zabralo &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co to nenahrazuje</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Program, který se na čas ptá serveru</strong>, je mimo dosah lokální náhrady. Sezení
+          to oznámí, když uvidí, že program otevírá síťové spojení, místo aby vás nechalo předpokládat, že
+          test prošel.</li>
+        <li><strong>Testování samotného systému</strong> - služby reagující na změnu skutečných hodin,
+          naplánované úlohy, chování Windows kolem změny hodin - nemá náhradu za změnu hodin, na počítači,
+          který si můžete dovolit.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/testovaci-scenare-dat/">Data k testování</a>
+    </div>
+  </section>
+
+</div>

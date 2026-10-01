@@ -1,0 +1,116 @@
+<!-- Systemdatum zum Testen ändern, Deutsch. Aufbau, Klassen und Tokens wie in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Das Systemdatum ändern, um eine Anwendung zu testen</h1>
+    <p class="sub">
+      Es ist der älteste Trick überhaupt: die Windows-Uhr auf das Datum stellen, das Sie testen wollen,
+      das Programm starten, die Uhr zurückstellen. Das funktioniert - und solange die Uhr verstellt ist,
+      verstellt sie auch alles andere auf dem Rechner.
+    </p>
+  </section>
+
+  <section>
+    <h2>Was sich mit der Uhr tatsächlich verschiebt</h2>
+    <div class="prose">
+      <p>
+        Die Systemuhr gehört nicht allein dem Programm, das Sie testen. Jeder Prozess, jeder Dienst und
+        jede Netzwerkverbindung auf dem Rechner liest dieselbe Uhr, also ist eine Änderung für einen Test
+        eine Änderung für alle.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Was die Uhr liest</th><th>Was passiert, wenn Sie sie verstellen</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Domänenanmeldung und Netzwerkfreigaben</td><td>Kerberos toleriert standardmäßig einen Uhrenunterschied von fünf Minuten. Darüber werden seine Tickets abgelehnt, und die Anmeldung oder der Zugriff auf eine Freigabe schlägt fehl.</td></tr>
+          <tr><td>Zertifikate und HTTPS</td><td>Ob ein Zertifikat gültig ist, wird an der Uhr entschieden. Stellen Sie sie hinter das Ablaufdatum eines Zertifikats, wird jede Verbindung, die sich darauf stützt, als abgelaufen abgelehnt; stellen Sie sie weit genug zurück, ist das Zertifikat noch nicht gültig.</td></tr>
+          <tr><td>Der Windows-Zeitdienst</td><td>Ein Rechner in einer Domäne bezieht seine Zeit von einem Domänencontroller, und der Dienst korrigiert die Uhr standardmäßig unabhängig von der Größe der Abweichung. Das Datum, das Sie gesetzt haben, kann rückgängig gemacht werden, während Sie noch testen.</td></tr>
+          <tr><td>Alles, was eine Zeit aufzeichnet</td><td>Dateien, Logs, Datenbankzeilen und gesendete Mails, die bei verstellter Uhr entstehen, tragen das Testdatum und behalten es, nachdem Sie die Uhr zurückgestellt haben.</td></tr>
+          <tr><td>Software, die sich das späteste gesehene Datum merkt</td><td>Manche Programme lesen eine rückwärts laufende Uhr als Manipulation - und genau das passiert, wenn Sie das echte Datum wiederherstellen.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Je weiter das Datum, desto mehr davon begegnet Ihnen. Ein auf 2038 gestellter Rechner sieht jedes
+        heute ausgestellte Zertifikat als abgelaufen.
+        <a href="/de/jahr-2038-testen/">2038 testen, ohne das &rarr;</a>
+      </p>
+      <p>
+        Dazu braucht es ein Recht, das die meisten Konten nicht haben: Die Systemzeit zu ändern ist ein
+        Administratorprivileg, und auf einem verwalteten Rechner steht es Ihnen oft nicht zu.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wann das Verstellen der Uhr die richtige Antwort ist</h2>
+    <div class="prose">
+      <p>
+        Eine virtuelle Maschine, die sonst niemand nutzt, mit abgeschalteter Uhrensynchronisation, ist ein
+        völlig brauchbarer Prüfstand. Sie werfen sie danach weg, also spielt nichts, was sie aufgezeichnet
+        hat, eine Rolle. Wenn Sie eine haben und der Test ein einziges Datum betrifft, ist das die
+        einfachste Lösung, die funktioniert.
+      </p>
+      <p>
+        Probleme beginnen, wenn es der Rechner ist, an dem Sie arbeiten, der in der Domäne, oder einer, auf
+        dem zugleich etwas läuft, das nichts bemerken darf.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Stattdessen die Uhr eines einzelnen Programms verschieben</h2>
+    <div class="prose">
+      <p>
+        Die verschobene Zeit ist für <strong>einen Prozess und die Kindprozesse, die er startet</strong>,
+        sichtbar. Ihre Domänenanmeldung, Ihre Zertifikate und Windows Update sehen sie nie, also verschiebt
+        sich nichts aus der Tabelle oben - und danach ist nichts zurückzustellen.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Die Anwendung sieht den 31. Dezember 2027, 23:59:50. Alles andere behält das echte Datum.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Zehn Minuten vor Mitternacht starten und mit 60-facher Geschwindigkeit laufen - der Jahreswechsel kommt in zehn Sekunden</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Ob ein für ein Programm verschobenes Datum es tatsächlich erreicht hat, sollte man nicht annehmen.
+        Jede Sitzung endet mit einem Urteil und der Liste der Zeitkanäle, die das Programm wirklich gelesen
+        hat.
+        <a href="/de/zeitquellen-pruefung/">Woher Sie wissen, dass es gewirkt hat &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was das nicht ersetzt</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Ein Programm, das einen Server nach der Zeit fragt</strong>, liegt außerhalb dessen,
+          was eine lokale Ersetzung erreicht. Die Sitzung sagt es, wenn sie sieht, dass das Programm eine
+          Netzwerkverbindung öffnet, statt Sie in der Annahme zu lassen, der Test sei bestanden.</li>
+        <li><strong>Das System selbst zu testen</strong> - einen Dienst, der auf eine Änderung der echten
+          Uhr reagiert, eine geplante Aufgabe, das Verhalten von Windows bei einer Uhrenänderung - kennt
+          keinen Ersatz für das Verstellen der Uhr, auf einem Rechner, den Sie sich leisten können.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/datums-testszenarien/">Testenswerte Daten</a>
+    </div>
+  </section>
+
+</div>

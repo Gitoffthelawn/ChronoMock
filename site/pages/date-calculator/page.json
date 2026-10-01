@@ -18,6 +18,126 @@
       "link_text": "Kalkulator",
       "title": "Kalkulator dat dla QA - dni robocze i przypadki brzegowe",
       "description": "Ustal, którą datę testować: koniec miesiąca, koniec kwartału, N dni roboczych z prawdziwymi świętami, granica 2038. Wszystkie formaty naraz i co każda data testuje."
+    },
+    "de": {
+      "slug": "datumsrechner",
+      "link_text": "Rechner",
+      "title": "Datumsrechner für QA - Werktage und Sonderfälle",
+      "description": "Ermitteln Sie, welches Datum Sie testen sollten: Monatsende, Quartalsabschluss, N Werktage mit echten Feiertagen, die 2038-Grenze. Alle Formate auf einmal und was jedes Datum prüft."
+    },
+    "fr": {
+      "slug": "calculateur-de-dates",
+      "link_text": "Calculateur",
+      "title": "Calculateur de dates pour la QA - jours ouvrés et cas limites",
+      "description": "Trouvez la date à tester : fin de mois, clôture de trimestre, N jours ouvrés avec les vrais jours fériés, la limite de 2038. Tous les formats d'un coup, et ce que teste chaque date."
+    },
+    "es": {
+      "slug": "calculadora-de-fechas",
+      "link_text": "Calculadora",
+      "title": "Calculadora de fechas para QA - días laborables y casos límite",
+      "description": "Averigua qué fecha probar: fin de mes, cierre de trimestre, N días laborables con festivos reales, el límite de 2038. Todos los formatos a la vez y qué prueba cada fecha."
+    },
+    "pt-br": {
+      "slug": "calculadora-de-datas",
+      "link_text": "Calculadora",
+      "title": "Calculadora de datas para QA - dias úteis e casos extremos",
+      "description": "Descubra qual data testar: fim de mês, fechamento de trimestre, N dias úteis com feriados reais, o limite de 2038. Todos os formatos de uma vez e o que cada data testa."
+    },
+    "it": {
+      "slug": "calcolatore-di-date",
+      "link_text": "Calcolatore",
+      "title": "Calcolatore di date per il QA - giorni lavorativi e casi limite",
+      "description": "Scopri quale data testare: fine mese, chiusura del trimestre, N giorni lavorativi con i festivi veri, il limite del 2038. Tutti i formati insieme e che cosa testa ogni data."
+    },
+    "nl": {
+      "slug": "datumcalculator",
+      "link_text": "Calculator",
+      "title": "Datumcalculator voor QA - werkdagen en randgevallen",
+      "description": "Bereken welke datum je moet testen: maandeinde, kwartaalafsluiting, N werkdagen met echte feestdagen, de grens van 2038. Alle formaten tegelijk en wat elke datum test."
+    },
+    "ro": {
+      "slug": "calculator-de-date",
+      "link_text": "Calculator",
+      "title": "Calculator de date pentru QA - zile lucrătoare, cazuri limită",
+      "description": "Află ce dată să testezi: sfârșit de lună, închidere de trimestru, N zile lucrătoare cu sărbători reale, limita 2038. Toate formatele deodată și ce testează fiecare dată."
+    },
+    "cs": {
+      "slug": "kalkulacka-dat",
+      "link_text": "Kalkulačka",
+      "title": "Kalkulačka dat pro QA - pracovní dny a hraniční případy",
+      "description": "Zjistěte, které datum testovat: konec měsíce, čtvrtletní uzávěrka, N pracovních dnů se skutečnými svátky, hranice roku 2038. Všechny formáty najednou a co každé datum testuje."
+    },
+    "tr": {
+      "slug": "tarih-hesaplayici",
+      "link_text": "Hesap makinesi",
+      "title": "QA için tarih hesaplayıcı - iş günleri ve sınır durumlar",
+      "description": "Hangi tarihi test edeceğinizi bulun: ay sonu, çeyrek kapanışı, gerçek tatillerle N iş günü, 2038 sınırı. Tüm biçimler bir arada ve her tarihin neyi test ettiği."
+    },
+    "id": {
+      "slug": "kalkulator-tanggal",
+      "link_text": "Kalkulator",
+      "title": "Kalkulator tanggal untuk QA - hari kerja dan kasus tepi",
+      "description": "Cari tahu tanggal mana yang diuji: akhir bulan, penutupan kuartal, N hari kerja dengan hari libur nyata, batas 2038. Semua format sekaligus dan apa yang diuji tiap tanggal."
+    },
+    "vi": {
+      "slug": "may-tinh-ngay",
+      "link_text": "Máy tính ngày",
+      "title": "Máy tính ngày cho QA - ngày làm việc và trường hợp biên",
+      "description": "Tìm ra ngày cần kiểm thử: cuối tháng, khóa sổ quý, N ngày làm việc với ngày lễ thật, ranh giới 2038. Mọi định dạng cùng lúc và mỗi ngày kiểm thử điều gì."
+    },
+    "ru": {
+      "slug": "date-calculator",
+      "link_text": "Калькулятор",
+      "title": "Калькулятор дат для QA — рабочие дни и граничные случаи",
+      "description": "Узнайте, какую дату тестировать: конец месяца, закрытие квартала, N рабочих дней с настоящими праздниками, граница 2038 года. Все форматы сразу и что проверяет каждая дата."
+    },
+    "uk": {
+      "slug": "date-calculator",
+      "link_text": "Калькулятор",
+      "title": "Калькулятор дат для QA — робочі дні й граничні випадки",
+      "description": "Дізнайтеся, яку дату тестувати: кінець місяця, закриття кварталу, N робочих днів зі справжніми святами, межа 2038 року. Усі формати одразу й що перевіряє кожна дата."
+    },
+    "ja": {
+      "slug": "date-calculator",
+      "link_text": "電卓",
+      "title": "QA 向け日付電卓 - 営業日とエッジケース",
+      "description": "どの日付をテストすべきかを計算します。月末、四半期末、実際の祝日を考慮した N 営業日後、2038 年問題。すべての形式を一度に出力し、各日付が何を試すかも示します。"
+    },
+    "ko": {
+      "slug": "date-calculator",
+      "link_text": "계산기",
+      "title": "QA용 날짜 계산기 - 영업일과 경계 사례",
+      "description": "어떤 날짜를 테스트할지 계산합니다. 월말, 분기 마감, 실제 공휴일을 반영한 N영업일, 2038년 경계. 모든 형식을 한 번에 보여 주고 각 날짜가 무엇을 테스트하는지 알려 줍니다."
+    },
+    "zh-hans": {
+      "slug": "date-calculator",
+      "link_text": "计算器",
+      "title": "面向 QA 的日期计算器 - 工作日与边界日期",
+      "description": "算出该测试哪一天：月末、季末、按真实节假日计算的 N 个工作日、2038 年边界。一次列出所有格式，并说明每个日期测试什么。"
+    },
+    "zh-hant": {
+      "slug": "date-calculator",
+      "link_text": "計算機",
+      "title": "給 QA 的日期計算機 - 工作日與邊界日期",
+      "description": "算出該測試哪一天：月底、季底、依真實假日計算的 N 個工作日、2038 年邊界。一次列出所有格式，並說明每個日期測試什麼。"
+    },
+    "ar": {
+      "slug": "date-calculator",
+      "link_text": "الحاسبة",
+      "title": "حاسبة تواريخ لفريق الجودة - أيام العمل والحالات الحدّية",
+      "description": "احسب أي تاريخ تختبر: نهاية الشهر وإقفال الربع وأيام العمل بعطلات حقيقية وحدّ 2038. وتعرض كل الصيغ دفعة واحدة وتقول ماذا يختبر كل تاريخ."
+    },
+    "hi": {
+      "slug": "date-calculator",
+      "link_text": "कैलकुलेटर",
+      "title": "QA के लिए तारीख़ कैलकुलेटर - कार्यदिवस और सीमा-तारीख़ें",
+      "description": "तय करें कि कौन-सी तारीख़ परखनी है: माह-अंत, तिमाही-अंत, असली छुट्टियों के साथ N कार्यदिवस, 2038 की सीमा। हर फ़ॉर्मैट एक साथ, और यह भी कि हर तारीख़ क्या परखती है।"
+    },
+    "th": {
+      "slug": "date-calculator",
+      "link_text": "เครื่องคิดเลข",
+      "title": "เครื่องคิดเลขวันที่สำหรับ QA - วันทำการและวันที่ขอบ",
+      "description": "คำนวณว่าควรทดสอบวันที่ไหน: สิ้นเดือน สิ้นไตรมาส N วันทำการตามวันหยุดจริง ขอบปี 2038 แสดงทุกรูปแบบพร้อมกัน และบอกว่าแต่ละวันที่ทดสอบอะไร"
     }
   }
 }

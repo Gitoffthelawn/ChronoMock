@@ -1,0 +1,149 @@
+<!-- Comparaison avec RunAsDate, français. Structure, classes et jetons comme dans en.html.
+
+     Toute affirmation sur RunAsDate vient de sa propre page sur nirsoft.net. «&nbsp;Non documenté&nbsp;» veut dire
+     exactement cela - la fonctionnalité n'y est pas mentionnée - et n'affirme pas qu'elle manque. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Une alternative à RunAsDate, avec les parties qui manquaient</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> est depuis des années la
+      réponse à <em>«&nbsp;exécuter ce programme à une autre date sous Windows&nbsp;»</em>, et une bonne
+      réponse. Cette page porte sur ce qui distingue les deux, et sur les cas où RunAsDate reste le
+      meilleur choix.
+    </p>
+  </section>
+
+  <section>
+    <h2>Côte à côte</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Exécute une application à une fausse date</td><td class="y">oui</td><td class="y">oui</td></tr>
+          <tr><td>Laisse l'horloge système tranquille</td><td class="y">oui</td><td class="y">oui</td></tr>
+          <tr><td>Fonctions de temps interceptées</td><td class="n">5</td><td class="y">{{channel_count}} canaux</td></tr>
+          <tr><td>Horloge plus rapide que le temps réel</td><td class="n">non proposé</td><td class="y">tout multiplicateur entier</td></tr>
+          <tr><td>Figer l'horloge</td><td class="n">non proposé</td><td class="y">oui</td></tr>
+          <tr><td>Sauter pendant que l'appli tourne</td><td class="n">non proposé</td><td class="y">en avant et en arrière</td></tr>
+          <tr><td>Fuseau horaire pour ce seul processus</td><td class="n">non documenté</td><td class="y">oui, décalage fixe</td></tr>
+          <tr><td>Les processus enfants héritent de la session</td><td class="n">non documenté</td><td class="y">oui</td></tr>
+          <tr><td>Dit si cela a fonctionné</td><td class="n">non</td><td class="y">verdict, par canal, avec nombre d'appels</td></tr>
+          <tr><td>Applications Electron et Chromium</td><td class="n">non proposé</td><td class="y">mécanisme distinct</td></tr>
+          <tr><td>Ligne de commande pour la CI</td><td class="y">oui</td><td class="y">oui, avec codes de sortie et JSON</td></tr>
+          <tr><td>Code source</td><td class="n">freeware, fermé</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Taille</td><td class="y">moins de 40 Ko</td><td class="n">1,6 Mo en CLI, 69 Mo avec la fenêtre</td></tr>
+          <tr><td>Anciennes versions de Windows</td><td class="y">jusqu'à Windows 2000</td><td class="n">Windows 10 et 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>«&nbsp;Non documenté&nbsp;»</em> signifie que la fonctionnalité n'est pas mentionnée sur la page
+      de RunAsDate. Ce n'est pas une affirmation que l'outil en est dépourvu.
+    </p>
+  </section>
+
+  <section>
+    <h2>La différence qui compte le plus</h2>
+    <div class="prose">
+      <p>
+        Ce n'est pas le nombre de canaux. C'est que RunAsDate vous dit honnêtement, dans sa propre
+        documentation, qu'il <strong>«&nbsp;n'affectera pas les applications qui obtiennent la date et
+        l'heure courantes d'une autre source&nbsp;»</strong> - puis vous laisse déterminer si la vôtre en
+        fait partie.
+      </p>
+      <p>
+        Chrono Mock traite cette même phrase comme quelque chose à <strong>mesurer</strong>. Chaque
+        session se termine par un verdict, les canaux que l'application a réellement lus avec un compte
+        pour chacun, les canaux manqués, et un avertissement quand on a vu l'application ouvrir une
+        connexion réseau avant même d'avoir demandé l'heure à l'horloge.
+      </p>
+      <p>
+        Une application qui a l'air décalée dans le temps mais ne l'est pas est pire qu'une application
+        qui ne s'est jamais lancée - elle produit un test réussi qui ne veut rien dire.
+        <a href="/fr/audit-des-sources-de-temps/">Comment fonctionne l'audit &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cinq fonctions, ou {{channel_count}} canaux</h2>
+    <div class="prose">
+      <p>
+        RunAsDate intercepte <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code> et
+        <code>GetSystemTimePreciseAsFileTime</code>. Pour un très grand nombre d'applications, c'est
+        réellement suffisant, car c'est là que l'horloge murale est lue.
+      </p>
+      <p>
+        Le reste de la surface est l'endroit où le code qui dépend des dates tend à se cacher :
+      </p>
+      <ul>
+        <li>le <strong>fuseau horaire</strong> - quatre fonctions, plus toute la famille qui convertit
+          entre fuseaux, c'est ainsi qu'un rapport atterrit le mauvais jour</li>
+        <li>l'<strong>axe du temps écoulé</strong> - les compteurs de ticks et le temps d'interruption non
+          biaisé, ce que mesure généralement un compte à rebours d'essai</li>
+        <li>les <strong>attentes et mises en veille</strong>, pour qu'un délai soit un délai sur l'horloge
+          de la session et non sur la réelle</li>
+        <li>les <strong>minuteurs</strong> - attendables, de fenêtre, de pool de threads et
+          multimédias</li>
+        <li>la <strong>création de processus</strong>, pour que les enfants d'un installateur s'exécutent
+          dans la même session plutôt qu'à la date du jour</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quand RunAsDate est le meilleur choix</h2>
+    <div class="prose">
+      <p>Réellement, et pas rarement :</p>
+      <ul>
+        <li><strong>Vous avez besoin d'une date, à vitesse normale, tout de suite.</strong> RunAsDate
+          pèse moins de 40 Ko, n'a aucune fenêtre à apprendre et fait exactement cela depuis de
+          nombreuses années.</li>
+        <li><strong>Vous êtes sur un Windows plus ancien.</strong> RunAsDate remonte jusqu'à Windows 2000.
+          Cet outil vise Windows 10 et 11 et n'est testé sur rien de plus ancien.</li>
+        <li><strong>La taille compte.</strong> 40 Ko contre 1,6 Mo pour la ligne de commande, ou 69 Mo
+          avec la fenêtre, ce n'est pas une comparaison serrée.</li>
+        <li><strong>Vous ne voulez pas de verdict.</strong> Mesurer la couverture, c'est lire le résultat.
+          Si le test est jetable, c'est une charge que vous n'avez pas demandée.</li>
+      </ul>
+      <p>
+        Les deux peuvent aussi coexister. Rien ici ne vous empêche de garder RunAsDate pour le cas
+        rapide.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce pour quoi aucun des deux n'est fait</h2>
+    <div class="prose">
+      <p>
+        Les deux outils apparaissent dans les recherches sur la prolongation des périodes d'essai.
+        <strong>Celui-ci n'est pas conçu pour cela</strong>, et aucun exemple, scénario ou page ici ne le
+        démontrera jamais. Chrono Mock sert à tester des logiciels dont vous êtes responsable - votre
+        propre expiration de licence, votre propre logique de renouvellement, votre propre rapport de fin
+        de mois.
+      </p>
+      <p>
+        C'est aussi le cas le moins susceptible de fonctionner. La protection de licence lit couramment
+        l'heure par des voies choisies pour être difficiles à intercepter - la page de données partagée en
+        mode utilisateur, les appels système directs, un serveur - et une horloge qui recule est une
+        condition que ce code est écrit pour détecter. L'audit vous dira que cela n'a pas fonctionné, ce
+        qui est la réponse honnête et non une réponse utile.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/faq/">Lire d'abord la FAQ</a>
+    </div>
+  </section>
+
+</div>

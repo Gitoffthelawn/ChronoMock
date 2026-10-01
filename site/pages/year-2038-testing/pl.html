@@ -1,0 +1,128 @@
+<!-- Problem roku 2038 w Windows, po polsku. Struktura, klasy i tokeny jak w en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testowanie problemu roku 2038 w Windows</h1>
+    <p class="sub">
+      O 03:14:07 UTC 19 stycznia 2038 kończy się 32-bitowy licznik sekund od 1970 roku ze znakiem.
+      Zegar Windows biegnie dalej - programy, formaty plików i biblioteki, które zachowały własną
+      32-bitową kopię, nie. Tak znajdziesz je w jednej aplikacji, bez ustawiania daty całej
+      maszyny na rok 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>Gdzie ten błąd może jeszcze siedzieć</h2>
+    <div class="prose">
+      <p>
+        Zegar Windows to 64-bitowy licznik kroków po 100 nanosekund liczony od 1601 roku, więc nie
+        ma w nim roku 2038. Typ <code>time_t</code> w bibliotece uruchomieniowej C jest domyślnie
+        64-bitowy od Visual Studio 2005. Zostaje kod, który wybrał 32-bitowy czas albo po drodze
+        zgubił jego górną połowę:
+      </p>
+      <ul>
+        <li><strong>Kompilacje 32-bitowe z <code>_USE_32BIT_TIME_T</code></strong> albo
+          wywołujące wprost <code>_time32</code> i <code>__time32_t</code>. Dokumentacja Microsoftu
+          ostrzega, że taka aplikacja może przestać działać po 18 stycznia 2038.</li>
+        <li><strong>64-bitowy czas zapisany w <code>int</code> albo <code>long</code>.</strong> W
+          Windows oba mają 32 bity, nawet w programie 64-bitowym.</li>
+        <li><strong>Biblioteki, formaty plików, protokoły sieciowe i kolumny w bazach danych</strong>,
+          które trzymają sekundy od 1970 roku w 32 bitach.</li>
+        <li><strong>Kod, który dodaje lata.</strong> Dwudziestoletnia licencja, trzydziestoletni
+          harmonogram kredytu albo certyfikat ważny do 2040 przekraczają tę granicę na długo
+          przed nadejściem roku 2038.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Przekroczenie granicy w jednej aplikacji</h2>
+    <div class="prose">
+      <p>
+        Granica jest zdefiniowana w UTC, a <code>--at</code> czyta się w strefie sesji, więc przy
+        ręcznie wpisanej chwili ustaw strefę na UTC. Gotowy scenariusz niesie już bezwzględną chwilę
+        UTC i strefy nie potrzebuje.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Scenariusz: sesja startuje na samej granicy, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Start siedemnaście sekund przed granicą - aplikacja przekracza ją na żywo</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Start wcześniej i tempo 60 razy szybsze - granica nadchodzi po około 14 sekundach</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Albo praca na dzisiejszej dacie i skok przez granicę, gdy aplikacja jest otwarta</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Sekundę za granicą 32-bitowy licznik ze znakiem staje się -2 147 483 648, co czyta się jako
+        <strong>13 grudnia 1901, 20:45:52 UTC</strong>. Data z 1901 roku, liczba ujemna, pozycja,
+        która nagle wygasła albo wylądowała na początku listy, wyjątek rzucony z kodu dat - tak
+        przepełnienie wygląda z zewnątrz.
+      </p>
+      <p>
+        Ustawienie prawdziwego zegara na 2038 to drugi sposób, żeby się tu dostać, i ten psuje
+        najwięcej.
+        <a href="/pl/zmiana-daty-systemowej-w-testach/">Co się dzieje, gdy zmieniasz datę systemową &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sprawdzenie, że to dotarło do programu</h2>
+    <div class="prose">
+      <p>
+        Test, który przechodzi, bo program nigdy nie zobaczył 2038, jest gorszy niż brak testu.
+        Raport na końcu każdej sesji mówi, który zegar program czytał i ile razy:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        Linia <strong>session</strong> potwierdza, że zegar aplikacji przeszedł granicę. Werdykt
+        <em>works</em> z licznikami wywołań oznacza, że program czytał zegar i dostał datę z roku
+        2038; <em>works partially</em> wymienia kanały, które odczytał inną drogą.
+        <a href="/pl/audyt-zrodel-czasu/">Co znaczą werdykty &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Czego zaliczony test nie dowodzi</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Przesunął się tylko zegar samego programu.</strong> Data wczytana z pliku albo z
+          bazy jest taka, jaka tam zapisana, więc data z roku 2038 w danych to osobny test.
+          Kalkulator dat wylicza takie daty za ciebie:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Serwer, z którym program rozmawia, nadal żyje w prawdziwej dacie.</strong>
+          32-bitowy limit po tamtej stronie jest poza zasięgiem, a sesja ostrzega, gdy widzi, że
+          program otwiera połączenie sieciowe.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wypróbuj</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pl/pobieranie/">Pobierz na Windows</a>
+      <a class="btn btn-ghost" href="/pl/scenariusze-testowe-dat/">Inne daty warte testowania</a>
+    </div>
+  </section>
+
+</div>

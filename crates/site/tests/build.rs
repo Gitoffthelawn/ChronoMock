@@ -8,7 +8,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono_site::{render, repo_root};
+use std::collections::{BTreeMap, BTreeSet};
+
+use chrono_site::{load_i18n, parse_json, render, repo_root, SiteConfig};
 
 /// Build into a directory of this test's own, so tests running in parallel do not
 /// wipe each other's output.
@@ -49,15 +51,63 @@ fn the_english_page_offers_polish_and_the_polish_page_offers_english() {
 
     let en = read(&out, "index.html");
     assert!(
-        en.contains(r#"class="lang" href="/pl/" hreflang="pl" title="Ta strona po polsku">Polski<"#),
+        en.contains(r#"<a href="/pl/" hreflang="pl" lang="pl" title="Ta strona po polsku">Polski</a>"#),
         "the English page must offer Polski, in Polish"
     );
 
     let pl = read(&out, "pl/index.html");
     assert!(
-        pl.contains(r#"class="lang" href="/" hreflang="en" title="This page in English">English<"#),
+        pl.contains(r#"<a href="/" hreflang="en" lang="en" title="This page in English">English</a>"#),
         "the Polish page must offer English, in English"
     );
+}
+
+/// What the build was configured with, read from the same files it reads.
+fn configured() -> (SiteConfig, BTreeMap<String, BTreeMap<String, String>>) {
+    let site = repo_root().join("site");
+    let cfg: SiteConfig = parse_json(&site.join("site.json")).expect("site.json");
+    let i18n = load_i18n(&site, &cfg.languages).expect("dictionaries");
+    (cfg, i18n)
+}
+
+/// Where a language's pages live on disk, relative to the output directory.
+fn lang_dir(lang: &str) -> String {
+    if lang == "en" {
+        String::new()
+    } else {
+        format!("{lang}/")
+    }
+}
+
+/// Every `<link rel="alternate" hreflang=".." href="..">` of a document, as (hreflang, href).
+fn alternates(html: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let marker = r#"<link rel="alternate" hreflang=""#;
+    let mut rest = html;
+    while let Some(i) = rest.find(marker) {
+        rest = &rest[i + marker.len()..];
+        let Some(end) = rest.find('"') else { break };
+        let tag = rest[..end].to_string();
+        let Some(h) = rest.find(r#"href=""#) else { break };
+        let after = &rest[h + 6..];
+        let Some(close) = after.find('"') else { break };
+        found.push((tag, after[..close].to_string()));
+    }
+    found
+}
+
+/// The `href` of the canonical link.
+fn canonical(html: &str) -> Option<String> {
+    let marker = r#"<link rel="canonical" href=""#;
+    let i = html.find(marker)? + marker.len();
+    let end = html[i..].find('"')?;
+    Some(html[i..i + end].to_string())
+}
+
+/// The file an absolute address of this site is written to.
+fn file_of(cfg: &SiteConfig, url: &str) -> String {
+    let path = url.strip_prefix(&cfg.host).unwrap_or_else(|| panic!("{url} is not on {}", cfg.host));
+    format!("{}index.html", path.trim_start_matches('/'))
 }
 
 #[test]
@@ -242,4 +292,207 @@ fn the_output_directory_is_not_deleted_unless_this_tool_made_it() {
     );
 
     let _ = fs::remove_dir_all(&out);
+}
+
+// ------------------------------------------------------------- every language --
+//
+// The tests below are written against whatever site.json lists, not against English and
+// Polish, so a language added there is held to the same rules the day it is added.
+
+#[test]
+fn every_language_page_announces_the_whole_set_and_every_member_announces_it_back() {
+    // hreflang is honoured only when it is reciprocal: a page that names its siblings, whose
+    // siblings do not name it back, is ignored. With twenty-two languages the number of
+    // pairs is what makes a one-way link easy to ship - so check every page against every
+    // page it names, rather than a sample.
+    let out = built("hreflang-all");
+    let (cfg, i18n) = configured();
+    let mut checked = 0;
+
+    for lang in &cfg.languages {
+        let mut files = Vec::new();
+        html_files(&out.join(lang_dir(lang)), &mut files);
+        for file in files {
+            let rel = file.strip_prefix(&out).expect("under out").to_string_lossy().replace('\\', "/");
+            // Other languages' directories live under the root language's - only look at this
+            // language's own pages.
+            if lang == "en" && cfg.languages.iter().any(|l| l != "en" && rel.starts_with(&format!("{l}/"))) {
+                continue;
+            }
+            let html = fs::read_to_string(&file).expect("read");
+            let Some(own) = canonical(&html) else { continue }; // the 404 claims none
+            assert_eq!(file_of(&cfg, &own), rel, "{rel}: the canonical address is not this file");
+
+            let set = alternates(&html);
+            let tags: Vec<&str> = set.iter().map(|(t, _)| t.as_str()).collect();
+            for l in &cfg.languages {
+                let tag = &i18n[l]["html_lang"];
+                assert_eq!(
+                    tags.iter().filter(|t| *t == tag).count(),
+                    1,
+                    "{rel}: hreflang '{tag}' must appear exactly once, got {tags:?}"
+                );
+            }
+            assert_eq!(
+                tags.iter().filter(|t| **t == "x-default").count(),
+                1,
+                "{rel}: exactly one x-default"
+            );
+            assert!(
+                set.iter().any(|(t, u)| *t == i18n[lang]["html_lang"] && *u == own),
+                "{rel}: the page must list itself under its own language"
+            );
+
+            for (tag, url) in &set {
+                let sibling = fs::read_to_string(out.join(file_of(&cfg, url)))
+                    .unwrap_or_else(|e| panic!("{rel} names {url} ({tag}), which was not built: {e}"));
+                assert_eq!(
+                    alternates(&sibling),
+                    set,
+                    "{rel} and {url} must announce the same set of alternates"
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= cfg.languages.len(), "only {checked} pages were looked at");
+}
+
+#[test]
+fn the_sitemap_carries_every_page_in_every_language_with_its_alternates() {
+    let out = built("sitemap-all");
+    let (cfg, i18n) = configured();
+    let xml = read(&out, "sitemap.xml");
+
+    assert!(xml.contains(r#"xmlns:xhtml="http://www.w3.org/1999/xhtml""#));
+
+    // Every canonical address the pages claim is a <loc>, and nothing else is.
+    let mut canon = BTreeSet::new();
+    let mut files = Vec::new();
+    html_files(&out, &mut files);
+    for file in files {
+        if let Some(c) = canonical(&fs::read_to_string(&file).expect("read")) {
+            canon.insert(c);
+        }
+    }
+    let locs: BTreeSet<String> = xml
+        .split("<loc>")
+        .skip(1)
+        .map(|chunk| chunk.split("</loc>").next().expect("closed").to_string())
+        .collect();
+    assert_eq!(locs, canon, "the sitemap and the pages must agree on which addresses exist");
+
+    // ...and each entry lists the whole set, the same one the page's own head lists.
+    let home = format!("{}/", cfg.host);
+    let entry = xml.split("<url>").find(|e| e.contains(&format!("<loc>{home}</loc>"))).expect("home entry");
+    for l in &cfg.languages {
+        let tag = &i18n[l]["html_lang"];
+        let url = format!("{}{}", cfg.host, if l == "en" { "/".to_string() } else { format!("/{l}/") });
+        assert!(
+            entry.contains(&format!(r#"<xhtml:link rel="alternate" hreflang="{tag}" href="{url}"/>"#)),
+            "the home entry must list {tag} -> {url}"
+        );
+    }
+    assert!(entry.contains(&format!(r#"hreflang="x-default" href="{home}""#)));
+    assert!(!xml.contains("404"), "a noindex page must not be advertised");
+}
+
+#[test]
+fn every_page_says_which_way_it_reads() {
+    let out = built("dir");
+    let (cfg, i18n) = configured();
+    for lang in &cfg.languages {
+        let home = read(&out, &format!("{}index.html", lang_dir(lang)));
+        let expected = format!(
+            r#"<html lang="{}" dir="{}">"#,
+            i18n[lang]["html_lang"], i18n[lang]["dir"]
+        );
+        assert!(home.contains(&expected), "{lang}: expected {expected}");
+    }
+}
+
+#[test]
+fn the_language_menu_and_the_footer_each_list_every_language_once() {
+    let out = built("menu");
+    let (cfg, i18n) = configured();
+    for lang in &cfg.languages {
+        let home = read(&out, &format!("{}index.html", lang_dir(lang)));
+        let menu = home.split(r#"<details class="langmenu">"#).nth(1).expect("a menu").split("</details>").next().unwrap();
+        let foot = home.split(r#"<nav class="flangs""#).nth(1).expect("a footer list").split("</nav>").next().unwrap();
+        for region in [menu, foot] {
+            assert_eq!(region.matches("<a href=").count(), cfg.languages.len(), "{lang}: one link per language");
+            for l in &cfg.languages {
+                // Each language is named in its own words, whichever page it is offered from.
+                let name = &i18n[l]["language_name"];
+                assert!(region.contains(&format!(">{name}</a>")), "{lang}: the list must name {l} as '{name}'");
+            }
+            assert_eq!(region.matches("aria-current").count(), 1, "{lang}: exactly one current language");
+        }
+    }
+}
+
+#[test]
+fn a_page_links_only_within_its_own_language() {
+    // A German page that links to the English FAQ strands the reader in another language
+    // after one click, and nothing else notices: the link resolves. Hand-written addresses in
+    // fragments are exactly where this slips in - the Polish ones and the German ones are
+    // different strings that look alike.
+    //
+    // The language pickers are the one place that leaves a language on purpose, and the 404 is
+    // one document for every language, so both are left out.
+    let out = built("ownlang");
+    let (cfg, _) = configured();
+    for lang in &cfg.languages {
+        let mut files = Vec::new();
+        html_files(&out.join(lang_dir(lang)), &mut files);
+        for file in files {
+            let rel = file.strip_prefix(&out).expect("under out").to_string_lossy().replace('\\', "/");
+            let other_lang_dir = cfg.languages.iter().any(|l| l != "en" && l != lang && rel.starts_with(&format!("{l}/")));
+            if rel == "404.html" || other_lang_dir {
+                continue;
+            }
+            let html = fs::read_to_string(&file).expect("read");
+            let mut body = html.clone();
+            for (open, close) in [(r#"<details class="langmenu">"#, "</details>"), (r#"<nav class="flangs""#, "</nav>")] {
+                if let Some(i) = body.find(open) {
+                    let j = body[i..].find(close).expect("closed") + i + close.len();
+                    body.replace_range(i..j, "");
+                }
+            }
+            for link in chrono_site::internal_links(&body) {
+                let fine = link.starts_with("/assets/")
+                    || if lang == "en" {
+                        !cfg.languages.iter().any(|l| l != "en" && link.starts_with(&format!("/{l}/")))
+                    } else {
+                        link == format!("/{lang}/") || link.starts_with(&format!("/{lang}/"))
+                    };
+                assert!(fine, "{rel} links to {link}, which is not a page in {lang}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_link_preview_description_is_in_the_language_of_the_page() {
+    let out = built("socialalt");
+    let (cfg, i18n) = configured();
+    for lang in &cfg.languages {
+        let home = read(&out, &format!("{}index.html", lang_dir(lang)));
+        let alt = &i18n[lang]["social_image_alt"];
+        assert!(home.contains(&format!(r#"<meta property="og:image:alt" content="{alt}">"#)), "{lang}");
+        assert!(home.contains(&format!(r#"<meta name="twitter:image:alt" content="{alt}">"#)), "{lang}");
+    }
+}
+
+#[test]
+fn the_404_offers_every_language_and_links_into_none_of_their_pages() {
+    let out = built("404-langs");
+    let (cfg, i18n) = configured();
+    let page = read(&out, "404.html");
+    for l in &cfg.languages {
+        let name = &i18n[l]["language_name"];
+        let href = if l == "en" { "/".to_string() } else { format!("/{l}/") };
+        assert!(page.contains(&format!(r#"<a href="{href}" hreflang="{}" lang="{}">{name}</a>"#, i18n[l]["html_lang"], i18n[l]["html_lang"])), "404: {l}");
+    }
+    assert!(!page.contains("/404/\""), "the 404 must not offer itself as the English version");
 }

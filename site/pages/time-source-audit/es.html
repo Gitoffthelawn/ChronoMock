@@ -1,0 +1,191 @@
+<!-- La auditoría de fuentes de tiempo, español. Estructura, clases y marcadores como en en.html.
+
+     El informe de sesión de abajo es salida real y se queda en inglés: el programa está en inglés. El
+     aviso de red que contiene es auténtico - esa sonda abre una conexión a propósito, que es justo el
+     caso para el que existe el aviso. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>¿Cómo sabes que funcionó?</h1>
+    <p class="sub">
+      Con cualquier otra herramienta de este tipo, no lo sabes. La aplicación arranca, muestra una fecha y
+      tú das por hecho que está bien. Pero puede leer el reloj por una vía que nada interceptó - y
+      entonces <em>«la prueba pasó»</em> no significa nada.
+    </p>
+  </section>
+
+  <section>
+    <h2>El fallo que no tiene síntoma</h2>
+    <div class="prose">
+      <p>
+        Una herramienta de desplazamiento del tiempo que se deja un canal no se cuelga ni avisa. La
+        aplicación simplemente lee la fecha real por la única función que nadie interceptó, y se comporta
+        exactamente como lo habría hecho en cualquier tarde normal. La prueba se pone en verde. El error
+        se publica.
+      </p>
+      <p>
+        RunAsDate es honesto sobre esto en su propia documentación - dice que
+        <strong>«no afectará a las aplicaciones que toman la fecha y hora actuales de otra
+        fuente»</strong> - y luego te deja averiguar si la tuya es una de ellas. Esta herramienta trata
+        esa misma frase como algo que medir.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lo que una sesión informa en realidad</h2>
+    <div class="prose">
+      <p>
+        Salida real, de ejecutar la herramienta contra una de las sondas de prueba de este proyecto - una
+        que abre deliberadamente una conexión de red:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Los dos últimos bloques son lo importante. Aquí nada falló - el veredicto es
+        <strong>funciona</strong> - y el informe dice aun así, sin que se lo pidan, que esta aplicación
+        habló con la red antes de terminar, de modo que un hook local puede no ser toda la historia. Esa
+        frase es la diferencia entre una prueba en la que puedes confiar y una en la que no.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="La pantalla de resultados de Chrono Mock con What the application read abierto: una tabla Function, Read from y Reads. NtCreateUserProcess figura como leída del reloj real por diseño y connect como leída del reloj real por diseño y enganchada tarde, mientras que el resto de las filas - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation y las demás - leen del reloj falso, cada una con su propio recuento. Dos avisos están bajo la tabla.">
+      <figcaption>La misma respuesta en la ventana. Cada función que la aplicación podría haber consultado,
+        de qué leyó realmente y cuántas veces - incluidas las que se dejan a propósito en el reloj real,
+        que se nombran en lugar de contarse en silencio como un éxito.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Cuatro veredictos, y un código de salida para cada uno</h2>
+    <div class="prose">
+      <p>
+        El veredicto se alcanza desde dentro del proceso en ejecución, antes de que empieces a trabajar, y
+        es el propio código de salida de la herramienta, de modo que un pipeline puede bifurcar según él.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Veredicto</th><th>Salida</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td class="y">funciona</td><td>0</td><td>todo proceso que leyó la hora vio el reloj de la sesión</td></tr>
+          <tr><td>funciona parcialmente</td><td>10</td><td>algunos canales cubiertos, otros no - los no cubiertos se enumeran</td></tr>
+          <tr><td class="n">no funciona</td><td>11</td><td>la sustitución no llegó a los canales clave</td></tr>
+          <tr><td>indeterminado</td><td>4</td><td>no se pudo establecer la cobertura - un «no lo sé» honesto</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Cuando el veredicto es «no funciona», el proceso se detiene de inmediato</strong>, antes de
+        que puedas interactuar con él. El veredicto no puede preceder al lanzamiento, porque la única
+        fuente de verdad es una lectura tomada desde dentro del proceso en ejecución. Lo que se garantiza
+        es que conoces la verdad antes de empezar a trabajar - no que un lanzamiento condenado nunca
+        ocurra. Puedes forzar y seguir adelante, y la sesión queda entonces marcada como no fiable en todos
+        los sitios donde aparece, incluida cualquier evidencia que exportes.
+      </p>
+      <p>
+        Existen tres códigos más para cosas que no son veredictos en absoluto: <code>1</code> para un
+        error de uso, <code>2</code> cuando el objetivo no se pudo lanzar ni inyectar y <code>12</code>
+        cuando el objetivo desapareció de una forma que sugiere que una aplicación de instancia única
+        cedió el control a una copia que ya estaba en marcha.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cubiertos, observados, sin cubrir</h2>
+    <div class="prose">
+      <p>Los canales se dividen en tres grupos, y el del medio es el interesante.</p>
+      <ul>
+        <li><strong>Cubiertos</strong> - interceptados y sustituidos. La aplicación preguntó y recibió el
+          reloj de la sesión. El recuento de llamadas dice cuántas veces.</li>
+        <li><strong>Observados</strong> - interceptados, contados y dejados deliberadamente diciendo la
+          verdad. El contador de alta resolución está aquí por defecto porque escalarlo desestabilizó el
+          renderizado. Los temporizadores multimedia están aquí porque escalarlos desplazaría la
+          temporización de audio y MIDI. Las conexiones de red y una ruta de creación de procesos están
+          aquí porque son pruebas, no relojes.</li>
+        <li><strong>Sin cubrir</strong> - un canal que la aplicación leyó y al que la sustitución no
+          llegó. Es lo que convierte un veredicto en <em>funciona parcialmente</em>, y se enumera por su
+          nombre en lugar de resumirse.</li>
+      </ul>
+      <p>
+        Un recuento de cero también es información: el canal estaba interceptado y la aplicación nunca
+        preguntó. Por eso el informe los enumera en lugar de ocultarlos.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lo que la auditoría no puede ver</h2>
+    <div class="prose">
+      <p>
+        El informe es honesto sobre la cobertura, lo que implica ser honesto sobre sus propios límites.
+        Esto se lee sin ninguna llamada de función que interceptar, o por completo fuera del proceso:
+      </p>
+      <ul>
+        <li>lecturas directas de la página de datos compartida en modo usuario - el valor está en
+          memoria, así que no hay nada que interceptar. Raro en aplicaciones corrientes, común en el
+          código de licencias y antimanipulación</li>
+        <li>llamadas directas al sistema que se saltan las exportaciones estándar - el mismo patrón</li>
+        <li>hora obtenida fuera del proceso, mediante WMI, un servidor COM fuera de proceso o RPC</li>
+        <li>hora de la red - una cabecera HTTP <code>Date</code>, NTP, una respuesta de API o el propio
+          reloj de un servidor de base de datos</li>
+        <li>hora procedente de controladores del kernel</li>
+      </ul>
+      <p>
+        El caso de la red es el que la auditoría al menos puede <em>notar</em>, que es por lo que existe
+        el aviso del informe de arriba. Para el resto, un veredicto <em>funciona</em> significa que se
+        cubrieron los canales que esta herramienta puede ver - no que no exista ninguna otra vía.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>En un pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> emite los mismos hechos en formato para máquinas, <code>--report</code> escribe
+        la versión para personas en un archivo, y una sesión cuyo veredicto sea cualquier cosa menos
+        <em>funciona</em> abre ese archivo con un aviso de evidencia poco fiable en lugar de enterrarlo
+        al final.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Pruébalo</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/es/descargar/">Descargar para Windows</a>
+      <a class="btn btn-ghost" href="/es/alternativa-a-runasdate/">Comparado con RunAsDate</a>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,93 @@
+<!-- libfaketime บน Windows ภาษาไทย โครงสร้าง คลาส และตัวแทนค่าเหมือน en.html -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>libfaketime สำหรับ Windows</h1>
+    <p class="sub"><strong>คำตอบสั้น ๆ:</strong> libfaketime ไม่ทำงานบน Windows และทำไม่ได้ - มันสร้างบน <code>LD_PRELOAD</code> ซึ่ง Windows ไม่มี Chrono Mock คือแนวคิดเดียวกัน ที่สร้างขึ้นตามวิธีที่ Windows อนุญาต</p>
+  </section>
+
+  <section>
+    <h2>ทำไมจึงพอร์ตตรง ๆ ไม่ได้</h2>
+    <div class="prose">
+      <p><a href="https://github.com/wolfcw/libfaketime">libfaketime</a> ทำงานโดยให้ตัวโหลดไดนามิกวางไลบรารีเล็ก ๆ ไว้หน้าไลบรารี C เพื่อให้การเรียก <code>time()</code> ของโปรแกรมไปถึงตัวแทนที่ก่อน ฮุกนั้นคือ <code>LD_PRELOAD</code> บน Linux และ <code>DYLD_INSERT_LIBRARIES</code> บน macOS README ของมันเองระบุเพียงสองแพลตฟอร์มนี้</p>
+      <p>Windows ไม่มีของที่เทียบเท่า และนาฬิกาของมันก็ไม่ได้อยู่หลังฟังก์ชันเดียวอยู่แล้ว แอปอ่านเวลาผ่าน Win32 API ผ่าน API เนทีฟที่อยู่ข้างใต้ และผ่านสิ่งที่รันไทม์ห่อหุ้มทั้งสองอย่างนั้นไว้ - ดังนั้นแนวคิดนี้ในฉบับ Windows จึงเป็นไลบรารีที่ฉีดเข้าไปในโพรเซสเป้าหมาย เปลี่ยนเส้นทางชุดของฟังก์ชันที่ส่งออก ไม่ใช่ซิมโบลเดียว</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>ตัวเลือกที่จับคู่กัน</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>เป็นค่าเริ่มต้นที่นี่ - ดูด้านล่าง</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>ไม่ต้องตั้งค่าอะไร - เครื่องมือฉีดเอง</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">ดังนั้นสองฝั่งของการทดสอบเดียวกันหน้าตาเป็นแบบนี้:</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>จุดที่ทั้งสองต่างกันจริง ๆ</h2>
+    <div class="prose">
+      <p><strong>นาฬิกาแบบโมโนโทนิกกลับด้านกัน</strong> libfaketime ปลอมมันเป็นค่าเริ่มต้นและให้ <code>FAKETIME_DONT_FAKE_MONOTONIC</code> เพื่อหยุด ส่วนที่นี่ตัวนับความละเอียดสูงคงเป็นของจริงเป็นค่าเริ่มต้น เพราะการปรับสเกลมันทำให้การเรนเดอร์ไม่เสถียรในการทดสอบ และ <code>--scale-qpc</code> เป็นการเลือกเปิด สวิตช์นั้นคือสิ่งที่ทำให้ <code>monotonic</code> ของ Python 3.13+ <code>Stopwatch</code> ของ .NET และ <code>nanoTime</code> ของ Java ตามนาฬิกาของเซสชัน</p>
+      <p><strong>Windows มีจุดให้ดักมากกว่า</strong> นอกจากนาฬิกาติดผนังแล้วยังมีเขตเวลา แกนเวลาที่ผ่านไป ตัวจับเวลาสี่ตระกูล ฟังก์ชัน sleep และ wait และการสร้างโพรเซส - รวมเป็น {{channel_count}} ช่องทาง</p>
+      <p><strong>เครื่องมือนี้รายงานความครอบคลุมของตัวเอง</strong> ทุกเซสชันจบด้วยผลสรุป ช่องทางที่แอปอ่านจริงพร้อมจำนวนของแต่ละช่อง และช่องทางที่ตกหล่น นั่นเป็นส่วนที่ไม่มีของเทียบเท่าบนแพลตฟอร์มใดเลย</p>
+      <p><strong>libfaketime เก่าแก่กว่าและกว้างกว่าในสนามของตัวเอง</strong> มันมีการใช้งานมาหลายปี ครอบคลุมจุดเข้าของไลบรารี C หลากหลาย และบน Linux มันคือเครื่องมือที่ถูกต้อง ไม่มีอะไรที่นี่มาแทนที่มันได้ที่นั่น</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>ถ้าคุณต้องการ libfaketime ตัวจริง</h2>
+    <div class="prose">
+      <p>มีสองเส้นทางที่ซื่อสัตย์ และทั้งสองย้ายโปรแกรมที่ทดสอบไปอยู่บน Linux:</p>
+      <ul>
+        <li><strong>WSL</strong> - บิลด์และรัน libfaketime ภายในระบบย่อย Linux เหมาะเมื่อสิ่งที่ทดสอบเป็นโปรแกรม Linux ที่คุณบังเอิญพัฒนาบน Windows</li>
+        <li><strong>คอนเทนเนอร์</strong> - แนวคิดเดียวกัน ทำซ้ำได้มากกว่า</li>
+      </ul>
+      <p>ไม่มีทางใดช่วยแอป Windows ได้ ซึ่งเป็นกรณีที่เครื่องมือนี้มีอยู่เพื่อ</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>ลองใช้</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/th/download/">ดาวน์โหลดสำหรับ Windows</a>
+      <a class="btn btn-ghost" href="/th/faq/">อ่านคำถามที่พบบ่อย</a>
+    </div>
+  </section>
+
+</div>

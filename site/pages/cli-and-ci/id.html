@@ -1,0 +1,133 @@
+<!-- CLI dan CI, bahasa Indonesia. Struktur, kelas, dan token sama seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Pengujian tanggal dalam pipeline</h1>
+    <p class="sub">
+      Jendela untuk menjelajah. Ini adalah separuh lainnya: build baris perintah sekitar
+      <strong>1,6 MB</strong> tanpa runtime yang perlu dipasang, yang kode keluarnya adalah putusan
+      cakupan, bukan kode keluar target.
+    </p>
+  </section>
+
+  <section>
+    <h2>Kode keluar adalah putusan</h2>
+    <div class="prose">
+      <p>
+        Inilah keputusan desain yang membuat alat ini dapat diskrip. Ketika sesi berakhir, kode keluar
+        menjawab <em>“apakah penggantian waktu berlaku”</em>, bukan <em>“apa yang dikembalikan
+        aplikasi”</em>. Sebuah pipeline karenanya dapat gagal pada penggantian yang diam-diam tidak
+        terjadi - itulah kegagalan yang layak membuat gagal, karena semua yang datang sesudahnya adalah
+        pengujian yang tidak membuktikan apa pun.
+      </p>
+      <p>
+        Kode keluar target sendiri tetap dilaporkan, dalam data sesi.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Kode</th><th>Arti</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>berhasil - setiap proses yang membaca waktu melihat jam sesi</td></tr>
+          <tr><td>10</td><td>berhasil sebagian - sebagian kanal tercakup, sebagian tidak</td></tr>
+          <tr><td class="n">11</td><td>tidak berhasil - penggantian tidak sampai ke kanal-kanal kunci</td></tr>
+          <tr><td>4</td><td>tidak dapat ditentukan - cakupan tidak dapat dipastikan</td></tr>
+          <tr><td>1</td><td>kesalahan penggunaan - flag yang salah atau ekspresi yang salah</td></tr>
+          <tr><td>2</td><td>target tidak dapat diluncurkan atau disuntik</td></tr>
+          <tr><td>12</td><td>target menghilang, yang menunjukkan aplikasi satu-instans</td></tr>
+          <tr><td>3</td><td>kesalahan internal - engine tidak dapat dimulai, menemui keadaan tak terduga, atau berhenti sebelum menutup sesi (apa pun kode keluarnya sendiri). Eksekusi seperti itu tidak membawa putusan</td></tr>
+          <tr><td>5</td><td>operasi tidak disertakan dalam rilis ini</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Setiap flag dari kedua perintah, dan tabel yang sama untuk kalkulator, ada di
+        <a href="/id/referensi-cli/">referensi baris perintah</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Eksekusi terbatas</h2>
+    <div class="prose">
+      <p>
+        Sebuah pipeline tidak dapat menunggu manusia menutup aplikasi desktop.
+        <code>--ticks N</code> mengakhiri sesi setelah N detak - masing-masing satu detik nyata - dan
+        melaporkan apa yang ditemukan sampai saat itu. Cakupan toh ditentukan pada saat-saat awal proses,
+        jadi batas yang singkat biasanya sudah cukup.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Sepuluh detik, lalu berhenti dan laporkan</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Keluaran mesin dan bukti</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> mengeluarkan sesi sebagai rekaman yang dapat dibaca mesin, bukan laporan
+          untuk manusia - fakta yang sama, termasuk cakupan per kanal.</li>
+        <li><code>--report &lt;path&gt;</code> menulis laporan untuk manusia ke file, yang cocok sebagai
+          artefak build. Sesi yang putusannya selain <em>berhasil</em> membuka file itu dengan banner
+          bukti tidak andal, bukan mengubur peringatan di bagian bawah.</li>
+        <li>Kalkulator juga berbicara <code>--json</code>, sehingga pipeline dapat menghitung tanggal yang
+          dibutuhkannya lalu memasukkannya kembali.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Hitung tanggalnya, lalu jalankan pada tanggal itu</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Sebuah langkah, kira-kira</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># kode keluar bukan nol di sini berarti penggantian waktu tidak berlaku, sehingga</span>
+    <span class="c"># pengujian di bawahnya tidak akan membuktikan apa pun</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Dua catatan jujur tentang runner</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Membutuhkan runner Windows.</strong> Tidak ada build Linux atau macOS, dan tidak akan
+          ada - di Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> sudah
+          menangani hal ini.</li>
+        <li><strong>Antivirus pada runner yang di-host dapat memblokir injeksi.</strong> Menggeser waktu
+          berarti menyuntikkan pustaka ke proses target, yang merupakan teknik Windows terdokumentasi yang
+          juga dipakai malware. Runner yang memblokirnya menghasilkan kode keluar yang menyatakan hal itu,
+          bukan kelulusan palsu - tetapi ini hal yang perlu diketahui sebelum Anda bergantung padanya.</li>
+      </ul>
+      <p>
+        Karena alasan yang sama, rangkaian pengujian end-to-end proyek ini berjalan di mesin sungguhan,
+        bukan di runner yang di-host. Integrasi berkelanjutannya membangun dan menguji unit semuanya,
+        sedangkan penggantian waktunya sendiri diuji secara manual pada aplikasi nyata, pada build 32-bit
+        maupun 64-bit, sebelum setiap rilis.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/audit-sumber-waktu/">Arti setiap putusan</a>
+    </div>
+  </section>
+
+</div>

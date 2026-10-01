@@ -1,0 +1,127 @@
+<!-- Electron et Chromium, français. Structure, classes et jetons comme dans en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Falsifier la date dans une application Electron</h1>
+    <p class="sub">
+      Cherchez cela et toutes les réponses consistent à modifier votre propre code - simuler l'objet
+      <code>Date</code>, utiliser les faux minuteurs de votre framework de test. Rien de cela n'aide
+      quand ce que vous avez est une application déjà compilée. Ceci exécute l'application que vous
+      avez déjà.
+    </p>
+  </section>
+
+  <section>
+    <h2>Pourquoi l'injection ne l'atteint pas</h2>
+    <div class="prose">
+      <p>
+        Ce mode existe à cause d'un échec précis. Un minuteur Pomodoro construit sur Electron a été exécuté
+        sous une session <code>x60</code> et son compte à rebours n'a pas bougé du tout. Démonter le bundle
+        de l'application a montré deux raisons indépendantes, et aucune n'avait de solution côté natif :
+      </p>
+      <ul>
+        <li>Le compte à rebours ne lisait aucune horloge. C'était un <strong>compteur incrémenté par
+          <code>setInterval</code></strong>, tournant dans un Web Worker. Il n'y avait aucun appel de temps
+          à intercepter, car l'application ne demandait jamais quelle heure il était.</li>
+        <li>Ce worker vit dans un <strong>processus de rendu isolé</strong>, qui est précisément
+          l'endroit où une bibliothèque injectée de l'extérieur n'entre pas.</li>
+      </ul>
+      <p>
+        Le mécanisme côté Windows ne peut donc pas aider ici, et la réponse est de s'adresser plutôt au
+        moteur JavaScript propre de l'application.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce qui se passe à la place</h2>
+    <div class="prose">
+      <p>
+        L'application est lancée avec un port de débogage et un profil propre et jetable, et ses propres
+        API de temps sont placées sur l'horloge de la session par le protocole DevTools -
+        <code>Date.now</code>, le constructeur <code>new Date()</code>, <code>performance.now</code>,
+        <code>setTimeout</code> et <code>setInterval</code>.
+      </p>
+      <p>
+        La substitution est installée dans chaque contexte que l'application ouvre, <strong>y compris ses
+        Web Workers</strong> - c'est là que le minuteur se trouve généralement, et le seul endroit que
+        l'injection native ne pouvait pas atteindre.
+      </p>
+      <p>
+        Rien ne change dans la façon de le piloter. La même commande, la même fenêtre, le même panneau de
+        session avec les deux horloges et le verdict.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># La même commande que pour une application native - le mode est détecté</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Deux limites à connaître avant de commencer</h2>
+
+    <div class="note warning">
+      <p><strong>Le lancement est invasif, et volontairement bruyant à ce sujet.</strong></p>
+      <p>
+        L'application est démarrée avec un port de débogage distant ouvert et un profil neuf et isolé sous
+        <code>%TEMP%</code> - elle ne tourne pas sur votre vrai profil, et ce n'est pas la copie déjà
+        présente dans votre zone de notification. Le profil est supprimé à la fin de la session, et s'il
+        n'a pas pu l'être, le résumé de la session le dit plutôt que de le laisser discrètement
+        traîner.
+      </p>
+      <p>
+        Transmettre votre propre <code>--user-data-dir</code> ou <code>--remote-debugging-port</code> est
+        refusé plutôt que remplacé, parce que l'accident évident - pointer la session sur votre vrai
+        profil de navigateur - n'est pas de ceux qu'il vaut la peine d'autoriser.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Le fuseau horaire de la session suit l'hôte.</strong></p>
+      <p>
+        Dans ce mode, l'instant est falsifié, mais pas les accesseurs d'heure locale : un
+        <a href="/fr/tester-les-fuseaux-horaires/">fuseau horaire indépendant</a> est donc une
+        fonctionnalité du mode natif uniquement. C'est une limite de cette version, pas une décision.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Une chose de plus qui surprend : un intervalle <em>déjà planifié</em> garde son ancien rythme
+        quand vous changez la vitesse en pleine session. <code>Date.now</code>, <code>new Date()</code>
+        et <code>performance.now</code> réagissent immédiatement, un <code>setInterval</code> en cours non,
+        et la session vous en avertit plutôt que de vous laisser conclure que le changement n'a rien
+        fait.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>À quel point est-il testé</h2>
+    <div class="prose">
+      <p>
+        <strong>Expérimental</strong>, et ce mot a ici un sens défini : il fonctionne sur les cibles pour
+        lesquelles il a été construit, il n'a pas été testé largement, et l'audit intégré est votre source
+        de vérité, pas cette page. Il a été vérifié à la main et non par la suite automatisée, sur une
+        vraie application Electron sous Windows 64 bits.
+      </p>
+      <p>
+        La couverture est rapportée par contexte JavaScript et non par processus, puisque c'est l'unité qui
+        existe ici. Une application inactive qui ne demande jamais l'heure produit honnêtement
+        <em>indéterminé</em> - elle n'a lu aucune horloge, on ne peut donc rien affirmer sur la question de
+        savoir si elle aurait vu la bonne.
+        <a href="/fr/audit-des-sources-de-temps/">Ce que signifient les verdicts &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/faq/">Lire la FAQ</a>
+    </div>
+  </section>
+
+</div>

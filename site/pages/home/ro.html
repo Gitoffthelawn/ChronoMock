@@ -1,0 +1,235 @@
+<!-- Pagina de start, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>Rulează o aplicație Windows la <span class="hl">orice dată</span> - fără să atingi ceasul sistemului</h1>
+
+        <p class="lede">
+          Setează ceasul unei singure aplicații la anul viitor, oprește-l sau
+          <strong>accelerează-l astfel încât o probă de 30 de zile să expire cât îți faci o cafea</strong>.
+          Restul mașinii păstrează ora reală - autentificarea în domeniu, certificatele tale și toate
+          celelalte programe merg mai departe ca de obicei.
+        </p>
+        <p class="lede">
+          Apoi îți spune dacă înlocuirea <strong>a funcționat cu adevărat</strong>.
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+          <a class="btn btn-ghost" href="{{repo}}">Vezi codul pe GitHub</a>
+        </div>
+
+        <p class="trust">
+          <span>Gratuit și open source, GPL-3.0</span>
+          <span>Fără instalator</span>
+          <span>Fără drepturi de administrator</span>
+          <span>Nu comunică niciodată cu internetul</span>
+        </p>
+      </div>
+
+      <!-- O ilustrație a ceea ce arată o sesiune, desenată din elemente de pagină. Nu are
+           chenar de fereastră în mod intenționat - vezi nota din style.css. -->
+      <div class="panel">
+        <p class="panel-cap">Cum arată o sesiune</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">Aplicația vede</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">fusul sesiunii -05:00</div>
+          </div>
+          <div class="clock">
+            <div class="who">Mașina vede în continuare</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">fusul gazdei +02:00</div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>Funcționează</b> - înlocuirea a ajuns în acest proces</span>
+        </div>
+        <div class="chan">
+          <span>Canale de timp acoperite</span>
+          <span class="n">26 din {{channel_count}} &middot; cu numărul de apeluri</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Panoul de sesiune Chrono Mock. Ceasul aplicației arată 2038-01-19 03:14:14, iar ceasul real de lângă el arată 2026-09-22 15:50:30, fiecare cu propriul timp scurs. Sub ele, vitezele merg de la x1 la x1440, cu Freeze, apoi salturile relative și un salt la o dată introdusă, iar în subsol o bifă verde spune Works lângă un Stop session roșu.">
+      <figcaption>O sesiune în desfășurare. Aplicația este în 2038, mașina nu, iar
+        verdictul spune că înlocuirea a ajuns la ea.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">De ce există</p>
+    <h2>Testarea a orice depinde de dată înseamnă mutarea timpului. Ambele variante obișnuite sunt proaste.</h2>
+    <p class="sub">
+      Expirarea licenței, perioadele de probă, reînnoirea abonamentelor, valabilitatea certificatelor,
+      durata de viață a token-urilor, rapoartele de final de lună și de an, calculul dobânzilor, memento-urile.
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">Varianta 1 - schimbi ceasul sistemului</p>
+        <p>
+          Strică autentificarea în domeniu și Kerberos, invalidează certificatele TLS, așa că browserul
+          nu mai funcționează, încurcă Windows Update și face ca toate celelalte aplicații de pe mașină
+          să scrie marcaje de timp greșite. Pe o mașină din domeniu, politica de grup de obicei blochează
+          schimbarea sau o anulează după câteva minute, deci testul nici măcar nu este repetabil.
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">Varianta 2 - aștepți</p>
+        <p>
+          Ceea ce înseamnă: nu testezi. Cazurile care depind de dată sunt sărite, iar
+          <em>„licența nu expiră niciodată”</em> ajunge la client.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce face</h2>
+    <p class="sub">Un singur proces călătorește prin timp. Nimic altceva de pe mașină nu o face.</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>Orice moment</h3>
+        <p>O dată și o oră anume, sau una relativă - <code>+30 days</code>, <code>-1 year</code>.</p>
+      </div>
+      <div class="feat">
+        <h3>Curgând, oprit sau accelerat</h3>
+        <p>Viteză normală, un ceas oprit sau un multiplicator întreg. <code>x1440</code> face dintr-o zi
+          un minut.</p>
+      </div>
+      <div class="feat">
+        <h3>Propriul fus orar</h3>
+        <p>Un decalaj fix doar pentru acel proces, în timp ce fusul sistemului rămâne exact unde era.</p>
+      </div>
+      <div class="feat">
+        <h3>Procesele copil vin la pachet</h3>
+        <p>Instalatoarele și lansatoarele pornesc procese copil. Fără asta, testul acoperă doar jumătate
+          din ce a rulat.</p>
+      </div>
+      <div class="feat">
+        <h3>Salt în timpul sesiunii</h3>
+        <p>Înainte sau înapoi - inclusiv saltul înapoi pe care îl face un laptop după ce se resincronizează
+          cu un server de timp.</p>
+      </div>
+      <div class="feat">
+        <h3>Și Electron, și Chromium</h3>
+        <p>Printr-un mecanism diferit, pentru că ceasul lor trăiește într-un renderer izolat, unde injecția
+          nu ajunge.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">Partea pe care nu o face nimeni altcineva</p>
+      <h2>De unde știi că a funcționat?</h2>
+      <p class="sub">
+        Cu orice alt instrument, nu știi. Aplicația pornește, afișează o dată oarecare și presupui.
+        Dar ea poate citi ceasul printr-un canal pe care instrumentul nu l-a interceptat niciodată - de la
+        un server, dintr-o bază de date, printr-un strat al runtime-ului - și atunci
+        <em>„testul a trecut”</em> nu înseamnă absolut nimic.
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&rarr;</span><span>Un verdict înainte să înceapă testul real:
+          <b>funcționează / funcționează parțial / nu funcționează</b></span></li>
+        <li><span class="tick">&rarr;</span><span>Care dintre cele <b>{{channel_count}} canale de timp</b>
+          au fost acoperite și de câte ori a interogat aplicația fiecare canal</span></li>
+        <li><span class="tick">&rarr;</span><span><b>Care canale nu au fost acoperite</b> - spus pe față,
+          niciodată omis</span></li>
+        <li><span class="tick">&rarr;</span><span>Avertismente cu consecințele atașate: <em>„această
+          aplicație citește ora din rețea - înlocuirea locală poate să nu fie suficientă”</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/ro/auditul-surselor-de-timp/">Cum funcționează auditul surselor de timp &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Două minute cu el</h2>
+    <p class="sub">O fereastră pentru explorat, o linie de comandă pentru CI. Același motor în spatele ambelor.</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># Rulează o aplicație ca și cum ar fi ultima secundă din 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Urmărește cum expiră o probă de 30 de zile cât îți faci o cafea: x1440 înseamnă o zi pe minut</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Folosește un scenariu cu nume în loc de o dată și scrie dovezile într-un fișier</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        Calculatorul răspunde celeilalte jumătăți a testării cu date - <em>ce</em> dată să folosești:
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Comparat cu ce folosești probabil acum</p>
+    <h2>Ca RunAsDate, cu părțile care lipseau</h2>
+    <p class="sub">
+      RunAsDate interceptează cinci funcții de ceas și o face bine. Iată în ce diferă cele două - iar
+      pagina completă spune și unde RunAsDate rămâne alegerea mai bună.
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Rulează o aplicație la o dată falsă</td><td class="y">da</td><td class="y">da</td></tr>
+          <tr><td>Canale de timp interceptate</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>Accelerează ceasul</td><td class="n">nu</td><td class="y">da</td></tr>
+          <tr><td>Fus orar independent</td><td class="n">nedocumentat</td><td class="y">da</td></tr>
+          <tr><td>Urmărește procesele copil</td><td class="n">nedocumentat</td><td class="y">da</td></tr>
+          <tr><td>Îți spune dacă a funcționat</td><td class="n">nu</td><td class="y">da, pe fiecare canal</td></tr>
+          <tr><td>Cod sursă disponibil</td><td class="n">freeware, închis</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/ro/alternativa-la-runasdate/">Comparația completă, inclusiv unde câștigă RunAsDate &rarr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>Obține-l</h2>
+    <p class="sub">
+      Dezarhivează oriunde și rulează. Fără instalator, nimic scris în registru, fără drepturi de administrator.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="{{repo}}">Vezi codul pe GitHub</a>
+    </div>
+  </section>
+
+</div>

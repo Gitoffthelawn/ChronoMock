@@ -1,0 +1,169 @@
+<!-- WebView2 ve Qt WebEngine, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Yerel bir uygulamanın içindeki web sayfaları</h1>
+    <p class="sub">
+      Yerleşik web motoru olan bir masaüstü uygulaması, sayfalarını ayrı, yalıtılmış bir süreçte çalıştırır.
+      Yerel mekanizma uygulamayı kapsar ve bu sınırda durur - böylece pencere istediğiniz tarihe gider,
+      içindeki panel gitmez. Bu, o boşluğu kapatır.
+    </p>
+  </section>
+
+  <section>
+    <h2>Başarı gibi görünen başarısızlık</h2>
+    <div class="prose">
+      <p>
+        Pek çok Windows uygulaması dışarıdan yerel, içeriden bir web sayfasıdır. Bir ayarlar ekranı, bir
+        gösterge paneli, bir rapor görünümü, bir lisans paneli - bir kez HTML olarak oluşturulmuş ve iki
+        kez yazılmak yerine <strong>WebView2</strong> ya da <strong>Qt WebEngine</strong> içinde
+        barındırılmış.
+      </p>
+      <p>
+        Motor bu sayfaları kendi sürecinde çalıştırır ve o süreç yalıtılmıştır. Uygulamaya enjekte edilen
+        bir kitaplık oraya girmez. Uygulamanın Windows’tan istediği her şey oturumun tarihine kayar,
+        sayfanın JavaScript’ten istediği her şey kaymaz:
+      </p>
+      <ul>
+        <li>Başlık çubuğu, günlükler ve dosyalar <strong>2038</strong> der.</li>
+        <li>Aynı penceredeki panel <strong>bugün</strong> der.</li>
+        <li>Hiçbir şey hata vermez, hiçbir şey uyarmaz ve iki yarı da aynı derecede kendinden emin görünür.</li>
+      </ul>
+      <p>
+        Bu hatanın pahalı sürümü budur, çünkü test çalışmış gibi görünür. Eski davranış böyle bir oturumu
+        temiz bir başarı olarak bildiriyordu; aracın destekleyemeyeceği bir iddiaydı bu.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Oturum bunun yerine ne yapar</h2>
+    <div class="prose">
+      <p>
+        Oturum <strong>iki mekanizmayı birden</strong> çalıştırır. Yerel hook her zamanki gibi uygulamaya
+        girer ve sayfalara, yalıtılmış bir renderer’a ulaşmanın tek yolundan ulaşılır: motorun kendisine
+        sorarak.
+      </p>
+      <p>
+        Başlatma sırasında uygulama, motorundan yerel bir hata ayıklama portu açmasını isteyen iki ortam
+        değişkenini devralır. Bunlar, uygulamanın zaten ilettiği anahtarların yerine geçmez, onlara eklenir.
+        Oturum daha sonra o port belirene kadar kendi süreçlerini izler ve port belirdiğinde arkasındaki
+        her sayfa ve her worker uygulamayla aynı saate geçer.
+      </p>
+      <p>
+        Tek başlangıç, tek hız, tek zaman çizelgesi. Bir hız değişikliği ya da bir atlama uygulamaya ve
+        sayfalarına birlikte ulaşır; sayfaların zamanlayıcıları da kendi hızlarında değil uygulamanın
+        hızında çalışır.
+      </p>
+      <p>
+        Varsayılan olarak açıktır ve hiçbir port açmayan, sayfaları gerçek saatte bırakan tek bir anahtarla
+        kapatılır.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Yapılandıracak bir şey yok - motor varsa bulunur</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Ya da sayfalara dokunmayın ve hiçbir port açmayın</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Rapor sayfalar hakkında ne söyler</h2>
+    <div class="prose">
+      <p>
+        Sayfalar uygulamanın kendi sayılarına katılmaz. Kendi başlarına birimler olarak sayılırlar; çünkü
+        bir süreç ile bir sayfa farklı şeylerdir ve bunları toplamak hiçbir anlamı olmayan bir sayı
+        uydurmak olurdu:
+      </p>
+      <ul>
+        <li>Başlık her ikisini de sayar - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Her sayfa kendi satırlarını alır; örneğin komut satırında
+          <code>context 1: page Date.now (12 calls)</code> ve pencerenin denetim tablosunda
+          <em>page Date.now - fake clock</em>.</li>
+        <li>Ulaşılan motor portuyla birlikte adlandırılır; böylece kendi DevTools’unuzu oturumun yönettiği
+          sayfalara tam olarak yöneltebilirsiniz.</li>
+      </ul>
+      <p>
+        Bir deneme çalıştırması (dry run), herhangi bir şey başlatılmadan önce sayfalara ulaşılıp
+        ulaşılmayacağını söyler.
+        <a href="/tr/zaman-kaynagi-denetimi/">Kararlar ne anlama geliyor &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Başlamadan önce bilmeye değer üç sınırlama</h2>
+
+    <div class="note warning">
+      <p><strong>Motor çalıştığı sürece bir hata ayıklama portu açık durur.</strong></p>
+      <p>
+        Yalnızca bu bilgisayarda dinler, ancak motor çalıştığı sürece bu bilgisayardaki <em>herhangi</em>
+        bir programa açıktır ve ona ulaşabilen her şey o sayfaları yönetebilir. Oturum, bir port her
+        açıldığında bunu uyarır ve portu soyut olarak anmak yerine adıyla belirtir. Paylaşılan ya da
+        güvenilmeyen bir makinede hiçbir şey açmayan anahtarı kullanın.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Yükseltilmiş çalışan bir uygulamaya ulaşılamaz.</strong></p>
+      <p>
+        Yükseltilmiş bir uygulamanın barındırdığı motor, oturumun ayarladığı değişkenleri yok sayar; bu
+        yüzden sayfaları gerçek saatte kalır. Bu motorun kendi kuralıdır, bir ayar değil ve dışarıdan bunu
+        aşmanın yolu yok.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Böyle bir oturum PARTIAL bildirir ve bu dürüst yanıttır.</strong></p>
+      <p>
+        Motorun yardımcı süreçleri ve renderer’ın kendi yerel zaman çağrıları gerçek saatte kalır.
+        Sayfalar oturum saatindedir, ailenin geri kalanı değildir; bu yüzden karar <em>kısmen</em> der ve
+        dışarıda bırakılanı başarıya yuvarlamak yerine adıyla söyler.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        İki küçük sınırlama da açıkça söylenmeli. Sayfalar <strong>bu makinenin saat dilimini</strong>
+        korur; yani bağımsız bir oturum dilimi yalnızca yerel kipin bir özelliğidir. Ve oturum sayfaya
+        ulaşmadan <em>önce</em> zamanlanmış bir zamanlayıcı, saf bir Chromium oturumunda olduğu gibi eski
+        hızını korur - oturum, hiçbir şey olmadığı sonucuna varmanıza izin vermek yerine uyarır.
+      </p>
+      <p>
+        Motor kayıt defterindeki bir tarayıcı bağımsız değişkenleri ilkesiyle yapılandırılmışsa, oturumun
+        değişkeni süresi boyunca önceliklidir ve rapor bunu söyler - çünkü orada kurduğunuz bir hata
+        ayıklama portu uygulanmazdı.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ne kadar iyi test edildi</h2>
+    <div class="prose">
+      <p>
+        <strong>Deneysel</strong>, burada başka yerlerdekiyle aynı tanımlı anlamla: karşısında geliştirildiği
+        hedeflerde çalışır, geniş çapta test edilmemiştir ve yerleşik denetim, bu sayfa değil, sizin
+        gerçeğin kaynağınızdır. 64 bit Windows üzerinde bir WebView2 ana makinesine ve bir Qt WebEngine ana
+        makinesine karşı, otomatik paketle değil elle ölçüldü. Bu çalıştırmalarda sayfalar oturumun yılını
+        oturumun hızında okudu ve bir atlamayı izledi.
+      </p>
+      <p>
+        32 bit Windows’ta, keşfetmektense bilmeye değer bir püf noktası vardır: WebView2 çalışma zamanı,
+        onu barındıran uygulama 32 bit olsa bile 64 bittir; bu yüzden 32 bit bir oturum motorun
+        süreçlerini ya da rollerini adlandıramaz. Sayfalara giden kanal yine de çalışır. Rapor yalnızca
+        tanımlayamadığı şey konusunda daha az belirleyici olur ve ikisinden hangisi olduğunu söyler.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/sss/">SSS’yi okuyun</a>
+    </div>
+  </section>
+
+</div>

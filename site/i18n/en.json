@@ -1,8 +1,13 @@
 {
   "//": "Chrome strings only - the header, the footer and the accessibility affordances. Anything that belongs to one page lives in that page's fragment instead, because a string used once is easier to translate in context than in a shared dictionary. Both language files must carry exactly the same keys: a missing key fails the build rather than falling back to English, which is how a half-translated page reaches production unnoticed.",
 
+  "//html_lang": "The language tag of the page. It is also the hreflang value and the inLanguage of the structured data, so it has to be the code in site.json, lower-cased, written the way the tag is spelled (pt-BR, zh-Hans) - the build compares the two. dir is ltr or rtl and nothing else: it is the one switch that turns the layout around for Arabic.",
   "html_lang": "en",
+  "dir": "ltr",
   "og_locale": "en_US",
+
+  "//social_image_alt": "Alternative text of the link-preview picture. The picture is the same for every language, so what it shows is described in each - translate the description, not the words that are drawn in it.",
+  "social_image_alt": "Chrono Mock - run a Windows application at any date and time, without changing the system clock",
 
   "skip_to_content": "Skip to content",
   "nav_label": "Main",
@@ -10,6 +15,8 @@
   "//language_name": "What THIS language calls itself, and how a link to it should be labelled - a reader who needs the English page is looking for the word 'English'. The generator reads these two keys from the dictionary of the language being linked TO, never from the current one, so adding a third language needs no change here.",
   "language_name": "English",
   "language_title": "This page in English",
+  "//language_menu_label": "What the language picker is called, in THIS language - the label a reader sees when they are looking for it, not the name of any language in it.",
+  "language_menu_label": "Language",
 
   "//footer_group": "Headings of the footer site map. The header bar carries only the handful of addresses a first-time reader needs, so this map is what actually keeps every page reachable - one heading per group id in render.rs, and the build refuses a page that names a group with no heading here.",
   "footer_nav_label": "Site map",

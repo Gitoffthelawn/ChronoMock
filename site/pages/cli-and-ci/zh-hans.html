@@ -1,0 +1,111 @@
+<!-- CLI 与 CI，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>在流水线中做日期测试</h1>
+    <p class="sub">
+      窗口用来探索，这里是另一半：一个约 <strong>1.6 MB</strong> 的命令行版本，无需安装任何运行时，它的退出码是覆盖情况的判定，而不是目标程序自己的退出码。
+    </p>
+  </section>
+
+  <section>
+    <h2>退出码就是判定</h2>
+    <div class="prose">
+      <p>
+        这个设计决定让该工具可以被脚本调用。会话结束时，退出码回答的是<em>“时间替换有没有生效”</em>，而不是<em>“应用返回了什么”</em>。因此，流水线可以在替换悄悄没有发生时直接失败——这正是值得为之失败的情形，因为它之后的一切都是什么也没证明的测试。
+      </p>
+      <p>
+        目标程序自己的退出码仍然会被报告，记录在会话数据中。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>退出码</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>生效——所有读取过时间的进程看到的都是会话时钟</td></tr>
+          <tr><td>10</td><td>部分生效——部分通道已覆盖，部分未覆盖</td></tr>
+          <tr><td class="n">11</td><td>未生效——替换没有到达关键通道</td></tr>
+          <tr><td>4</td><td>无法确定——无法确认覆盖情况</td></tr>
+          <tr><td>1</td><td>用法错误——参数错误或表达式错误</td></tr>
+          <tr><td>2</td><td>无法启动目标程序，或无法向其注入</td></tr>
+          <tr><td>12</td><td>目标程序消失了，这表明它可能是单实例应用</td></tr>
+          <tr><td>3</td><td>内部错误——引擎无法启动、遇到意外状态，或在关闭会话之前就停止了（无论目标程序自己的退出码是什么）。这样的运行不带判定</td></tr>
+          <tr><td>5</td><td>此版本未内置该操作</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        两个命令的所有参数，以及计算器对应的同一张表，都在<a href="/zh-hans/cli-reference/">命令行参考</a>中。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>限定时长的运行</h2>
+    <div class="prose">
+      <p>
+        流水线不能等人去关闭一个桌面应用。<code>--ticks N</code> 会在 N 次心跳（每次一个真实秒）之后结束会话，并报告到那一刻为止的发现。覆盖情况本来就是在进程启动的最初阶段确定的，所以通常设一个较短的上限就够了。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 运行十秒，然后停止并报告</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>机器输出与证据</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> 以机器可读的记录输出会话，而不是给人读的报告——事实完全相同，包括逐个通道的覆盖情况。</li>
+        <li><code>--report &lt;path&gt;</code> 把给人读的报告写入文件，作为构建产物很合适。判定不是<em>生效</em>的会话，会在该文件开头放一条证据不可靠的横幅，而不是把这个提醒埋在末尾。</li>
+        <li>计算器同样支持 <code>--json</code>，所以流水线可以算出需要的日期，再把它传回去使用。</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># 先算出日期，再按该日期运行</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>一个步骤的大致写法</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># 这里退出码非零，说明替换没有生效，所以</span>
+    <span class="c"># 它后面的测试什么也证明不了</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>关于运行器的两点如实说明</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>它需要 Windows 运行器。</strong>没有 Linux 或 macOS 版本，以后也不会有——在 Linux 上，<a href="https://github.com/wolfcw/libfaketime">libfaketime</a> 已经能胜任这件事。</li>
+        <li><strong>托管运行器上的杀毒软件可能会拦截注入。</strong>改变时间需要把一个库注入目标进程，这是一种有文档记载的 Windows 技术，恶意软件也在使用。被运行器拦截时，你得到的是说明此事的退出码，而不是一次虚假的通过——但这是你在依赖它之前就该弄清楚的事。</li>
+      </ul>
+      <p>
+        出于同样的原因，本项目自己的端到端测试套件在真实机器上运行，而不是在托管运行器上。它的持续集成会构建并对所有内容做单元测试；至于替换本身，则在每次发布之前，由人工在 32 位和 64 位两种构建上针对真实应用逐一验证。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/time-source-audit/">判定结果的含义</a>
+    </div>
+  </section>
+
+</div>

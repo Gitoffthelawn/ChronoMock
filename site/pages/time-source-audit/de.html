@@ -1,0 +1,194 @@
+<!-- Die Prüfung der Zeitquellen, Deutsch. Aufbau, Klassen und Tokens wie in en.html.
+
+     Der Sitzungsbericht unten ist echte Ausgabe und bleibt englisch: Das Programm ist englisch. Die
+     Netzwerkwarnung darin ist echt - dieser Test-Prozess öffnet absichtlich eine Verbindung, und
+     genau dafür ist die Warnung da. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Woher wissen Sie, dass es gewirkt hat?</h1>
+    <p class="sub">
+      Bei jedem anderen Werkzeug dieser Art wissen Sie es nicht. Die Anwendung startet, zeigt irgendein
+      Datum, und Sie nehmen an, dass es stimmt. Sie kann die Uhr aber über einen Weg lesen, den nichts
+      abgefangen hat - und dann bedeutet <em>„der Test ist bestanden“</em> gar nichts.
+    </p>
+  </section>
+
+  <section>
+    <h2>Der Fehler, der kein Symptom hat</h2>
+    <div class="prose">
+      <p>
+        Ein Zeitverschiebungs-Werkzeug, das einen Kanal verpasst, stürzt nicht ab und warnt nicht. Die
+        Anwendung liest das echte Datum einfach über die eine Funktion, die niemand abgefangen hat, und
+        verhält sich genau so, wie sie sich an jedem gewöhnlichen Nachmittag verhalten hätte. Der Test
+        wird grün. Der Fehler wird ausgeliefert.
+      </p>
+      <p>
+        RunAsDate ist dazu in seiner eigenen Dokumentation ehrlich - es sagt, dass es
+        <strong>„Anwendungen nicht beeinflusst, die das aktuelle Datum bzw. die aktuelle Uhrzeit aus einer
+        anderen Quelle beziehen“</strong> - und überlässt Ihnen dann herauszufinden, ob Ihre eine davon
+        ist. Dieses Werkzeug behandelt genau diesen Satz als etwas, das man misst.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was eine Sitzung tatsächlich meldet</h2>
+    <div class="prose">
+      <p>
+        Echte Ausgabe, aus einem Lauf des Werkzeugs gegen einen der Test-Prozesse dieses Projekts - einen,
+        der absichtlich eine Netzwerkverbindung öffnet:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Die letzten beiden Blöcke sind der Punkt. Nichts ist hier fehlgeschlagen - das Urteil ist
+        <strong>funktioniert</strong> - und der Bericht sagt trotzdem ungefragt, dass diese Anwendung mit
+        dem Netzwerk gesprochen hat, bevor sie fertig war, sodass ein lokaler Hook womöglich nicht die
+        ganze Geschichte ist. Dieser Satz ist der Unterschied zwischen einem Test, dem Sie vertrauen
+        können, und einem, dem nicht.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Der Ergebnisbildschirm von Chrono Mock mit geöffnetem Abschnitt What the application read: eine Tabelle mit Function, Read from und Reads. NtCreateUserProcess ist als bewusst von der echten Uhr gelesen markiert und connect als bewusst von der echten Uhr gelesen und spät eingehakt, während die übrigen Zeilen - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation und die anderen - von der gefälschten Uhr lesen, jede mit eigener Zahl. Unter der Tabelle stehen zwei Warnungen.">
+      <figcaption>Dieselbe Antwort im Fenster. Jede Funktion, die die Anwendung hätte abfragen können,
+        woraus sie tatsächlich gelesen hat und wie oft - auch die, die absichtlich auf der echten Uhr
+        bleiben, die genannt statt stillschweigend als Bestehen gezählt werden.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Vier Urteile, und zu jedem ein Exit-Code</h2>
+    <div class="prose">
+      <p>
+        Das Urteil wird im laufenden Prozess gefällt, bevor Sie mit der Arbeit beginnen, und es ist der
+        Exit-Code des Werkzeugs selbst, sodass eine Pipeline danach verzweigen kann.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Urteil</th><th>Exit</th><th>Bedeutung</th></tr></thead>
+        <tbody>
+          <tr><td class="y">funktioniert</td><td>0</td><td>jeder Prozess, der die Zeit las, sah die Sitzungsuhr</td></tr>
+          <tr><td>funktioniert teilweise</td><td>10</td><td>einige Kanäle abgedeckt, andere nicht - die nicht abgedeckten werden aufgelistet</td></tr>
+          <tr><td class="n">funktioniert nicht</td><td>11</td><td>die Ersetzung hat die wichtigen Kanäle nicht erreicht</td></tr>
+          <tr><td>unbestimmt</td><td>4</td><td>die Abdeckung ließ sich nicht feststellen - ein ehrliches „Ich weiß es nicht“</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Lautet das Urteil „funktioniert nicht“, wird der Prozess sofort angehalten</strong>, bevor
+        Sie mit ihm arbeiten können. Das Urteil kann dem Start nicht vorausgehen, denn die einzige Quelle
+        der Wahrheit ist eine Messung aus dem laufenden Prozess heraus. Garantiert ist, dass Sie die
+        Wahrheit erfahren, bevor Sie mit der Arbeit beginnen - nicht, dass ein aussichtsloser Start nie
+        stattfindet. Sie können das übergehen und weitermachen, und die Sitzung wird dann überall, wo sie
+        erscheint, als unzuverlässig gekennzeichnet, auch in jedem Nachweis, den Sie exportieren.
+      </p>
+      <p>
+        Drei weitere Codes gibt es für Dinge, die gar keine Urteile sind: <code>1</code> für einen
+        Aufruffehler, <code>2</code>, wenn das Ziel nicht gestartet oder injiziert werden konnte, und
+        <code>12</code>, wenn das Ziel auf eine Weise verschwand, die darauf hindeutet, dass eine
+        Einzelinstanz-Anwendung an eine bereits laufende Kopie übergeben hat.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Abgedeckt, beobachtet, nicht abgedeckt</h2>
+    <div class="prose">
+      <p>Kanäle fallen in drei Behälter, und der mittlere ist der interessante.</p>
+      <ul>
+        <li><strong>Abgedeckt</strong> - abgefangen und ersetzt. Die Anwendung hat gefragt und die
+          Sitzungsuhr bekommen. Die Aufrufzahl sagt, wie oft.</li>
+        <li><strong>Beobachtet</strong> - abgefangen, gezählt und bewusst die Wahrheit sagend belassen.
+          Der hochauflösende Zähler ist standardmäßig hier, weil seine Skalierung das Rendering
+          destabilisiert hat. Multimedia-Timer sind hier, weil ihre Skalierung Audio- und MIDI-Timing
+          verschieben würde. Netzwerkverbindungen und ein Pfad der Prozesserzeugung sind hier, weil sie
+          Beweise sind und keine Uhren.</li>
+        <li><strong>Nicht abgedeckt</strong> - ein Kanal, den die Anwendung gelesen hat und den die
+          Ersetzung nicht erreichte. Das macht aus einem Urteil <em>funktioniert teilweise</em>, und er
+          wird namentlich aufgelistet statt weggefasst.</li>
+      </ul>
+      <p>
+        Auch eine Null ist eine Information: Der Kanal war abgefangen, und die Anwendung hat nie gefragt.
+        Deshalb listet der Bericht sie auf, statt sie zu verbergen.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was die Prüfung nicht sehen kann</h2>
+    <div class="prose">
+      <p>
+        Der Bericht ist ehrlich zur Abdeckung, und das heißt, ehrlich zu seinen eigenen Grenzen zu sein.
+        Dies wird ohne jeden Funktionsaufruf gelesen, den man abfangen könnte, oder ganz außerhalb des
+        Prozesses:
+      </p>
+      <ul>
+        <li>direkte Lesezugriffe auf die gemeinsame Datenseite im Benutzermodus - der Wert steht im
+          Speicher, es gibt also nichts abzufangen. Selten in gewöhnlichen Anwendungen, häufig in
+          Lizenz- und Manipulationsschutz-Code</li>
+        <li>direkte Systemaufrufe, die die Standard-Exporte umgehen - dasselbe Muster</li>
+        <li>Zeit, die außerhalb des Prozesses bezogen wird, über WMI, einen COM-Server außerhalb des
+          Prozesses oder RPC</li>
+        <li>Zeit aus dem Netzwerk - ein HTTP-<code>Date</code>-Header, NTP, eine API-Antwort oder die
+          eigene Uhr eines Datenbankservers</li>
+        <li>Zeit von Kerneltreibern</li>
+      </ul>
+      <p>
+        Den Netzwerkfall kann die Prüfung wenigstens <em>bemerken</em>, weshalb die Warnung im Bericht
+        oben existiert. Für den Rest bedeutet ein Urteil <em>funktioniert</em>, dass die Kanäle, die
+        dieses Werkzeug sehen kann, abgedeckt waren - nicht, dass es keinen anderen Weg gibt.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>In einer Pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> gibt dieselben Fakten in Maschinenform aus, <code>--report</code> schreibt die
+        Fassung für Menschen in eine Datei, und eine Sitzung, deren Urteil etwas anderes als
+        <em>funktioniert</em> ist, stellt dieser Datei einen Hinweis auf unzuverlässige Nachweise voran,
+        statt ihn unten zu vergraben.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/runasdate-alternative/">Im Vergleich mit RunAsDate</a>
+    </div>
+  </section>
+
+</div>

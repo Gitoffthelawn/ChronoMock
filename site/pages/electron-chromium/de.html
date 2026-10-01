@@ -1,0 +1,126 @@
+<!-- Electron und Chromium, Deutsch. Aufbau, Klassen und Tokens wie in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Das Datum in einer Electron-App fälschen</h1>
+    <p class="sub">
+      Wer danach sucht, findet nur Antworten, die den eigenen Code ändern - das <code>Date</code>-Objekt
+      mocken, die Fake-Timer des Test-Frameworks verwenden. Nichts davon hilft, wenn man eine fertige
+      Anwendung hat. Dies führt die Anwendung aus, die Sie bereits haben.
+    </p>
+  </section>
+
+  <section>
+    <h2>Warum Injektion sie nicht erreicht</h2>
+    <div class="prose">
+      <p>
+        Dieser Modus existiert wegen eines konkreten Fehlschlags. Ein auf Electron gebauter Pomodoro-Timer
+        lief unter einer <code>x60</code>-Sitzung, und sein Countdown bewegte sich überhaupt nicht. Das
+        Zerlegen des Bundles der Anwendung zeigte zwei voneinander unabhängige Gründe, und für keinen
+        gab es auf der nativen Seite eine Lösung:
+      </p>
+      <ul>
+        <li>Der Countdown las keine Uhr. Er war ein <strong>von <code>setInterval</code> hochgezählter
+          Zähler</strong> in einem Web Worker. Es gab keinen Zeitaufruf abzufangen, weil die Anwendung nie
+          fragte, wie spät es ist.</li>
+        <li>Dieser Worker lebt in einem <strong>abgeschotteten Renderer-Prozess</strong>, und genau dort
+          kommt eine von außen eingeschleuste Bibliothek nicht hinein.</li>
+      </ul>
+      <p>
+        Der Mechanismus auf der Windows-Seite kann hier also nicht helfen, und die Antwort ist, stattdessen
+        mit der eigenen JavaScript-Engine der Anwendung zu sprechen.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was stattdessen passiert</h2>
+    <div class="prose">
+      <p>
+        Die Anwendung wird mit einem Debug-Port und einem sauberen Wegwerfprofil gestartet, und ihre
+        eigenen Zeit-APIs werden über das DevTools-Protokoll auf die Sitzungsuhr gelegt -
+        <code>Date.now</code>, der Konstruktor <code>new Date()</code>, <code>performance.now</code>,
+        <code>setTimeout</code> und <code>setInterval</code>.
+      </p>
+      <p>
+        Die Überschreibung wird in jedem Kontext installiert, den die Anwendung öffnet,
+        <strong>einschließlich ihrer Web Worker</strong> - dort steckt der Timer meist, und es ist der eine
+        Ort, den die native Injektion nie erreichen konnte.
+      </p>
+      <p>
+        An der Bedienung ändert sich nichts. Derselbe Befehl, dasselbe Fenster, dasselbe Sitzungsfenster
+        mit den zwei Uhren und dem Urteil.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Derselbe Befehl wie für eine native Anwendung - der Modus wird erkannt</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Zwei Einschränkungen, die man vor dem Start kennen sollte</h2>
+
+    <div class="note warning">
+      <p><strong>Der Start ist invasiv und sagt das bewusst laut.</strong></p>
+      <p>
+        Die Anwendung wird mit offenem Remote-Debugging-Port und einem frischen, isolierten Profil unter
+        <code>%TEMP%</code> gestartet - sie läuft nicht mit Ihrem echten Profil und ist nicht die Kopie,
+        die schon in Ihrem Infobereich sitzt. Das Profil wird am Ende der Sitzung gelöscht, und wenn das
+        nicht gelang, sagt die Sitzungszusammenfassung das, statt es stillschweigend liegen zu lassen.
+      </p>
+      <p>
+        Ein eigenes <code>--user-data-dir</code> oder <code>--remote-debugging-port</code>
+        durchzureichen wird abgelehnt statt überschrieben, denn der naheliegende Unfall - die Sitzung auf
+        Ihr echtes Browserprofil zu richten - ist keiner, den man zulassen sollte.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Die Sitzungszeitzone folgt dem Host.</strong></p>
+      <p>
+        In diesem Modus wird der Zeitpunkt gefälscht, die Getter für die Ortszeit aber nicht, sodass
+        <a href="/de/zeitzonen-testen/">eine unabhängige Zeitzone</a> nur im nativen Modus verfügbar ist.
+        Das ist eine Einschränkung dieser Version, keine Entscheidung.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Noch etwas, das Leute überrascht: Ein <em>bereits geplantes</em> Intervall behält seine alte Rate,
+        wenn Sie die Geschwindigkeit mitten in der Sitzung ändern. <code>Date.now</code>,
+        <code>new Date()</code> und <code>performance.now</code> reagieren sofort, ein laufendes
+        <code>setInterval</code> nicht, und die Sitzung warnt davor, statt Sie schließen zu lassen, die
+        Änderung habe nichts bewirkt.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wie gut ist es getestet</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimentell</strong>, und dieses Wort hat hier eine feste Bedeutung: Es funktioniert an
+        den Zielen, für die es gebaut wurde, wurde nicht breit getestet, und die eingebaute Prüfung ist
+        Ihre Quelle der Wahrheit, nicht diese Seite. Es wurde von Hand geprüft und nicht mit der
+        automatisierten Suite, an einer echten Electron-Anwendung unter 64-Bit-Windows.
+      </p>
+      <p>
+        Die Abdeckung wird pro JavaScript-Kontext gemeldet und nicht pro Prozess, denn das ist die
+        Einheit, die es hier gibt. Eine Anwendung, die untätig herumsteht und nie nach der Zeit fragt,
+        ergibt ehrlicherweise <em>unbestimmt</em> - sie hat keine Uhr gelesen, sodass sich nichts darüber
+        behaupten lässt, ob sie die richtige gesehen hätte.
+        <a href="/de/zeitquellen-pruefung/">Was die Urteile bedeuten &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/faq/">Die FAQ lesen</a>
+    </div>
+  </section>
+
+</div>

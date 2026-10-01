@@ -1,0 +1,142 @@
+<!-- 日期计算器，简体中文。结构、class 与占位符和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>该测试哪一天？</h1>
+    <p class="sub">
+      日期测试有一半是拨动时钟，另一半是知道该把它拨到哪里。在线计算器能告诉你从今天起九十天后是哪一天，却不会告诉你那一天是银行假日，或者是这个季度的最后一天。
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock 的计算器。左侧是可搜索的场景列表及其说明，中间是日期构建器，右侧的结果列列出每一种格式，每种格式旁边都有复制按钮，下方是 Use this date。构建器下方，粘贴进去的 04/08/2008 被标为有歧义，并同时显示美国和波兰两种读法。">
+      <figcaption>构建器下方是反向的用法：粘贴 <code>04/08/2008</code>，两种读法都会显示，而不是猜其中一种。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>工作日，附带真实的节假日</h2>
+    <div class="prose">
+      <p>
+        “十个工作日之后”不是算术题——这取决于你按哪个国家的日历来数。起始日期相同、同样十天，却有两个不同的答案：
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        差了一天，如果你问计算器中间那一天是什么情况，它会告诉你原因：
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        美国和波兰作为参考日历内置，选它们是因为两者加起来涵盖了所有规则类型：固定日期、“每月第 N 个星期几”、由复活节推算的日期，以及美国的规则——落在星期六的节假日改在前一个星期五。新增一个国家只需要一个数据文件，而不是改代码。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>一次列出所有格式</h2>
+    <div class="prose">
+      <p>
+        被测应用需要什么形式的日期，就要什么形式。计算器不让你自己去转换，而是把它们全部打印出来——对不符合任何标准的格式，还有自定义掩码。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        这个纪元值并非巧合——<code>2147483647</code> 恰好是有符号 32 位整数能容纳的最大数，这就是这个日期之所以重要的全部原因。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>反向解读一个日期</h2>
+    <div class="prose">
+      <p>
+        反方向同样有用：从日志里粘贴一个日期，弄清它到底是什么。当格式有歧义时——<code>04/08</code> 在世界上一半的地方都有歧义——<strong>两种读法都会显示，而不是猜其中一种</strong>，因为最初的缺陷报告正是源于猜测。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        相隔四个月，星期几也不同。ISO 日期没有歧义，会按 ISO 日期来读，而根本不是日期的内容则会被拒绝，而不是去猜。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>由步骤构成，而不是一句话</h2>
+    <div class="prose">
+      <p>
+        一个时刻就是一个起点加上若干步骤，每一步之后都会显示中间结果，所以一个得出意外答案的表达式会让你看到是在哪里拐了弯。共有五种步骤：按某个单位偏移、设定一天中的时间、对齐到某个周期边界、移到最近的工作日，以及换一个时区重新表示。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 一年翻篇前的最后一秒</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># 九十个工作日之后，使用美国银行业日历</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># 往回推十八年零一天，用于年龄检查</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        任何算出来的日期都可以直接送进替换会话，<code>--json</code> 则以机器可读的形式输出同样的结果。
+        <a href="/zh-hans/date-test-scenarios/">值得测试的日期 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>亲自试试</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hans/download/">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hans/date-test-scenarios/">查看这些场景</a>
+      <a class="btn btn-ghost" href="/zh-hans/cli-reference/">计算器的全部参数</a>
+    </div>
+  </section>
+
+</div>

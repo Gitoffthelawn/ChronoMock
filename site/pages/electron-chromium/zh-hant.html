@@ -1,0 +1,94 @@
+<!-- Electron 與 Chromium，繁體中文。結構、class 與預留位置和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>在 Electron 應用程式中偽造日期</h1>
+    <p class="sub">
+      搜尋這個問題，所有的答案都是改你自己的程式碼——模擬 <code>Date</code> 物件、使用測試框架的假計時器。而當你手上是一個已經建置好的應用程式時，這些統統幫不上忙。這個工具執行的，就是你已有的那個應用程式。
+    </p>
+  </section>
+
+  <section>
+    <h2>為什麼注入搆不到它</h2>
+    <div class="prose">
+      <p>
+        這種模式的出現，源於一次具體的失敗。一個以 Electron 建置的番茄鐘，在 <code>x60</code> 工作階段下執行時，倒數紋風不動。把應用程式的封裝檔拆開來看，發現了兩個互相獨立的原因，而且在原生這一側都無法修復：
+      </p>
+      <ul>
+        <li>倒數根本沒有讀取時鐘。它是一個<strong>由 <code>setInterval</code> 遞增的計數器</strong>，執行在 Web Worker 裡。沒有任何時間呼叫可以攔截，因為應用程式從來沒有詢問過現在幾點。</li>
+        <li>那個 worker 位於<strong>沙盒轉譯處理序</strong>中，而這恰恰是從外部注入的程式庫進不去的地方。</li>
+      </ul>
+      <p>
+        所以，Windows 這一側的機制在這裡幫不上忙，答案是改為與應用程式自己的 JavaScript 引擎對話。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>改用什麼辦法</h2>
+    <div class="prose">
+      <p>
+        應用程式啟動時帶有一個偵錯連接埠與一個乾淨的一次性設定檔，它自己的時間 API 透過 DevTools 通訊協定被放到工作階段時鐘上——<code>Date.now</code>、<code>new Date()</code> 建構函式、<code>performance.now</code>、<code>setTimeout</code> 與 <code>setInterval</code>。
+      </p>
+      <p>
+        這一覆寫會安裝到應用程式開啟的每一個內容中，<strong>包括它的 Web Worker</strong>——計時器往往就藏在那裡，也是原生注入永遠搆不到的那個地方。
+      </p>
+      <p>
+        你的操作方式完全不變。同樣的命令，同樣的視窗，同樣帶有兩個時鐘與判定的工作階段面板。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 與原生應用程式相同的命令——模式會被自動辨識</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>開始之前值得瞭解的兩個限制</h2>
+
+    <div class="note warning">
+      <p><strong>這種啟動方式具有侵入性，並且刻意對此毫不掩飾。</strong></p>
+      <p>
+        應用程式啟動時會開啟一個遠端偵錯連接埠，並使用 <code>%TEMP%</code> 下一個全新的獨立設定檔——它不會在你真實的設定檔上執行，也不是系統匣裡已經存在的那個副本。設定檔會在工作階段結束時刪除；如果刪除不了，工作階段摘要會如實說明，而不是悄悄把它留在那裡。
+      </p>
+      <p>
+        如果你傳入自己的 <code>--user-data-dir</code> 或 <code>--remote-debugging-port</code>，它們會被拒絕而不是被覆寫，因為那種顯而易見的意外——讓工作階段指向你真實的瀏覽器設定檔——不值得放任它發生。
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>工作階段時區跟隨主機。</strong></p>
+      <p>
+        在這種模式下，時刻是偽造的，但本地時間的取值方法沒有被偽造，所以<a href="/zh-hant/timezone-testing/">獨立的時區</a>只是原生模式的功能。這是目前版本的限制，而不是刻意的決定。
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        還有一件會讓人意外的事：當你在工作階段中途改變速度時，<em>已經排定</em>的間隔計時器會保持原來的速率。<code>Date.now</code>、<code>new Date()</code> 與 <code>performance.now</code> 會立即回應，而正在執行的 <code>setInterval</code> 不會，工作階段會就此發出警告，而不是讓你得出「這次改動什麼都沒做」的結論。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>測試得如何</h2>
+    <div class="prose">
+      <p>
+        <strong>實驗性</strong>，這個詞在這裡有明確的含義：它在當初開發時針對的目標上可以運作，尚未經過廣泛測試，而內建的稽核才是你的事實依據，而不是本頁面。它是由人工驗證的，而不是由自動化測試套件完成的，針對的是 64 位元 Windows 上的一個真實 Electron 應用程式。
+      </p>
+      <p>
+        涵蓋情況依 JavaScript 內容而不是依處理序來回報，因為這裡存在的單位就是內容。一個處於閒置、從不詢問時間的應用程式，如實得到的結果是<em>無法確定</em>——它沒有讀取過時鐘，所以無法就它本來看到的是不是正確的時鐘做出任何斷言。
+        <a href="/zh-hant/time-source-audit/">判定結果的意義 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/faq/">閱讀常見問題</a>
+    </div>
+  </section>
+
+</div>

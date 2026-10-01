@@ -1,0 +1,152 @@
+<!-- Date care merită testate, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Date care merită testate</h1>
+    <p class="sub">
+      Software-ul nu se strică într-o marți obișnuită. Se strică în ultima zi a trimestrului, pe
+      29 februarie, în clipa în care se schimbă anul și la o secundă după ce expiră o licență. Acestea sunt
+      datele care găsesc astfel de bug-uri - <strong>{{preset_count}}</strong> dintre ele vin ca scenarii
+      cu nume.
+    </p>
+  </section>
+
+  <section>
+    <h2>Limite de perioadă</h2>
+    <div class="prose">
+      <p>
+        Orice închide o perioadă, numerotează un document după an sau acumulează până la o dată-limită
+        greșește primul aici.
+      </p>
+      <ul>
+        <li><strong>Ultima zi a lunii</strong> - se comportă corect închiderea de lună și acumularea pe
+          perioadă în ultima zi a lunii?</li>
+        <li><strong>Ultima zi a trimestrului</strong> - se comportă corect închiderea de trimestru și
+          raportarea în ultima zi a trimestrului?</li>
+        <li><strong>Ultima zi a anului fiscal</strong> - închide aplicația anul fiscal în ziua potrivită,
+          ziua dinaintea începerii anului fiscal?</li>
+        <li><strong>Schimbarea anului, în direct</strong> - tratează numerotarea documentelor, anul din
+          nume și raportarea anuală trecerea în anul nou <em>în timp ce se petrece</em>, în loc să fie
+          repornite după aceea?</li>
+      </ul>
+      <p>
+        Ultimul este cel pe care oamenii de obicei nu pot să-l testeze deloc, pentru că are nevoie ca
+        ceasul să treacă de miezul nopții de 31 decembrie în timp ce aplicația rulează. Cu un ceas
+        accelerat, e treaba a zece secunde.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Margini de calendar și de reprezentare</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29 februarie</strong> - ziua bisectă care există doar o dată la patru ani și pe care o
+          cantitate surprinzătoare de cod de validare o respinge pur și simplu.</li>
+        <li><strong>Epoch Unix zero</strong> - tratează aplicația 1 ianuarie 1970 ca pe o dată reală sau ca
+          pe o valoare goală pe care ar fi trebuit să refuze să o stocheze?</li>
+        <li><strong>Limita 2038</strong> - momentul în care se epuizează un <code>time_t</code> pe
+          32 de biți cu semn, la <code>2038-01-19T03:14:07Z</code>. O secundă mai târziu, contorul
+          trece peste limită și ajunge în 1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Licențe, probe și instalare</h2>
+    <div class="prose">
+      <p>
+        Acestea sunt pentru testarea <em>propriului</em> tău mecanism de licențiere, cazul pentru care au
+        fost scrise.
+      </p>
+      <ul>
+        <li><strong>Ultima zi de probă</strong> - mai funcționează aplicația în chiar ultima clipă a
+          probei?</li>
+        <li><strong>Prima zi după expirarea probei</strong> - refuză accesul în clipa în care se încheie
+          proba și cum? Un mesaj rezonabil sau un stack trace?</li>
+        <li><strong>Licență expirată acum un an</strong> - tratează o licență expirată demult, nu doar de
+          ieri?</li>
+        <li><strong>Data dinaintea instalării</strong> - se comportă corect când ceasul este setat înainte
+          de propria dată de instalare? Aceasta citește data fișierului țintei, deci nu are nevoie de
+          niciun parametru.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Reguli de business și comportamentul ceasului</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Plată scadentă, +N zile lucrătoare</strong> - o plată scadentă peste N zile lucrătoare
+          ajunge în ziua corectă, sărind weekendurile și sărbătorile țării potrivite? Singurul scenariu
+          care are nevoie de un calendar, iar răspunsul diferă între piețe.</li>
+        <li><strong>Limita majoratului</strong> - admite aplicația pe cineva exact la limită și refuză pe
+          cineva căruia îi lipsește o zi?</li>
+        <li><strong>Decalaj de ceas, +90 s</strong> - se descurcă aplicația când ceasul ei merge cu nouăzeci
+          de secunde înaintea timpului real? Este cazul care strică parolele unice bazate pe timp și
+          validarea token-urilor.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cum se folosește unul</h2>
+    <div class="prose">
+      <p>
+        Un scenariu este o expresie de dată cu nume. Calculatorul stabilește ce înseamnă, iar înlocuirea
+        rulează o aplicație la ea - același nume în ambele locuri.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Ce dată este și ce testează acea dată?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Rulează o aplicație la ea</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Scenariile de probă iau data de început din data fișierului țintei</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        În fereastră sunt chip-uri deasupra câmpului de dată - un clic îl completează. Fiecare poartă
+        propria propoziție care spune ce prinde, parte pe care un calculator de date online nu are cum
+        să ți-o dea.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Ecranul de configurare Chrono Mock cu secțiunea Scenarios deschisă: un câmp de căutare deasupra listei, apoi fiecare dată gata făcută cu întrebarea la care răspunde - limita 2038, 29 februarie, un ceas care merge cu nouăzeci de secunde înainte, ultima zi a lunii - iar sub listă o linie care spune că încă trei au nevoie de o valoare aleasă de tine. Subsolul citește momentul înapoi în limbaj simplu, deasupra butonului Start.">
+      <figcaption>Fiecare scenariu poartă întrebarea la care răspunde, nu doar o dată. Cele trei care au
+        nevoie de o valoare aleasă de tine sunt numite sub listă, nu ascunse.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Ce nu este aici</h2>
+    <div class="prose">
+      <p>
+        <strong>Tranzițiile ora de vară / ora de iarnă.</strong> Trecerea unei aplicații prin limita de
+        trecere la ora de vară sau de iarnă este un test cu adevărat util și lipsește
+        <em>în mod deliberat</em>, pentru că fusul orar al sesiunii este un decalaj fix, fără ora de vară -
+        nu există încă nicio tranziție de simulat. Un scenariu care nu ar face nimic pe tăcute ar fi mai
+        rău decât unul nelivrat.
+      </p>
+      <p>
+        Revine odată cu un model al regulilor de fus orar.
+        <a href="/ro/testarea-fusurilor-orare/">Ce face și ce nu face fusul orar &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/calculator-de-date/">Calculatorul</a>
+    </div>
+  </section>
+
+</div>

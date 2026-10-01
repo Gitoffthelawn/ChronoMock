@@ -1,0 +1,114 @@
+<!-- Alterar a data do sistema para testar, português (Brasil). Estrutura, classes e tokens como em en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Alterar a data do sistema para testar um aplicativo</h1>
+    <p class="sub">
+      É o truque mais antigo que existe: colocar o relógio do Windows na data que você quer testar,
+      executar o programa e voltar o relógio. Funciona - e enquanto o relógio está mudado, ele muda
+      também todo o resto da máquina.
+    </p>
+  </section>
+
+  <section>
+    <h2>O que realmente se move junto com o relógio</h2>
+    <div class="prose">
+      <p>
+        O relógio do sistema não é privado do programa que você testa. Cada processo, serviço e conversa
+        de rede da máquina lê o mesmo, então uma mudança feita para um teste é uma mudança feita para
+        todos.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>O que lê o relógio</th><th>O que acontece quando você o move</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>O logon no domínio e as pastas compartilhadas</td><td>O Kerberos tolera, por padrão, uma diferença de relógio de cinco minutos. Acima disso, seus tickets são recusados e o logon ou o acesso a um compartilhamento falha.</td></tr>
+          <tr><td>Certificados e HTTPS</td><td>Se um certificado é válido é decidido pelo relógio. Coloque-o depois da data de término de um certificado e toda conexão que depende dele é recusada como expirada; volte-o o suficiente e o certificado ainda não é válido.</td></tr>
+          <tr><td>O serviço Hora do Windows</td><td>Uma máquina ingressada em um domínio obtém a hora de um controlador de domínio e, por padrão, o serviço corrige o relógio seja qual for o tamanho da diferença. A data que você definiu pode ser desfeita enquanto você ainda testa.</td></tr>
+          <tr><td>Tudo o que registra uma hora</td><td>Arquivos, logs, linhas de banco de dados e e-mails enviados enquanto o relógio está mudado levam a data do teste e a mantêm depois que você devolve o relógio.</td></tr>
+          <tr><td>Software que lembra a data mais recente que viu</td><td>Alguns programas leem um relógio que anda para trás como adulteração - e é exatamente isso que acontece quando você restaura a data real.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Quanto mais distante a data, mais disso você encontra. Uma máquina colocada em 2038 vê como
+        expirado todo certificado emitido hoje.
+        <a href="/pt-br/testar-o-problema-do-ano-2038/">Testar 2038 sem isso &rarr;</a>
+      </p>
+      <p>
+        Também é preciso um direito que a maioria das contas não tem: alterar a hora do sistema é um
+        privilégio de administrador e, em uma máquina gerenciada, muitas vezes não é seu.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quando alterar o relógio é a resposta certa</h2>
+    <div class="prose">
+      <p>
+        Uma máquina virtual que ninguém mais usa, com a própria sincronização de relógio desligada, é uma
+        bancada de testes perfeitamente boa. Você a descarta depois, então nada do que ela registrou
+        importa. Se você tem uma e o teste é de uma única data, é a coisa mais simples que funciona.
+      </p>
+      <p>
+        O problema começa quando é a máquina em que você trabalha, a que está no domínio ou a que também
+        executa algo que não pode notar nada.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mova o relógio de um único programa</h2>
+    <div class="prose">
+      <p>
+        A hora deslocada é visível para <strong>um processo e os filhos que ele inicia</strong>. Seu logon
+        no domínio, seus certificados e o Windows Update nunca a veem, então nada da tabela acima se move
+        - e não há nada a devolver depois.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># O aplicativo vê 31 de dezembro de 2027, 23:59:50. Todo o resto mantém a data real.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Começar dez minutos antes da meia-noite e rodar a velocidade x60 - a virada do ano chega em dez segundos</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Se uma data movida para um programa realmente chegou a ele não é algo para presumir. Toda sessão
+        termina com um veredito e a lista dos canais de tempo que o programa realmente leu.
+        <a href="/pt-br/auditoria-das-fontes-de-tempo/">Como saber se funcionou &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que isto não substitui</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Um programa que pergunta a hora a um servidor</strong> está fora do alcance de uma
+          substituição local. A sessão avisa quando vê o programa abrir uma conexão de rede, em vez de
+          deixar você presumir que o teste passou.</li>
+        <li><strong>Testar o próprio sistema</strong> - um serviço que reage à mudança do relógio real,
+          uma tarefa agendada, o comportamento do Windows em torno de uma mudança de relógio - não tem
+          substituto para mudar o relógio, em uma máquina que você possa se permitir.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/cenarios-de-teste-de-datas/">Datas para testar</a>
+    </div>
+  </section>
+
+</div>

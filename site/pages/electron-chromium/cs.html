@@ -1,0 +1,123 @@
+<!-- Electron a Chromium, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Falšování data v aplikaci Electron</h1>
+    <p class="sub">
+      Vyhledejte si to a každá odpověď je o změně vlastního kódu - mockování objektu
+      <code>Date</code>, falešné časovače vašeho testovacího frameworku. Nic z toho nepomůže,
+      když máte hotovou aplikaci. Tohle spouští aplikaci, kterou už máte.
+    </p>
+  </section>
+
+  <section>
+    <h2>Proč se k ní injektáž nedostane</h2>
+    <div class="prose">
+      <p>
+        Tento režim existuje kvůli konkrétnímu selhání. Pomodoro časovač postavený na Electronu byl
+        spuštěn v sezení <code>x60</code> a jeho odpočet se vůbec nepohnul. Rozebrání balíčku aplikace
+        ukázalo dva nezávislé důvody a ani jeden neměl řešení na nativní straně:
+      </p>
+      <ul>
+        <li>Odpočet nečetl hodiny. Byl to <strong>čítač zvyšovaný funkcí
+          <code>setInterval</code></strong>, běžící ve Web Workeru. Nebylo co zachytit, protože aplikace
+          se nikdy neptala, kolik je hodin.</li>
+        <li>Tento worker žije v <strong>izolovaném procesu rendereru</strong>, tedy přesně na místě,
+          kam se knihovna vložená zvenčí nedostane.</li>
+      </ul>
+      <p>
+        Mechanismus na straně Windows tu tedy nepomůže a řešením je místo toho mluvit s vlastním
+        JavaScriptovým enginem aplikace.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co se děje místo toho</h2>
+    <div class="prose">
+      <p>
+        Aplikace se spustí s ladicím portem a čistým jednorázovým profilem a její vlastní časová API se
+        přepnou na hodiny sezení přes protokol DevTools - <code>Date.now</code>, konstruktor
+        <code>new Date()</code>, <code>performance.now</code>, <code>setTimeout</code> a
+        <code>setInterval</code>.
+      </p>
+      <p>
+        Přepsání se nainstaluje do každého kontextu, který aplikace otevře, <strong>včetně jejích Web
+        Workerů</strong> - tam časovač obvykle nakonec žije, a je to jediné místo, kam nativní injektáž
+        nikdy nemohla dosáhnout.
+      </p>
+      <p>
+        Na tom, jak ho ovládáte, se nic nemění. Stejný příkaz, stejné okno, stejný panel sezení se dvěma
+        hodinami a verdiktem.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Stejný příkaz jako pro nativní aplikaci - režim se pozná sám</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Dvě omezení, která stojí za to znát předem</h2>
+
+    <div class="note warning">
+      <p><strong>Spuštění je invazivní a záměrně o tom mluví nahlas.</strong></p>
+      <p>
+        Aplikace se spustí s otevřeným portem vzdáleného ladění a novým, izolovaným profilem v
+        <code>%TEMP%</code> - neběží na vašem skutečném profilu a není to kopie, která už sedí v oznamovací
+        oblasti. Profil se po skončení sezení smaže, a pokud to nešlo, souhrn sezení to řekne, místo aby
+        ho tiše nechal za sebou.
+      </p>
+      <p>
+        Předání vlastního <code>--user-data-dir</code> nebo <code>--remote-debugging-port</code> se
+        odmítne, ne přepíše, protože zjevná nehoda - namířit sezení na váš skutečný profil prohlížeče -
+        není něco, co stojí za to povolit.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Časové pásmo sezení se řídí hostitelem.</strong></p>
+      <p>
+        V tomto režimu je okamžik falešný, ale getery místního času ne, takže
+        <a href="/cs/testovani-casovych-pasem/">nezávislé časové pásmo</a> je funkce pouze nativního
+        režimu. To je omezení této verze, ne rozhodnutí.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Ještě jedna věc, která lidi překvapuje: interval <em>už naplánovaný</em> si ponechá svou starou
+        rychlost, když uprostřed sezení změníte rychlost. <code>Date.now</code>,
+        <code>new Date()</code> a <code>performance.now</code> reagují okamžitě, běžící
+        <code>setInterval</code> ne, a sezení na to upozorní, místo aby vás nechalo dojít k závěru, že
+        změna nic neudělala.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jak dobře je otestován</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimentální</strong>, a toto slovo tu má definovaný význam: funguje na cílech, proti
+        kterým vznikl, nebyl široce testován a vestavěný audit je váš zdroj pravdy, ne tato stránka. Byl
+        ověřen ručně, ne automatickou sadou, na skutečné aplikaci Electron na 64bitových Windows.
+      </p>
+      <p>
+        Pokrytí se hlásí po kontextech JavaScriptu, ne po procesech, protože to je jednotka, která tu
+        existuje. Aplikace, která nečinně stojí a nikdy se nezeptá na čas, upřímně vyústí v
+        <em>neurčeno</em> - nečetla hodiny, takže nelze nic tvrdit o tom, zda by viděla ty správné.
+        <a href="/cs/audit-zdroju-casu/">Co verdikty znamenají &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/faq/">Přečtěte si FAQ</a>
+    </div>
+  </section>
+
+</div>

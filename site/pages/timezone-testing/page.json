@@ -18,6 +18,126 @@
       "link_text": "Strefy czasowe",
       "title": "Uruchom aplikację w innej strefie, bez zmiany systemu",
       "description": "Daj jednemu procesowi własny offset strefy, podczas gdy strefa systemu zostaje na miejscu. Jak odtworzyć błąd widoczny tylko u klienta pięć stref dalej."
+    },
+    "de": {
+      "slug": "zeitzonen-testen",
+      "link_text": "Zeitzonen",
+      "title": "App in anderer Zeitzone ausführen - Windows bleibt unberührt",
+      "description": "Geben Sie einem Prozess einen eigenen Zeitzonen-Offset, während die Systemzone bleibt. So reproduzieren Sie den Fehler, der nur beim Kunden fünf Zeitzonen entfernt auftritt."
+    },
+    "fr": {
+      "slug": "tester-les-fuseaux-horaires",
+      "link_text": "Fuseaux horaires",
+      "title": "Exécuter une appli dans un autre fuseau - Windows ne bouge pas",
+      "description": "Donnez à un processus son propre décalage horaire pendant que le fuseau système reste en place. Reproduisez le bug qui n'apparaît que chez le client situé à cinq fuseaux de là."
+    },
+    "es": {
+      "slug": "pruebas-de-zonas-horarias",
+      "link_text": "Zonas horarias",
+      "title": "Ejecuta una app en otra zona horaria - Windows no cambia",
+      "description": "Da a un proceso su propio desfase horario mientras la zona del sistema se queda donde está. Reproduce el error que solo aparece para el cliente a cinco zonas horarias de distancia."
+    },
+    "pt-br": {
+      "slug": "teste-de-fuso-horario",
+      "link_text": "Fusos horários",
+      "title": "Execute um app em outro fuso horário - o Windows não muda",
+      "description": "Dê a um processo o próprio deslocamento de fuso horário enquanto o fuso do sistema fica onde está. Reproduza o bug que só aparece para o cliente a cinco fusos de distância."
+    },
+    "it": {
+      "slug": "test-dei-fusi-orari",
+      "link_text": "Fusi orari",
+      "title": "Esegui un'app in un altro fuso orario - Windows non cambia",
+      "description": "Dai a un processo il proprio scostamento di fuso orario mentre il fuso di sistema resta dov'è. Riproduci il bug che compare solo per il cliente a cinque fusi orari di distanza."
+    },
+    "nl": {
+      "slug": "tijdzones-testen",
+      "link_text": "Tijdzones",
+      "title": "Draai een app in een andere tijdzone - Windows blijft staan",
+      "description": "Geef één proces zijn eigen tijdzone-offset terwijl de systeemzone blijft waar hij is. Reproduceer de bug die alleen optreedt bij de klant vijf tijdzones verderop."
+    },
+    "ro": {
+      "slug": "testarea-fusurilor-orare",
+      "link_text": "Fusuri orare",
+      "title": "Rulează o aplicație în alt fus orar, fără să schimbi Windows",
+      "description": "Dă unui singur proces propriul decalaj de fus orar, în timp ce fusul sistemului rămâne unde era. Reproduce bug-ul care apare doar la clientul aflat la cinci fusuri orare distanță."
+    },
+    "cs": {
+      "slug": "testovani-casovych-pasem",
+      "link_text": "Časová pásma",
+      "title": "Spusťte aplikaci v jiném časovém pásmu, Windows zůstane",
+      "description": "Dejte jednomu procesu vlastní posun časového pásma, zatímco systémové pásmo zůstane, kde bylo. Reprodukujte chybu, která se objeví jen u zákazníka o pět časových pásem dál."
+    },
+    "tr": {
+      "slug": "saat-dilimi-testi",
+      "link_text": "Saat dilimleri",
+      "title": "Bir uygulamayı başka bir saat diliminde çalıştırın",
+      "description": "Tek bir sürece kendi saat dilimi kaymasını verin; sistem dilimi olduğu yerde kalsın. Yalnızca beş saat dilimi ötedeki müşteride görülen hatayı yeniden üretin."
+    },
+    "id": {
+      "slug": "pengujian-zona-waktu",
+      "link_text": "Zona waktu",
+      "title": "Jalankan aplikasi di zona waktu lain tanpa mengubah Windows",
+      "description": "Beri satu proses selisih zona waktunya sendiri sementara zona sistem tetap di tempatnya. Reproduksi bug yang hanya muncul pada pelanggan lima zona waktu jauhnya."
+    },
+    "vi": {
+      "slug": "kiem-thu-mui-gio",
+      "link_text": "Múi giờ",
+      "title": "Chạy ứng dụng ở múi giờ khác mà không đổi Windows",
+      "description": "Cho một tiến trình độ lệch múi giờ riêng trong khi múi giờ hệ thống vẫn nguyên chỗ cũ. Tái hiện lỗi chỉ xuất hiện với khách hàng ở cách đó năm múi giờ."
+    },
+    "ru": {
+      "slug": "timezone-testing",
+      "link_text": "Часовые пояса",
+      "title": "Запуск приложения в другом часовом поясе без смены Windows",
+      "description": "Дайте одному процессу собственное смещение часового пояса, пока системный пояс остаётся на месте. Воспроизведите ошибку, которая бывает только у клиента за пять часовых поясов."
+    },
+    "uk": {
+      "slug": "timezone-testing",
+      "link_text": "Часові пояси",
+      "title": "Запуск застосунку в іншому часовому поясі без зміни Windows",
+      "description": "Дайте одному процесу власне зміщення часового поясу, поки системний пояс лишається на місці. Відтворіть помилку, що трапляється лише в клієнта за п’ять часових поясів."
+    },
+    "ja": {
+      "slug": "timezone-testing",
+      "link_text": "タイムゾーン",
+      "title": "Windows を変えずにアプリを別のタイムゾーンで実行する",
+      "description": "システムのタイムゾーンはそのままに、1 つのプロセスだけに独自のタイムゾーンオフセットを与えます。5 つ離れたタイムゾーンの顧客でしか起きないバグを再現できます。"
+    },
+    "ko": {
+      "slug": "timezone-testing",
+      "link_text": "시간대",
+      "title": "Windows를 바꾸지 않고 앱을 다른 시간대에서 실행",
+      "description": "시스템 시간대는 그대로 두고 프로세스 하나에만 자신의 시간대 오프셋을 부여합니다. 시간대가 다섯 개 떨어진 고객에게서만 나타나는 버그를 재현하세요."
+    },
+    "zh-hans": {
+      "slug": "timezone-testing",
+      "link_text": "时区",
+      "title": "不改 Windows 设置，让应用在另一个时区运行",
+      "description": "系统时区保持不变，只给一个进程单独的时区偏移量。复现只出现在五个时区之外的客户那里的缺陷。"
+    },
+    "zh-hant": {
+      "slug": "timezone-testing",
+      "link_text": "時區",
+      "title": "不改 Windows 設定，讓應用程式在另一個時區執行",
+      "description": "系統時區保持不變，只給一個處理序單獨的時區偏移量。重現只出現在五個時區之外的客戶那裡的錯誤。"
+    },
+    "ar": {
+      "slug": "timezone-testing",
+      "link_text": "المناطق الزمنية",
+      "title": "شغّل تطبيقًا في منطقة زمنية أخرى دون تغيير Windows",
+      "description": "تبقى منطقة النظام كما هي، وتحصل عملية واحدة وحدها على إزاحة منطقة زمنية خاصة بها. استنسخ العطل الذي لا يظهر إلا عند عميل يبعد خمس مناطق زمنية."
+    },
+    "hi": {
+      "slug": "timezone-testing",
+      "link_text": "टाइम ज़ोन",
+      "title": "Windows बदले बिना किसी ऐप को दूसरे टाइम ज़ोन में चलाएँ",
+      "description": "सिस्टम ज़ोन वहीं रहता है, और केवल एक प्रोसेस को अपना टाइम ज़ोन ऑफ़सेट मिलता है। वह बग दोहराएँ जो पाँच टाइम ज़ोन दूर वाले ग्राहक को ही दिखता है।"
+    },
+    "th": {
+      "slug": "timezone-testing",
+      "link_text": "เขตเวลา",
+      "title": "รันแอปในเขตเวลาอื่นโดยไม่เปลี่ยน Windows",
+      "description": "เขตเวลาของระบบอยู่ที่เดิม มีเพียงหนึ่งโพรเซสที่ได้ออฟเซ็ตเขตเวลาของตัวเอง ทำซ้ำบั๊กที่ปรากฏเฉพาะกับลูกค้าที่อยู่ห่างออกไปห้าเขตเวลา"
     }
   }
 }

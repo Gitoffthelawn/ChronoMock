@@ -18,6 +18,126 @@
       "link_text": "Przyspieszanie czasu",
       "title": "Przyspiesz czas jednej aplikacji, nie zegara systemu",
       "description": "Zegar jednej aplikacji nawet milion razy szybciej, więc 30-dniowa wersja próbna wygasa w pół godziny. Bez uprawnień administratora, reszta programów ma prawdziwy czas."
+    },
+    "de": {
+      "slug": "zeit-beschleunigen",
+      "link_text": "Zeit beschleunigen",
+      "title": "Zeit beschleunigen - für eine Windows-App, nicht für die Systemuhr",
+      "description": "Die Uhr einer einzelnen Anwendung bis zu einer Million Mal schneller laufen lassen: Eine 30-Tage-Testversion läuft in einer halben Stunde ab. Keine Adminrechte, alle anderen Programme behalten die echte Zeit."
+    },
+    "fr": {
+      "slug": "accelerer-le-temps",
+      "link_text": "Accélérer le temps",
+      "title": "Accélérer le temps d'une appli Windows, pas l'horloge système",
+      "description": "Faites tourner l'horloge d'une application jusqu'à un million de fois plus vite : un essai de 30 jours expire en une demi-heure. Sans droits d'administrateur, les autres programmes gardent l'heure réelle."
+    },
+    "es": {
+      "slug": "acelerar-el-tiempo",
+      "link_text": "Acelerar el tiempo",
+      "title": "Acelerar el tiempo de una app de Windows, no el reloj del sistema",
+      "description": "Haz correr el reloj de una aplicación hasta un millón de veces más rápido: una prueba de 30 días caduca en media hora. Sin permisos de administrador, y los demás programas conservan la hora real."
+    },
+    "pt-br": {
+      "slug": "acelerar-o-tempo",
+      "link_text": "Acelerar o tempo",
+      "title": "Acelerar o tempo de um app do Windows, não o relógio do sistema",
+      "description": "Faça o relógio de um aplicativo correr até um milhão de vezes mais rápido: um teste de 30 dias expira em meia hora. Sem direitos de administrador, e os outros programas mantêm a hora real."
+    },
+    "it": {
+      "slug": "accelerare-il-tempo",
+      "link_text": "Accelerare il tempo",
+      "title": "Accelerare il tempo di un'app Windows, non l'orologio di sistema",
+      "description": "Fai correre l'orologio di un'applicazione fino a un milione di volte più veloce: una prova di 30 giorni scade in mezz'ora. Nessun diritto di amministratore, e gli altri programmi mantengono l'ora reale."
+    },
+    "nl": {
+      "slug": "tijd-versnellen",
+      "link_text": "Tijd versnellen",
+      "title": "Tijd versnellen voor één Windows-app, niet de systeemklok",
+      "description": "Laat de klok van één applicatie tot een miljoen keer sneller lopen: een proefperiode van 30 dagen verloopt in een half uur. Geen beheerdersrechten, en alle andere programma's houden de echte tijd."
+    },
+    "ro": {
+      "slug": "accelerarea-timpului",
+      "link_text": "Accelerarea timpului",
+      "title": "Accelerează ceasul unei aplicații Windows, nu al sistemului",
+      "description": "Lasă ceasul unei singure aplicații să meargă de până la un milion de ori mai repede: o probă de 30 de zile expiră într-o jumătate de oră. Fără drepturi de administrator, restul programelor păstrează ora reală."
+    },
+    "cs": {
+      "slug": "zrychleni-casu",
+      "link_text": "Zrychlení času",
+      "title": "Zrychlení času pro jednu aplikaci, ne systémové hodiny",
+      "description": "Nechte hodiny jedné aplikace běžet až milionkrát rychleji: třicetidenní zkušební doba vyprší za půl hodiny. Bez práv správce, ostatní programy drží skutečný čas."
+    },
+    "tr": {
+      "slug": "zamani-hizlandirma",
+      "link_text": "Zamanı hızlandırma",
+      "title": "Sistem saatini değil, tek bir Windows uygulamasını hızlandırın",
+      "description": "Tek bir uygulamanın saatini bir milyon kata kadar hızlı akıtın: 30 günlük deneme yarım saatte dolar. Yönetici hakkı gerekmez ve diğer programlar gerçek zamanı korur."
+    },
+    "id": {
+      "slug": "mempercepat-waktu",
+      "link_text": "Mempercepat waktu",
+      "title": "Percepat waktu untuk satu aplikasi Windows, bukan jam sistem",
+      "description": "Biarkan jam satu aplikasi berjalan hingga sejuta kali lebih cepat: masa percobaan 30 hari habis dalam setengah jam. Tanpa hak administrator, program lain tetap memakai waktu nyata."
+    },
+    "vi": {
+      "slug": "tang-toc-thoi-gian",
+      "link_text": "Tăng tốc thời gian",
+      "title": "Tăng tốc thời gian cho một ứng dụng Windows, không phải giờ hệ thống",
+      "description": "Cho đồng hồ của một ứng dụng chạy nhanh gấp tới một triệu lần: bản dùng thử 30 ngày hết hạn trong nửa giờ. Không cần quyền quản trị viên, các chương trình khác giữ giờ thật."
+    },
+    "ru": {
+      "slug": "speed-up-time",
+      "link_text": "Ускорение времени",
+      "title": "Ускорение времени для одного приложения, а не системных часов",
+      "description": "Пустите часы одного приложения быстрее до миллиона раз: 30-дневный пробный период истекает за полчаса. Права администратора не нужны, остальные программы живут по настоящему времени."
+    },
+    "uk": {
+      "slug": "speed-up-time",
+      "link_text": "Прискорення часу",
+      "title": "Прискорення часу для одного застосунку, а не системного годинника",
+      "description": "Пустіть годинник одного застосунку швидше до мільйона разів: 30-денний пробний період спливає за півгодини. Права адміністратора не потрібні, решта програм живе за справжнім часом."
+    },
+    "ja": {
+      "slug": "speed-up-time",
+      "link_text": "時間の加速",
+      "title": "システム時計ではなく 1 つのアプリだけ時間を加速する",
+      "description": "1 つのアプリの時計を最大 100 万倍まで加速できます。30 日間の試用期間が 30 分で切れます。管理者権限は不要で、ほかのプログラムは実際の時刻のままです。"
+    },
+    "ko": {
+      "slug": "speed-up-time",
+      "link_text": "시간 가속",
+      "title": "시스템 시계가 아닌 앱 하나의 시간을 가속하기",
+      "description": "앱 하나의 시계를 최대 100만 배까지 빠르게 돌리세요. 30일 체험 기간이 30분 만에 만료됩니다. 관리자 권한은 필요 없고 다른 프로그램은 실제 시간을 유지합니다."
+    },
+    "zh-hans": {
+      "slug": "speed-up-time",
+      "link_text": "加速时间",
+      "title": "加速单个应用的时间，而不是系统时钟",
+      "description": "把单个应用的时钟加速到最高一百万倍：30 天的试用期半小时内到期。无需管理员权限，其他程序保持真实时间。"
+    },
+    "zh-hant": {
+      "slug": "speed-up-time",
+      "link_text": "加速時間",
+      "title": "加速單一應用程式的時間，而不是系統時鐘",
+      "description": "把單一應用程式的時鐘加速到最高一百萬倍：30 天的試用期半小時內到期。無需系統管理員權限，其他程式保持真實時間。"
+    },
+    "ar": {
+      "slug": "speed-up-time",
+      "link_text": "تسريع الوقت",
+      "title": "تسريع وقت تطبيق واحد لا ساعة النظام",
+      "description": "شغّل ساعة تطبيق واحد أسرع حتى مليون مرة: تنتهي فترة تجريبية مدتها 30 يومًا في نصف ساعة. دون صلاحيات مسؤول، وتبقى بقية البرامج على الوقت الحقيقي."
+    },
+    "hi": {
+      "slug": "speed-up-time",
+      "link_text": "समय तेज़ करें",
+      "title": "सिस्टम घड़ी नहीं, एक ऐप का समय तेज़ करें",
+      "description": "एक ऐप की घड़ी को दस लाख गुना तक तेज़ करें: 30 दिन का ट्रायल आधे घंटे में ख़त्म। एडमिनिस्ट्रेटर अधिकार नहीं चाहिए, और बाकी प्रोग्राम असली समय पर रहते हैं।"
+    },
+    "th": {
+      "slug": "speed-up-time",
+      "link_text": "เร่งเวลา",
+      "title": "เร่งเวลาของแอปหนึ่งตัว ไม่ใช่นาฬิกาของระบบ",
+      "description": "เร่งนาฬิกาของแอปหนึ่งตัวได้สูงสุดหนึ่งล้านเท่า ช่วงทดลองใช้ 30 วันหมดในครึ่งชั่วโมง ไม่ต้องใช้สิทธิ์ผู้ดูแลระบบ และโปรแกรมอื่นอยู่บนเวลาจริง"
     }
   }
 }

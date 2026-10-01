@@ -1,0 +1,138 @@
+<!-- Accelerarea ceasului, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Fă ceasul unei aplicații să meargă mai repede</h1>
+    <p class="sub">
+      O probă de 30 de zile durează 30 de zile până expiră, dacă nu poți muta timpul. Sfatul obișnuit
+      este să împingi ceasul sistemului înainte, ceea ce cere drepturi de administrator și târăște după el
+      toate celelalte programe de pe mașină. Aici muți în schimb un singur proces.
+    </p>
+  </section>
+
+  <section>
+    <h2>Cât de repede</h2>
+    <div class="prose">
+      <p>
+        Alege un multiplicator întreg. Ceasul aplicației avansează de atâtea ori mai repede decât cel
+        real, de la orice moment la care pornește sesiunea.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Multiplicator</th><th>Un minut real devine</th><th>Util pentru</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>o oră</td><td>joburi orare, timeout-uri de sesiune, durata de viață a token-urilor</td></tr>
+          <tr><td><code>x1440</code></td><td>o zi</td><td>treceri zilnice, o probă de 30 de zile într-o jumătate de oră</td></tr>
+          <tr><td><code>x43200</code></td><td>o probă de 30 de zile</td><td>urmărirea întregii probe până se încheie cât citești asta</td></tr>
+          <tr><td><code>x525600</code></td><td>un an</td><td>reînnoiri anuale, expirarea certificatelor</td></tr>
+          <tr><td><code>x1000000</code></td><td>aproape 1,9 ani</td><td>limita maximă</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Pornește de la ora reală de acum și rulează o zi pe minut</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Pornește de la o dată aleasă și accelerează de acolo</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Ține ceasul complet pe loc, în schimb</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="O înregistrare a unei sesiuni care conduce o altă aplicație Windows. Fereastra din stânga este Chrono Mock, cu ceasul aplicației pe 2038-01-19 urcând de șaizeci de ori mai repede decât viteza reală, în timp ce ceasul real de lângă el se mișcă doar cu câteva secunde. Fereastra din dreapta este aplicația testată, a cărei înregistrare proprie a sesiunii arată că a pornit pe 2038-01-19 și rulează de minute, față de abia o jumătate de minut în cameră.">
+      <figcaption>O sesiune reală, care conduce o aplicație reală. Observă fereastra din dreapta:
+        programul testat și-a înregistrat startul ca <strong>19 ianuarie 2038</strong>, iar sesiunea lui a
+        durat minute, în timp ce ceasul din cameră s-a mișcat cu secunde. Viteza este schimbată în timp ce
+        rulează, fără să repornești nimic.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Partea care îi prinde pe oameni nepregătiți: există două ceasuri</h2>
+    <div class="prose">
+      <p>
+        Accelerarea <strong>ceasului de perete</strong> - ceea ce returnează <code>DateTime.Now</code> și
+        echivalentele lui - nu accelerează, de una singură, o <strong>numărătoare inversă</strong>.
+        Acestea sunt două întrebări diferite pe care o aplicație le poate pune sistemului de operare, iar
+        multe programe măsoară „treizeci de zile” cu a doua, nu cu prima.
+      </p>
+      <p>
+        De aceea axa duratelor - contoarele de tick-uri, sleep-urile, așteptările și temporizatoarele - este
+        un comutator separat:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> pune pe ceasul sesiunii și sleep-urile, așteptările și
+          temporizatoarele. Fără el, <code>x1440</code> grăbește calendarul înainte, în timp ce un
+          temporizator de cinci secunde durează în continuare cinci secunde reale.</li>
+        <li><code>--scale-qpc</code> scalează suplimentar contorul de înaltă rezoluție. Acolo citesc timpul
+          scurs <code>monotonic</code> din Python 3.13+, <code>Stopwatch</code> din .NET și
+          <code>nanoTime</code> din Java, iar este dezactivat implicit pentru că scalarea lui a
+          destabilizat randarea în teste.</li>
+      </ul>
+      <p>
+        Dacă multiplicatorul pare să nu facă nimic unei numărători inverse, aproape întotdeauna asta este
+        motivul.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># O aplicație cu cronometru: accelerează calendarul ȘI numărătorile inverse</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># O aplicație Python sau .NET care măsoară timpul scurs pe contorul de înaltă rezoluție</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Schimbarea vitezei fără repornire</h2>
+    <div class="prose">
+      <p>
+        Multiplicatorul se poate schimba în timpul sesiunii, iar ceasul este reancorat, nu sărit, așa că nu
+        merge niciodată înapoi când viteza scade. Poți și să sari ceasul pur și simplu - înainte sau
+        înapoi, așa cum face un laptop după ce se resincronizează cu un server de timp, cazul care strică
+        orice măsoară timpul scurs fără o protecție.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Rulează la x60, apoi treci la x1440 după două secunde</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Rulează, apoi sari ceasul la un moment ales după cinci secunde</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Ce nu va face</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Nu atinge ceasul sistemului.</strong> Acesta este rostul, nu o limitare - dar înseamnă că
+          orice citește ora de la un server, dintr-o bază de date sau de pe altă mașină rămâne
+          neafectat, iar auditul îți va spune când se întâmplă asta.</li>
+        <li><strong>Un salt schimbă ce vede aplicația, nu când se trezește.</strong> Temporizatoarele deja
+          predate nucleului rulează pe timp real. Majoritatea aplicațiilor interoghează ceasul, așa că în
+          practică saltul funcționează - dar nu toate o fac.</li>
+        <li><strong>Nu încetinește timpul.</strong> Multiplicatorii sunt numere întregi de la unu în sus,
+          plus un ceas oprit la zero.</li>
+      </ul>
+      <p>
+        Dacă ceva din toate acestea a ajuns la aplicația ta nu este un lucru de presupus.
+        <a href="/ro/auditul-surselor-de-timp/">Sesiunea o spune &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/faq/">Citește FAQ-ul</a>
+    </div>
+  </section>
+
+</div>

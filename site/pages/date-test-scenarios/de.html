@@ -1,0 +1,153 @@
+<!-- Testenswerte Daten, Deutsch. Aufbau, Klassen und Tokens wie in en.html. Namen und Erläuterungen
+     folgen presets/*.json; die Zahl ist ein Token. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testenswerte Daten</h1>
+    <p class="sub">
+      Software scheitert nicht an gewöhnlichen Dienstagen. Sie scheitert am letzten Tag des Quartals, am
+      29. Februar, im Moment des Jahreswechsels und eine Sekunde nach Ablauf einer Lizenz. Das sind die
+      Daten, die diese Fehler finden - <strong>{{preset_count}}</strong> davon liegen als benannte
+      Szenarien bei.
+    </p>
+  </section>
+
+  <section>
+    <h2>Periodengrenzen</h2>
+    <div class="prose">
+      <p>
+        Alles, was eine Periode abschließt, ein Dokument nach Jahr nummeriert oder bis zu einem Stichtag
+        aufläuft, macht hier zuerst Fehler.
+      </p>
+      <ul>
+        <li><strong>Letzter Tag des Monats</strong> - verhalten sich Monatsabschluss und periodengerechte
+          Abgrenzung am letzten Tag des Monats richtig?</li>
+        <li><strong>Letzter Tag des Quartals</strong> - verhalten sich Quartalsabschluss und
+          Berichterstattung am letzten Tag des Quartals richtig?</li>
+        <li><strong>Letzter Tag des Geschäftsjahres</strong> - schließt die App das Geschäftsjahr am
+          richtigen Tag ab, am Tag vor dem Beginn des neuen Geschäftsjahres?</li>
+        <li><strong>Jahreswechsel, live</strong> - kommen Dokumentnummerierung, Jahr im Namen und
+          Jahresberichte mit dem Wechsel zurecht, <em>während er stattfindet</em>, statt danach neu
+          gestartet zu werden?</li>
+      </ul>
+      <p>
+        Der letzte ist der, den man meist gar nicht testen kann, weil die Uhr dafür um Mitternacht des
+        31. Dezember überschreiten muss, während die Anwendung läuft. Mit einer beschleunigten Uhr ist das
+        eine Sache von zehn Sekunden.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kalender- und Darstellungsgrenzen</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>29. Februar</strong> - der Schalttag, den es nur alle vier Jahre gibt und den
+          erstaunlich viel Validierungscode rundheraus ablehnt.</li>
+        <li><strong>Unix-Epoche null</strong> - behandelt die App den 1. Januar 1970 als echtes Datum
+          oder als leeren Wert, den sie nie hätte speichern dürfen?</li>
+        <li><strong>2038-Grenze</strong> - der Moment, in dem ein vorzeichenbehaftetes 32-Bit-<code>time_t</code>
+          ausläuft, bei <code>2038-01-19T03:14:07Z</code>. Eine Sekunde später läuft der Zähler ins Jahr
+          1901 über.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lizenzen, Testversionen und Installation</h2>
+    <div class="prose">
+      <p>
+        Diese sind zum Testen <em>Ihrer eigenen</em> Lizenzierung gedacht, dafür wurden sie geschrieben.
+      </p>
+      <ul>
+        <li><strong>Letzter Tag der Testversion</strong> - funktioniert die App im allerletzten Moment der
+          Testphase noch?</li>
+        <li><strong>Erster Tag nach Ablauf der Testversion</strong> - verweigert sie den Zugriff genau in
+          dem Moment, in dem die Testphase endet, und wie? Mit einer sinnvollen Meldung oder einem
+          Stacktrace?</li>
+        <li><strong>Lizenz vor einem Jahr abgelaufen</strong> - kommt sie mit einer Lizenz zurecht, die
+          vor langer Zeit abgelaufen ist, nicht nur gestern?</li>
+        <li><strong>Datum vor der Installation</strong> - verhält sie sich richtig, wenn die Uhr vor ihr
+          eigenes Installationsdatum gestellt ist? Dieses liest das Dateidatum des Ziels selbst und
+          braucht daher keinen Parameter.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Geschäftsregeln und Uhrverhalten</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Zahlung fällig, +N Werktage</strong> - landet eine in N Werktagen fällige Zahlung am
+          richtigen Tag, unter Auslassung von Wochenenden und den Feiertagen des richtigen Landes? Das
+          einzige Szenario, das einen Kalender braucht, und die Antwort unterscheidet sich zwischen den
+          Märkten.</li>
+        <li><strong>Grenze der Volljährigkeit</strong> - lässt die App jemanden genau an der Grenze zu und
+          weist jemanden ab, dem ein Tag fehlt?</li>
+        <li><strong>Uhrenabweichung, +90 s</strong> - kommt die App zurecht, wenn ihre Uhr neunzig Sekunden
+          vorgeht? Das ist der Fall, der zeitbasierte Einmalpasswörter und die Token-Validierung
+          bricht.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Eines verwenden</h2>
+    <div class="prose">
+      <p>
+        Ein Szenario ist ein benannter Datumsausdruck. Der Rechner ermittelt, was er bedeutet, und die
+        Ersetzung führt eine Anwendung damit aus - derselbe Name an beiden Stellen.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Welches Datum ist das, und was prüft dieses Datum?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Eine Anwendung damit ausführen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Die Testversions-Szenarien nehmen das Startdatum aus dem Dateidatum des Ziels</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        Im Fenster sind sie Chips über dem Datumsfeld - ein Klick füllt es aus. Jedes trägt seinen eigenen
+        Satz, der sagt, was es findet, und das kann Ihnen ein Online-Datumsrechner nicht geben.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Der Einrichtungsbildschirm von Chrono Mock mit geöffnetem Abschnitt Scenarios: ein Suchfeld über der Liste, dann jedes fertige Datum mit der Frage, die es beantwortet - die 2038-Grenze, der 29. Februar, eine um neunzig Sekunden vorgehende Uhr, der letzte Tag des Monats - und unter der Liste eine Zeile, dass drei weitere einen von Ihnen gewählten Wert brauchen. Die Fußzeile gibt den Zeitpunkt in einfacher Sprache über der Schaltfläche Start wieder.">
+      <figcaption>Jedes Szenario trägt die Frage, die es beantwortet, und nicht nur ein Datum. Die drei, die
+        einen von Ihnen gewählten Wert brauchen, stehen unter der Liste, statt versteckt zu sein.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Was hier nicht dabei ist</h2>
+    <div class="prose">
+      <p>
+        <strong>Die Sommerzeitwechsel.</strong> Eine Anwendung über die Grenze der Umstellung auf
+        Sommerzeit oder zurück zu schicken, ist ein wirklich nützlicher Test, und er fehlt
+        <em>absichtlich</em>, weil die Sitzungszeitzone ein fester Offset ohne Sommerzeit ist - es gibt
+        noch keinen Wechsel zu simulieren. Ein Szenario auszuliefern, das stillschweigend nichts täte,
+        wäre schlimmer, als es nicht auszuliefern.
+      </p>
+      <p>
+        Es kommt mit einem Modell der Zeitzonenregeln zurück.
+        <a href="/de/zeitzonen-testen/">Was die Zeitzone tut und was nicht &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/datumsrechner/">Der Rechner</a>
+    </div>
+  </section>
+
+</div>

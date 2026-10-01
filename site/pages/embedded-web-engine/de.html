@@ -1,0 +1,174 @@
+<!-- WebView2 und Qt WebEngine, Deutsch. Aufbau, Klassen und Tokens wie in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Die Webseiten in einer nativen App</h1>
+    <p class="sub">
+      Eine Desktop-Anwendung mit eingebauter Web-Engine führt ihre Seiten in einem eigenen,
+      abgeschotteten Prozess aus. Der native Mechanismus deckt die Anwendung ab und hört an dieser Grenze
+      auf - das Fenster springt also auf das gewünschte Datum, und das Panel darin nicht. Dies schließt
+      diese Lücke.
+    </p>
+  </section>
+
+  <section>
+    <h2>Der Fehler, der wie ein Erfolg aussieht</h2>
+    <div class="prose">
+      <p>
+        Viele Windows-Anwendungen sind außen nativ und innen eine Webseite. Ein Einstellungsbildschirm,
+        ein Dashboard, eine Berichtsansicht, ein Lizenzpanel - einmal als HTML gebaut und in
+        <strong>WebView2</strong> oder <strong>Qt WebEngine</strong> gehostet, statt zweimal geschrieben.
+      </p>
+      <p>
+        Die Engine führt diese Seiten in einem eigenen Prozess aus, und dieser Prozess ist abgeschottet.
+        Eine in die Anwendung eingeschleuste Bibliothek kommt dort nicht hinein. Alles, was die Anwendung
+        von Windows erfragt, wandert auf das Datum der Sitzung, und alles, was die Seite von JavaScript
+        erfragt, nicht:
+      </p>
+      <ul>
+        <li>Titelleiste, Logs und Dateien sagen <strong>2038</strong>.</li>
+        <li>Das Panel im selben Fenster sagt <strong>heute</strong>.</li>
+        <li>Nichts meldet einen Fehler, nichts warnt, und beide Hälften wirken gleich überzeugt.</li>
+      </ul>
+      <p>
+        Das ist die teure Variante dieses Fehlers, weil der Test scheinbar gelaufen ist. Das frühere
+        Verhalten meldete eine solche Sitzung als sauberes Bestehen, und das war eine Behauptung, die das
+        Werkzeug nicht belegen konnte.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was die Sitzung stattdessen tut</h2>
+    <div class="prose">
+      <p>
+        Die Sitzung betreibt <strong>beide Mechanismen gleichzeitig</strong>. Der native Hook geht wie
+        immer in die Anwendung, und die Seiten werden auf dem einzigen Weg erreicht, auf dem man einen
+        abgeschotteten Renderer erreicht: indem man die Engine selbst fragt.
+      </p>
+      <p>
+        Beim Start erbt die Anwendung zwei Umgebungsvariablen, die ihre Engine bitten, einen lokalen
+        Debug-Port zu öffnen. Sie werden an die Schalter angehängt, die die Anwendung ohnehin übergibt,
+        statt sie zu ersetzen. Die Sitzung beobachtet dann ihre eigenen Prozesse, bis dieser Port
+        erscheint, und wenn er es tut, geht jede Seite und jeder Worker dahinter auf dieselbe Uhr wie die
+        Anwendung.
+      </p>
+      <p>
+        Ein Start, eine Geschwindigkeit, eine Zeitleiste. Eine Geschwindigkeitsänderung oder ein Sprung
+        erreicht die Anwendung und ihre Seiten gemeinsam, und die Timer der Seiten laufen im Tempo der
+        Anwendung statt in einem eigenen.
+      </p>
+      <p>
+        Es ist standardmäßig an und mit einem einzigen Schalter aus, der gar keinen Port öffnet und die
+        Seiten auf der echten Uhr lässt.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Nichts zu konfigurieren - die Engine wird gefunden, wenn sie da ist</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Oder die Seiten in Ruhe lassen und keinen Port öffnen</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Was der Bericht über die Seiten sagt</h2>
+    <div class="prose">
+      <p>
+        Die Seiten werden nicht in die Zahlen der Anwendung eingerechnet. Sie werden als eigene
+        Einheiten gezählt, denn ein Prozess und eine Seite sind verschiedene Dinge, und sie zu addieren
+        würde eine Zahl erfinden, die nichts bedeutet:
+      </p>
+      <ul>
+        <li>Die Kopfzeile zählt beide - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Jede Seite bekommt eigene Zeilen, etwa <code>context 1: page Date.now (12 calls)</code> auf
+          der Kommandozeile und <em>page Date.now - fake clock</em> in der Prüftabelle des Fensters.</li>
+        <li>Die erreichte Engine wird mit ihrem Port genannt, damit Sie Ihre eigenen DevTools genau auf die
+          Seiten richten können, die die Sitzung steuert.</li>
+      </ul>
+      <p>
+        Ein Probelauf sagt, ob die Seiten erreicht würden, bevor irgendetwas gestartet wird.
+        <a href="/de/zeitquellen-pruefung/">Was die Urteile bedeuten &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Drei Einschränkungen, die man vor dem Start kennen sollte</h2>
+
+    <div class="note warning">
+      <p><strong>Ein Debug-Port steht offen, solange die Engine läuft.</strong></p>
+      <p>
+        Er lauscht nur auf diesem Computer, ist aber für <em>jedes</em> Programm auf diesem Computer offen,
+        solange die Engine läuft, und alles, was ihn erreicht, kann diese Seiten steuern. Die Sitzung
+        warnt jedes einzelne Mal davor, wenn einer geöffnet wurde, und nennt den Port, statt ihn abstrakt
+        zu erwähnen. Verwenden Sie auf einem gemeinsam genutzten oder nicht vertrauenswürdigen Rechner den
+        Schalter, der nichts öffnet.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Eine mit erhöhten Rechten laufende Anwendung ist außer Reichweite.</strong></p>
+      <p>
+        Eine Engine, die eine Anwendung mit erhöhten Rechten hostet, ignoriert die Variablen, die die
+        Sitzung setzt, sodass ihre Seiten auf der echten Uhr bleiben. Das ist die eigene Regel der Engine,
+        keine Einstellung, und von außen gibt es keinen Weg daran vorbei.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Eine solche Sitzung meldet PARTIAL, und das ist die ehrliche Antwort.</strong></p>
+      <p>
+        Die Hilfsprozesse der Engine und die eigenen nativen Zeitaufrufe des Renderers bleiben auf der
+        echten Uhr. Die Seiten sind auf der Sitzungsuhr und der Rest dieser Familie nicht, deshalb sagt
+        das Urteil <em>teilweise</em> und nennt, was ausgelassen wurde, statt zu einem Bestehen
+        aufzurunden.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Zwei kleinere, klar gesagt. Die Seiten behalten die <strong>Zeitzone dieses Rechners</strong>,
+        sodass eine unabhängige Sitzungszone nur im nativen Modus verfügbar ist. Und ein Timer, der
+        <em>bevor</em> die Sitzung die Seite erreichte, schon geplant war, behält seine alte Rate, genau
+        wie in einer reinen Chromium-Sitzung - die Sitzung warnt, statt Sie schließen zu lassen, es sei
+        nichts passiert.
+      </p>
+      <p>
+        Wird die Engine über eine Browser-Argumente-Richtlinie in der Registry konfiguriert, hat die
+        Variable der Sitzung für deren Dauer Vorrang, und der Bericht sagt das - denn ein dort
+        eingerichteter Debug-Port wäre nicht angewendet worden.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wie gut ist es getestet</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimentell</strong>, mit derselben festen Bedeutung wie anderswo hier: Es funktioniert
+        an den Zielen, für die es gebaut wurde, wurde nicht breit getestet, und die eingebaute Prüfung ist
+        Ihre Quelle der Wahrheit, nicht diese Seite. Es wurde von Hand an einem WebView2-Host und einem
+        Qt-WebEngine-Host unter 64-Bit-Windows gemessen, nicht mit der automatisierten Suite. In diesen
+        Läufen lasen die Seiten das Jahr der Sitzung in deren Rate und folgten einem Sprung.
+      </p>
+      <p>
+        Unter 32-Bit-Windows gibt es eine Besonderheit, die man besser kennt, als sie zu entdecken: Die
+        WebView2-Laufzeit ist 64-Bit, auch wenn die Anwendung, die sie hostet, 32-Bit ist, sodass eine
+        32-Bit-Sitzung die Prozesse der Engine und ihre Rollen nicht benennen kann. Der Kanal zu den
+        Seiten funktioniert trotzdem. Der Bericht ist nur weniger konkret darüber, was er nicht
+        identifizieren konnte, und sagt, welcher der beiden Fälle es ist.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/faq/">Die FAQ lesen</a>
+    </div>
+  </section>
+
+</div>

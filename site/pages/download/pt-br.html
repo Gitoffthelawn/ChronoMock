@@ -1,0 +1,129 @@
+<!-- Página de download, português do Brasil. Estrutura, classes e marcadores como em en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Baixar o Chrono Mock</h1>
+    <p class="sub">
+      Duas versões do mesmo motor: uma janela para explorar e uma linha de comando para CI. Descompacte
+      qualquer uma em qualquer lugar e execute - não há instalador, nada é gravado no registro e não são
+      necessários direitos de administrador.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Obter a versão mais recente</a>
+      <a class="btn btn-ghost" href="{{repo}}">Ver o código no GitHub</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Arquivo</th><th>O que é</th><th>Tamanho</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>O aplicativo de desktop, autossuficiente - não precisa instalar o .NET</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Só a ferramenta de linha de comando, para CI e scripts</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que você precisa</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 ou Windows 11.</strong> Não há versão para macOS nem Linux - no Linux, o
+          <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> já cobre bem esse caso.</li>
+        <li><strong>Nada mais.</strong> A versão de desktop traz o próprio ambiente de execução, e a versão
+          de linha de comando não traz nada.</li>
+        <li><strong>Aplicativos de 32 e de 64 bits são compatíveis.</strong> O pacote traz os dois e
+          escolhe o que corresponde ao aplicativo para o qual você o aponta.</li>
+      </ul>
+      <p>
+        ARM64 está fora do escopo até a versão 1.0, e aplicativos empacotados da Store (UWP e MSIX) não
+        são compatíveis - o modelo de inicialização deles não permite.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Como executar</h2>
+    <div class="prose">
+      <p>
+        Descompacte e execute <code>ChronoMock.exe</code> para a janela ou <code>chrono.exe</code> para a
+        linha de comando. Uma primeira sessão são três decisões: qual aplicativo, qual momento e com que
+        velocidade o relógio deve correr.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Executar um aplicativo como se fosse o último segundo de 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># O mesmo, com o relógio correndo um dia por minuto</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Duas coisas para ler antes</h2>
+
+    <div class="note warning">
+      <p><strong>Faça backup do diretório de dados do aplicativo antes da sua primeira sessão com data no
+        futuro.</strong></p>
+      <p>
+        Um aplicativo rodando em 2028 grava datas de 2028 em qualquer lugar onde guarde dados: o banco de
+        dados, a configuração, o cache, o arquivo de licença. Esses valores continuam lá depois que você
+        volta para a hora real. Em software com proteção de licença, isso pode ser permanente -
+        <em>“retrocesso de relógio detectado, licença invalidada”</em> é um padrão comum do setor, e vai
+        fazer exatamente aquilo para o que foi projetado.
+      </p>
+      <p>
+        O Chrono Mock limpa o que ele mesmo suja. Ele não consegue limpar o que o aplicativo que você
+        testou sujou.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Seu antivírus pode alertar, e isso é esperado.</strong></p>
+      <p>
+        O tempo é deslocado injetando uma pequena biblioteca no processo alvo. É uma técnica legítima e
+        documentada do Windows - e também uma técnica que o malware usa, então o Microsoft Defender e
+        outros podem sinalizar a biblioteca injetada ou bloquear a injeção por completo. É um falso
+        positivo disparado pela técnica.
+      </p>
+      <p>
+        Se uma sessão se recusar a iniciar e o Defender relatar uma ameaça, exclua a biblioteca, não a
+        pasta: escolha <strong>Arquivo</strong> na Segurança do Windows e informe o caminho completo de
+        <code>chrono_hook.dll</code>. Uma exclusão de pasta impediria que qualquer coisa fosse verificada
+        no próprio diretório de onde a ferramenta injeta. Ou execute em uma máquina onde você tenha
+        permissão para isso. A biblioteca injetada é compilada a partir do código deste repositório sob a
+        GPL-3.0 - você mesmo pode recompilá-la. O modo Chromium e Electron não injeta nada e não é
+        afetado.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que ele deixa para trás</h2>
+    <div class="prose">
+      <p>
+        Nada no seu sistema: nenhum hook persistente, nenhuma entrada de registro e nada fora da própria
+        pasta, exceto três coisas que ele informa - o histórico de sessões e o log de diagnóstico, que
+        passam para <code>%LOCALAPPDATA%\ChronoMock\</code> quando a pasta da ferramenta não é gravável,
+        e, para um alvo Electron ou Chromium, um perfil de navegador descartável em <code>%TEMP%</code>
+        que é apagado quando a sessão termina e, se não puder ser, aparece no resumo da sessão.
+      </p>
+      <p>
+        Ele nunca se conecta à internet, não mantém conta e não envia telemetria.
+      </p>
+    </div>
+  </section>
+
+</div>

@@ -1,0 +1,194 @@
+<!-- L'audit des sources de temps, français. Structure, classes et jetons comme dans en.html.
+
+     Le rapport de session ci-dessous est une sortie réelle et reste en anglais : le programme est en
+     anglais. L'avertissement réseau qu'il contient est authentique - cette sonde ouvre une connexion
+     exprès, et c'est précisément le cas pour lequel l'avertissement existe. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Comment savoir si cela a fonctionné&nbsp;?</h1>
+    <p class="sub">
+      Avec tous les autres outils de ce genre, vous ne le savez pas. L'application démarre, affiche une
+      date, et vous supposez. Mais elle peut lire l'horloge par une voie que rien n'a interceptée - et
+      alors <em>«&nbsp;le test est passé&nbsp;»</em> ne veut plus rien dire.
+    </p>
+  </section>
+
+  <section>
+    <h2>L'échec qui n'a aucun symptôme</h2>
+    <div class="prose">
+      <p>
+        Un outil de décalage du temps qui manque un canal ne plante pas et n'avertit pas. L'application
+        lit simplement la vraie date par la seule fonction que personne n'a interceptée, et se comporte
+        exactement comme elle l'aurait fait un après-midi ordinaire. Le test passe au vert. Le bug est
+        livré.
+      </p>
+      <p>
+        RunAsDate est honnête à ce sujet dans sa propre documentation - il dit qu'il
+        <strong>«&nbsp;n'affectera pas les applications qui obtiennent la date et l'heure courantes d'une
+        autre source&nbsp;»</strong> - puis vous laisse déterminer si la vôtre en fait partie. Cet outil
+        traite cette même phrase comme quelque chose à mesurer.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce qu'une session rapporte réellement</h2>
+    <div class="prose">
+      <p>
+        Sortie réelle, issue de l'exécution de l'outil sur l'une des sondes de test de ce projet - une qui
+        ouvre délibérément une connexion réseau :
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Les deux derniers blocs sont l'essentiel. Rien n'a échoué ici - le verdict est
+        <strong>fonctionne</strong> - et le rapport dit pourtant, sans qu'on le lui demande, que cette
+        application a parlé au réseau avant d'avoir fini, si bien qu'un hook local n'est peut-être pas
+        toute l'histoire. Cette phrase fait la différence entre un test auquel on peut se fier et un test
+        auquel on ne le peut pas.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="L'écran de résultat de Chrono Mock avec What the application read ouvert : un tableau Function, Read from et Reads. NtCreateUserProcess est marqué comme lu sur l'horloge réelle par conception et connect comme lu sur l'horloge réelle par conception et accroché tardivement, tandis que les autres lignes - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation et le reste - lisent sur l'horloge factice, chacune avec son propre compte. Deux avertissements se trouvent sous le tableau.">
+      <figcaption>La même réponse dans la fenêtre. Chaque fonction que l'application aurait pu appeler, ce
+        sur quoi elle a réellement lu, et combien de fois - y compris celles laissées exprès sur l'horloge
+        réelle, qui sont nommées plutôt que comptées discrètement comme un succès.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Quatre verdicts, et un code de sortie pour chacun</h2>
+    <div class="prose">
+      <p>
+        Le verdict est établi de l'intérieur du processus en cours, avant que vous commenciez à travailler,
+        et c'est le propre code de sortie de l'outil, de sorte qu'un pipeline peut bifurquer dessus.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Verdict</th><th>Sortie</th><th>Signification</th></tr></thead>
+        <tbody>
+          <tr><td class="y">fonctionne</td><td>0</td><td>tout processus qui a lu l'heure a vu l'horloge de la session</td></tr>
+          <tr><td>fonctionne partiellement</td><td>10</td><td>certains canaux couverts, d'autres non - ceux qui ne le sont pas sont listés</td></tr>
+          <tr><td class="n">ne fonctionne pas</td><td>11</td><td>la substitution n'a pas atteint les canaux essentiels</td></tr>
+          <tr><td>indéterminé</td><td>4</td><td>la couverture n'a pas pu être établie - un honnête «&nbsp;je ne sais pas&nbsp;»</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Quand le verdict est «&nbsp;ne fonctionne pas&nbsp;», le processus est arrêté
+        immédiatement</strong>, avant que vous puissiez interagir avec lui. Le verdict ne peut pas précéder
+        le lancement, car la seule source de vérité est une mesure prise de l'intérieur du processus en
+        cours. Ce qui est garanti, c'est que vous apprenez la vérité avant de commencer à travailler - pas
+        qu'un lancement voué à l'échec n'a jamais lieu. Vous pouvez passer outre et continuer, et la
+        session est alors marquée comme non fiable partout où elle apparaît, y compris dans toute preuve
+        que vous exportez.
+      </p>
+      <p>
+        Trois autres codes existent pour des choses qui ne sont pas des verdicts du tout : <code>1</code>
+        pour une erreur d'utilisation, <code>2</code> quand la cible n'a pas pu être lancée ou injectée, et
+        <code>12</code> quand la cible a disparu d'une façon qui laisse penser qu'une application à
+        instance unique a passé la main à une copie déjà en cours.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Couverts, observés, non couverts</h2>
+    <div class="prose">
+      <p>Les canaux tombent dans trois catégories, et celle du milieu est la plus intéressante.</p>
+      <ul>
+        <li><strong>Couverts</strong> - interceptés et substitués. L'application a demandé, et a reçu
+          l'horloge de la session. Le nombre d'appels dit combien de fois.</li>
+        <li><strong>Observés</strong> - interceptés, comptés, et délibérément laissés à dire la vérité. Le
+          compteur haute résolution est ici par défaut parce que sa mise à l'échelle a déstabilisé le
+          rendu. Les minuteurs multimédias sont ici parce que les mettre à l'échelle décalerait le timing
+          audio et MIDI. Les connexions réseau et un chemin de création de processus sont ici parce que ce
+          sont des indices, pas des horloges.</li>
+        <li><strong>Non couverts</strong> - un canal que l'application a lu et que la substitution n'a pas
+          atteint. C'est ce qui fait passer un verdict à <em>fonctionne partiellement</em>, et il est
+          listé par son nom plutôt que résumé.</li>
+      </ul>
+      <p>
+        Un compte de zéro est aussi une information : le canal était intercepté et l'application n'a
+        jamais demandé. C'est pourquoi le rapport les liste au lieu de les cacher.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce que l'audit ne peut pas voir</h2>
+    <div class="prose">
+      <p>
+        Le rapport est honnête sur la couverture, ce qui implique d'être honnête sur ses propres limites.
+        Ces lectures se font sans aucun appel de fonction à intercepter, ou entièrement hors du
+        processus :
+      </p>
+      <ul>
+        <li>les lectures directes de la page de données partagée en mode utilisateur - la valeur est en
+          mémoire, il n'y a donc rien à intercepter. Rare dans les applications ordinaires, courant dans le
+          code de licence et d'antifalsification</li>
+        <li>les appels système directs qui contournent les exports standard - même schéma</li>
+        <li>l'heure obtenue hors processus, par WMI, un serveur COM hors processus ou RPC</li>
+        <li>l'heure venue du réseau - un en-tête HTTP <code>Date</code>, NTP, une réponse d'API, ou
+          l'horloge propre d'un serveur de base de données</li>
+        <li>l'heure venue de pilotes en mode noyau</li>
+      </ul>
+      <p>
+        Le cas du réseau est celui que l'audit peut au moins <em>remarquer</em>, c'est pourquoi
+        l'avertissement du rapport ci-dessus existe. Pour le reste, un verdict <em>fonctionne</em> signifie
+        que les canaux que cet outil peut voir ont été couverts - pas qu'aucune autre voie n'existe.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dans un pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> émet les mêmes faits sous forme lisible par une machine, <code>--report</code>
+        écrit la version pour humains dans un fichier, et une session dont le verdict est autre chose que
+        <em>fonctionne</em> place en tête de ce fichier un bandeau de preuve peu fiable plutôt que de
+        l'enfouir en bas.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>L'essayer</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/fr/telecharger/">Télécharger pour Windows</a>
+      <a class="btn btn-ghost" href="/fr/alternative-a-runasdate/">Comparé à RunAsDate</a>
+    </div>
+  </section>
+
+</div>

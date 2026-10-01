@@ -1,0 +1,138 @@
+<!-- So sánh với RunAsDate, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Một lựa chọn thay thế RunAsDate, với những phần còn thiếu</h1>
+    <p class="sub">
+      <a href="https://www.nirsoft.net/utils/run_as_date.html">RunAsDate</a> đã nhiều năm là câu trả lời
+      cho <em>“chạy chương trình này ở một ngày khác trên Windows”</em>, và nó là một câu trả lời tốt. Trang
+      này nói về chỗ hai công cụ khác nhau, và chỗ RunAsDate vẫn là lựa chọn tốt hơn.
+    </p>
+  </section>
+
+  <section>
+    <h2>So sánh song song</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Chạy một ứng dụng ở ngày giả</td><td class="y">có</td><td class="y">có</td></tr>
+          <tr><td>Không đụng đến đồng hồ hệ thống</td><td class="y">có</td><td class="y">có</td></tr>
+          <tr><td>Hàm thời gian bị chặn</td><td class="n">5</td><td class="y">{{channel_count}} kênh</td></tr>
+          <tr><td>Đồng hồ nhanh hơn thời gian thật</td><td class="n">không cung cấp</td><td class="y">mọi hệ số nhân nguyên</td></tr>
+          <tr><td>Đóng băng đồng hồ</td><td class="n">không cung cấp</td><td class="y">có</td></tr>
+          <tr><td>Nhảy khi ứng dụng đang chạy</td><td class="n">không cung cấp</td><td class="y">tiến và lùi</td></tr>
+          <tr><td>Múi giờ chỉ cho tiến trình đó</td><td class="n">không có tài liệu</td><td class="y">có, độ lệch cố định</td></tr>
+          <tr><td>Tiến trình con kế thừa phiên</td><td class="n">không có tài liệu</td><td class="y">có</td></tr>
+          <tr><td>Cho bạn biết có hiệu quả hay không</td><td class="n">không</td><td class="y">kết luận, theo từng kênh, kèm số lần gọi</td></tr>
+          <tr><td>Ứng dụng Electron và Chromium</td><td class="n">không cung cấp</td><td class="y">cơ chế riêng</td></tr>
+          <tr><td>Dòng lệnh cho CI</td><td class="y">có</td><td class="y">có, với mã thoát và JSON</td></tr>
+          <tr><td>Mã nguồn</td><td class="n">freeware, đóng</td><td class="y">GPL-3.0</td></tr>
+          <tr><td>Dung lượng</td><td class="y">dưới 40 KB</td><td class="n">CLI 1,6 MB, 69 MB kèm cửa sổ</td></tr>
+          <tr><td>Phiên bản Windows cũ</td><td class="y">tận Windows 2000</td><td class="n">Windows 10 và 11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:18px">
+      <em>“Không có tài liệu”</em> nghĩa là tính năng không được nhắc đến trên trang của RunAsDate.
+      Đó không phải khẳng định rằng công cụ thiếu nó.
+    </p>
+  </section>
+
+  <section>
+    <h2>Khác biệt quan trọng nhất</h2>
+    <div class="prose">
+      <p>
+        Đó không phải số lượng kênh. Mà là việc RunAsDate nói thẳng, trong tài liệu của chính nó, rằng nó
+        <strong>“sẽ không ảnh hưởng đến các ứng dụng lấy ngày/giờ hiện tại từ một nguồn khác”</strong> - rồi
+        để bạn tự tìm hiểu xem ứng dụng của bạn có thuộc nhóm đó không.
+      </p>
+      <p>
+        Chrono Mock coi chính câu đó là điều cần <strong>đo</strong>. Mỗi phiên kết thúc bằng một kết luận,
+        các kênh mà ứng dụng thực sự đã đọc kèm số đếm của từng kênh, các kênh bị bỏ sót, và một cảnh báo khi
+        ứng dụng bị bắt gặp mở một kết nối mạng trước cả khi nó hỏi đồng hồ.
+      </p>
+      <p>
+        Một ứng dụng trông như đã bị dịch chuyển thời gian mà thực ra không còn tệ hơn một ứng dụng chưa từng
+        khởi chạy - nó tạo ra một bài kiểm thử đã qua mà chẳng có nghĩa gì.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Kiểm toán hoạt động thế nào &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Năm hàm, hay {{channel_count}} kênh</h2>
+    <div class="prose">
+      <p>
+        RunAsDate chặn <code>GetSystemTime</code>, <code>GetLocalTime</code>,
+        <code>GetSystemTimeAsFileTime</code>, <code>NtQuerySystemTime</code> và
+        <code>GetSystemTimePreciseAsFileTime</code>. Với rất nhiều ứng dụng, thế là thực sự đủ, vì đó là nơi
+        đồng hồ treo tường được đọc.
+      </p>
+      <p>
+        Phần còn lại của bề mặt là nơi mã phụ thuộc vào ngày tháng thường ẩn nấp:
+      </p>
+      <ul>
+        <li><strong>múi giờ</strong> - bốn hàm, cộng cả họ hàm chuyển đổi giữa các múi giờ, chính là cách một
+          báo cáo rơi vào sai ngày</li>
+        <li><strong>trục thời gian đã trôi</strong> - số tick và thời gian ngắt không thiên lệch, thứ mà phần
+          đếm ngược của bản dùng thử thường đo</li>
+        <li><strong>sleep và chờ</strong>, để một độ trễ là độ trễ trên đồng hồ phiên chứ không phải đồng hồ
+          thật</li>
+        <li><strong>bộ hẹn giờ</strong> - waitable, cửa sổ, thread-pool và đa phương tiện</li>
+        <li><strong>việc tạo tiến trình</strong>, để các tiến trình con của trình cài đặt chạy trong cùng
+          phiên chứ không ở thời điểm hiện tại</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Khi nào RunAsDate là lựa chọn tốt hơn</h2>
+    <div class="prose">
+      <p>Thực sự, và không hiếm:</p>
+      <ul>
+        <li><strong>Bạn cần một ngày, ở tốc độ bình thường, ngay lúc này.</strong> RunAsDate dưới 40 KB,
+          không có cửa sổ để học và đã làm đúng việc này nhiều năm.</li>
+        <li><strong>Bạn đang dùng Windows cũ hơn.</strong> RunAsDate chạy tận Windows 2000. Công cụ này nhắm
+          tới Windows 10 và 11 và không được kiểm thử trên bản nào cũ hơn.</li>
+        <li><strong>Dung lượng quan trọng.</strong> 40 KB so với 1,6 MB cho dòng lệnh, hay 69 MB kèm cửa sổ,
+          không phải một phép so sánh cân xứng.</li>
+        <li><strong>Bạn không muốn có kết luận.</strong> Đo độ bao phủ nghĩa là phải đọc kết quả. Nếu bài
+          kiểm thử chỉ dùng một lần, đó là chi phí mà bạn không yêu cầu.</li>
+      </ul>
+      <p>
+        Hai công cụ cũng có thể cùng tồn tại. Không gì ở đây ngăn bạn giữ RunAsDate cho trường hợp nhanh.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Điều mà cả hai đều không dành cho</h2>
+    <div class="prose">
+      <p>
+        Cả hai công cụ đều xuất hiện trong các tìm kiếm về gia hạn thời gian dùng thử. <strong>Công cụ này
+        không được xây dựng cho việc đó</strong>, và không ví dụ, kịch bản hay trang nào ở đây sẽ từng minh
+        họa nó. Chrono Mock dành để kiểm thử phần mềm mà bạn chịu trách nhiệm - hạn giấy phép của chính bạn,
+        logic gia hạn của chính bạn, báo cáo cuối tháng của chính bạn.
+      </p>
+      <p>
+        Đó cũng là trường hợp ít có khả năng hoạt động nhất. Bảo vệ bản quyền thường đọc giờ qua những đường
+        được chọn để khó chặn - trang dữ liệu dùng chung ở chế độ người dùng, lời gọi hệ thống trực tiếp, một
+        máy chủ - và đồng hồ chạy lùi là điều kiện mà mã như vậy được viết ra để phát hiện. Kiểm toán sẽ cho
+        bạn biết rằng nó không hoạt động, đó là câu trả lời trung thực chứ không phải câu trả lời hữu ích.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/faq/">Đọc FAQ trước</a>
+    </div>
+  </section>
+
+</div>

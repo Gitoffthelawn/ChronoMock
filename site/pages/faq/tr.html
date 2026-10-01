@@ -1,0 +1,200 @@
+<!-- SSS, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynıdır. Her başlık, birinin soruyu yazacağı biçimde yazılmıştır. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Sorular ve cevaplar</h1>
+    <p class="sub">
+      Kısa cevaplar; bu aracın yapmayacağı şeylerle ilgili olanlar dahil.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Bilgisayarımın saatini değiştiriyor mu?</h3>
+      <p>
+        Hayır ve asla değiştirmeyecek - aracın bütün amacı bu. Kaydırılan zaman <strong>tek bir süreç ve
+        başlattığı alt süreçler</strong> tarafından görülür. Etki alanı oturumunuz, sertifikalarınız,
+        Windows Update ve diğer tüm uygulamalar boyunca gerçek tarihi görmeye devam eder.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Yönetici hakkı gerekir mi?</h3>
+      <p>
+        Hayır. Yükleyici yok, kayıt defterine hiçbir şey yazılmaz ve bir USB belleğe koyabileceğiniz bir
+        klasörden çalışır.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Uygulamamla çalışır mı?</h3>
+      <p>
+        Dürüst cevap, bu türden hiçbir aracın bunu önceden vaat edemeyeceği - bu yüzden bu araç bunu
+        ölçüyor. Her oturum bir kararla
+        (<strong>çalışıyor, kısmen çalışıyor, çalışmıyor</strong>), uygulamanın gerçekten okuduğu zaman
+        kanallarının her biri için bir çağrı sayısıyla birlikte listesiyle ve kapsanmayan kanalların
+        listesiyle biter.
+      </p>
+      <p>
+        Bir uygulama saati hiçbir şeyin yakalamadığı bir yoldan okuyabilir - bir sunucudan, bir
+        veritabanından, bir çalışma zamanı katmanından. Bu olduğunda, testin geçtiğini varsaymanıza
+        bırakılmak yerine size söylenir.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>.NET, Java ve Python uygulamalarıyla çalışır mı?</h3>
+      <p>
+        Kısmen ve farklar önemli. Üçü de <strong>deneysel</strong> olarak işaretli: test hedeflerinde
+        çalışırlar, geniş çapta test edilmemişlerdir ve yerleşik denetim, bu paragraf değil, sizin
+        gerçeğin kaynağınızdır.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - duvar saati ve oturum saat dilimi kapsanır.
+          <code>Stopwatch</code>, ölçeklemeyi etkinleştirmediğiniz sürece gerçek yüksek çözünürlüklü
+          sayaçta kalır.</li>
+        <li><strong>Java</strong> - duvar saati, geçen zaman ve oturum saat dilimi kapsanır. Dilim sabit
+          bir kayma olarak gelir ve <code>GMT+05:30</code> gibi adlandırılır.</li>
+        <li><strong>Python</strong> - <code>time.time</code> ve <code>datetime</code> kapsanır.
+          <code>perf_counter</code> ve Python 3.13 ve sonrasında <code>monotonic</code>, etkinleştirmediğiniz
+          sürece yüksek çözünürlüklü sayaç üzerinde durur.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Electron ve Chromium uygulamalarıyla çalışır mı?</h3>
+      <p>
+        Evet, farklı bir mekanizmayla. Saatleri enjeksiyonun ulaşmadığı yalıtılmış bir renderer’da
+        yaşar; bu yüzden uygulama bir hata ayıklama portu ve temiz, tek kullanımlık bir profille başlatılır
+        ve kendi JavaScript zaman API’leri oturum saatine alınır - zamanlayıcının çoğu zaman gerçekten
+        yaşadığı Web Worker’ların içi dahil.
+      </p>
+      <p>
+        Bilmeye değer bir sınırlama: bu kipte oturum ana makinenin saat dilimini izler. An sahtelenir,
+        yerel saat getter’ları sahtelenmez.
+      </p>
+      <p>
+        <a href="/tr/electron-chromium/">Chromium ve Electron kipi nasıl çalışır</a> - neye ulaşır, neye
+        ulaşmaz ve neden hata ayıklama portu dikkat edilmesi gereken kısımdır.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Zamanı gerçek zamandan daha hızlı akıtabilir miyim?</h3>
+      <p>
+        Evet. Tam sayı bir çarpan seçin, uygulamanın saati o hızda çalışır - <code>x1440</code> bir günü
+        bir dakikaya çevirir; yani 30 günlük bir deneme yaklaşık yarım saatte dolar. Saati ayrıca
+        dondurabilir ya da oturum sırasında ileri ve geri atlayabilirsiniz.
+      </p>
+      <p>
+        Geri sayımlar ve zamanlayıcılar ayrı bir eksende durur ve onları hızlandırmak ayrı bir anahtardır;
+        çünkü onları ölçeklemek, birçok uygulamanın bağlı olduğu davranışı değiştirir.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Tarihi değiştirmeden yalnızca saat dilimini değiştirebilir miyim?</h3>
+      <p>
+        Evet. Oturum kendi sabit kaymasını taşır; sistem dilimi tam olarak olduğu yerde kalırken o süreç
+        tarafından görülür. Çoğu aracın atladığı kısım budur ve yalnızca beş saat dilimi ötedeki müşteride
+        ortaya çıkan hatayı bu şekilde yeniden üretirsiniz.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Yaz saati uygulaması ne olacak?</h3>
+      <p>
+        Oturum dilimi, <strong>yaz saati uygulaması olmayan sabit bir kaymadır</strong>. Polonya’ya
+        ayarlanmış bir oturum, saati Mart’ı da gösterse Temmuz’u da gösterse seçtiğiniz kaymada kalır; bu
+        yüzden gerçek bir geçişi aşan bir çalıştırma, o dilimin gerçekte göstereceği saatten bir saat
+        sapar.
+      </p>
+      <p>
+        Bir uygulamayı yaz saati geçişinden geçirmeye zorlamak bu nedenle bu aracın henüz yaptığı bir şey
+        değildir ve tarih hesaplayıcı tahmin etmek yerine bunu söyler.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Antivirüsüm bunu neden işaretliyor?</h3>
+      <p>
+        Çünkü başka bir sürece kitaplık enjekte etmek, kötü amaçlı yazılımların da kullandığı meşru,
+        belgelenmiş bir Windows tekniğidir. Bu, aracın makinenize yaptığı bir şeyin değil, tekniğin
+        tetiklediği bir yanlış pozitiftir. Enjekte edilen kitaplık, genel kaynaktan GPL-3.0 altında
+        derlenen <code>chrono_hook.dll</code>’dir ve kendiniz yeniden derleyebilirsiniz. Chromium ve
+        Electron kipi hiç enjeksiyon yapmaz.
+      </p>
+      <p>
+        <a href="/tr/indir/">İndirme sayfası</a> bu konuda ne yapılacağını söyler.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bu, bir denemeyi uzatmanın ya da bir lisansı atlatmanın yolu mu?</h3>
+      <p>
+        Hayır ve bunun için yapılmadı. Chrono Mock, sorumlu olduğunuz yazılımı test etmek içindir - kendi
+        lisans süresi dolumunuz, kendi yenileme mantığınız, kendi ay sonu raporunuz. Buradaki hiçbir örnek,
+        senaryo ya da sayfa, başkasının deneme süresini uzatmayı asla göstermeyecek.
+      </p>
+      <p>
+        Lisans korumalı yazılım aslında bu aracı yenilgiye uğratma olasılığı en yüksek olan durumdur:
+        kurcalama karşıtı kod sıklıkla zamanı kasıtlı olarak yakalaması zor yollardan okur ve saati geriye
+        almak, bu tür yazılımın tespit etmek üzere yazıldığı bir durumdur. Diğer yönde bir özellik
+        planlanıyor - <em>kendi</em> uygulamanıza karşı bir dizi zaman manipülasyonu çalıştıran ve
+        korumanızın hangilerini yakaladığını bildiren bir kip.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Sürekli entegrasyonda kullanabilir miyim?</h3>
+      <p>
+        Evet. Komut satırı derlemesi, kurulacak çalışma zamanı olmayan, yaklaşık 1,6 MB’lık ayrı bir
+        indirmedir. Her komut <code>--json</code> konuşur ve bir pipeline’ın dallanabileceği bir kodla
+        çıkar; bir oturum da kanıtını bir dosyaya yazabilir.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>RunAsDate’ten farkı ne?</h3>
+      <p>
+        RunAsDate beş duvar saati işlevini yakalar ve bunu iyi yapar. Bu araç {{channel_count}} zaman
+        kanalını kapsar, saati hızlandırabilir, sürece kendi saat dilimini verir, alt süreçleri izler ve
+        sonrasında hangi kanalların gerçekten kapsandığını söyler. Ayrıca RunAsDate kapalı bir freeware
+        iken bu açık kaynaktır.
+      </p>
+      <p>
+        <a href="/tr/runasdate-alternatifi/">Tam karşılaştırma</a> RunAsDate’in daha iyi seçim olduğu
+        yerleri de söylüyor.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bu, Windows için libfaketime mı?</h3>
+      <p>
+        Ruh olarak evet - makine yerine tek bir program için zamanı kaydırma fikri aynı. Pratikte farklı
+        bir uygulamadır; çünkü
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a>, Windows’ta bulunmayan
+        <code>LD_PRELOAD</code>’a dayanır. Tam olarak bununla ilgili
+        <a href="/tr/libfaketime-windows/">bir sayfa</a> var.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Ücretsiz mi ve bir yere bir şey gönderiyor mu?</h3>
+      <p>
+        GPL-3.0 altında ücretsiz ve açık kaynak. Hesap yok, telemetri yok ve internete hiç bağlanmaz -
+        araç tümüyle ağ kablosu çekilmiş halde çalışır.
+      </p>
+      <p>
+        Pencerenin dışarıya götüren tek bir kontrolü var; bunu bulmanızı beklemek yerine adını söylemeye
+        değer: başlık çubuğundaki bir <strong>Donate</strong> düğmesi. Ona basmak tarayıcınıza bir adres
+        verir ve bağlanan tarayıcınızdır. Chrono Mock her iki durumda da bağlantı açmaz ve uygulamanız
+        hakkında ölçtüğü hiçbir şey hiçbir yere gitmez.
+      </p>
+    </div>
+
+  </section>
+
+</div>

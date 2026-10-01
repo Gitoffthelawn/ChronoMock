@@ -1,0 +1,212 @@
+<!-- الصفحة الرئيسية بالعربية. البنية والأصناف والرموز البديلة مطابقة لـ en.html. -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>شغّل تطبيق Windows في <span class="hl">أي تاريخ</span> دون المساس بساعة النظام</h1>
+
+        <p class="lede">
+          اضبط ساعة تطبيق واحد على العام القادم، أو أوقفها، أو <strong>سرّعها حتى تنتهي فترة تجريبية مدتها 30 يومًا بينما تُعدّ فنجان قهوة</strong>. أما بقية الجهاز فتبقى على الوقت الحقيقي، فيستمر تسجيل دخولك إلى النطاق وشهاداتك وكل برنامج آخر في العمل كالمعتاد.
+        </p>
+        <p class="lede">
+          ثم يخبرك هل نجح الاستبدال <strong>فعلًا</strong>.
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/ar/download/">نزّل نسخة Windows</a>
+          <a class="btn btn-ghost" href="{{repo}}">اطّلع على الشيفرة في GitHub</a>
+        </div>
+
+        <p class="trust">
+          <span>مجاني ومفتوح المصدر بترخيص GPL-3.0</span>
+          <span>بلا برنامج تثبيت</span>
+          <span>بلا صلاحيات المسؤول</span>
+          <span>لا يتصل بالإنترنت أبدًا</span>
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="panel-cap">كيف تبدو الجلسة</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">ما يراه التطبيق</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">منطقة الجلسة <span dir="ltr">-05:00</span></div>
+          </div>
+          <div class="clock">
+            <div class="who">ما يزال الجهاز يرى</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">منطقة المضيف <span dir="ltr">+02:00</span></div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>يعمل</b> - وصل الاستبدال إلى هذه العملية</span>
+        </div>
+        <div class="chan">
+          <span>قنوات الوقت المُغطّاة</span>
+          <span class="n">26 من {{channel_count}} &middot; مع عدد الاستدعاءات</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="لوحة الجلسة في Chrono Mock. تُظهر ساعة التطبيق 2038-01-19 03:14:14 وبجانبها الساعة الحقيقية 2026-09-22 15:50:30، ولكل منهما زمنه المنقضي. وتحتهما السرعات من x1 إلى x1440 مع زر Freeze، ثم القفزات النسبية والقفز إلى تاريخ يُكتب، وفي التذييل علامة صح خضراء بجانب كلمة Works وبجانبها زر Stop session الأحمر.">
+      <figcaption>جلسة قيد التشغيل. التطبيق في عام 2038 والجهاز ليس كذلك، والحكم يقول إن الاستبدال وصل إليه.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">لماذا هذه الأداة</p>
+    <h2>اختبار أي شيء يعتمد على التاريخ يعني تحريك الوقت، وكلا الخيارين المعتادين سيئ.</h2>
+    <p class="sub">
+      انتهاء التراخيص، والفترات التجريبية، وتجديد الاشتراكات، وصلاحية الشهادات، وأعمار الرموز المميّزة، وتقارير نهاية الشهر والسنة، واحتساب الفوائد، والتذكيرات.
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">الخيار الأول - تغيير ساعة النظام</p>
+        <p>
+          يُفسد تسجيل الدخول إلى النطاق وKerberos، ويُبطل شهادات TLS فيتوقف المتصفح عن العمل، ويُربك Windows Update، ويجعل كل تطبيق آخر على الجهاز يكتب طوابع زمنية خاطئة. وعلى الجهاز المنضم إلى نطاق تمنع سياسة المجموعة التغيير عادةً أو تعيده بعد دقائق، فلا يصير الاختبار قابلًا للتكرار أصلًا.
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">الخيار الثاني - الانتظار</p>
+        <p>
+          أي: لا تختبر. فتُهمَل الحالات المرتبطة بالتاريخ، ويصل إلى العميل منتج <em>«الترخيص لا ينتهي أبدًا»</em>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>ما الذي يفعله</h2>
+    <p class="sub">عملية واحدة تتحرك عبر الزمن، وكل شيء آخر على الجهاز لا يتحرك.</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>أي لحظة</h3>
+        <p>تاريخ ووقت محدّدان، أو لحظة نسبية - <code>+30 days</code> أو <code>-1 year</code>.</p>
+      </div>
+      <div class="feat">
+        <h3>جارية أو متوقفة أو مُسرَّعة</h3>
+        <p>سرعة عادية، أو ساعة مثبّتة، أو مُضاعِف بعدد صحيح. <code>x1440</code> يحوّل اليوم إلى دقيقة.</p>
+      </div>
+      <div class="feat">
+        <h3>منطقة زمنية خاصة به</h3>
+        <p>إزاحة ثابتة لتلك العملية وحدها، بينما تبقى منطقة النظام كما كانت تمامًا.</p>
+      </div>
+      <div class="feat">
+        <h3>العمليات الفرعية ترافقه</h3>
+        <p>برامج التثبيت والمشغّلات تُنشئ عمليات فرعية. وبدون ذلك يغطي الاختبار نصف ما جرى تشغيله فقط.</p>
+      </div>
+      <div class="feat">
+        <h3>قفز أثناء الجلسة</h3>
+        <p>إلى الأمام أو إلى الخلف - بما في ذلك القفزة إلى الخلف التي يُحدثها الحاسوب المحمول بعد المزامنة مع خادم الوقت.</p>
+      </div>
+      <div class="feat">
+        <h3>Electron وChromium أيضًا</h3>
+        <p>عبر آلية مختلفة، لأن ساعتهما تعيش في عملية عرض معزولة لا يصل إليها الحقن.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">ما لا يفعله أحد غيرنا</p>
+      <h2>كيف تعرف أنه نجح؟</h2>
+      <p class="sub">
+        مع أي أداة أخرى لا تعرف. يبدأ التطبيق ويعرض تاريخًا ما، وأنت تفترض. لكنه قد يقرأ الساعة عبر قناة لم تعترضها الأداة - من خادم، أو من قاعدة بيانات، أو عبر طبقة في بيئة التشغيل - وحينها لا يعني <em>«نجح الاختبار»</em> شيئًا على الإطلاق.
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&larr;</span><span>حكم قبل أن يبدأ الاختبار الحقيقي: <b>يعمل / يعمل جزئيًا / لا يعمل</b></span></li>
+        <li><span class="tick">&larr;</span><span>أيٌّ من <b>قنوات الوقت البالغ عددها {{channel_count}}</b> غُطّيت، وكم مرة استعلم التطبيق عن كل منها</span></li>
+        <li><span class="tick">&larr;</span><span><b>أي القنوات لم تُغطَّ</b> - يُذكر ذلك صراحةً ولا يُحذف أبدًا</span></li>
+        <li><span class="tick">&larr;</span><span>تحذيرات مرفقة بعواقبها: <em>«يقرأ هذا التطبيق الوقت من الشبكة - وقد لا يكفي الاستبدال المحلي»</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/ar/time-source-audit/">كيف يعمل تدقيق مصدر الوقت &larr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>دقيقتان معه</h2>
+    <p class="sub">نافذة للاستكشاف، وسطر أوامر لـ CI. المحرّك نفسه خلف الاثنين.</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># شغّل تطبيقًا كأنه آخر ثانية من عام 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># شاهد فترة تجريبية مدتها 30 يومًا تنتهي وأنت تُعدّ القهوة: المضاعف 1440 يعني يومًا كل دقيقة</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># استخدم سيناريو مسمّى بدل التاريخ، واكتب الأدلة في ملف</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        تجيب الحاسبة عن النصف الآخر من اختبار التواريخ - <em>أي</em> تاريخ تستخدم:
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">مقارنة بما تستخدمه غالبًا</p>
+    <h2>مثل RunAsDate، مع الأجزاء التي كانت ناقصة</h2>
+    <p class="sub">
+      يعترض RunAsDate خمس دوال لساعة الحائط ويؤدي ذلك جيدًا. وفيما يلي الفروق بين الأداتين - وتذكر الصفحة الكاملة أيضًا أين يبقى RunAsDate الخيار الأفضل.
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>يشغّل تطبيقًا واحدًا بتاريخ مزيّف</td><td class="y">نعم</td><td class="y">نعم</td></tr>
+          <tr><td>قنوات الوقت المُعترَضة</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>تسريع الساعة</td><td class="n">لا</td><td class="y">نعم</td></tr>
+          <tr><td>منطقة زمنية مستقلة</td><td class="n">غير موثّق</td><td class="y">نعم</td></tr>
+          <tr><td>يتبع العمليات الفرعية</td><td class="n">غير موثّق</td><td class="y">نعم</td></tr>
+          <tr><td>يخبرك هل نجح</td><td class="n">لا</td><td class="y">نعم، لكل قناة</td></tr>
+          <tr><td>الشيفرة المصدرية متاحة</td><td class="n">برنامج مجاني مغلق المصدر</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/ar/runasdate-alternative/">المقارنة الكاملة، بما فيها المواضع التي يتفوّق فيها RunAsDate &larr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>احصل عليه</h2>
+    <p class="sub">
+      فُكّ الضغط في أي مكان وشغّله. بلا برنامج تثبيت، ولا شيء يُكتب في السجل، ولا صلاحيات مسؤول.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ar/download/">نزّل نسخة Windows</a>
+      <a class="btn btn-ghost" href="{{repo}}">اطّلع على الشيفرة في GitHub</a>
+    </div>
+  </section>
+
+</div>

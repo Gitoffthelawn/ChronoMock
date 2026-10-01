@@ -1,0 +1,124 @@
+<!-- Electron và Chromium, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Làm giả ngày trong một ứng dụng Electron</h1>
+    <p class="sub">
+      Tìm kiếm điều này và mọi câu trả lời đều nói về việc sửa mã của chính bạn - mock đối tượng
+      <code>Date</code>, dùng bộ hẹn giờ giả của framework kiểm thử. Không cái nào giúp được khi thứ bạn
+      có là một ứng dụng đã dựng sẵn. Công cụ này chạy chính ứng dụng mà bạn đã có.
+    </p>
+  </section>
+
+  <section>
+    <h2>Vì sao việc chèn mã không đến được nó</h2>
+    <div class="prose">
+      <p>
+        Chế độ này tồn tại vì một thất bại cụ thể. Một bộ đếm Pomodoro xây trên Electron được chạy trong
+        phiên <code>x60</code> và phần đếm ngược của nó hoàn toàn không nhúc nhích. Việc tháo gói của ứng
+        dụng ra cho thấy hai nguyên nhân độc lập, và không cái nào có cách khắc phục ở phía native:
+      </p>
+      <ul>
+        <li>Phần đếm ngược không đọc đồng hồ. Nó là một <strong>bộ đếm được tăng bởi
+          <code>setInterval</code></strong>, chạy bên trong một Web Worker. Không có lệnh gọi thời gian nào
+          để chặn, vì ứng dụng chưa bao giờ hỏi mấy giờ.</li>
+        <li>Worker đó sống trong một <strong>tiến trình renderer bị cô lập</strong>, đúng nơi mà một thư
+          viện được chèn từ bên ngoài không vào được.</li>
+      </ul>
+      <p>
+        Vì vậy cơ chế phía Windows không giúp được ở đây, và câu trả lời là nói chuyện với chính engine
+        JavaScript của ứng dụng.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Thay vào đó điều gì xảy ra</h2>
+    <div class="prose">
+      <p>
+        Ứng dụng được khởi chạy với một cổng gỡ lỗi và một hồ sơ sạch dùng một lần, và các API thời gian của
+        riêng nó được đặt lên đồng hồ của phiên qua giao thức DevTools - <code>Date.now</code>, hàm tạo
+        <code>new Date()</code>, <code>performance.now</code>, <code>setTimeout</code> và
+        <code>setInterval</code>.
+      </p>
+      <p>
+        Phần ghi đè được cài vào mọi ngữ cảnh mà ứng dụng mở ra, <strong>kể cả các Web Worker của
+        nó</strong> - nơi bộ hẹn giờ thường hóa ra nằm, và là chỗ duy nhất mà việc chèn mã native chưa bao
+        giờ có thể với tới.
+      </p>
+      <p>
+        Không có gì thay đổi về cách bạn điều khiển nó. Cùng một lệnh, cùng một cửa sổ, cùng bảng điều khiển
+        phiên với hai đồng hồ và kết luận.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Cùng lệnh như với ứng dụng native - chế độ được tự phát hiện</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Hai giới hạn đáng biết trước khi bắt đầu</h2>
+
+    <div class="note warning">
+      <p><strong>Việc khởi chạy mang tính xâm lấn, và cố ý nói to điều đó.</strong></p>
+      <p>
+        Ứng dụng được khởi động với cổng gỡ lỗi từ xa mở và một hồ sơ mới, cô lập trong
+        <code>%TEMP%</code> - nó không chạy trên hồ sơ thật của bạn, và cũng không phải bản đã có sẵn trong
+        khay hệ thống. Hồ sơ bị xóa khi phiên kết thúc, và nếu không xóa được, bản tóm tắt phiên sẽ nói ra
+        thay vì lặng lẽ để lại.
+      </p>
+      <p>
+        Việc truyền vào <code>--user-data-dir</code> hoặc <code>--remote-debugging-port</code> của riêng bạn
+        bị từ chối chứ không bị ghi đè, vì tai nạn dễ xảy ra nhất - trỏ phiên vào hồ sơ trình duyệt thật của
+        bạn - không đáng để cho phép.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Múi giờ của phiên đi theo máy chủ.</strong></p>
+      <p>
+        Ở chế độ này, thời điểm là giả, nhưng các hàm lấy giờ địa phương thì không, nên
+        <a href="/vi/kiem-thu-mui-gio/">múi giờ độc lập</a> chỉ là tính năng của chế độ native. Đó là hạn chế
+        của phiên bản này, không phải một quyết định.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Một điều nữa khiến người ta bất ngờ: một khoảng lặp <em>đã được lên lịch</em> giữ nguyên nhịp cũ khi
+        bạn đổi tốc độ giữa phiên. <code>Date.now</code>, <code>new Date()</code> và
+        <code>performance.now</code> phản ứng ngay, còn một <code>setInterval</code> đang chạy thì không,
+        và phiên sẽ cảnh báo về điều đó thay vì để bạn kết luận rằng thay đổi chẳng làm gì cả.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Được kiểm thử tốt đến đâu</h2>
+    <div class="prose">
+      <p>
+        <strong>Thử nghiệm</strong>, và từ này có nghĩa xác định ở đây: nó hoạt động trên các mục tiêu mà nó
+        được xây dựng để chống lại, chưa được kiểm thử rộng rãi, và kiểm toán tích hợp sẵn là nguồn chân lý
+        của bạn chứ không phải trang này. Nó được xác minh thủ công, không phải bằng bộ kiểm thử tự động,
+        trên một ứng dụng Electron thật chạy Windows 64-bit.
+      </p>
+      <p>
+        Độ bao phủ được báo cáo theo từng ngữ cảnh JavaScript thay vì theo tiến trình, vì đó là đơn vị tồn
+        tại ở đây. Một ứng dụng đứng yên và không bao giờ hỏi giờ sẽ trung thực cho ra
+        <em>chưa xác định</em> - nó không đọc đồng hồ, nên không thể khẳng định gì về việc nó có thấy đúng
+        giờ hay không.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Các kết luận có nghĩa là gì &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/faq/">Đọc FAQ</a>
+    </div>
+  </section>
+
+</div>

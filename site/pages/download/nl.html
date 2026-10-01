@@ -1,0 +1,130 @@
+<!-- Downloadpagina, Nederlands. Structuur, klassen en tokens zoals in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Chrono Mock downloaden</h1>
+    <p class="sub">
+      Twee builds van dezelfde engine: een venster om te verkennen en een opdrachtregel voor CI. Pak een
+      van beide ergens uit en start hem - er is geen installatieprogramma, er wordt niets in het register
+      geschreven en beheerdersrechten zijn niet nodig.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Download de nieuwste release</a>
+      <a class="btn btn-ghost" href="{{repo}}">Bekijk de code op GitHub</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Bestand</th><th>Wat het is</th><th>Grootte</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>De desktopapplicatie, zelfstandig - geen .NET-installatie nodig</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Alleen het opdrachtregelprogramma, voor CI en scripts</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat je nodig hebt</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 of Windows 11.</strong> Er is geen build voor macOS of Linux - op Linux
+          dekt <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> dit al goed.</li>
+        <li><strong>Verder niets.</strong> De desktopbuild brengt zijn eigen runtime mee, en de
+          opdrachtregelbuild brengt helemaal niets mee.</li>
+        <li><strong>Zowel 32-bits als 64-bits applicaties worden ondersteund.</strong> Het pakket bevat
+          beide en kiest degene die past bij de applicatie waarop je het richt.</li>
+      </ul>
+      <p>
+        ARM64 valt tot en met versie 1.0 buiten de scope, en verpakte Store-applicaties (UWP en MSIX)
+        worden niet ondersteund - hun startmodel staat het niet toe.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Starten</h2>
+    <div class="prose">
+      <p>
+        Pak uit en start <code>ChronoMock.exe</code> voor het venster of <code>chrono.exe</code> voor de
+        opdrachtregel. Een eerste sessie bestaat uit drie keuzes: welke applicatie, welk moment en hoe snel
+        de klok moet lopen.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Een applicatie draaien alsof het de laatste seconde van 2027 is</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Hetzelfde, met de klok die een dag per minuut loopt</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Twee dingen om eerst te lezen</h2>
+
+    <div class="note warning">
+      <p><strong>Maak een back-up van de gegevensmap van de applicatie voordat je je eerste sessie in de
+        toekomst start.</strong></p>
+      <p>
+        Een applicatie die in 2028 draait, schrijft datums uit 2028 overal waar ze gegevens opslaat: haar
+        database, haar configuratie, haar cache, haar licentiebestand. Die waarden blijven daar staan nadat
+        je terug bent naar de echte tijd. Bij software met licentiebeveiliging kan dit blijvend zijn -
+        <em>“terugdraaien van de klok gedetecteerd, licentie ongeldig”</em> is een standaardpatroon in de
+        branche, en het doet precies waarvoor het ontworpen is.
+      </p>
+      <p>
+        Chrono Mock ruimt achter zichzelf op. Het kan niet opruimen achter de applicatie die je hebt
+        getest.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Je antivirus kan waarschuwen, en dat is te verwachten.</strong></p>
+      <p>
+        De tijd wordt verschoven door een kleine bibliotheek in het doelproces te injecteren. Dat is een
+        legitieme, gedocumenteerde Windows-techniek - en het is ook een techniek die malware gebruikt,
+        dus Microsoft Defender en andere kunnen de geïnjecteerde bibliotheek markeren of de injectie
+        helemaal blokkeren. Het is een vals alarm, veroorzaakt door de techniek.
+      </p>
+      <p>
+        Als een sessie weigert te starten en Defender een bedreiging meldt, sluit dan de bibliotheek uit
+        en niet de map: kies <strong>Bestand</strong> in Windows-beveiliging en geef het volledige pad naar
+        <code>chrono_hook.dll</code>. Een map-uitsluiting zou verhinderen dat er iets gescand wordt in
+        precies de map waaruit het gereedschap injecteert. Of draai het op een machine waar je dat mag. De
+        geïnjecteerde bibliotheek wordt gebouwd uit de code in deze repository onder GPL-3.0 - je kunt haar
+        zelf opnieuw bouwen. De Chromium- en Electron-modus injecteert helemaal niet en wordt er niet door
+        geraakt.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Wat het achterlaat</h2>
+    <div class="prose">
+      <p>
+        Niets in je systeem: geen blijvende hooks, geen registervermeldingen en niets buiten de eigen
+        map, behalve drie dingen die het voor je noemt - de sessiegeschiedenis en het diagnoselogboek, die
+        naar <code>%LOCALAPPDATA%\ChronoMock\</code> verhuizen als de map van het gereedschap niet
+        beschrijfbaar is, en, voor een Electron- of Chromium-doel, een wegwerpbrowserprofiel onder
+        <code>%TEMP%</code> dat aan het einde van de sessie wordt verwijderd en, als dat niet lukte, in
+        de sessiesamenvatting wordt gemeld.
+      </p>
+      <p>
+        Het maakt nooit verbinding met internet, houdt geen account bij en verstuurt geen telemetrie.
+      </p>
+    </div>
+  </section>
+
+</div>

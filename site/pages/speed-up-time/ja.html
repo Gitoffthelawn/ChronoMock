@@ -1,0 +1,113 @@
+<!-- 時計の加速（日本語）。構造・クラス・トークンは en.html と同じ。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>1 つのアプリの時計だけを速く進める</h1>
+    <p class="sub">
+      時間を動かせなければ、30 日間の試用期間が切れるのに 30 日かかります。よくある助言はシステム時計を進めることですが、それには管理者権限が必要で、マシン上のほかのすべてのプログラムも道連れになります。これは、代わりに 1 つのプロセスだけを動かします。
+    </p>
+  </section>
+
+  <section>
+    <h2>どのくらい速く</h2>
+    <div class="prose">
+      <p>
+        整数の倍率を選びます。アプリの時計は、セッションが始まった時点から、実際の時計の指定した倍の速さで進みます。
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>倍率</th><th>実時間の 1 分が変わるもの</th><th>用途</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>1 時間</td><td>毎時のジョブ、セッションのタイムアウト、トークンの寿命</td></tr>
+          <tr><td><code>x1440</code></td><td>1 日</td><td>日次の切り替え、30 日間の試用期間を 30 分で</td></tr>
+          <tr><td><code>x43200</code></td><td>30 日間の試用期間</td><td>これを読んでいる間に試用期間全体が終わるのを見る</td></tr>
+          <tr><td><code>x525600</code></td><td>1 年</td><td>年次の更新、証明書の期限切れ</td></tr>
+          <tr><td><code>x1000000</code></td><td>約 1.9 年</td><td>上限</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># いまの実時間から始めて、1 分で 1 日の速さで進める</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># 選んだ日付から始めて、そこから加速する</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># 逆に、時計を完全に止めておく</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="別の Windows アプリを操作しているセッションの録画。左のウィンドウは Chrono Mock で、アプリの時計が 2038-01-19 を実速度の 60 倍で進み、隣の実際の時計は数秒しか動きません。右のウィンドウはテスト対象のアプリで、そのセッション記録は 2038-01-19 に開始し、その間に部屋の中ではわずか 30 秒ほどしか経っていないのに、数分間動いていることを示しています。">
+      <figcaption>実際のアプリを操作している、実際のセッションです。右側のウィンドウに注目してください。テスト対象のプログラムは自身の開始を <strong>2038 年 1 月 19 日</strong>と記録し、部屋の時計が数秒しか動いていない間に、そのセッションは数分続いています。速度は、何も再起動せずに実行中に変更されます。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>つまずきやすい点: 時計は 2 つある</h2>
+    <div class="prose">
+      <p>
+        <strong>壁時計</strong>、つまり <code>DateTime.Now</code> やその同等物が返すものを加速しても、それだけでは<strong>カウントダウン</strong>は速くなりません。これらは、アプリがオペレーティングシステムに尋ねられる 2 つの別の問いであり、多くのソフトウェアは「30 日」を前者ではなく後者で測っています。
+      </p>
+      <p>
+        そのため、経過時間の軸、つまりティック数、スリープ、待機、タイマーは、別のスイッチになっています。
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> は、スリープ、待機、タイマーもセッションの時計に載せます。これがないと、<code>x1440</code> はカレンダーを猛スピードで進めるのに、5 秒のタイマーは実時間で 5 秒かかったままになります。</li>
+        <li><code>--scale-qpc</code> は、さらに高分解能カウンターもスケールします。Python 3.13 以降の <code>monotonic</code>、.NET の <code>Stopwatch</code>、Java の <code>nanoTime</code> が経過時間を読むのはそこで、スケールするとテストで描画が不安定になったため、既定ではオフです。</li>
+      </ul>
+      <p>
+        倍率がカウントダウンに何もしていないように見えるなら、ほぼ間違いなくこれが理由です。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># タイマーアプリ: カレンダーとカウントダウンの両方を加速する</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># 経過時間を高分解能カウンターで測る Python や .NET のアプリ</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>再起動せずに速度を変える</h2>
+    <div class="prose">
+      <p>
+        倍率はセッション途中で変更でき、時計はジャンプではなくアンカーを打ち直す方式なので、速度が下がっても後ろに戻ることはありません。時計を直接ジャンプさせることもできます。前方へも、ノートパソコンが時刻サーバーと再同期したあとのように後方へも。これは、ガードなしで経過時間を測るあらゆるものを壊すケースです。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># x60 で実行し、2 秒後に x1440 へ切り替える</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># 実行し、5 秒後に時計を選んだ時点へジャンプさせる</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>できないこと</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>システム時計には触れません。</strong>これは制限ではなく、そのための設計です。ただし、サーバー、データベース、ほかのマシンから時刻を読むものは影響を受けないことになり、そうなったときは監査がそれを教えてくれます。</li>
+        <li><strong>ジャンプが変えるのはアプリに見える時刻であり、いつ目覚めるかではありません。</strong>すでにカーネルに渡されたタイマーは実時間で動きます。ほとんどのアプリは時計をポーリングするので、実際にはジャンプは機能しますが、すべてがそうだとは限りません。</li>
+        <li><strong>時間を遅くはできません。</strong>倍率は 1 以上の整数と、ゼロでの停止した時計だけです。</li>
+      </ul>
+      <p>
+        そのどれかがアプリに届いたかどうかは、仮定するものではありません。<a href="/ja/time-source-audit/">セッションが教えてくれます &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>試してみる</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ja/download/">Windows 版をダウンロード</a>
+      <a class="btn btn-ghost" href="/ja/faq/">FAQ を読む</a>
+    </div>
+  </section>
+
+</div>

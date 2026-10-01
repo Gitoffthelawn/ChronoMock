@@ -1,0 +1,129 @@
+<!-- Das Jahr-2038-Problem unter Windows, Deutsch. Aufbau, Klassen und Tokens wie in en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Das Jahr-2038-Problem unter Windows testen</h1>
+    <p class="sub">
+      Am 19. Januar 2038 um 03:14:07 UTC geht ein vorzeichenbehafteter 32-Bit-Zähler für Sekunden seit
+      1970 zu Ende. Die Windows-Uhr läuft darüber hinaus weiter - die Programme, Dateiformate und
+      Bibliotheken, die ihre eigene 32-Bit-Kopie behalten haben, nicht. So finden Sie diese in einer
+      einzelnen Anwendung, ohne das Datum des ganzen Rechners auf 2038 zu stellen.
+    </p>
+  </section>
+
+  <section>
+    <h2>Wo der Fehler noch stecken kann</h2>
+    <div class="prose">
+      <p>
+        Die Windows-Uhr ist ein 64-Bit-Zähler in Schritten von 100 Nanosekunden ab 1601, also kennt sie
+        kein 2038. Der Typ <code>time_t</code> der C-Laufzeitbibliothek ist seit Visual Studio 2005
+        standardmäßig 64 Bit breit. Übrig bleibt Code, der eine 32-Bit-Zeit gewählt hat oder die obere
+        Hälfte unterwegs verloren hat:
+      </p>
+      <ul>
+        <li><strong>32-Bit-Builds, die mit <code>_USE_32BIT_TIME_T</code> kompiliert wurden</strong>,
+          oder die <code>_time32</code> und <code>__time32_t</code> direkt aufrufen. Die Dokumentation
+          von Microsoft warnt, dass eine solche Anwendung nach dem 18. Januar 2038 ausfallen kann.</li>
+        <li><strong>Eine 64-Bit-Zeit, die in einem <code>int</code> oder <code>long</code>
+          gespeichert wird.</strong> Unter Windows sind beide 32 Bit breit, auch in einem
+          64-Bit-Programm.</li>
+        <li><strong>Bibliotheken, Dateiformate, Netzwerkprotokolle und Datenbankspalten</strong>, die
+          Sekunden seit 1970 in 32 Bit ablegen.</li>
+        <li><strong>Code, der Jahre addiert.</strong> Eine zwanzigjährige Lizenz, ein dreißigjähriger
+          Tilgungsplan oder ein bis 2040 gültiges Zertifikat überschreiten die Grenze lange bevor 2038
+          da ist.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Die Grenze in einer einzelnen Anwendung überschreiten</h2>
+    <div class="prose">
+      <p>
+        Die Grenze ist in UTC definiert, und <code>--at</code> wird in der Sitzungszone gelesen, also
+        legen Sie die Zone auf UTC fest, wenn Sie den Zeitpunkt selbst schreiben. Das fertige Szenario
+        trägt bereits einen absoluten UTC-Zeitpunkt und braucht keine Zone.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Das Szenario: Die Sitzung beginnt genau an der Grenze, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Siebzehn Sekunden davor starten und die Anwendung die Grenze live überschreiten lassen</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Früher starten und mit 60-facher Geschwindigkeit laufen - die Grenze kommt nach etwa 14 Sekunden</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Oder mit dem heutigen Datum laufen und über die Grenze springen, während die Anwendung offen ist</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Eine Sekunde nach der Grenze wird ein vorzeichenbehafteter 32-Bit-Zähler zu -2.147.483.648, was
+        als <strong>13. Dezember 1901, 20:45:52 UTC</strong> gelesen wird. Ein Datum im Jahr 1901, eine
+        negative Zahl, ein Eintrag, der plötzlich abgelaufen ist oder ganz vorn einsortiert wird, eine
+        Ausnahme aus dem Datumscode - so sieht der Überlauf von außen aus.
+      </p>
+      <p>
+        Die echte Uhr auf 2038 zu stellen ist der andere Weg hierher, und der, der am meisten kaputt macht.
+        <a href="/de/systemdatum-aendern-testen/">Was passiert, wenn Sie das Systemdatum ändern &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Prüfen, dass es das Programm erreicht hat</h2>
+    <div class="prose">
+      <p>
+        Ein Test, der besteht, weil das Programm 2038 nie gesehen hat, ist schlimmer als kein Test. Der
+        Bericht am Ende jeder Sitzung sagt, welche Uhr das Programm gelesen hat und wie oft:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        Die Zeile <strong>session</strong> bestätigt, dass die Uhr der Anwendung die Grenze überschritten
+        hat. Ein Urteil <em>works</em> mit Aufrufzahlen heißt, dass das Programm die Uhr gelesen und das
+        Datum aus 2038 erhalten hat; <em>works partially</em> nennt die Kanäle, die es auf anderem Weg
+        gelesen hat.
+        <a href="/de/zeitquellen-pruefung/">Was die Urteile bedeuten &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was ein bestandener Test nicht beweist</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Nur die eigene Uhr des Programms hat sich verschoben.</strong> Ein Datum, das es aus
+          einer Datei oder Datenbank lädt, ist das, was dort gespeichert ist, also ist ein Datum aus 2038
+          in den Daten ein eigener Test. Der Datumsrechner berechnet solche Daten für Sie:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Ein Server, mit dem das Programm spricht, läuft weiter im echten Datum.</strong> Eine
+          32-Bit-Grenze auf dieser Seite ist außer Reichweite, und die Sitzung warnt, wenn sie sieht, dass
+          das Programm eine Netzwerkverbindung öffnet.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/datums-testszenarien/">Weitere testenswerte Daten</a>
+    </div>
+  </section>
+
+</div>

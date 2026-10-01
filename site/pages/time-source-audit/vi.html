@@ -1,0 +1,182 @@
+<!-- Kiểm toán nguồn thời gian, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Làm sao bạn biết nó đã hiệu quả?</h1>
+    <p class="sub">
+      Với mọi công cụ khác cùng loại, bạn không biết. Ứng dụng khởi động, hiển thị một ngày nào đó, và bạn
+      đoán. Nhưng nó có thể đọc đồng hồ qua một đường mà không gì chặn được - và khi đó
+      <em>“bài kiểm thử đã qua”</em> hoàn toàn vô nghĩa.
+    </p>
+  </section>
+
+  <section>
+    <h2>Thất bại không có triệu chứng</h2>
+    <div class="prose">
+      <p>
+        Một công cụ dịch chuyển thời gian bỏ sót một kênh sẽ không sập và không cảnh báo. Ứng dụng chỉ đơn
+        giản đọc ngày thật qua một hàm mà không ai chặn, và cư xử đúng như nó sẽ cư xử vào bất kỳ buổi chiều
+        bình thường nào. Bài kiểm thử xanh. Lỗi được phát hành.
+      </p>
+      <p>
+        RunAsDate trung thực về điều này trong tài liệu của chính nó - nó nói rằng nó
+        <strong>“sẽ không ảnh hưởng đến các ứng dụng lấy ngày/giờ hiện tại từ một nguồn khác”</strong> - rồi
+        để bạn tự tìm hiểu xem ứng dụng của bạn có thuộc nhóm đó không. Công cụ này coi chính câu đó là điều
+        cần đo.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Một phiên thực sự báo cáo gì</h2>
+    <div class="prose">
+      <p>
+        Đầu ra thật, từ việc chạy công cụ trên một trong các đầu dò kiểm thử của chính dự án này - một đầu dò
+        cố ý mở một kết nối mạng:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Hai khối cuối là điểm mấu chốt. Không có gì thất bại ở đây - kết luận là
+        <strong>hoạt động</strong> - vậy mà báo cáo vẫn nói, không cần ai hỏi, rằng ứng dụng này đã nói
+        chuyện với mạng trước khi xong việc, nên một hook cục bộ có thể chưa phải toàn bộ câu chuyện. Câu đó
+        là sự khác biệt giữa một bài kiểm thử bạn có thể tin và một bài bạn không thể.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Màn hình kết quả của Chrono Mock với What the application read đang mở: một bảng gồm Function, Read from và Reads. NtCreateUserProcess được đánh dấu là đọc từ đồng hồ thật theo thiết kế và connect là đọc từ đồng hồ thật theo thiết kế và được hook muộn, trong khi các dòng còn lại - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation và các hàm khác - đọc từ đồng hồ giả, mỗi dòng có số đếm riêng. Hai cảnh báo nằm bên dưới bảng.">
+      <figcaption>Cùng câu trả lời đó trong cửa sổ. Mọi hàm mà ứng dụng có thể đã hỏi, nó thực sự đọc từ đâu,
+        và bao nhiêu lần - kể cả những hàm được cố ý để ở đồng hồ thật, được nêu tên chứ không bị lặng lẽ
+        tính là đạt.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Bốn kết luận, và một mã thoát cho mỗi kết luận</h2>
+    <div class="prose">
+      <p>
+        Kết luận được đưa ra từ bên trong tiến trình đang chạy, trước khi bạn bắt đầu làm việc, và nó chính
+        là mã thoát của công cụ để pipeline có thể rẽ nhánh theo nó.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Kết luận</th><th>Mã thoát</th><th>Ý nghĩa</th></tr></thead>
+        <tbody>
+          <tr><td class="y">hoạt động</td><td>0</td><td>mọi tiến trình đọc giờ đều thấy đồng hồ của phiên</td></tr>
+          <tr><td>hoạt động một phần</td><td>10</td><td>một số kênh được bao phủ, một số thì không - các kênh chưa bao phủ được liệt kê</td></tr>
+          <tr><td class="n">không hoạt động</td><td>11</td><td>việc thay thế không đến được các kênh then chốt</td></tr>
+          <tr><td>chưa xác định</td><td>4</td><td>không thể xác lập độ bao phủ - một câu “tôi không biết” trung thực</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Khi kết luận là “không hoạt động”, tiến trình bị dừng ngay lập tức</strong>, trước khi bạn kịp
+        tương tác với nó. Kết luận không thể có trước lúc khởi chạy, vì nguồn chân lý duy nhất là một số đọc
+        được lấy từ bên trong tiến trình đang chạy. Điều được đảm bảo là bạn biết sự thật trước khi bắt đầu
+        làm việc - chứ không phải một lần khởi chạy chắc chắn thất bại sẽ không bao giờ xảy ra. Bạn có thể
+        ghi đè và tiếp tục, và khi đó phiên được đánh dấu là không đáng tin ở mọi nơi nó xuất hiện, kể cả
+        trong bất kỳ bằng chứng nào bạn xuất ra.
+      </p>
+      <p>
+        Còn ba mã nữa dành cho những thứ hoàn toàn không phải kết luận: <code>1</code> cho lỗi sử dụng,
+        <code>2</code> khi không thể khởi chạy hoặc chèn mã vào mục tiêu, và <code>12</code> khi mục tiêu biến
+        mất theo cách gợi ý một ứng dụng chỉ cho phép một thể hiện đã bàn giao cho bản đang chạy sẵn.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Được bao phủ, được quan sát, không được bao phủ</h2>
+    <div class="prose">
+      <p>Các kênh rơi vào ba nhóm, và nhóm ở giữa là nhóm thú vị.</p>
+      <ul>
+        <li><strong>Được bao phủ</strong> - đã hook và thay thế. Ứng dụng hỏi, và nhận đồng hồ của phiên.
+          Số lần gọi cho biết bao nhiêu lần.</li>
+        <li><strong>Được quan sát</strong> - đã hook, đã đếm và cố ý để nói sự thật. Bộ đếm độ phân giải cao
+          nằm ở đây theo mặc định vì nhân tỷ lệ nó làm mất ổn định việc kết xuất. Bộ hẹn giờ đa phương tiện
+          nằm ở đây vì nhân tỷ lệ chúng sẽ làm lệch nhịp âm thanh và MIDI. Kết nối mạng và một đường tạo
+          tiến trình nằm ở đây vì chúng là bằng chứng chứ không phải đồng hồ.</li>
+        <li><strong>Không được bao phủ</strong> - một kênh mà ứng dụng đã đọc mà việc thay thế không đến
+          được. Đây là thứ biến một kết luận thành <em>hoạt động một phần</em>, và nó được liệt kê theo tên
+          chứ không bị tóm tắt cho biến mất.</li>
+      </ul>
+      <p>
+        Số đếm bằng không cũng là thông tin: kênh đã được hook và ứng dụng chưa bao giờ hỏi. Đó là lý do báo
+        cáo liệt kê chúng thay vì giấu đi.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Những gì kiểm toán không thể thấy</h2>
+    <div class="prose">
+      <p>
+        Báo cáo trung thực về độ bao phủ, nghĩa là cũng trung thực về chính biên giới của nó. Những thứ này
+        được đọc mà không có lệnh gọi hàm nào để chặn, hoặc hoàn toàn bên ngoài tiến trình:
+      </p>
+      <ul>
+        <li>đọc trực tiếp trang dữ liệu dùng chung ở chế độ người dùng - giá trị nằm trong bộ nhớ, nên không
+          có gì để hook. Hiếm trong ứng dụng thông thường, phổ biến trong mã cấp phép và chống can thiệp</li>
+        <li>lời gọi hệ thống trực tiếp bỏ qua các hàm xuất chuẩn - cùng mẫu đó</li>
+        <li>giờ lấy được từ ngoài tiến trình, qua WMI, một máy chủ COM ngoài tiến trình hoặc RPC</li>
+        <li>giờ từ mạng - tiêu đề HTTP <code>Date</code>, NTP, một phản hồi API, hoặc đồng hồ riêng của một
+          máy chủ cơ sở dữ liệu</li>
+        <li>giờ từ trình điều khiển nhân</li>
+      </ul>
+      <p>
+        Trường hợp mạng là trường hợp mà kiểm toán ít nhất có thể <em>nhận ra</em>, đó là lý do cảnh báo
+        trong báo cáo ở trên tồn tại. Với phần còn lại, kết luận <em>hoạt động</em> có nghĩa là các kênh mà
+        công cụ này thấy được đã được bao phủ - chứ không phải là không còn đường nào khác.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Trong một pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> xuất cùng các dữ kiện dưới dạng cho máy, <code>--report</code> ghi phiên bản cho
+        người ra tệp, và một phiên có kết luận khác <em>hoạt động</em> mở đầu tệp đó bằng biểu ngữ bằng
+        chứng không đáng tin thay vì chôn lời lưu ý ở cuối.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/thay-the-runasdate/">So với RunAsDate</a>
+    </div>
+  </section>
+
+</div>
