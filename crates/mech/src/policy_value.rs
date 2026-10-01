@@ -24,7 +24,7 @@ use std::ffi::c_void;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_PATH_NOT_FOUND,
-    NO_ERROR, WAIT_TIMEOUT, WIN32_ERROR,
+    NO_ERROR, WAIT_EVENT, WAIT_OBJECT_0, WIN32_ERROR,
 };
 use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegEnumValueW, RegGetValueW, RegOpenKeyExW,
@@ -265,14 +265,22 @@ fn owner_alive(pid: u32, created: u64) -> bool {
     unsafe {
         match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, false, pid) {
             Ok(handle) => {
-                let same = crate::process_created(handle) == Some(created);
-                let running = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
+                let read = crate::process_created(handle);
+                let waited = WaitForSingleObject(handle, 0);
                 let _ = CloseHandle(handle);
-                same && running
+                readings_say_alive(read, created, waited)
             }
             Err(e) => open_error_means_alive(e.code()),
         }
     }
+}
+
+/// What the two questions put to an opened process come to. Only a creation time that was READ and
+/// differs proves a recycled pid, and only a signalled handle proves the process has exited: a question
+/// that could not be answered (`GetProcessTimes` failing, the wait failing) leaves the owner alive, the
+/// same rule as an open that is refused. Pure, so the six cases are tested without processes.
+fn readings_say_alive(read: Option<u64>, expected: u64, waited: WAIT_EVENT) -> bool {
+    read.is_none_or(|created| created == expected) && waited != WAIT_OBJECT_0
 }
 
 /// What a process that cannot be opened is taken for. "Access denied" means it exists and will not
@@ -917,6 +925,20 @@ mod tests {
         assert!(owner_alive(std::process::id(), created));
         assert!(!owner_alive(std::process::id(), created + 1), "same pid, another creation time: a recycled pid");
         assert!(!owner_alive(u32::MAX - 5, created), "no such process");
+    }
+
+    /// The decision on what an opened process answered. A creation time that was read and differs, or a
+    /// signalled handle, is a dead owner. A question that could not be answered is not: the answer decides
+    /// whether to delete a value, and a guess must never destroy what a live session owns.
+    #[test]
+    fn a_question_that_could_not_be_answered_leaves_the_owner_alive() {
+        use windows::Win32::Foundation::{WAIT_FAILED, WAIT_TIMEOUT};
+        assert!(readings_say_alive(Some(7), 7, WAIT_TIMEOUT), "the same process, running");
+        assert!(!readings_say_alive(Some(8), 7, WAIT_TIMEOUT), "another creation time: a recycled pid");
+        assert!(!readings_say_alive(Some(7), 7, WAIT_OBJECT_0), "signalled: it has exited");
+        assert!(!readings_say_alive(None, 7, WAIT_OBJECT_0), "signalled, whatever the creation time said");
+        assert!(readings_say_alive(None, 7, WAIT_TIMEOUT), "no creation time could be read");
+        assert!(readings_say_alive(Some(7), 7, WAIT_FAILED), "the wait could not be asked");
     }
 
     /// A file name that would land somewhere other than under the application's name is refused before
