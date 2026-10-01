@@ -109,6 +109,12 @@
       "link_text": "시계를 바꾸지 마세요",
       "title": "테스트용 시스템 날짜 변경 - Windows에서 망가지는 것",
       "description": "날짜를 테스트하려고 Windows 시계를 옮기면 컴퓨터 전체가 옮겨집니다. 도메인, 인증서, 시간 동기화 등 무엇이 망가지는지와 앱 하나만 옮기는 방법."
+    },
+    "zh-hans": {
+      "slug": "change-system-date-testing",
+      "link_text": "别改系统时钟",
+      "title": "为测试改系统日期 - 在 Windows 上会坏什么",
+      "description": "为测试日期而调动 Windows 时钟，会让整台机器跟着动：域登录、证书、时间同步。会坏什么，以及如何只调动一个应用的时钟。"
     }
   }
 }
