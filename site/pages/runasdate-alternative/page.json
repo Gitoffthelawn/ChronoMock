@@ -122,6 +122,12 @@
       "link_text": "比較 RunAsDate",
       "title": "給 Windows QA 的 RunAsDate 替代品 - 開放原始碼",
       "description": "Chrono Mock 與 RunAsDate 的不同：{{channel_count}} 個時間通道而不是五個，可調的時鐘速度，獨立時區，子處理序——以及是否生效的判定。"
+    },
+    "ar": {
+      "slug": "runasdate-alternative",
+      "link_text": "مقارنة بـ RunAsDate",
+      "title": "بديل RunAsDate لاختبار Windows - مفتوح المصدر",
+      "description": "كيف يختلف Chrono Mock عن RunAsDate: {{channel_count}} قناة وقت بدل خمس، وسرعة ساعة قابلة للضبط، ومنطقة زمنية خاصة، وعمليات فرعية - وحكم عن النجاح."
     }
   }
 }

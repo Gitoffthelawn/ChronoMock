@@ -120,6 +120,12 @@
       "link_text": "下載",
       "title": "下載 Chrono Mock Windows 版 - 免費，無需安裝",
       "description": "下載免費的 Windows 版本：桌面應用程式與命令列工具，無需安裝程式、系統管理員權限，也不寫入登錄。"
+    },
+    "ar": {
+      "slug": "download",
+      "link_text": "التنزيل",
+      "title": "تنزيل Chrono Mock لنظام Windows - مجاني دون تثبيت",
+      "description": "نزّل نسخة Windows المجانية: تطبيق سطح مكتب وأداة سطر أوامر، بلا برنامج تثبيت ولا صلاحيات مسؤول ولا كتابة في السجل."
     }
   }
 }

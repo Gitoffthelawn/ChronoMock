@@ -122,6 +122,12 @@
       "link_text": "Windows 版 libfaketime",
       "title": "Windows 版 libfaketime - 最接近的替代品",
       "description": "libfaketime 需要 Windows 上不存在的 LD_PRELOAD。這裡說明用什麼來取代它，並把每個 FAKETIME 選項逐一對照到 Windows 的寫法。"
+    },
+    "ar": {
+      "slug": "libfaketime-windows",
+      "link_text": "libfaketime في Windows",
+      "title": "libfaketime لنظام Windows - أقرب بديل",
+      "description": "تحتاج libfaketime إلى LD_PRELOAD غير الموجودة في Windows. هذا ما يحلّ محلها، مع مقابلة كل خيار FAKETIME بما يعادله في Windows."
     }
   }
 }

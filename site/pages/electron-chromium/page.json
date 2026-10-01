@@ -122,6 +122,12 @@
       "link_text": "Electron 與 Chromium",
       "title": "在 Electron 與 Chromium 應用程式中偽造日期",
       "description": "它們的時鐘位於注入搆不到的沙盒轉譯處理序中。另一種機制把應用程式的 JavaScript 時間 API（包括 Worker 內部）放到工作階段時鐘上。"
+    },
+    "ar": {
+      "slug": "electron-chromium",
+      "link_text": "Electron وChromium",
+      "title": "تزييف التاريخ في تطبيقات Electron وChromium",
+      "description": "ساعتهما في عملية عرض معزولة لا يصل إليها الحقن. آلية مختلفة تضع واجهات الوقت في JavaScript، بما فيها Workers، على ساعة الجلسة."
     }
   }
 }

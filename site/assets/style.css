@@ -65,10 +65,13 @@ code,kbd{direction:ltr;unicode-bidi:isolate}
    JavaScript has no excuse for getting wrong. */
 a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
 
-/* Skip link - off screen until focused, then pinned to the top left. */
-.skip{position:absolute;left:-9999px;top:0}
+/* Skip link - off screen until focused, then pinned to the top start corner. It is placed with
+   a logical offset on purpose: a physical `left:-9999px` is harmless in a left-to-right page but
+   in a right-to-left one the page scrolls to the left, so it would make the whole document
+   thousands of pixels wide. */
+.skip{position:absolute;inset-inline-start:-9999px;top:0}
 .skip:focus{
-  left:12px;top:12px;z-index:20;position:fixed;
+  inset-inline-start:12px;top:12px;z-index:20;position:fixed;
   background:var(--accent-dim);color:#fff;padding:10px 16px;border-radius:8px;
   text-decoration:none;font-weight:600;
 }

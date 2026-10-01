@@ -1,0 +1,111 @@
+<!-- libfaketime في Windows بالعربية. البنية والأصناف والرموز البديلة مطابقة لـ en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>libfaketime لنظام Windows</h1>
+    <p class="sub">
+      <strong>الجواب المختصر:</strong> libfaketime لا تعمل على Windows ولا يمكن أن تعمل - فهي مبنية على <code>LD_PRELOAD</code> غير الموجودة في Windows. أما Chrono Mock فهي الفكرة نفسها مبنيّة بالطريقة التي يسمح بها Windows.
+    </p>
+  </section>
+
+  <section>
+    <h2>لماذا لا يمكن نقلها ببساطة</h2>
+    <div class="prose">
+      <p>
+        تعمل <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> بأن يضع المحمِّل الديناميكي مكتبة صغيرة أمام مكتبة C، فتصل استدعاءات البرنامج إلى <code>time()</code> إلى البديل أولًا. وهذا الخطّاف هو <code>LD_PRELOAD</code> في Linux و<code>DYLD_INSERT_LIBRARIES</code> في macOS. وملف README الخاص بها يسرد هاتين المنصتين بالضبط.
+      </p>
+      <p>
+        ولا مثيل لذلك في Windows، وساعته لا تقع خلف دالة واحدة على أي حال. فالتطبيقات تقرأ الوقت عبر واجهة Win32 البرمجية، وعبر الواجهة الأصلية تحتها، وعبر ما تلفّه بيئة تشغيلها حول أي منهما - ولذا فإن نسخة هذه الفكرة في Windows هي مكتبة محقونة في عملية الهدف، تعيد توجيه مجموعة من الدوال المُصدَّرة لا رمزًا واحدًا.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>الخيارات، مقابلةً بين الاثنتين</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>هو الافتراضي هنا - انظر أدناه</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>لا شيء لتضبطه - الأداة تحقن بنفسها</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">وهكذا يبدو الطرفان من الاختبار نفسه:</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>أين تختلفان فعلًا</h2>
+    <div class="prose">
+      <p>
+        <strong>الساعات الرتيبة معكوسة.</strong> تزيّفها libfaketime افتراضيًا وتمنحك <code>FAKETIME_DONT_FAKE_MONOTONIC</code> لإيقاف ذلك. أما هنا فيبقى العدّاد عالي الدقة حقيقيًا افتراضيًا، لأن مضاعفته زعزعت الرسم أثناء الاختبار، ويفعّله <code>--scale-qpc</code>. وهذا المفتاح هو ما يجعل <code>monotonic</code> في Python 3.13+ و<code>Stopwatch</code> في .NET و<code>nanoTime</code> في Java تتبع ساعة الجلسة.
+      </p>
+      <p>
+        <strong>في Windows مواضع أكثر للاعتراض.</strong> فبعد ساعة الحائط هناك المنطقة الزمنية، ومحور الزمن المنقضي، وأربع عائلات من المؤقّتات، ودوال النوم والانتظار، وإنشاء العمليات - أي {{channel_count}} قناة في المجموع.
+      </p>
+      <p>
+        <strong>هذه الأداة تُبلّغ عن تغطيتها هي.</strong> فكل جلسة تنتهي بحكم، وبالقنوات التي قرأها التطبيق فعلًا مع عدد لكل منها، وبالقنوات التي فاتت. وهذا الجزء لا مثيل له في أي من المنصتين.
+      </p>
+      <p>
+        <strong>libfaketime أقدم وأوسع في ميدانها.</strong> فخلفها سنوات من الاستخدام، وتغطي نطاقًا واسعًا من نقاط دخول مكتبة C، وهي في Linux الأداة الصحيحة. ولا شيء هنا يحلّ محلها هناك.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>إن كنت تريد libfaketime نفسها فعلًا</h2>
+    <div class="prose">
+      <p>
+        طريقان صادقان، وكلاهما ينقل البرنامج قيد الاختبار إلى Linux:
+      </p>
+      <ul>
+        <li><strong>WSL</strong> - ابنِ libfaketime وشغّلها داخل النظام الفرعي لـ Linux. وهذا مناسب حين يكون ما تختبره برنامج Linux تطوّره على Windows.</li>
+        <li><strong>حاوية</strong> - الفكرة نفسها، وأكثر قابلية للتكرار.</li>
+      </ul>
+      <p>
+        ولا يفيد أيٌّ منهما تطبيق Windows، وهذه هي الحالة التي وُجدت هذه الأداة من أجلها.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>جرّبه</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ar/download/">نزّل نسخة Windows</a>
+      <a class="btn btn-ghost" href="/ar/faq/">اقرأ الأسئلة الشائعة</a>
+    </div>
+  </section>
+
+</div>

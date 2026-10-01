@@ -120,6 +120,12 @@
       "link_text": "CLI 參考",
       "title": "Chrono Mock 命令列參考 - 全部參數與結束代碼",
       "description": "chrono run 與 chrono calc 的完整參考：每一個命令列參數、兩張結束代碼表，以及如何閱讀工作階段報告。"
+    },
+    "ar": {
+      "slug": "cli-reference",
+      "link_text": "مرجع CLI",
+      "title": "مرجع سطر أوامر Chrono Mock - كل الخيارات ورموز الخروج",
+      "description": "المرجع الكامل لـ chrono run وchrono calc: كل خيار في سطر الأوامر، وجدولا رموز الخروج، وكيفية قراءة تقرير الجلسة."
     }
   }
 }

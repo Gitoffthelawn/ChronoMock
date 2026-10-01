@@ -1,0 +1,26 @@
+{
+  "//": "نصوص الموقع بالعربية - المفاتيح نفسها الموجودة في en.json تمامًا (فقدان أي مفتاح يُفشل عملية البناء).",
+
+  "html_lang": "ar",
+  "dir": "rtl",
+  "og_locale": "ar_AR",
+
+  "social_image_alt": "Chrono Mock - شغّل تطبيق Windows بأي تاريخ ووقت دون تغيير ساعة النظام",
+
+  "skip_to_content": "انتقل إلى المحتوى",
+  "nav_label": "القائمة الرئيسية",
+
+  "language_name": "العربية",
+  "language_title": "هذه الصفحة بالعربية",
+  "language_menu_label": "اللغة",
+
+  "footer_nav_label": "خريطة الموقع",
+  "footer_group_start": "ابدأ من هنا",
+  "footer_group_tools": "البدائل وبيئات التشغيل",
+  "footer_group_features": "ما الذي يفعله",
+
+  "footer_summary": "Chrono Mock - برنامج حر بترخيص GPL-3.0. بلا حساب وبلا بيانات تتبّع، ولا يتصل بالإنترنت إطلاقًا.",
+  "footer_source": "الشيفرة المصدرية على GitHub",
+  "footer_releases": "الإصدارات",
+  "footer_license": "الترخيص"
+}

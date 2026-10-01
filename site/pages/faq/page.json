@@ -122,6 +122,12 @@
       "link_text": "常見問題",
       "title": "Chrono Mock 常見問題 - 關於偽造 Windows 日期",
       "description": "會更動系統時鐘嗎？需要系統管理員權限嗎？能用在我的應用程式、.NET、Java 或 Electron 上嗎？簡短的回答，包括它不會做的事。"
+    },
+    "ar": {
+      "slug": "faq",
+      "link_text": "الأسئلة الشائعة",
+      "title": "الأسئلة الشائعة عن Chrono Mock - تزييف تاريخ Windows",
+      "description": "هل يغيّر ساعة النظام؟ هل يحتاج صلاحيات مسؤول؟ هل يعمل مع تطبيقي أو .NET أو Java أو Electron؟ إجابات قصيرة، بما فيها ما لا يفعله."
     }
   }
 }
