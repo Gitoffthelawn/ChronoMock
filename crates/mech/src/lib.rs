@@ -5,8 +5,11 @@
 //! Stage 4: substitute the full set of wall-clock channels and report the session
 //! zone. `prepare` creates the session control memory, computes the fake anchor and
 //! the session zone bias from the moment, launches the target SUSPENDED (so the hook
-//! is installed before the target's first instruction - no race), injects the hook
-//! DLL, reads back which channels were covered, then resumes.
+//! is installed before the target's entry point runs), injects the hook DLL, reads back
+//! which channels were covered, then resumes. One thing runs before the hook all the
+//! same (R4-N20): the remote thread that loads it does the target's own loading first,
+//! so the start-up code of the target's static imports (`DllMain`) and its TLS
+//! callbacks read the real clock. The README says so under its limits.
 //!
 //! The tool injects its OWN probes on the host - injecting into third-party or system
 //! processes stays on the VM or requires explicit consent.
@@ -17,6 +20,7 @@ mod environment;
 mod family;
 mod job;
 mod listeners;
+mod loader;
 mod policy;
 mod policy_value;
 mod process_facts;
@@ -25,7 +29,7 @@ mod tree;
 
 pub use batch::{batch_launch_problem, is_batch_script};
 pub use ending::FamilyEnd;
-pub use environment::{current_environment, encode_block, environment_block, merge_entries};
+pub use environment::{current_environment, environment_block};
 pub use family::FamilyMember;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
@@ -36,6 +40,7 @@ pub use process_facts::{process_elevated, process_has_module, process_image_name
 pub use stdio::TargetStdio;
 pub use tree::{descendants_of, family_of};
 
+use std::collections::HashSet;
 use std::ffi::{c_void, OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
@@ -104,6 +109,10 @@ pub enum PrepareError {
     Control(String),
     Launch(String),
     Inject(String),
+    /// The target ended while Windows was loading it, before its entry point, with this exit
+    /// code - the loader's status when a static import was missing, of the other bitness, lacked a
+    /// function or would not initialise (R4-S6). Nothing about the hook is known: it never got its turn.
+    EndedLoading(u32),
     /// Another session's core (this pid) is already running - single-session limit (fixed section
     /// name). The caller refuses rather than sharing one control block between two sessions.
     SessionActive(u32),
@@ -362,6 +371,60 @@ impl SessionState {
 
 const STILL_ACTIVE_CODE: u32 = 259;
 
+/// The pids a parent's ring holds past what was already taken, and how far the taking got (R4-N18).
+/// `read(at)` is entry `at`, 0 for one claimed and not written yet. A parent that may still run writes it
+/// soon, so the walk stops there and the next poll reads on. One that has ended never will, and its
+/// hole used to hold back every entry after it for the rest of the session - those children were then
+/// only counted, never named. It is stepped over now, and the child it stood for stays in the count.
+fn ring_pids(taken: usize, named: usize, writer_may_run: bool, read: impl Fn(usize) -> u32) -> (Vec<u32>, usize) {
+    let mut pids = Vec::new();
+    let mut at = taken;
+    while at < named {
+        let pid = read(at);
+        if pid == 0 && writer_may_run {
+            break;
+        }
+        if pid != 0 {
+            pids.push(pid);
+        }
+        at += 1;
+    }
+    (pids, at)
+}
+
+/// An uncovered child, named only when the process under its pid is one the family started (R4-N13).
+/// The hook wrote the pid at the spawn, and the name is asked up to a poll later, so a child that ended
+/// in between left its pid to anybody. The snapshot's parent decides, as it does for a family member
+/// (`family::member_of_family`): a process started from outside the family is a stranger, and the child
+/// is reported the way an ended one is, by its pid alone. A snapshot that could not be read names it as
+/// before. Between the snapshot and the open behind `describe` the pid would have to be freed and taken
+/// again, which is the window of a few instructions.
+fn name_if_ours(
+    pid: u32,
+    parent_pid: u32,
+    known: &HashSet<u32>,
+    entries: Option<&[tree::ProcessEntry]>,
+    describe: impl FnOnce(u32) -> (Option<String>, Option<String>),
+) -> UncoveredChild {
+    let (image, command_line) = match family::member_of_family(pid, known, entries) {
+        Some(_) => describe(pid),
+        None => (None, None),
+    };
+    UncoveredChild { pid, parent_pid, image, command_line }
+}
+
+/// The family is alive when the launched process is, or any other process on its clock - asked in that
+/// order (R4-N11). A child the hook follows signs in to the registry while its parent is still inside
+/// the call that creates it, so a launched process that has ended left every child it started in the
+/// registry already. Asked the other way round, a launched process that started a child and ended
+/// between the two looks was seen ended next to a registry read from before the child, and the session
+/// closed under a running application. Both looks always happen: the registry read also keeps the
+/// family's own list current.
+fn alive_in_order<S>(session: &mut S, launched: fn(&S) -> bool, others: fn(&mut S) -> bool) -> bool {
+    let launched = launched(session);
+    others(session) || launched
+}
+
 /// Window after resume within which a target exit is read as a single-instance vanish
 /// (ADR-4). Reuses the coverage sample window, so a healthy target pays no extra wait.
 const GUARD_MS: u32 = 300;
@@ -433,8 +496,14 @@ impl Session {
     /// followed into. A launcher that started the application and ended leaves the session running
     /// for the application (ADR-16).
     pub fn family_alive(&mut self) -> bool {
+        alive_in_order(self, Self::is_alive, Self::others_alive)
+    }
+
+    /// Whether a process besides the launched one is on the session clock, from the registry as it
+    /// stands now.
+    fn others_alive(&mut self) -> bool {
         self.refresh_family();
-        self.is_alive() || !self.family.living().is_empty()
+        !self.family.living().is_empty()
     }
 
     /// The processes besides the launched one that were running when the family was last refreshed.
@@ -442,16 +511,15 @@ impl Session {
         self.family.living()
     }
 
-    /// The target's exit code, once it has exited.
+    /// The target's exit code, once it has exited. Whether it has is the signalled process object's to
+    /// say, not the code's (R4-N19): 259 is also a code a program can end with, and read as "still
+    /// running" it took the launched application's real exit code off the report.
     pub fn exit_code(&self) -> Option<i32> {
-        let mut code: u32 = 0;
-        unsafe {
-            if GetExitCodeProcess(self.hprocess, &mut code).is_ok() && code != STILL_ACTIVE_CODE {
-                Some(code as i32)
-            } else {
-                None
-            }
+        if self.is_alive() {
+            return None;
         }
+        let mut code: u32 = 0;
+        unsafe { GetExitCodeProcess(self.hprocess, &mut code).is_ok().then_some(code as i32) }
     }
 
     fn ctl_mut(&self) -> *mut Ctl {
@@ -568,36 +636,57 @@ impl Session {
     /// The pid comes from the parent's slot (the hook wrote it at the spawn, see
     /// `chrono_ctl::record_uncovered_child`), and only the pid: a detour must not allocate, so naming
     /// happens here, on the mechanism side, from a snapshot the OS still holds. A child that has
-    /// already exited keeps its pid and loses its name - the report says so rather than guessing.
+    /// already exited keeps its pid and loses its name - the report says so rather than guessing - and
+    /// so does one whose pid a process from outside the family has taken since (R4-N13).
     ///
     /// Called at the child poll cadence (about every 100 ms) so a short-lived child is usually still
     /// there to be named, and once more at the end so a late spawn is not lost. A parent whose ring
     /// overflowed still reports every pid it managed to record, and `uncovered_children_total` (the
     /// sum of the counters) carries the ones it could not.
     pub fn poll_uncovered_children(&mut self) -> Vec<UncoveredChild> {
-        let mut out = Vec::new();
-        unsafe {
-            for i in 0..MAX_COV_PIDS {
-                let parent = read_pid(self.ctl(), i);
-                if parent == 0 {
-                    continue;
-                }
-                let cov = cov_at(self.ctl(), i);
-                let count = read_uncovered_children_count(cov) as usize;
-                let named = count.min(chrono_ctl::UNCOVERED_CHILDREN_MAX);
-                while (self.consumed_children[i] as usize) < named {
-                    let index = self.consumed_children[i] as usize;
-                    let pid = read_uncovered_child(cov, index);
-                    if pid == 0 {
-                        break; // claimed, not written yet - the next poll will see it
-                    }
-                    self.consumed_children[i] += 1;
-                    let (image, command_line) = describe_process(pid);
-                    out.push(UncoveredChild { pid, parent_pid: parent, image, command_line });
-                }
+        // The family as it stands now, so a parent that has ended is known to have ended (R4-N18).
+        self.refresh_family();
+        let mut found: Vec<(u32, u32)> = Vec::new();
+        for slot in 0..MAX_COV_PIDS {
+            // SAFETY: the control block stays mapped for the whole session, and each read is of one
+            // published field.
+            let parent = unsafe { read_pid(self.ctl(), slot) };
+            if parent == 0 {
+                continue;
             }
+            let cov = unsafe { cov_at(self.ctl(), slot) };
+            let count = unsafe { read_uncovered_children_count(cov) } as usize;
+            let named = count.min(chrono_ctl::UNCOVERED_CHILDREN_MAX);
+            let writer_may_run = self.slot_may_run(slot);
+            let (pids, taken) = ring_pids(self.consumed_children[slot] as usize, named, writer_may_run, |at| {
+                // SAFETY: as above, `at` is below the ring's length.
+                unsafe { read_uncovered_child(cov, at) }
+            });
+            self.consumed_children[slot] = taken as u32;
+            found.extend(pids.into_iter().map(|pid| (parent, pid)));
         }
-        out
+        if found.is_empty() {
+            return Vec::new();
+        }
+        let known: HashSet<u32> = std::iter::once(self.pid)
+            .chain((0..MAX_COV_PIDS).map(|slot| unsafe { read_pid(self.ctl(), slot) }))
+            .filter(|&pid| pid != 0)
+            .collect();
+        let entries = tree::process_entries().ok();
+        found
+            .into_iter()
+            .map(|(parent, pid)| name_if_ours(pid, parent, &known, entries.as_deref(), describe_process))
+            .collect()
+    }
+
+    /// Whether the process in sign-in slot `slot` may still write to its ring: running when the family
+    /// was last refreshed, or not looked at yet. The launched process is asked through the session's own
+    /// handle.
+    fn slot_may_run(&self, slot: usize) -> bool {
+        if self.family.is_root(slot) {
+            return self.is_alive();
+        }
+        self.family.may_run(slot)
     }
 
     /// Every uncovered child every hooked process reported, ring overflow included - the number the
@@ -1407,7 +1496,8 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         write_core_created(ctl, process_created(GetCurrentProcess()).unwrap_or(0));
         write_core_pid(ctl, GetCurrentProcessId());
 
-        // 2. Launch SUSPENDED so the hook lands before the first instruction, and in a job that ends the
+        // 2. Launch SUSPENDED so the hook lands before the entry point (the loading the remote thread does
+        // for the target still comes first, with its imports' start-up code, R4-N20), and in a job that ends the
         // target with this core until it runs (R4-S1). A core that died while the target was still
         // suspended - killed by the window after its patience ran out, Ctrl+C, a crash - left it
         // suspended for good, holding its executable and the hook library open. Its children stay out
@@ -1667,11 +1757,23 @@ fn build_command_line(path: &str, args: &[String]) -> Vec<u16> {
 /// hang `prepare` forever (M-1).
 const INJECT_TIMEOUT_MS: u32 = 10_000;
 
-/// Manual LoadLibrary injection: write the DLL path into the target and run `LoadLibraryW` there on a
-/// remote thread. Returns `Err` (and frees the remote page) on any failure, INCLUDING a `LoadLibraryW`
-/// that returned NULL in the target - the caller then terminates the still-suspended target rather than
-/// resume an unhooked process reading real time (H-2).
+/// Inject the hook with Windows's error window off while the target loads, and back the way the target
+/// inherited it before its entry point (R4-S6, `loader::QuietLoader`). On `Err` the caller ends the
+/// target, which has not reached its entry point, so the mode is not given back on that road.
 unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { unsafe {
+    let quiet = loader::QuietLoader::begin(hproc);
+    load_hook(hproc, dll_wide)?;
+    match quiet {
+        Some(quiet) => quiet.end().map_err(PrepareError::Inject),
+        None => Ok(()),
+    }
+}}
+
+/// Manual LoadLibrary injection: write the DLL path into the target and run `LoadLibraryW` there on a
+/// remote thread. Returns `Err` on any failure, INCLUDING a `LoadLibraryW` that returned NULL in the
+/// target - the caller then terminates the still-suspended target rather than resume an unhooked process
+/// reading real time (H-2) - and a target the loader ended before the hook got its turn (R4-S6).
+unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { unsafe {
     let bytes = dll_wide.len() * 2;
     let remote = VirtualAllocEx(hproc, None, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if remote.is_null() {
@@ -1703,37 +1805,130 @@ unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { 
         Err(e) => return Err(fail(win32_detail("CreateRemoteThread", &e))),
     };
 
-    // Bounded wait (M-1): a hung DllMain (loader lock) must not hang prepare forever.
+    // Bounded wait (M-1): a hung DllMain (loader lock) must not hang prepare forever. The thread alone is
+    // enough to wait on: a target that ends takes its threads with it, so the thread is signalled no
+    // later than the process.
     let waited = WaitForSingleObject(hthread, INJECT_TIMEOUT_MS);
-    // The remote thread's exit code is the low 32 bits of the HMODULE LoadLibraryW returned - 0 means the
-    // DLL did not load (bad architecture, missing runtime dependency, AV block, target tearing down). We
-    // only read it when the thread actually finished. (On x64 a module base whose low 32 bits are exactly
-    // 0 - a 4 GB-aligned load - would read as 0 too. That false negative is astronomically rare, and
-    // refusing is the safe direction: a retry lands a different ASLR base, never an unhooked target.)
-    let mut exit_code: u32 = 0;
-    let got_code = waited != WAIT_TIMEOUT && GetExitCodeThread(hthread, &mut exit_code).is_ok();
-    let _ = VirtualFreeEx(hproc, remote, 0, MEM_RELEASE);
+    let wait_error = GetLastError();
+    let wait = match waited {
+        WAIT_OBJECT_0 => loader::Wait::ThreadDone,
+        WAIT_TIMEOUT => loader::Wait::TimedOut,
+        _ => loader::Wait::Failed,
+    };
+    // Signalled first, then the code: read the other way round, a target that ends between the two
+    // reads would be a signalled process with the code of a live one.
+    let signalled = WaitForSingleObject(hproc, 0) == WAIT_OBJECT_0;
+    let mut process_code: u32 = 0;
+    let process = loader::ProcessAfter {
+        signalled,
+        code: GetExitCodeProcess(hproc, &mut process_code).is_ok().then_some(process_code),
+    };
+    // Only a finished thread's code is a result - a running one reads 259.
+    let mut thread_code: u32 = 0;
+    let thread_code = (wait == loader::Wait::ThreadDone && GetExitCodeThread(hthread, &mut thread_code).is_ok())
+        .then_some(thread_code);
+    let outcome = loader::outcome(wait, process, thread_code);
+    if loader::page_released_safely(outcome) {
+        let _ = VirtualFreeEx(hproc, remote, 0, MEM_RELEASE);
+    }
     let _ = CloseHandle(hthread);
 
-    if waited == WAIT_TIMEOUT {
-        return Err(PrepareError::Inject(format!(
-            "LoadLibraryW did not return within {INJECT_TIMEOUT_MS} ms (suspected loader lock)"
-        )));
-    }
-    if !got_code || exit_code == 0 {
+    match outcome {
+        loader::Outcome::Loaded => Ok(()),
         // Two causes give the same NULL since R4-D18: the library did not load, or it loaded, found a
         // control block it could not confirm as this live session's, and unloaded itself.
-        return Err(PrepareError::Inject(
+        loader::Outcome::LibraryNotLoaded => Err(PrepareError::Inject(
             "LoadLibraryW returned NULL in the target (the hook DLL failed to load, or would not join a \
              session it could not confirm)"
                 .into(),
-        ));
+        )),
+        loader::Outcome::TargetEnded(code) => Err(PrepareError::EndedLoading(code)),
+        loader::Outcome::TargetEndedUnread => Err(PrepareError::Inject(
+            "the target ended while Windows was loading it, and its exit code could not be read".into(),
+        )),
+        loader::Outcome::TimedOut => Err(PrepareError::Inject(format!(
+            "LoadLibraryW did not return within {INJECT_TIMEOUT_MS} ms - the target's loading is stuck (a \
+             library's start-up code waiting, or a loader lock)"
+        ))),
+        loader::Outcome::WaitFailed => Err(PrepareError::Inject(format!(
+            "waiting for the remote LoadLibraryW thread failed ({wait_error:?})"
+        ))),
     }
-    Ok(())
 }}
 
 #[cfg(test)]
 mod tests {
+    /// A launcher that signs a child in and ends between the two looks: running and alone at the first
+    /// look, ended with the child in the registry from the second on. Each look counts itself.
+    struct LauncherWorld {
+        looks: std::cell::Cell<u32>,
+    }
+
+    fn launcher_runs(world: &LauncherWorld) -> bool {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        look == 0
+    }
+
+    fn child_signed_in(world: &mut LauncherWorld) -> bool {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        look >= 1
+    }
+
+    /// A ring entry claimed and never written stops the walk while its writer may still run, and is
+    /// stepped over once it cannot (R4-N18): the children after it used to wait for it for good.
+    #[test]
+    fn a_hole_left_by_a_parent_that_ended_does_not_hold_back_the_children_after_it() {
+        let ring = [5, 0, 7];
+        let read = |at: usize| ring[at];
+        assert_eq!(super::ring_pids(0, 3, true, read), (vec![5], 1), "a running writer is waited for");
+        assert_eq!(super::ring_pids(1, 3, true, read), (vec![], 1), "and waited for on the next poll too");
+        assert_eq!(super::ring_pids(0, 3, false, read), (vec![5, 7], 3), "an ended writer's hole is stepped over");
+        assert_eq!(super::ring_pids(3, 3, false, read), (vec![], 3), "nothing past what the ring names");
+        assert_eq!(super::ring_pids(0, 2, true, |at| [9, 8][at]), (vec![9, 8], 2));
+    }
+
+    fn entry(pid: u32, parent: u32, image: &str) -> super::tree::ProcessEntry {
+        super::tree::ProcessEntry { pid, parent, image: image.to_string() }
+    }
+
+    fn described(pid: u32) -> (Option<String>, Option<String>) {
+        (Some(format!("p{pid}.exe")), Some(format!("p{pid}.exe --flag")))
+    }
+
+    /// An uncovered child is named only while the snapshot shows the family started it (R4-N13). A
+    /// stranger under its pid is never asked, so its name and command line cannot stand in for the
+    /// child's.
+    #[test]
+    fn a_stranger_under_an_uncovered_child_s_pid_does_not_lend_it_a_name() {
+        let known: HashSet<u32> = [10, 11].into_iter().collect();
+        let list = [entry(20, 11, "child.exe"), entry(21, 4, "stranger.exe")];
+        let named = super::name_if_ours(20, 11, &known, Some(&list), described);
+        assert_eq!(named.image.as_deref(), Some("p20.exe"));
+        assert_eq!(named.command_line.as_deref(), Some("p20.exe --flag"));
+        let stranger = super::name_if_ours(21, 11, &known, Some(&list), |_| panic!("a stranger was asked"));
+        assert_eq!((stranger.pid, stranger.parent_pid, stranger.image, stranger.command_line), (21, 11, None, None));
+        let ended = super::name_if_ours(22, 11, &known, Some(&list), |_| panic!("an ended child was asked"));
+        assert_eq!((ended.image, ended.command_line), (None, None));
+        let unread = super::name_if_ours(23, 11, &known, None, described);
+        assert_eq!(unread.image.as_deref(), Some("p23.exe"), "an unreadable snapshot names as before");
+    }
+
+    /// The family is asked about in the order that cannot miss a child (R4-N11), and the registry is read
+    /// every time. The same world asked registry first reads as a family that has ended.
+    #[test]
+    fn a_child_signed_in_just_before_its_launcher_ended_keeps_the_family_alive() {
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0) };
+        assert!(super::alive_in_order(&mut world, launcher_runs, child_signed_in));
+        assert_eq!(world.looks.get(), 2, "the registry was not read while the launcher ran");
+
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0) };
+        let others = child_signed_in(&mut world);
+        let registry_first = others || launcher_runs(&world);
+        assert!(!registry_first, "this world does not reproduce the race the order is there for");
+    }
+
     /// A zero character anywhere in what `CreateProcessW` reads is refused before anything starts, for
     /// a program as for a script (R4-N16): the program used to get the line up to it and nothing after.
     /// Nothing is launched here - the refusal comes first, and the control proves the same target

@@ -227,6 +227,7 @@ public class StateSheetTests
             Shows(followed, "result.followed");
             total += Shows(followed, "session.followed_family");
             total += RenderResult("result-not-started", PhaseStates.ResultNotStarted()).Count;
+            total += Shows(RenderResult("result-loader-failed", PhaseStates.ResultLoaderFailed()), "target.loader_bad_image");
             total += Shows(RenderResult("result-cut-short", PhaseStates.ResultCutShort()), "result.cut_short");
             total += RenderResult("result-history", PhaseStates.ResultWithHistoryChosen(), "HistorySection").Count;
 

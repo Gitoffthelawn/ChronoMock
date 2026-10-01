@@ -450,6 +450,25 @@ internal static class PhaseStates
         return model;
     }
 
+    /// <summary>
+    /// A start the application's own loading ended (R4-S6), with the longest of those texts: a library
+    /// of the other bitness. The headline is the whole explanation, so it has to fit and wrap.
+    /// </summary>
+    public static SessionViewModel ResultLoaderFailed()
+    {
+        var model = WithTarget(new SessionViewModel(SeededHistory(), new SavedDiagnosticsLog()));
+        model.Apply(new ErrorEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Id = 1,
+            Code = 2,
+            Key = "target.loader_bad_image",
+            Origin = "mechanism",
+        });
+        model.CaptureDiagnostics(["core stderr: chrono core: the target ended while Windows was loading it, with code 0xC000007B"]);
+        return model;
+    }
+
     /// <summary>The worked session with one earlier session chosen, so the row actions have something to act on.</summary>
     public static SessionViewModel ResultWithHistoryChosen()
     {

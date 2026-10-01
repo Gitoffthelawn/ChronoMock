@@ -208,6 +208,24 @@ pub(crate) fn describe_error(key: &str) -> &'static str {
         "target.launch_failed" => "the target application could not be started",
         "target.cwd_missing" => "the working directory asked for does not exist",
         "target.inject_failed" => "the hook could not be injected into the target",
+        // The target's own start failed before the hook got its turn (R4-S6). Windows's error window is
+        // kept off while the target loads, so each line says what to try next, as the GUI's texts for these
+        // keys do, and the two whose error window would name a file or a function say how to see that name.
+        "target.loader_dll_not_found" => {
+            "the target could not start: Windows did not find a library (DLL) it needs (0xC0000135) - run it once without chrono and Windows names the file"
+        }
+        "target.loader_entry_missing" => {
+            "the target could not start: a library (DLL) it loads lacks a function it needs, usually a different version (0xC0000139) - run it once without chrono and Windows names both"
+        }
+        "target.loader_bad_image" => {
+            "the target could not start: a library (DLL) it needs is built for the other bitness or damaged (0xC000007B) - check that it starts without chrono from the same working directory"
+        }
+        "target.loader_init_failed" => {
+            "the target could not start: a library (DLL) it loads at start-up failed to initialise (0xC0000142) - check that it starts without chrono"
+        }
+        "target.died_while_loading" => {
+            "the target ended while Windows was still loading it - the code it ended with is on the chrono core line on stderr"
+        }
         "target.bitness_mismatch" => {
             "the target and this chrono.exe are different bitness - run the chrono.exe that matches the target"
         }
@@ -1248,6 +1266,19 @@ mod tests {
         }
         // The line sent in place of an event that could not be written says what is missing.
         assert!(describe_error("proto.serialize_failed").contains("may be missing"));
+    }
+
+    /// A target the loader ended is named with what to try next (R4-S6), the step the GUI gives for the
+    /// same key: Windows's error window is kept off while the target loads, so the report is all there is.
+    #[test]
+    fn a_target_the_loader_ended_is_told_what_to_try_next() {
+        for key in ["target.loader_dll_not_found", "target.loader_entry_missing"] {
+            assert!(describe_error(key).contains("run it once without chrono and Windows names"), "{key}");
+        }
+        for key in ["target.loader_bad_image", "target.loader_init_failed"] {
+            assert!(describe_error(key).contains("check that it starts without chrono"), "{key}");
+        }
+        assert!(describe_error("target.loader_bad_image").contains("from the same working directory"));
     }
 
     /// The processes the session went on for stand under the line that says the target closed, named

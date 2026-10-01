@@ -305,6 +305,14 @@
   // Checked in the core before either mechanism starts. Without it the failure arrives as target.launch_failed, which blames the application for a folder that is simply not there.
   "target.cwd_missing": "Katalog roboczy nie istnieje - sesja nie wystartowała. Wskaż istniejący katalog albo zostaw pole puste, żeby aplikacja wystartowała tam, gdzie normalnie.",
   "target.inject_failed": "Nie udało się podłączyć fałszywego zegara do tej aplikacji - podmiana nie zadziałała (mógł ją zablokować antywirus albo utwardzona aplikacja).",
+  // R4-S6. The application's own start failed while Windows was loading it, before the fake clock got its
+  // turn. Windows's error window is kept off while it loads, so each text says how to see the name that
+  // window would have shown. Before, these read as a single-instance vanish or, ten seconds later, a loader lock.
+  "target.loader_dll_not_found": "Aplikacja nie wystartowała - Windows nie znalazł biblioteki (DLL), której potrzebuje, więc sesja się nie zaczęła. Uruchom ją raz bez Chrono Mock, a Windows poda nazwę brakującego pliku. Jeśli tak startuje bez problemu, ustaw katalog roboczy na ten, z którego zwykle startuje.",
+  "target.loader_entry_missing": "Aplikacja nie wystartowała - biblioteka (DLL), którą ładuje, nie ma funkcji, której aplikacja potrzebuje (zwykle to inna wersja tej biblioteki), więc sesja się nie zaczęła. Uruchom ją raz bez Chrono Mock, a Windows poda nazwę funkcji i biblioteki.",
+  "target.loader_bad_image": "Aplikacja nie wystartowała - Windows znalazł bibliotekę (DLL), której potrzebuje, ale nie mógł jej załadować (zwykle jest zbudowana dla innej bitowości, 32 zamiast 64 bitów albo odwrotnie, albo uszkodzona), więc sesja się nie zaczęła. Sprawdź, czy aplikacja startuje bez Chrono Mock z tego samego katalogu roboczego.",
+  "target.loader_init_failed": "Aplikacja nie wystartowała - biblioteka (DLL), którą ładuje przy starcie, nie zdołała się zainicjować, więc sesja się nie zaczęła. Sprawdź, czy aplikacja startuje bez Chrono Mock.",
+  "target.died_while_loading": "Aplikacja zakończyła się, zanim Windows skończył ją ładować, więc sesja się nie zaczęła. Kod, z którym się zakończyła, jest w diagnostyce (Kopiuj diagnostykę).",
   "target.attach_failed": "Nie udało się podłączyć do aplikacji Chromium/Electron - podmiana nie zadziałała.",
   // R2-S1. The GUI normally catches this itself (HandshakeGate, from the target's PE), so this is the
   // core's own second line of defence - reachable for a target whose real bitness differs from what its
