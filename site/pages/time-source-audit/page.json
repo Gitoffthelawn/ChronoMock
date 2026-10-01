@@ -38,6 +38,12 @@
       "link_text": "La auditoría",
       "title": "Cómo saber si la fecha falsa llegó de verdad a tu app",
       "description": "Cada sesión termina con un veredicto, los canales de tiempo que la aplicación leyó con su número de llamadas, los que se pasaron por alto y avisos. Un fallo silencioso es el único resultado que se rechaza."
+    },
+    "pt-br": {
+      "slug": "auditoria-das-fontes-de-tempo",
+      "link_text": "A auditoria",
+      "title": "Como saber se a data falsa realmente chegou ao seu app",
+      "description": "Toda sessão termina com um veredito, os canais de tempo que o aplicativo leu com a contagem de chamadas, os que foram perdidos e avisos. Uma falha silenciosa é o único resultado recusado."
     }
   }
 }

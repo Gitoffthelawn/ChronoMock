@@ -1,0 +1,170 @@
+<!-- WebView2 e Qt WebEngine, português do Brasil. Estrutura, classes e marcadores como em en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>As páginas web dentro de um aplicativo nativo</h1>
+    <p class="sub">
+      Um aplicativo de desktop com um motor web embutido executa suas páginas em um processo separado e
+      isolado. O mecanismo nativo cobre o aplicativo e para nessa fronteira - então a janela vai para a
+      data que você pediu e o painel dentro dela não. Isto fecha essa lacuna.
+    </p>
+  </section>
+
+  <section>
+    <h2>A falha que parece sucesso</h2>
+    <div class="prose">
+      <p>
+        Muitos aplicativos do Windows são nativos por fora e uma página web por dentro. Uma tela de
+        configurações, um painel de controle, uma visualização de relatório, um painel de licença -
+        construídos uma vez em HTML e hospedados em <strong>WebView2</strong> ou
+        <strong>Qt WebEngine</strong> em vez de escritos duas vezes.
+      </p>
+      <p>
+        O motor executa essas páginas em seu próprio processo, e esse processo é isolado. Uma biblioteca
+        injetada no aplicativo não entra nele. Tudo o que o aplicativo pede ao Windows passa para a data da
+        sessão, e tudo o que a página pede ao JavaScript não:
+      </p>
+      <ul>
+        <li>A barra de título, os logs e os arquivos dizem <strong>2038</strong>.</li>
+        <li>O painel dentro da mesma janela diz <strong>hoje</strong>.</li>
+        <li>Nada dá erro, nada avisa, e as duas metades parecem igualmente confiantes.</li>
+      </ul>
+      <p>
+        Essa é a versão cara deste bug, porque o teste parece ter rodado. O comportamento anterior
+        relatava uma sessão assim como um sucesso limpo, o que era uma afirmação que a ferramenta não
+        conseguia sustentar.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que a sessão faz em vez disso</h2>
+    <div class="prose">
+      <p>
+        A sessão executa <strong>os dois mecanismos ao mesmo tempo</strong>. O hook nativo entra no
+        aplicativo como sempre, e as páginas são alcançadas do único jeito em que se alcança um
+        renderizador isolado: perguntando ao próprio motor.
+      </p>
+      <p>
+        Na inicialização, o aplicativo herda duas variáveis de ambiente que pedem ao motor dele que abra uma
+        porta de depuração local. Elas são acrescentadas às opções que o aplicativo já passa, em vez de
+        substituí-las. A sessão então observa os próprios processos até que essa porta apareça, e quando
+        ela aparece, cada página e cada worker por trás dela passam para o mesmo relógio do aplicativo.
+      </p>
+      <p>
+        Um início, uma velocidade, uma linha do tempo. Uma mudança de velocidade ou um salto chega ao
+        aplicativo e às suas páginas juntos, e os temporizadores das páginas correm no ritmo do aplicativo
+        em vez de em um ritmo próprio.
+      </p>
+      <p>
+        Vem ativado por padrão e se desativa com uma única chave, que não abre porta nenhuma e deixa as
+        páginas no relógio real.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Nada para configurar - o motor é encontrado se estiver lá</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Ou deixar as páginas em paz e não abrir porta nenhuma</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>O que o relatório diz sobre as páginas</h2>
+    <div class="prose">
+      <p>
+        As páginas não são fundidas nos números do próprio aplicativo. Elas são contadas como unidades
+        próprias, porque um processo e uma página são coisas diferentes e somá-los inventaria um número que
+        não significa nada:
+      </p>
+      <ul>
+        <li>O cabeçalho conta os dois - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Cada página recebe suas próprias linhas, como <code>context 1: page Date.now (12 calls)</code>
+          na linha de comando e <em>page Date.now - fake clock</em> na tabela de auditoria da
+          janela.</li>
+        <li>O motor alcançado é nomeado com a porta dele, para que você possa apontar o seu próprio DevTools
+          exatamente para as páginas que a sessão está conduzindo.</li>
+      </ul>
+      <p>
+        Uma execução de teste diz se as páginas seriam alcançadas antes de qualquer coisa ser iniciada.
+        <a href="/pt-br/auditoria-das-fontes-de-tempo/">O que os vereditos significam &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Três limites que vale conhecer antes de começar</h2>
+
+    <div class="note warning">
+      <p><strong>Uma porta de depuração fica aberta enquanto o motor roda.</strong></p>
+      <p>
+        Ela escuta apenas neste computador, mas fica aberta para <em>qualquer</em> programa deste
+        computador enquanto o motor estiver rodando, e qualquer coisa que a alcance pode conduzir essas
+        páginas. A sessão avisa toda vez que uma foi aberta, e nomeia a porta em vez de mencioná-la em
+        abstrato. Em uma máquina compartilhada ou não confiável, use a chave que não abre nada.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Um aplicativo executado com privilégios elevados está fora de alcance.</strong></p>
+      <p>
+        Um motor hospedado por um aplicativo elevado ignora as variáveis que a sessão define, então as
+        páginas dele ficam no relógio real. Essa é a regra do próprio motor, não uma configuração, e não
+        há como contorná-la por fora.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Uma sessão assim relata PARTIAL, e essa é a resposta honesta.</strong></p>
+      <p>
+        Os processos auxiliares do motor, e as próprias chamadas de tempo nativas do renderizador, ficam no
+        relógio real. As páginas estão no relógio da sessão e o resto dessa família não, então o veredito
+        diz <em>parcial</em> e nomeia o que ficou de fora em vez de arredondar para um sucesso.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Dois menores, ditos com clareza. As páginas mantêm o <strong>fuso horário desta máquina</strong>,
+        então um fuso de sessão independente é um recurso apenas do modo nativo. E um temporizador já
+        agendado <em>antes</em> de a sessão alcançar a página mantém o ritmo antigo, do mesmo jeito que em
+        uma sessão Chromium pura - a sessão avisa em vez de deixar você concluir que nada aconteceu.
+      </p>
+      <p>
+        Se o motor é configurado por uma política de argumentos do navegador no registro, a variável da
+        sessão tem precedência durante a execução, e o relatório diz isso - porque uma porta de depuração
+        que você tivesse configurado ali não teria sido aplicada.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quão bem testado é</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimental</strong>, com o mesmo significado definido do resto daqui: funciona nos
+        alvos para os quais foi construído, não foi testado amplamente, e a auditoria integrada é a sua
+        fonte da verdade, não esta página. Foi medido manualmente em um host WebView2 e em um host Qt
+        WebEngine no Windows de 64 bits, não pela suíte automatizada. Nessas execuções, as páginas leram o
+        ano da sessão no ritmo da sessão e acompanharam um salto.
+      </p>
+      <p>
+        No Windows de 32 bits há um detalhe que vale conhecer em vez de descobrir: o runtime do WebView2
+        é de 64 bits mesmo quando o aplicativo que o hospeda é de 32, então uma sessão de 32 bits não
+        consegue nomear os processos do motor nem suas funções. O canal até as páginas continua
+        funcionando. O relatório fica apenas menos específico sobre o que não conseguiu identificar, e diz
+        qual dos dois casos é.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/faq/">Ler as perguntas frequentes</a>
+    </div>
+  </section>
+
+</div>

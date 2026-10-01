@@ -1,0 +1,161 @@
+<!-- Calculadora de datas, português do Brasil. Estrutura, classes e marcadores como em en.html. Cada bloco
+     de terminal é saída real do binário distribuído e por isso permanece em inglês. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Qual data você deveria testar?</h1>
+    <p class="sub">
+      Metade do teste de datas é mover o relógio. A outra metade é saber para onde movê-lo. Uma calculadora
+      on-line diz que dia será daqui a noventa dias. Ela não diz que esse dia é feriado bancário, nem que
+      é o último dia do trimestre.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="A calculadora do Chrono Mock. À esquerda, uma lista de cenários com busca e suas explicações, no centro o construtor de datas, e a coluna de resultado à direita lista cada formato com um botão de copiar ao lado e Use this date abaixo. Sob o construtor, um 04/08/2008 colado é apontado como ambíguo, com as leituras americana e polonesa.">
+      <figcaption>Sob o construtor está o sentido inverso: <code>04/08/2008</code> colado, e as duas
+        leituras mostradas em vez de uma adivinhada.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Dias úteis, com feriados reais</h2>
+    <div class="prose">
+      <p>
+        “Dez dias úteis depois” não é aritmética - depende do calendário de que país você está contando.
+        Mesma data de início, mesmos dez dias, duas respostas diferentes:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        Um dia de diferença, e a calculadora diz por quê se você perguntar sobre a data intermediária:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        Os Estados Unidos e a Polônia acompanham o programa como calendários de referência, escolhidos
+        porque, juntos, exercitam todos os tipos de regra que existem: datas fixas, o n-ésimo dia da semana
+        de um mês, datas calculadas a partir da Páscoa e a regra americana pela qual um feriado que cai em
+        um sábado é observado na sexta-feira anterior. Adicionar um país é um arquivo de dados, não uma
+        mudança de código.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Todos os formatos de uma vez</h2>
+    <div class="prose">
+      <p>
+        O aplicativo testado quer a data na forma que espera. Em vez de fazer você converter, a calculadora
+        imprime todas - e uma máscara personalizada para as que não se encaixam em nenhum padrão.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        Esse valor epoch não é coincidência - <code>2147483647</code> é exatamente o maior número que um
+        inteiro de 32 bits com sinal comporta, que é toda a razão pela qual essa data importa.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lendo uma data de trás para frente</h2>
+    <div class="prose">
+      <p>
+        O sentido contrário é igualmente útil: cole uma data tirada de um log e descubra o que ela é.
+        Quando o formato é ambíguo - e <code>04/08</code> é ambíguo em metade do mundo -,
+        <strong>as duas leituras são mostradas em vez de uma ser adivinhada</strong>, porque foi de um
+        palpite que saiu o relatório de bug original.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        Quatro meses de diferença, em dias da semana diferentes. Uma data ISO não é ambígua e é lida como
+        tal, e algo que não é uma data de forma alguma é recusado em vez de adivinhado.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Montada com passos, não com uma frase</h2>
+    <div class="prose">
+      <p>
+        Um momento é um ponto de partida mais passos, e o resultado intermediário é mostrado depois de
+        cada um, de modo que uma expressão que dá uma resposta surpreendente mostra onde desviou. Cinco
+        tipos de passo: deslocar por uma unidade, definir a hora do dia, ajustar a um limite de período,
+        ir para o dia útil mais próximo e reexpressar em outro fuso horário.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># O último segundo antes da virada do ano</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Noventa dias úteis depois, no calendário bancário americano</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># Dezoito anos e um dia atrás, para uma verificação de idade</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Qualquer data calculada vai direto para uma sessão de substituição, e <code>--json</code> emite o
+        mesmo resultado em formato para máquinas.
+        <a href="/pt-br/cenarios-de-teste-de-datas/">As datas que valem a pena testar &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/cenarios-de-teste-de-datas/">Ver os cenários</a>
+      <a class="btn btn-ghost" href="/pt-br/referencia-cli/">Todas as opções da calculadora</a>
+    </div>
+  </section>
+
+</div>

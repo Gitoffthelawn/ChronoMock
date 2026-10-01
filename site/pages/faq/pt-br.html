@@ -1,0 +1,206 @@
+<!-- Perguntas frequentes, português do Brasil. Estrutura, classes e marcadores como em en.html. As
+     afirmações devem coincidir com a matriz de compatibilidade do README.md - em caso de divergência, vale
+     o README. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Perguntas e respostas</h1>
+    <p class="sub">
+      Respostas curtas, inclusive as sobre o que esta ferramenta não faz.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Ele altera o relógio do meu computador?</h3>
+      <p>
+        Não, e nunca vai - esse é o objetivo da ferramenta. A hora deslocada só é visível para
+        <strong>um processo e para os filhos que ele inicia</strong>. Seu login de domínio, seus
+        certificados, o Windows Update e todos os outros aplicativos veem a data real o tempo todo.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Preciso de direitos de administrador?</h3>
+      <p>
+        Não. Não há instalador, nada é gravado no registro e ele roda de uma pasta que você pode levar em
+        um pen drive.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Vai funcionar com o meu aplicativo?</h3>
+      <p>
+        A resposta honesta é que nenhuma ferramenta desse tipo pode prometer isso de antemão - então esta
+        mede. Toda sessão termina com um veredito
+        (<strong>funciona, funciona parcialmente, não funciona</strong>), a lista de canais de tempo que o
+        aplicativo realmente leu, com a contagem de chamadas de cada um, e a lista de canais que não foram
+        cobertos.
+      </p>
+      <p>
+        Um aplicativo pode ler o relógio por um caminho que nada interceptou - de um servidor, de um banco
+        de dados, por uma camada do ambiente de execução. Quando isso acontece, você é avisado, em vez de
+        ficar presumindo que o teste passou.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Funciona com aplicativos .NET, Java e Python?</h3>
+      <p>
+        Em parte, e as diferenças importam. Os três estão marcados como <strong>experimentais</strong>:
+        funcionam nos alvos de teste, não foram testados amplamente, e a auditoria integrada é a sua fonte
+        da verdade, não este parágrafo.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - o relógio de parede e o fuso horário da sessão são cobertos.
+          <code>Stopwatch</code> continua no contador de alta resolução real, a menos que você ative o
+          escalonamento dele.</li>
+        <li><strong>Java</strong> - o relógio de parede, o tempo decorrido e o fuso horário da sessão são
+          cobertos. O fuso chega como um deslocamento fixo, com nome como <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> e <code>datetime</code> são cobertos.
+          <code>perf_counter</code>, e <code>monotonic</code> a partir do Python 3.13, ficam no contador de
+          alta resolução, a menos que você ative o escalonamento.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Funciona com aplicativos Electron e Chromium?</h3>
+      <p>
+        Sim, por outro mecanismo. O relógio deles vive em um renderizador isolado que a injeção não
+        alcança, então o aplicativo é iniciado com uma porta de depuração e um perfil limpo e descartável,
+        e as próprias APIs de tempo do JavaScript dele são colocadas no relógio da sessão - inclusive dentro
+        dos Web Workers, onde o temporizador muitas vezes realmente mora.
+      </p>
+      <p>
+        Um limite que vale conhecer: nesse modo, a sessão segue o fuso horário do host. O instante é
+        falsificado, os métodos de hora local não.
+      </p>
+      <p>
+        <a href="/pt-br/electron-chromium/">Como funciona o modo Chromium e Electron</a> - o que ele
+        alcança, o que não alcança e por que a porta de depuração é a parte a que se deve estar
+        atento.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Posso fazer o tempo correr mais rápido que o tempo real?</h3>
+      <p>
+        Sim. Escolha um multiplicador inteiro e o relógio do aplicativo corre nessa velocidade -
+        <code>x1440</code> transforma um dia em um minuto, então um teste de 30 dias expira em cerca de
+        meia hora. Você também pode congelar o relógio ou saltar para frente e para trás no meio da
+        sessão.
+      </p>
+      <p>
+        Contagens regressivas e temporizadores ficam em outro eixo, e acelerá-los é outra chave, porque
+        escaloná-los muda um comportamento do qual muitos aplicativos dependem.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Posso mudar só o fuso horário, sem mudar a data?</h3>
+      <p>
+        Sim. A sessão carrega o próprio deslocamento fixo, visível para aquele processo enquanto o fuso do
+        sistema fica exatamente onde estava. É a parte que a maioria das ferramentas pula, e é assim que se
+        reproduz o bug que só aparece para o cliente cinco fusos horários adiante.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>E o horário de verão?</h3>
+      <p>
+        O fuso da sessão é um <strong>deslocamento fixo, sem horário de verão</strong>. Uma sessão
+        configurada para a Polônia permanece no deslocamento que você escolheu, quer o relógio marque março
+        ou julho, então uma execução que cruza uma transição real se desvia uma hora do que aquele fuso
+        realmente mostraria.
+      </p>
+      <p>
+        Por isso, forçar um aplicativo a atravessar uma transição de horário de verão ainda não é algo que
+        esta ferramenta faz, e a calculadora de datas diz isso em vez de adivinhar.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Por que meu antivírus alerta?</h3>
+      <p>
+        Porque injetar uma biblioteca em outro processo é uma técnica legítima e documentada do Windows que
+        o malware também usa. É um falso positivo disparado pela técnica, não por qualquer coisa que a
+        ferramenta faça na sua máquina. A biblioteca injetada é <code>chrono_hook.dll</code>, compilada a
+        partir do código-fonte público sob a GPL-3.0, e você pode recompilá-la você mesmo. O modo Chromium
+        e Electron não injeta nada.
+      </p>
+      <p>
+        <a href="/pt-br/baixar/">A página de download</a> diz o que fazer a respeito.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Isto serve para estender um período de teste ou burlar uma licença?</h3>
+      <p>
+        Não, e não foi feito para isso. O Chrono Mock serve para testar software pelo qual você é
+        responsável - a expiração da sua própria licença, a sua própria lógica de renovação, o seu próprio
+        relatório de fim de mês. Nenhum exemplo, cenário ou página aqui jamais vai demonstrar como estender
+        o período de teste de software alheio.
+      </p>
+      <p>
+        Software com proteção de licença é, na verdade, o caso com mais chance de derrotar esta
+        ferramenta: o código antiadulteração costuma ler a hora por caminhos escolhidos de propósito para
+        serem difíceis de interceptar, e retroceder um relógio é uma condição que esse software é escrito
+        para detectar. Está planejado um recurso no sentido oposto - um modo que executa uma série de
+        manipulações de tempo contra o <em>seu próprio</em> aplicativo e relata quais a sua proteção
+        detectou.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Posso usar em integração contínua?</h3>
+      <p>
+        Sim. A versão de linha de comando é um download separado de cerca de 1,6 MB, sem ambiente de
+        execução para instalar. Todo comando entende <code>--json</code> e termina com um código sobre o
+        qual um pipeline pode ramificar, e uma sessão pode gravar a evidência em um arquivo.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Qual a diferença para o RunAsDate?</h3>
+      <p>
+        O RunAsDate intercepta cinco funções do relógio de parede e faz isso bem. Esta ferramenta cobre
+        {{channel_count}} canais de tempo, pode acelerar o relógio, dá ao processo o próprio fuso
+        horário, acompanha processos filhos e depois diz quais canais foram realmente cobertos. Também é
+        de código aberto, enquanto o RunAsDate é freeware fechado.
+      </p>
+      <p>
+        <a href="/pt-br/alternativa-ao-runasdate/">A comparação completa</a> também diz onde o RunAsDate
+        é a melhor escolha.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>É o libfaketime para Windows?</h3>
+      <p>
+        No espírito, sim - a mesma ideia de mover o tempo para um programa em vez de para a máquina. Na
+        prática, é uma implementação diferente, porque o
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> depende de
+        <code>LD_PRELOAD</code>, que não existe no Windows. Há
+        <a href="/pt-br/libfaketime-windows/">uma página sobre exatamente isso</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>É gratuito, e envia alguma coisa para algum lugar?</h3>
+      <p>
+        Gratuito e de código aberto sob a GPL-3.0. Sem conta, sem telemetria, e nunca se conecta à
+        internet - a ferramenta inteira funciona com o cabo de rede desconectado.
+      </p>
+      <p>
+        A janela tem, sim, um controle que leva para fora dela, então vale nomeá-lo em vez de deixar você
+        descobrir: um botão <strong>Donate</strong> na barra de título. Ao clicar, ele entrega um endereço
+        ao seu navegador, e é o seu navegador que se conecta. O Chrono Mock não abre nenhuma conexão em
+        nenhum dos casos, e nada do que ele mediu sobre o seu aplicativo vai para lugar nenhum.
+      </p>
+    </div>
+
+  </section>
+
+</div>

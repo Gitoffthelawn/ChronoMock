@@ -36,6 +36,12 @@
       "link_text": "Zonas horarias",
       "title": "Ejecuta una app en otra zona horaria - Windows no cambia",
       "description": "Da a un proceso su propio desfase horario mientras la zona del sistema se queda donde está. Reproduce el error que solo aparece para el cliente a cinco zonas horarias de distancia."
+    },
+    "pt-br": {
+      "slug": "teste-de-fuso-horario",
+      "link_text": "Fusos horários",
+      "title": "Execute um app em outro fuso horário - o Windows não muda",
+      "description": "Dê a um processo o próprio deslocamento de fuso horário enquanto o fuso do sistema fica onde está. Reproduza o bug que só aparece para o cliente a cinco fusos de distância."
     }
   }
 }

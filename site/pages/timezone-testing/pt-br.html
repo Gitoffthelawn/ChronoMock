@@ -1,0 +1,119 @@
+<!-- Fusos horários, português do Brasil. Estrutura, classes e marcadores como em en.html.
+
+     A seção de limites honestos pesa aqui mais do que em qualquer outra página: o fuso da sessão é um
+     deslocamento fixo, sem horário de verão, e quem descobre isso depois já tirou uma conclusão errada de
+     um teste. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Execute um app em outro fuso horário</h1>
+    <p class="sub">
+      O relatório que cai no dia errado, o lembrete que dispara uma hora antes, o carimbo de data e hora
+      que se lê como amanhã - quase tudo isso só aparece em um fuso em que você não está. Isto dá a um
+      processo o próprio deslocamento, enquanto o fuso do seu sistema fica exatamente onde estava.
+    </p>
+  </section>
+
+  <section>
+    <h2>Por que as respostas habituais não ajudam</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Mudar o fuso horário do Windows</strong> o muda para tudo - seu calendário, seus logs,
+          suas reuniões - e em uma máquina gerenciada pode não ser você quem decide mudá-lo.</li>
+        <li><strong>Definir <code>TZ</code></strong> funciona para alguns ambientes de execução e para
+          outros não. Um aplicativo nativo do Windows que leia <code>GetTimeZoneInformation</code> não vai
+          perceber de forma alguma.</li>
+        <li><strong>As ferramentas de desenvolvedor do navegador</strong> sobrescrevem o fuso de uma
+          página web, o que é excelente, e irrelevante para um aplicativo de desktop.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Um processo, um deslocamento</h2>
+    <div class="prose">
+      <p>
+        A sessão carrega o próprio deslocamento. O aplicativo pergunta ao Windows em que fuso está e recebe
+        essa resposta, enquanto todos os outros programas da máquina recebem a real.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># O mesmo momento, visto da costa oeste dos Estados Unidos</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Só o fuso - a data real de hoje, o relógio de outra pessoa</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        A calculadora responde à outra metade da pergunta - o que um dado momento realmente marca em outro
+        lugar. Converter preserva o instante e muda só o relógio de parede, que é exatamente como uma data
+        cai no dia errado:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Nove da manhã na Europa central é <strong>meia-noite</strong> na costa oeste dos Estados Unidos.
+        O mesmo instante, e um relatório diário que agrupa por data local o coloca em um dia diferente
+        conforme o lugar onde roda.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limites honestos, e aqui eles importam</h2>
+
+    <div class="note warning">
+      <p><strong>O fuso da sessão é um deslocamento fixo, sem horário de verão.</strong></p>
+      <p>
+        Uma sessão definida em <code>+01:00</code> permanece em <code>+01:00</code> quer o relógio marque
+        janeiro ou julho. Uma execução que cruza uma transição real se desvia, portanto, uma hora do que
+        aquele fuso realmente mostraria, e forçar um aplicativo a atravessar uma transição de horário de
+        verão é algo que esta ferramenta ainda não faz. A calculadora de datas diz isso em vez de
+        adivinhar.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>O fuso se apresenta como “Chrono Session”</strong>, um nome que nenhum registro do
+          Windows conhece. Tudo o que mapeia esse nome de volta para um fuso - inclusive o
+          <code>TimeZoneInfo.Local</code> do .NET - recorre ao deslocamento, que é a resposta certa. Um
+          aplicativo que insista em um nome de registro não vai encontrar nenhum.</li>
+        <li><strong>O Java assume o fuso da sessão como um deslocamento.</strong> O fuso da sessão não tem
+          horário de verão nem cidade por trás, então o Java o nomeia pelo deslocamento -
+          <code>GMT+05:30</code> para uma sessão em +05:30.</li>
+        <li><strong>No modo Chromium e Electron, o fuso acompanha o host.</strong> O instante é
+          falsificado, os métodos de hora local não.</li>
+        <li><strong>Os deslocamentos vão de -14:00 a +14:00</strong> em minutos inteiros. Qualquer coisa
+          fora disso é recusada em vez de ser dobrada em silêncio.</li>
+      </ul>
+      <p>
+        Qual desses casos se aplica ao seu aplicativo é algo que se mede, e não que se adivinha.
+        <a href="/pt-br/auditoria-das-fontes-de-tempo/">A sessão relata a própria cobertura &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/faq/">Ler as perguntas frequentes</a>
+    </div>
+  </section>
+
+</div>

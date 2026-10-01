@@ -1,0 +1,124 @@
+<!-- Electron e Chromium, português do Brasil. Estrutura, classes e marcadores como em en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Falsificando a data em um aplicativo Electron</h1>
+    <p class="sub">
+      Pesquise por isso e toda resposta é sobre mudar o seu próprio código - simular o objeto
+      <code>Date</code>, usar os temporizadores falsos do seu framework de testes. Nada disso ajuda
+      quando o que você tem é um aplicativo já compilado. Isto executa o aplicativo que você já tem.
+    </p>
+  </section>
+
+  <section>
+    <h2>Por que a injeção não chega até ele</h2>
+    <div class="prose">
+      <p>
+        Este modo existe por causa de uma falha específica. Um temporizador Pomodoro feito em Electron foi
+        executado sob uma sessão <code>x60</code> e a contagem regressiva dele não se mexeu. Desmontar o
+        bundle do aplicativo mostrou duas razões independentes, e nenhuma tinha solução no lado nativo:
+      </p>
+      <ul>
+        <li>A contagem regressiva não lia nenhum relógio. Era um <strong>contador incrementado por
+          <code>setInterval</code></strong>, rodando dentro de um Web Worker. Não havia chamada de tempo
+          para interceptar, porque o aplicativo nunca perguntava que horas eram.</li>
+        <li>Esse worker vive em um <strong>processo de renderização isolado</strong>, que é justamente o
+          lugar em que uma biblioteca injetada de fora não entra.</li>
+      </ul>
+      <p>
+        Então o mecanismo do lado do Windows não pode ajudar aqui, e a resposta é falar com o próprio motor
+        JavaScript do aplicativo.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que acontece em vez disso</h2>
+    <div class="prose">
+      <p>
+        O aplicativo é iniciado com uma porta de depuração e um perfil limpo e descartável, e as próprias
+        APIs de tempo dele são colocadas no relógio da sessão por meio do protocolo DevTools -
+        <code>Date.now</code>, o construtor <code>new Date()</code>, <code>performance.now</code>,
+        <code>setTimeout</code> e <code>setInterval</code>.
+      </p>
+      <p>
+        A substituição é instalada em todo contexto que o aplicativo abre, <strong>inclusive nos Web
+        Workers</strong> - onde o temporizador costuma estar, e o único lugar que a injeção nativa nunca ia
+        alcançar.
+      </p>
+      <p>
+        Nada muda na forma de operar. O mesmo comando, a mesma janela, o mesmo painel de sessão com os dois
+        relógios e o veredito.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># O mesmo comando de um aplicativo nativo - o modo é detectado</span>
+<span class="p">chrono</span> run "%LOCALAPPDATA%\Programs\your-app\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60</pre>
+  </section>
+
+  <section>
+    <h2>Dois limites que vale conhecer antes de começar</h2>
+
+    <div class="note warning">
+      <p><strong>A inicialização é invasiva, e deliberadamente barulhenta sobre isso.</strong></p>
+      <p>
+        O aplicativo é iniciado com uma porta de depuração remota aberta e um perfil novo e isolado em
+        <code>%TEMP%</code> - ele não roda no seu perfil real, e não é a cópia que já está na sua bandeja
+        do sistema. O perfil é apagado quando a sessão termina, e, se não puder ser, o resumo da sessão
+        diz isso em vez de deixá-lo ali em silêncio.
+      </p>
+      <p>
+        Passar o seu próprio <code>--user-data-dir</code> ou <code>--remote-debugging-port</code> é
+        recusado em vez de sobrescrito, porque o acidente óbvio - apontar a sessão para o seu perfil real
+        do navegador - não é um que valha a pena permitir.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>O fuso horário da sessão acompanha o host.</strong></p>
+      <p>
+        Nesse modo o instante é falsificado, mas os métodos de hora local não são, então um
+        <a href="/pt-br/teste-de-fuso-horario/">fuso horário independente</a> é um recurso apenas do modo
+        nativo. Isso é uma limitação desta versão, não uma decisão.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Mais uma coisa que surpreende: um intervalo <em>já agendado</em> mantém o ritmo antigo quando você
+        muda a velocidade no meio da sessão. <code>Date.now</code>, <code>new Date()</code> e
+        <code>performance.now</code> reagem imediatamente, um <code>setInterval</code> em execução não, e
+        a sessão avisa isso em vez de deixar você concluir que a mudança não fez nada.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quão bem testado é</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimental</strong>, e essa palavra tem aqui um significado definido: funciona nos
+        alvos para os quais foi construído, não foi testado amplamente, e a auditoria integrada é a sua
+        fonte da verdade, não esta página. Foi verificado manualmente e não pela suíte automatizada, em um
+        aplicativo Electron real no Windows de 64 bits.
+      </p>
+      <p>
+        A cobertura é relatada por contexto JavaScript e não por processo, já que essa é a unidade que
+        existe aqui. Um aplicativo parado que nunca pergunta a hora produz honestamente
+        <em>indeterminado</em> - ele não leu nenhum relógio, então nada pode ser afirmado sobre se teria
+        visto o certo.
+        <a href="/pt-br/auditoria-das-fontes-de-tempo/">O que os vereditos significam &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/faq/">Ler as perguntas frequentes</a>
+    </div>
+  </section>
+
+</div>

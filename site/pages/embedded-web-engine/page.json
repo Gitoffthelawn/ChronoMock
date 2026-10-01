@@ -38,6 +38,12 @@
       "link_text": "WebView2 y Qt WebEngine",
       "title": "Falsear la fecha de las páginas web dentro de una app nativa",
       "description": "Una aplicación nativa con motor web integrado ejecuta sus páginas en un proceso al que la inyección no puede entrar, así que conservan la fecha real. La sesión las alcanza por el puerto de depuración del motor."
+    },
+    "pt-br": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 e Qt WebEngine",
+      "title": "Falsificar a data das páginas web dentro de um app nativo",
+      "description": "Um aplicativo nativo com motor web embutido executa as páginas em um processo que a injeção não consegue entrar, então elas ficam com a data real. A sessão as alcança pela porta de depuração do motor."
     }
   }
 }

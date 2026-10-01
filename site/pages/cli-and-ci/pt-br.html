@@ -1,0 +1,134 @@
+<!-- CLI e CI, português do Brasil. Estrutura, classes e marcadores como em en.html. A tabela de códigos de
+     saída é o contrato e coincide com a página da auditoria. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testes de data em um pipeline</h1>
+    <p class="sub">
+      A janela serve para explorar. Esta é a outra metade: uma versão de linha de comando de cerca de
+      <strong>1,6 MB</strong>, sem ambiente de execução para instalar, cujo código de saída é o veredito
+      de cobertura e não o do próprio alvo.
+    </p>
+  </section>
+
+  <section>
+    <h2>O código de saída é o veredito</h2>
+    <div class="prose">
+      <p>
+        Esta é a decisão de projeto que torna a ferramenta programável por script. Quando uma sessão
+        termina, o código de saída responde a <em>“a substituição do tempo teve efeito?”</em>, e não a
+        <em>“o que o aplicativo retornou?”</em>. Um pipeline pode, portanto, falhar diante de uma
+        substituição que silenciosamente não aconteceu - que é a falha pela qual vale falhar, porque tudo
+        o que vem depois é um teste que não provou nada.
+      </p>
+      <p>
+        O código de saída do próprio alvo continua sendo informado, nos dados da sessão.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Código</th><th>Significado</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>funciona - todo processo que leu a hora viu o relógio da sessão</td></tr>
+          <tr><td>10</td><td>funciona parcialmente - alguns canais cobertos, outros não</td></tr>
+          <tr><td class="n">11</td><td>não funciona - a substituição não chegou aos canais principais</td></tr>
+          <tr><td>4</td><td>indeterminado - não foi possível estabelecer a cobertura</td></tr>
+          <tr><td>1</td><td>erro de uso - uma opção ou expressão incorreta</td></tr>
+          <tr><td>2</td><td>o alvo não pôde ser iniciado nem injetado</td></tr>
+          <tr><td>12</td><td>o alvo desapareceu, sugerindo um aplicativo de instância única</td></tr>
+          <tr><td>3</td><td>erro interno - o motor não conseguiu iniciar, chegou a um estado inesperado ou parou antes de encerrar a sessão (qualquer que fosse o seu próprio código de saída). Uma execução assim não traz veredito</td></tr>
+          <tr><td>5</td><td>a operação não está incluída nesta versão</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Todas as opções dos dois comandos, e a mesma tabela para a calculadora, estão na
+        <a href="/pt-br/referencia-cli/">referência da linha de comando</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Execuções limitadas</h2>
+    <div class="prose">
+      <p>
+        Um pipeline não pode esperar que uma pessoa feche um aplicativo de desktop.
+        <code>--ticks N</code> encerra a sessão após N batimentos - de um segundo real cada - e relata o
+        que encontrou até ali. A cobertura é estabelecida nos primeiros instantes do processo de qualquer
+        forma, então um limite curto costuma bastar.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Dez segundos, depois parar e relatar</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Saída para máquinas e evidências</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> emite a sessão como registros legíveis por máquina em vez do relatório
+          para pessoas - os mesmos fatos, inclusive a cobertura por canal.</li>
+        <li><code>--report &lt;path&gt;</code> grava o relatório para pessoas em um arquivo, que serve
+          como artefato de build. Uma sessão cujo veredito não seja <em>funciona</em> abre esse arquivo
+          com um aviso de evidência não confiável, em vez de enterrar a ressalva no fim.</li>
+        <li>A calculadora também entende <code>--json</code>, então um pipeline pode calcular a data de
+          que precisa e devolvê-la.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Calcular a data e depois executar nela</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Um passo, mais ou menos</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># um código de saída diferente de zero aqui significa que a substituição não pegou, então o</span>
+    <span class="c"># teste seguinte não teria provado nada</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Duas ressalvas honestas sobre os runners</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>É preciso um runner Windows.</strong> Não há versão para Linux nem macOS, e não
+          haverá - no Linux, o <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> já cobre
+          esse caso.</li>
+        <li><strong>O antivírus de um runner hospedado pode bloquear a injeção.</strong> Deslocar o tempo
+          significa injetar uma biblioteca no processo alvo, uma técnica documentada do Windows que o
+          malware também usa. Um runner que a bloqueie produz um código de saída dizendo isso, em vez de
+          um falso sucesso - mas convém descobrir antes de depender disso.</li>
+      </ul>
+      <p>
+        Pelo mesmo motivo, a suíte de testes de ponta a ponta deste projeto roda em máquinas reais e não
+        em um runner hospedado. A integração contínua dele compila e testa tudo com testes unitários, e a
+        substituição em si é exercitada manualmente em aplicativos reais, tanto em builds de 32 quanto de
+        64 bits, antes de cada versão.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/auditoria-das-fontes-de-tempo/">O que os vereditos significam</a>
+    </div>
+  </section>
+
+</div>

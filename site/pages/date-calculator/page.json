@@ -36,6 +36,12 @@
       "link_text": "Calculadora",
       "title": "Calculadora de fechas para QA - días laborables y casos límite",
       "description": "Averigua qué fecha probar: fin de mes, cierre de trimestre, N días laborables con festivos reales, el límite de 2038. Todos los formatos a la vez y qué prueba cada fecha."
+    },
+    "pt-br": {
+      "slug": "calculadora-de-datas",
+      "link_text": "Calculadora",
+      "title": "Calculadora de datas para QA - dias úteis e casos extremos",
+      "description": "Descubra qual data testar: fim de mês, fechamento de trimestre, N dias úteis com feriados reais, o limite de 2038. Todos os formatos de uma vez e o que cada data testa."
     }
   }
 }

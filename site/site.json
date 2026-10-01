@@ -9,7 +9,7 @@
 
   "//languages": "The first entry is the default: it owns the site root and is what hreflang x-default points at. Every other entry is the directory its pages live under (/pl/, /pt-br/, /zh-hans/), so it is lower case, and the build refuses a code that does not equal the language's own html_lang lower-cased - the address and the hreflang cannot be allowed to name two different languages. Adding a language here without adding its file under i18n/ fails the build, and so does an indexable page that has no version in it. The order is the order of the language menu.",
   "languages": [
-    "en", "pl", "de", "fr", "es"
+    "en", "pl", "de", "fr", "es", "pt-br"
   ],
 
   "//theme": "Taken from the product icon (assets/chrono-bean.svg), not chosen separately - #C0392B is the bean body and #E4573F its highlight. The background matches the application's dark theme.",

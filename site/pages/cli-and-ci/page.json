@@ -36,6 +36,12 @@
       "link_text": "CLI y CI",
       "title": "Pruebas de fechas en CI - códigos de salida y salida JSON",
       "description": "Una compilación de línea de comandos de 1,6 MB sin entorno de ejecución. El código de salida es el veredicto de cobertura, no el del objetivo: el pipeline falla si la sustitución no tuvo efecto."
+    },
+    "pt-br": {
+      "slug": "cli-e-ci",
+      "link_text": "CLI e CI",
+      "title": "Testes de data em CI - códigos de saída e saída JSON",
+      "description": "Uma versão de linha de comando de 1,6 MB, sem ambiente de execução. O código de saída é o veredito de cobertura, não o do alvo: o pipeline falha se a substituição não pegou."
     }
   }
 }

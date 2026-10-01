@@ -38,6 +38,12 @@
       "link_text": "libfaketime en Windows",
       "title": "libfaketime para Windows - el equivalente más cercano",
       "description": "libfaketime necesita LD_PRELOAD, que Windows no tiene. Esto es lo que lo sustituye, con las opciones de FAKETIME trasladadas una a una a sus equivalentes en Windows."
+    },
+    "pt-br": {
+      "slug": "libfaketime-windows",
+      "link_text": "libfaketime no Windows",
+      "title": "libfaketime para Windows - o equivalente mais próximo",
+      "description": "O libfaketime precisa do LD_PRELOAD, que o Windows não tem. Veja o que o substitui, com as opções do FAKETIME mapeadas uma a uma para os equivalentes no Windows."
     }
   }
 }
