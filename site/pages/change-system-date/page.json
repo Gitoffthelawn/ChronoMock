@@ -37,6 +37,12 @@
       "link_text": "No cambies el reloj",
       "title": "Cambiar la fecha del sistema para probar: qué falla en Windows",
       "description": "Cambiar el reloj de Windows para probar una fecha mueve toda la máquina: dominio, certificados, sincronización. Qué se rompe y cómo mover solo una app."
+    },
+    "pt-br": {
+      "slug": "alterar-a-data-do-sistema-para-testar",
+      "link_text": "Não mude o relógio",
+      "title": "Alterar a data do sistema para testar: o que quebra no Windows",
+      "description": "Mudar o relógio do Windows para testar uma data move a máquina toda: domínio, certificados, sincronização. O que quebra e como mover só um app."
     }
   }
 }

@@ -1,0 +1,127 @@
+<!-- O problema do ano 2038 no Windows, português (Brasil). Estrutura, classes e tokens como em en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testando o problema do ano 2038 no Windows</h1>
+    <p class="sub">
+      Em 19 de janeiro de 2038, às 03:14:07 UTC, acaba um contador de 32 bits com sinal de segundos
+      desde 1970. O relógio do Windows segue adiante - os programas, formatos de arquivo e bibliotecas que
+      guardaram a própria cópia de 32 bits, não. Veja como encontrá-los em um único aplicativo, sem
+      colocar a data da máquina inteira em 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>Onde o bug ainda pode estar</h2>
+    <div class="prose">
+      <p>
+        O relógio do Windows é um contador de 64 bits de passos de 100 nanossegundos desde 1601, então não
+        conhece 2038. O tipo <code>time_t</code> da biblioteca de execução do C é de 64 bits por padrão
+        desde o Visual Studio 2005. Sobra o código que escolheu um tempo de 32 bits ou perdeu a metade
+        alta pelo caminho:
+      </p>
+      <ul>
+        <li><strong>Compilações de 32 bits feitas com <code>_USE_32BIT_TIME_T</code></strong>, ou que
+          chamam <code>_time32</code> e <code>__time32_t</code> diretamente. A documentação da Microsoft
+          avisa que esse aplicativo pode falhar depois de 18 de janeiro de 2038.</li>
+        <li><strong>Um tempo de 64 bits guardado em um <code>int</code> ou <code>long</code>.</strong> No
+          Windows os dois têm 32 bits, mesmo em um programa de 64 bits.</li>
+        <li><strong>Bibliotecas, formatos de arquivo, protocolos de rede e colunas de banco de
+          dados</strong> que guardam segundos desde 1970 em 32 bits.</li>
+        <li><strong>Código que soma anos.</strong> Uma licença de vinte anos, um cronograma de
+          financiamento de trinta ou um certificado válido até 2040 cruzam o limite muito antes de 2038
+          chegar.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cruzando o limite em um único aplicativo</h2>
+    <div class="prose">
+      <p>
+        O limite é definido em UTC e <code>--at</code> é lido no fuso da sessão, então fixe o fuso em UTC
+        quando você mesmo escrever o instante. O cenário pronto já traz um instante UTC absoluto e não
+        precisa de fuso.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># O cenário: a sessão começa no próprio limite, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Começar dezessete segundos antes e deixar o aplicativo cruzá-lo ao vivo</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Começar antes e rodar a velocidade x60 - o limite chega em cerca de 14 segundos</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Ou rodar com a data de hoje e saltar por cima dele com o aplicativo aberto</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Um segundo depois do limite, um contador de 32 bits com sinal passa a -2.147.483.648, que se lê
+        como <strong>13 de dezembro de 1901, 20:45:52 UTC</strong>. Uma data de 1901, um número negativo,
+        um item que de repente expirou ou foi para o início da ordenação, uma exceção lançada pelo código
+        de datas - é assim que o estouro aparece visto de fora.
+      </p>
+      <p>
+        Colocar o relógio real em 2038 é a outra forma de chegar aqui, e a que mais quebra coisas.
+        <a href="/pt-br/alterar-a-data-do-sistema-para-testar/">O que acontece quando você altera a data do sistema &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Conferindo que chegou ao programa</h2>
+    <div class="prose">
+      <p>
+        Um teste que passa porque o programa nunca viu 2038 é pior que nenhum teste. O relatório no fim de
+        cada sessão diz qual relógio o programa leu e quantas vezes:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        A linha <strong>session</strong> confirma que o relógio do aplicativo passou do limite. Um
+        veredito <em>works</em> com contagens de chamadas significa que o programa leu o relógio e
+        recebeu a data de 2038; <em>works partially</em> nomeia os canais que ele leu por outro caminho.
+        <a href="/pt-br/auditoria-das-fontes-de-tempo/">O que significam os vereditos &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>O que um teste aprovado não prova</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Só o relógio do próprio programa se moveu.</strong> Uma data que ele carrega de um
+          arquivo ou de um banco de dados é a que está gravada lá, então uma data de 2038 dentro dos dados
+          é outro teste. A calculadora de datas calcula essas datas para você:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Um servidor com o qual o programa conversa continua na data real.</strong> Um limite
+          de 32 bits desse lado está fora do alcance, e a sessão avisa quando vê o programa abrir uma
+          conexão de rede.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Experimente</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/pt-br/baixar/">Baixar para Windows</a>
+      <a class="btn btn-ghost" href="/pt-br/cenarios-de-teste-de-datas/">Outras datas para testar</a>
+    </div>
+  </section>
+
+</div>
