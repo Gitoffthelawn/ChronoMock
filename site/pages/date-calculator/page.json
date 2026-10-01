@@ -60,6 +60,12 @@
       "link_text": "Calculator",
       "title": "Calculator de date pentru QA - zile lucrătoare, cazuri limită",
       "description": "Află ce dată să testezi: sfârșit de lună, închidere de trimestru, N zile lucrătoare cu sărbători reale, limita 2038. Toate formatele deodată și ce testează fiecare dată."
+    },
+    "cs": {
+      "slug": "kalkulacka-dat",
+      "link_text": "Kalkulačka",
+      "title": "Kalkulačka dat pro QA - pracovní dny a hraniční případy",
+      "description": "Zjistěte, které datum testovat: konec měsíce, čtvrtletní uzávěrka, N pracovních dnů se skutečnými svátky, hranice roku 2038. Všechny formáty najednou a co každé datum testuje."
     }
   }
 }

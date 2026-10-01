@@ -63,6 +63,12 @@
       "link_text": "Acasă",
       "title": "Chrono Mock - rulează orice aplicație Windows la altă dată",
       "description": "Instrument Windows gratuit și open source. Rulează o aplicație la orice dată, oprește sau accelerează-i ceasul fără să atingi ora sistemului. Îți spune dacă a funcționat."
+    },
+    "cs": {
+      "slug": "",
+      "link_text": "Úvod",
+      "title": "Chrono Mock - spusťte aplikaci pro Windows v jiném datu",
+      "description": "Bezplatný open source nástroj pro Windows. Spusťte aplikaci v libovolném datu, zastavte nebo zrychlete její hodiny a nesahejte na systémový čas. Řekne vám, jestli to zabralo."
     }
   }
 }

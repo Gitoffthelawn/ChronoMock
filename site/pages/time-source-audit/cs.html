@@ -1,0 +1,184 @@
+<!-- Audit zdrojů času, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Jak poznáte, že to zabralo?</h1>
+    <p class="sub">
+      U každého jiného nástroje tohoto druhu nepoznáte. Aplikace se spustí, ukáže nějaké datum a vy
+      předpokládáte. Jenže může číst hodiny cestou, kterou nic nezachytilo - a pak
+      <em>„test prošel“</em> neznamená vůbec nic.
+    </p>
+  </section>
+
+  <section>
+    <h2>Selhání, které nemá žádný příznak</h2>
+    <div class="prose">
+      <p>
+        Nástroj pro posun času, který minul kanál, nespadne a nevaruje. Aplikace prostě přečte skutečné
+        datum přes jedinou funkci, kterou nikdo nezachytil, a chová se přesně tak, jak by se chovala v
+        jakékoli obyčejné odpoledne. Test zezelená. Chyba se dostane do produkce.
+      </p>
+      <p>
+        RunAsDate je v tomto ve vlastní dokumentaci upřímný - říká, že
+        <strong>„neovlivní aplikace, které berou aktuální datum a čas z jiného zdroje“</strong> - a pak
+        vás nechá, ať si zjistíte, jestli je ta vaše jednou z nich. Tento nástroj tutéž větu bere jako
+        něco, co se má změřit.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co sezení skutečně hlásí</h2>
+    <div class="prose">
+      <p>
+        Skutečný výstup z běhu nástroje proti jedné z testovacích sond tohoto projektu - sondě, která
+        záměrně otevírá síťové spojení:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Poslední dva bloky jsou podstatou. Nic tady neselhalo - verdikt je
+        <strong>funguje</strong> - a zpráva přesto bez vyzvání říká, že tato aplikace mluvila se sítí,
+        než skončila, takže místní hook nemusí být celý příběh. Tato věta je rozdíl mezi testem, kterému
+        můžete věřit, a takovým, kterému nemůžete.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Obrazovka s výsledkem Chrono Mock s otevřeným What the application read: tabulka se sloupci Function, Read from a Reads. NtCreateUserProcess je označen jako čtený ze skutečných hodin záměrně a connect jako čtený ze skutečných hodin záměrně a zachycený pozdě, zatímco ostatní řádky - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation a další - čtou z falešných hodin, každý s vlastním počtem. Pod tabulkou jsou dvě varování.">
+      <figcaption>Stejná odpověď v okně. Každá funkce, na kterou se aplikace mohla zeptat, odkud skutečně
+        četla a kolikrát - včetně těch, které jsou záměrně ponechány na skutečných hodinách a které jsou
+        pojmenovány, ne tiše započítány jako úspěch.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Čtyři verdikty a návratový kód pro každý</h2>
+    <div class="prose">
+      <p>
+        Verdikt se určuje zevnitř běžícího procesu, než začnete pracovat, a je to vlastní návratový kód
+        nástroje, takže se podle něj může pipeline větvit.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Verdikt</th><th>Kód</th><th>Význam</th></tr></thead>
+        <tbody>
+          <tr><td class="y">funguje</td><td>0</td><td>každý proces, který četl čas, viděl hodiny sezení</td></tr>
+          <tr><td>funguje částečně</td><td>10</td><td>některé kanály pokryté, jiné ne - nepokryté jsou vypsány</td></tr>
+          <tr><td class="n">nefunguje</td><td>11</td><td>náhrada času se nedostala ke klíčovým kanálům</td></tr>
+          <tr><td>neurčeno</td><td>4</td><td>pokrytí se nepodařilo zjistit - upřímné „nevím“</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Když je verdikt „nefunguje“, proces se okamžitě zastaví</strong>, než s ním můžete
+        pracovat. Verdikt nemůže předcházet spuštění, protože jediným zdrojem pravdy je měření
+        provedené zevnitř běžícího procesu. Zaručeno je, že pravdu zjistíte, než začnete pracovat - ne že
+        k odsouzenému spuštění nikdy nedojde. Můžete to přepsat a pokračovat a sezení je pak všude, kde
+        se objeví, označeno jako nespolehlivé, včetně jakýchkoli exportovaných důkazů.
+      </p>
+      <p>
+        Existují ještě tři kódy pro věci, které vůbec nejsou verdikty: <code>1</code> pro chybu použití,
+        <code>2</code>, když se cíl nepodařilo spustit nebo do něj injektovat, a <code>12</code>, když
+        cíl zmizel způsobem, který naznačuje aplikaci s jedinou instancí, která předala řízení už běžící
+        kopii.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pokryté, pozorované, nepokryté</h2>
+    <div class="prose">
+      <p>Kanály spadají do tří kategorií a ta prostřední je ta zajímavá.</p>
+      <ul>
+        <li><strong>Pokryté</strong> - zachycené a nahrazené. Aplikace se zeptala a dostala hodiny
+          sezení. Počet volání říká, kolikrát.</li>
+        <li><strong>Pozorované</strong> - zachycené, spočítané a záměrně ponechané říkat pravdu.
+          Čítač s vysokým rozlišením je tu ve výchozím stavu, protože jeho škálování destabilizovalo
+          vykreslování. Multimediální časovače jsou tu proto, že by jejich škálování posunulo časování
+          zvuku a MIDI. Síťová spojení a jedna cesta vytváření procesů jsou tu proto, že jsou důkazem,
+          ne hodinami.</li>
+        <li><strong>Nepokryté</strong> - kanál, který aplikace četla a ke kterému se náhrada času
+          nedostala. To mění verdikt na <em>funguje částečně</em> a je vypsán jménem, ne shrnut do
+          ztracena.</li>
+      </ul>
+      <p>
+        Nulový počet je také informace: kanál byl zachycen a aplikace se nikdy nezeptala. Proto je
+        zpráva vypisuje, místo aby je skrývala.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co audit nevidí</h2>
+    <div class="prose">
+      <p>
+        Zpráva je upřímná o pokrytí, což znamená být upřímná i o vlastních hranicích. Tyto věci se čtou
+        bez jakéhokoli volání funkce, které by šlo zachytit, nebo zcela mimo proces:
+      </p>
+      <ul>
+        <li>přímé čtení sdílené datové stránky v uživatelském režimu - hodnota leží v paměti, takže není
+          co zachytit. Vzácné v běžných aplikacích, časté v kódu licencování a ochrany proti
+          manipulaci</li>
+        <li>přímá systémová volání, která obcházejí standardní exporty - stejný vzorec</li>
+        <li>čas získaný mimo proces, přes WMI, mimoprocesový server COM nebo RPC</li>
+        <li>čas ze sítě - hlavička HTTP <code>Date</code>, NTP, odpověď API nebo vlastní hodiny
+          databázového serveru</li>
+        <li>čas z ovladačů jádra</li>
+      </ul>
+      <p>
+        Případ sítě je ten, který audit může alespoň <em>zaznamenat</em>, proto existuje varování ve
+        zprávě výše. U ostatních verdikt <em>funguje</em> znamená, že kanály, které tento nástroj vidí,
+        byly pokryté - ne že žádná jiná cesta neexistuje.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>V pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> vypíše tatáž fakta ve strojové podobě, <code>--report</code> zapíše verzi pro
+        lidi do souboru a sezení, jehož verdikt je jiný než <em>funguje</em>, začíná ten soubor bannerem
+        o nespolehlivých důkazech, místo aby ho schovalo na konec.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/alternativa-k-runasdate/">Srovnání s RunAsDate</a>
+    </div>
+  </section>
+
+</div>

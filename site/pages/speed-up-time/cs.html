@@ -1,0 +1,136 @@
+<!-- Zrychlení hodin, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Nechte hodiny jedné aplikace běžet rychleji</h1>
+    <p class="sub">
+      Třicetidenní zkušební doba vyprší za 30 dní, pokud neumíte posunout čas. Obvyklá rada je
+      posunout systémové hodiny dopředu, což vyžaduje práva správce a táhne to s sebou všechny
+      ostatní programy na počítači. Tohle místo toho posouvá jeden proces.
+    </p>
+  </section>
+
+  <section>
+    <h2>Jak rychle</h2>
+    <div class="prose">
+      <p>
+        Zvolte celočíselný násobitel. Hodiny aplikace postupují tolikrát rychleji než skutečné, od
+        okamžiku, ve kterém sezení začíná.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Násobitel</th><th>Jedna skutečná minuta se stává</th><th>K čemu je to dobré</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>hodinou</td><td>hodinové úlohy, vypršení sezení, životnost tokenů</td></tr>
+          <tr><td><code>x1440</code></td><td>dnem</td><td>denní přechody, 30denní zkušební doba za půl hodiny</td></tr>
+          <tr><td><code>x43200</code></td><td>30denní zkušební dobou</td><td>sledování konce celé zkušební doby, zatímco tohle čtete</td></tr>
+          <tr><td><code>x525600</code></td><td>rokem</td><td>roční obnovení, vypršení certifikátů</td></tr>
+          <tr><td><code>x1000000</code></td><td>asi 1,9 roku</td><td>strop</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Začít na skutečném čase teď a běžet den za minutu</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Začít ve zvoleném datu a zrychlovat od něj</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Naopak úplně zastavit hodiny</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Záznam sezení, které řídí další aplikaci pro Windows. Levé okno je Chrono Mock s hodinami aplikace na 2038-01-19 stoupajícími šedesátinásobnou skutečnou rychlostí, zatímco skutečné hodiny vedle se pohnou o pár vteřin. Pravé okno je testovaná aplikace, jejíž vlastní záznam sezení ukazuje, že začala 2038-01-19 a běží minuty oproti sotva půl minutě v místnosti.">
+      <figcaption>Skutečné sezení, řídící skutečnou aplikaci. Všimněte si pravého okna: testovaný
+        program si zaznamenal vlastní start jako <strong>19. ledna 2038</strong> a jeho sezení trvá
+        minuty, zatímco hodiny v místnosti se pohnuly o vteřiny. Rychlost se mění za běhu, bez
+        restartování čehokoli.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Část, na které se lidé nachytají: hodiny jsou dvoje</h2>
+    <div class="prose">
+      <p>
+        Zrychlení <strong>kalendářních hodin</strong> - toho, co vrací <code>DateTime.Now</code> a jeho
+        ekvivalenty - samo o sobě nezrychlí <strong>odpočet</strong>. To jsou dvě různé otázky, které
+        může aplikace operačnímu systému položit, a spousta softwaru měří „třicet dní“ tou druhou, ne
+        první.
+      </p>
+      <p>
+        Osa trvání - počty ticků, uspání, čekání a časovače - je proto samostatný přepínač:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> dá na hodiny sezení i uspání, čekání a časovače. Bez něj
+          <code>x1440</code> žene kalendář kupředu, zatímco pětivteřinový časovač stále trvá pět
+          skutečných vteřin.</li>
+        <li><code>--scale-qpc</code> navíc škáluje čítač s vysokým rozlišením. Tam čtou uplynulý čas
+          <code>monotonic</code> z Pythonu 3.13+, <code>Stopwatch</code> z .NET a <code>nanoTime</code>
+          z Javy, a je ve výchozím stavu vypnutý, protože jeho škálování při testování destabilizovalo
+          vykreslování.</li>
+      </ul>
+      <p>
+        Pokud se zdá, že násobitel odpočtu nic nedělá, je to téměř vždy kvůli tomuto.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aplikace s časovačem: zrychlit kalendář I odpočty</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Aplikace v Pythonu nebo .NET měřící uplynulý čas na čítači s vysokým rozlišením</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Změna rychlosti bez restartu</h2>
+    <div class="prose">
+      <p>
+        Násobitel lze uprostřed sezení změnit a hodiny se znovu ukotví, ne skočí, takže nikdy nejdou
+        zpět, když rychlost klesne. Hodinami můžete také rovnou skočit - dopředu, nebo zpět tak, jak to
+        dělá notebook po opětovné synchronizaci s časovým serverem, což je případ, který rozbije
+        cokoli, co měří uplynulý čas bez pojistky.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Běžet na x60, pak po dvou vteřinách přepnout na x1440</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Spustit a po pěti vteřinách skočit hodinami na zvolený okamžik</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Co neumí</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Nesahá na systémové hodiny.</strong> To je smysl, ne omezení - ale znamená to, že
+          cokoli, co čte čas ze serveru, z databáze nebo z jiného počítače, zůstává nedotčeno, a audit vám
+          řekne, když se to stane.</li>
+        <li><strong>Skok mění to, co aplikace vidí, ne to, kdy se probudí.</strong> Časovače, které už
+          byly předány jádru, běží na skutečném čase. Většina aplikací hodiny dotazuje, takže skoky v
+          praxi fungují - ne všechny to ale dělají.</li>
+        <li><strong>Nezpomaluje čas.</strong> Násobitele jsou celá čísla od jedné výše plus zastavené
+          hodiny na nule.</li>
+      </ul>
+      <p>
+        Zda se něco z toho dostalo k vaší aplikaci, není věc k předpokládání.
+        <a href="/cs/audit-zdroju-casu/">Sezení to řekne &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/faq/">Přečtěte si FAQ</a>
+    </div>
+  </section>
+
+</div>

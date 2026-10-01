@@ -60,6 +60,12 @@
       "link_text": "Accelerarea timpului",
       "title": "Accelerează ceasul unei aplicații Windows, nu al sistemului",
       "description": "Lasă ceasul unei singure aplicații să meargă de până la un milion de ori mai repede: o probă de 30 de zile expiră într-o jumătate de oră. Fără drepturi de administrator, restul programelor păstrează ora reală."
+    },
+    "cs": {
+      "slug": "zrychleni-casu",
+      "link_text": "Zrychlení času",
+      "title": "Zrychlení času pro jednu aplikaci, ne systémové hodiny",
+      "description": "Nechte hodiny jedné aplikace běžet až milionkrát rychleji: třicetidenní zkušební doba vyprší za půl hodiny. Bez práv správce, ostatní programy drží skutečný čas."
     }
   }
 }

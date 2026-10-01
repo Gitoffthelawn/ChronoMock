@@ -62,6 +62,12 @@
       "link_text": "Auditul",
       "title": "Cum afli dacă data falsă a ajuns cu adevărat la aplicație",
       "description": "Fiecare sesiune se încheie cu un verdict, canalele de timp citite efectiv, cu numărul de apeluri, cele ratate și avertismentele. Un eșec tăcut este singurul rezultat care nu este acceptat."
+    },
+    "cs": {
+      "slug": "audit-zdroju-casu",
+      "link_text": "Audit",
+      "title": "Jak poznáte, že falešné datum aplikaci opravdu dosáhlo",
+      "description": "Každé sezení končí verdiktem, skutečně čtenými časovými kanály s počtem volání, minutými kanály a varováními. Tiché selhání je jediný výsledek, který se nepřipouští."
     }
   }
 }

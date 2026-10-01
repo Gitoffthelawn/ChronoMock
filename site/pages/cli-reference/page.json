@@ -60,6 +60,12 @@
       "link_text": "Referința CLI",
       "title": "Referința CLI Chrono Mock - fiecare opțiune și cod de ieșire",
       "description": "Referința completă pentru chrono run și chrono calc: fiecare opțiune de linie de comandă, ambele tabele de coduri de ieșire și cum se citește raportul sesiunii."
+    },
+    "cs": {
+      "slug": "reference-cli",
+      "link_text": "Reference CLI",
+      "title": "Reference CLI Chrono Mock - každý přepínač a návratový kód",
+      "description": "Úplná reference pro chrono run a chrono calc: každý přepínač příkazového řádku, obě tabulky návratových kódů a jak číst zprávu o sezení."
     }
   }
 }

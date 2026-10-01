@@ -60,6 +60,12 @@
       "link_text": "CLI și CI",
       "title": "Testarea datelor în CI - coduri de ieșire și ieșire JSON",
       "description": "Un build de linie de comandă de 1,6 MB, fără runtime. Codul de ieșire este verdictul de acoperire, nu cel al țintei: pipeline-ul pică dacă înlocuirea nu a avut efect."
+    },
+    "cs": {
+      "slug": "cli-a-ci",
+      "link_text": "CLI a CI",
+      "title": "Testování dat v CI - návratové kódy a výstup JSON",
+      "description": "Sestavení pro příkazový řádek o velikosti 1,6 MB bez běhového prostředí. Návratový kód je verdikt o pokrytí, ne kód cíle: pipeline selže, pokud náhrada času nezabrala."
     }
   }
 }

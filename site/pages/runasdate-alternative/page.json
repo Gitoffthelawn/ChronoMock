@@ -62,6 +62,12 @@
       "link_text": "vs RunAsDate",
       "title": "Alternativă la RunAsDate pentru QA pe Windows - open source",
       "description": "Cum diferă Chrono Mock de RunAsDate: {{channel_count}} canale de timp în loc de cinci, viteză reglabilă a ceasului, fus orar propriu, procese copil - și un verdict dacă a funcționat."
+    },
+    "cs": {
+      "slug": "alternativa-k-runasdate",
+      "link_text": "vs RunAsDate",
+      "title": "Alternativa k RunAsDate pro QA ve Windows - open source",
+      "description": "V čem se Chrono Mock liší od RunAsDate: {{channel_count}} časových kanálů místo pěti, nastavitelná rychlost hodin, vlastní časové pásmo, podřízené procesy - a verdikt, jestli to zabralo."
     }
   }
 }

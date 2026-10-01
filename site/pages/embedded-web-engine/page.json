@@ -62,6 +62,12 @@
       "link_text": "WebView2 și Qt WebEngine",
       "title": "Falsifică data paginilor web dintr-o aplicație nativă",
       "description": "O aplicație nativă cu motor web încorporat își rulează paginile într-un proces în care injecția nu intră, deci ele păstrează data reală. Sesiunea ajunge la ele prin portul de depanare al motorului."
+    },
+    "cs": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 a Qt WebEngine",
+      "title": "Falšování data pro webové stránky v nativní aplikaci",
+      "description": "Nativní aplikace s vestavěným webovým enginem spouští své stránky v procesu, do kterého injektáž nevstoupí, takže si drží skutečné datum. Sezení se k nim dostane přes ladicí port enginu."
     }
   }
 }

@@ -1,0 +1,196 @@
+<!-- FAQ, česky. Struktura, třídy a tokeny jako v en.html. Každý nadpis je napsán tak, jak by otázku zadal člověk. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Otázky a odpovědi</h1>
+    <p class="sub">
+      Krátké odpovědi, včetně těch o tom, co tento nástroj neudělá.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Mění hodiny mého počítače?</h3>
+      <p>
+        Ne a nikdy nebude - to je celý smysl nástroje. Posunutý čas vidí <strong>jeden proces a
+        podřízené procesy, které spustí</strong>. Vaše přihlášení do domény, certifikáty, Windows Update
+        a všechny ostatní aplikace celou dobu vidí skutečné datum.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Potřebuji práva správce?</h3>
+      <p>
+        Ne. Není tu instalátor, nic se nezapisuje do registru a běží ze složky, kterou můžete mít na
+        USB disku.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Bude fungovat s mou aplikací?</h3>
+      <p>
+        Upřímná odpověď je, že žádný nástroj tohoto druhu to nemůže slíbit předem - proto to tento
+        měří. Každé sezení končí verdiktem
+        (<strong>funguje, funguje částečně, nefunguje</strong>), seznamem časových kanálů, které
+        aplikace skutečně četla, s počtem volání u každého, a seznamem kanálů, které pokryté nebyly.
+      </p>
+      <p>
+        Aplikace může číst hodiny cestou, kterou nic nezachytilo - ze serveru, z databáze, přes vrstvu
+        běhového prostředí. Když se to stane, dozvíte se to, místo abyste byli ponecháni v domnění, že
+        test prošel.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Funguje s aplikacemi v .NET, Javě a Pythonu?</h3>
+      <p>
+        Částečně a rozdíly jsou důležité. Všechny tři jsou označeny jako <strong>experimentální</strong>:
+        fungují na testovacích cílech, nebyly široce testovány a vestavěný audit je váš zdroj pravdy, ne
+        tento odstavec.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - kalendářní hodiny a časové pásmo sezení jsou pokryté.
+          <code>Stopwatch</code> zůstává na skutečném čítači s vysokým rozlišením, pokud se k jeho
+          škálování nepřihlásíte.</li>
+        <li><strong>Java</strong> - kalendářní hodiny, uplynulý čas a časové pásmo sezení jsou pokryté.
+          Pásmo přichází jako pevný posun, pojmenovaný například <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> a <code>datetime</code> jsou pokryté.
+          <code>perf_counter</code> a od Pythonu 3.13 také <code>monotonic</code> sedí na čítači s vysokým
+          rozlišením, pokud se nepřihlásíte.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Funguje s aplikacemi Electron a Chromium?</h3>
+      <p>
+        Ano, jiným mechanismem. Jejich hodiny žijí v izolovaném rendereru, kam injektáž nedosáhne, takže
+        se aplikace spustí s ladicím portem a čistým jednorázovým profilem a její vlastní časová API
+        JavaScriptu se přepnou na hodiny sezení - včetně Web Workerů, kde časovač často skutečně žije.
+      </p>
+      <p>
+        Jedno omezení, které stojí za to znát: v tomto režimu sezení sleduje časové pásmo hostitele.
+        Okamžik je falešný, getery místního času ne.
+      </p>
+      <p>
+        <a href="/cs/electron-chromium/">Jak funguje režim Chromium a Electron</a> - čeho dosáhne, čeho
+        ne a proč je ladicí port tou částí, o které je dobré vědět.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Mohu nechat čas běžet rychleji než skutečný?</h3>
+      <p>
+        Ano. Zvolte celočíselný násobitel a hodiny aplikace poběží touto rychlostí - <code>x1440</code>
+        promění den v minutu, takže třicetidenní zkušební doba vyprší asi za půl hodiny. Hodiny můžete
+        také zastavit nebo uprostřed sezení skákat dopředu a zpět.
+      </p>
+      <p>
+        Odpočty a časovače sedí na samostatné ose a jejich zrychlení je samostatný přepínač, protože
+        jejich škálování mění chování, na kterém závisí spousta aplikací.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Mohu změnit jen časové pásmo, bez změny data?</h3>
+      <p>
+        Ano. Sezení nese vlastní pevný posun, viditelný pro tento proces, zatímco systémové pásmo
+        zůstane přesně tam, kde bylo. To je část, kterou většina nástrojů vynechává, a je to způsob, jak
+        reprodukovat chybu, která se objeví jen u zákazníka o pět časových pásem dál.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>A co letní čas?</h3>
+      <p>
+        Pásmo sezení je <strong>pevný posun bez letního času</strong>. Sezení nastavené na Polsko zůstává
+        na zvoleném posunu, ať jeho hodiny ukazují březen, nebo červenec, takže běh, který překročí
+        skutečný přechod, se odchýlí o hodinu od toho, co by dané pásmo skutečně ukazovalo.
+      </p>
+      <p>
+        Protažení aplikace přechodem na letní čas tedy tento nástroj zatím nedělá a kalkulačka dat to
+        říká, místo aby hádala.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Proč ho označuje můj antivirus?</h3>
+      <p>
+        Protože vložení knihovny do jiného procesu je legitimní zdokumentovaná technika Windows, kterou
+        používá i malware. Je to falešný poplach vyvolaný samotnou technikou, ne něčím, co nástroj dělá
+        vašemu počítači. Injektovaná knihovna je <code>chrono_hook.dll</code>, sestavená z veřejného
+        zdroje pod GPL-3.0, a můžete si ji sestavit sami. Režim Chromium a Electron neinjektuje vůbec.
+      </p>
+      <p>
+        <a href="/cs/stazeni/">Stránka ke stažení</a> říká, co s tím dělat.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Je to způsob, jak prodloužit zkušební dobu nebo obejít licenci?</h3>
+      <p>
+        Ne a není to k tomu určeno. Chrono Mock slouží k testování softwaru, za který odpovídáte - vaše
+        vlastní vypršení licence, vaše vlastní logika obnovení, vaše vlastní měsíční uzávěrka. Žádný
+        příklad, preset ani stránka tu nikdy nebude předvádět prodlužování cizí zkušební doby.
+      </p>
+      <p>
+        Software s ochranou licence je ve skutečnosti případ, který tento nástroj nejspíš porazí:
+        kód proti manipulaci často čte čas cestami záměrně zvolenými tak, aby se těžko zachytávaly, a
+        posun hodin zpět je podmínka, kterou je takový software napsán detekovat. Plánuje se funkce
+        opačným směrem - režim, který proti <em>vaší vlastní</em> aplikaci spustí sérii manipulací s
+        časem a ohlásí, které z nich vaše ochrana zachytila.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Mohu ho použít v kontinuální integraci?</h3>
+      <p>
+        Ano. Sestavení pro příkazový řádek je samostatné stažení o velikosti asi 1,6 MB, bez běhového
+        prostředí k instalaci. Každý příkaz umí <code>--json</code> a končí kódem, podle kterého se může
+        pipeline větvit, a sezení může zapsat své důkazy do souboru.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>V čem se liší od RunAsDate?</h3>
+      <p>
+        RunAsDate zachycuje pět funkcí kalendářních hodin a dělá to dobře. Tento nástroj pokrývá
+        {{channel_count}} časových kanálů, umí zrychlit hodiny, dává procesu vlastní časové pásmo,
+        sleduje podřízené procesy a poté vám řekne, které kanály byly skutečně pokryté. Je také open
+        source, zatímco RunAsDate je uzavřený freeware.
+      </p>
+      <p>
+        <a href="/cs/alternativa-k-runasdate/">Úplné srovnání</a> říká i to, kdy je RunAsDate lepší
+        volba.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Je to libfaketime pro Windows?</h3>
+      <p>
+        V duchu ano - stejná myšlenka posunout čas jednomu programu, ne celému počítači. V praxi je to
+        jiná implementace, protože
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> závisí na
+        <code>LD_PRELOAD</code>, který na Windows neexistuje. Je tu
+        <a href="/cs/libfaketime-windows/">stránka přesně o tom</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Je to zdarma a posílá to něco někam?</h3>
+      <p>
+        Zdarma a open source pod GPL-3.0. Bez účtu, bez telemetrie a vůbec nekomunikuje s internetem -
+        celý nástroj funguje i s vytaženým síťovým kabelem.
+      </p>
+      <p>
+        Okno má jeden ovládací prvek, který vede ven, takže ho stojí za to pojmenovat, místo abyste ho
+        museli objevovat: tlačítko <strong>Donate</strong> v záhlaví. Jeho stisknutím se prohlížeči předá
+        adresa a připojuje se prohlížeč. Chrono Mock nenavazuje žádné spojení ani v jednom případě a nic,
+        co změřil o vaší aplikaci, nikam neodchází.
+      </p>
+    </div>
+
+  </section>
+
+</div>

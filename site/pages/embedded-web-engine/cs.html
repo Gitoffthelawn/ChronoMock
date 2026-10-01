@@ -1,0 +1,165 @@
+<!-- WebView2 a Qt WebEngine, česky. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Webové stránky uvnitř nativní aplikace</h1>
+    <p class="sub">
+      Desktopová aplikace s vestavěným webovým enginem spouští své stránky v samostatném, izolovaném
+      procesu. Nativní mechanismus pokryje aplikaci a na této hranici se zastaví - takže okno se přesune
+      na datum, které jste chtěli, a panel uvnitř něj ne. Tohle tu mezeru zavírá.
+    </p>
+  </section>
+
+  <section>
+    <h2>Selhání, které vypadá jako úspěch</h2>
+    <div class="prose">
+      <p>
+        Spousta aplikací pro Windows je zvenku nativních a uvnitř je webová stránka. Obrazovka
+        nastavení, dashboard, zobrazení sestavy, panel licence - postavené jednou v HTML a hostované v
+        <strong>WebView2</strong> nebo <strong>Qt WebEngine</strong>, místo aby se psaly dvakrát.
+      </p>
+      <p>
+        Engine spouští tyto stránky ve vlastním procesu a ten proces je izolovaný. Knihovna vložená do
+        aplikace se do něj nedostane. Všechno, na co se aplikace zeptá Windows, se přesune na datum
+        sezení, a všechno, na co se stránka zeptá JavaScriptu, ne:
+      </p>
+      <ul>
+        <li>Záhlaví okna, logy a soubory říkají <strong>2038</strong>.</li>
+        <li>Panel uvnitř téhož okna říká <strong>dnes</strong>.</li>
+        <li>Nic nehlásí chybu, nic nevaruje a obě poloviny vypadají stejně sebejistě.</li>
+      </ul>
+      <p>
+        To je ta drahá verze této chyby, protože se zdá, že test proběhl. Starší chování hlásilo takové
+        sezení jako čistý úspěch, což bylo tvrzení, které nástroj nemohl podložit.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co dělá sezení místo toho</h2>
+    <div class="prose">
+      <p>
+        Sezení spouští <strong>oba mechanismy najednou</strong>. Nativní hook vstoupí do aplikace jako
+        vždy a ke stránkám se dostane jediným způsobem, jakým se cokoli dostane k izolovanému rendereru:
+        zeptáním se samotného enginu.
+      </p>
+      <p>
+        Při spuštění zdědí aplikace dvě proměnné prostředí, které žádají její engine o otevření
+        místního ladicího portu. Přidají se k přepínačům, které aplikace už předává, a nenahrazují je.
+        Sezení pak sleduje vlastní procesy, dokud se ten port neobjeví, a když se objeví, každá stránka
+        a každý worker za ním přejde na stejné hodiny jako aplikace.
+      </p>
+      <p>
+        Jeden start, jedna rychlost, jedna časová osa. Změna rychlosti nebo skok zasáhne aplikaci i její
+        stránky společně a časovače stránek běží tempem aplikace, ne vlastním.
+      </p>
+      <p>
+        Je to zapnuto ve výchozím stavu a vypne se jedním přepínačem, který neotevře žádný port a nechá
+        stránky na skutečných hodinách.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Není co nastavovat - engine se najde, pokud tam je</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Nebo stránky nechte na pokoji a neotevírejte žádný port</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Co zpráva říká o stránkách</h2>
+    <div class="prose">
+      <p>
+        Stránky se nezapočítávají do vlastních čísel aplikace. Počítají se jako samostatné jednotky,
+        protože proces a stránka jsou různé věci a jejich sečtení by vymyslelo číslo, které nic
+        neznamená:
+      </p>
+      <ul>
+        <li>Hlavička počítá obojí - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Každá stránka dostane vlastní řádky, například <code>context 1: page Date.now (12 calls)</code>
+          na příkazovém řádku a <em>page Date.now - fake clock</em> v tabulce auditu v okně.</li>
+        <li>Engine, ke kterému se došlo, je pojmenován i s portem, takže můžete namířit vlastní DevTools
+          přesně na stránky, které sezení řídí.</li>
+      </ul>
+      <p>
+        Zkušební běh (dry run) řekne, zda by se ke stránkám dostalo, dřív než se cokoli spustí.
+        <a href="/cs/audit-zdroju-casu/">Co verdikty znamenají &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tři omezení, která stojí za to znát předem</h2>
+
+    <div class="note warning">
+      <p><strong>Ladicí port zůstává otevřený, dokud engine běží.</strong></p>
+      <p>
+        Naslouchá jen na tomto počítači, ale je otevřený <em>jakémukoli</em> programu na tomto počítači,
+        dokud engine běží, a cokoli, co se k němu dostane, může ty stránky ovládat. Sezení na to upozorní
+        pokaždé, když byl nějaký otevřen, a port pojmenuje, místo aby o něm mluvilo obecně. Na sdíleném
+        nebo nedůvěryhodném počítači použijte přepínač, který neotevře nic.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Aplikace běžící se zvýšenými právy je mimo dosah.</strong></p>
+      <p>
+        Engine hostovaný aplikací se zvýšenými právy ignoruje proměnné, které sezení nastavuje, takže
+        jeho stránky zůstávají na skutečných hodinách. Je to vlastní pravidlo enginu, ne nastavení, a
+        zvenčí neexistuje způsob, jak ho obejít.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Takové sezení hlásí PARTIAL a je to upřímná odpověď.</strong></p>
+      <p>
+        Pomocné procesy enginu a nativní časová volání rendereru zůstávají na skutečných hodinách.
+        Stránky jsou na hodinách sezení a zbytek té rodiny ne, takže verdikt říká <em>částečný</em> a
+        pojmenuje, co zůstalo stranou, místo aby zaokrouhlil nahoru na úspěch.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Dvě menší, řečené otevřeně. Stránky si ponechávají <strong>časové pásmo tohoto počítače</strong>,
+        takže nezávislé pásmo sezení je funkce pouze nativního režimu. A časovač naplánovaný už
+        <em>předtím</em>, než se sezení ke stránce dostalo, si ponechává svou starou rychlost, stejně jako
+        v čistém sezení Chromium - sezení na to upozorní, místo aby vás nechalo dojít k závěru, že se nic
+        nestalo.
+      </p>
+      <p>
+        Pokud je engine nakonfigurován zásadou argumentů prohlížeče v registru, proměnná sezení má po dobu
+        sezení přednost a zpráva to říká - protože ladicí port, který tam nastavíte, by se neuplatnil.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Jak dobře je otestován</h2>
+    <div class="prose">
+      <p>
+        <strong>Experimentální</strong>, se stejným definovaným významem jako jinde na webu: funguje na
+        cílech, proti kterým vznikl, nebyl široce testován a vestavěný audit je váš zdroj pravdy, ne tato
+        stránka. Byl změřen ručně na hostiteli WebView2 a hostiteli Qt WebEngine na 64bitových Windows,
+        ne automatickou sadou. V těchto bězích stránky četly rok sezení v rychlosti sezení a následovaly
+        skok.
+      </p>
+      <p>
+        Na 32bitových Windows je záludnost, kterou je lepší znát než objevovat: běhové prostředí WebView2
+        je 64bitové i tehdy, když ho hostuje 32bitová aplikace, takže 32bitové sezení nemůže pojmenovat
+        procesy enginu ani jejich role. Kanál ke stránkám přesto funguje. Zpráva je jen méně konkrétní v
+        tom, co nedokázala určit, a říká, o který z obou případů jde.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/faq/">Přečtěte si FAQ</a>
+    </div>
+  </section>
+
+</div>

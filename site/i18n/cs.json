@@ -1,0 +1,26 @@
+{
+  "//": "České texty webu - stejné klíče jako v en.json (chybějící klíč zastaví sestavení).",
+
+  "html_lang": "cs",
+  "dir": "ltr",
+  "og_locale": "cs_CZ",
+
+  "social_image_alt": "Chrono Mock - spusťte aplikaci pro Windows v libovolné datum a čas, aniž byste měnili systémové hodiny",
+
+  "skip_to_content": "Přejít na obsah",
+  "nav_label": "Hlavní navigace",
+
+  "language_name": "Čeština",
+  "language_title": "Tato stránka v češtině",
+  "language_menu_label": "Jazyk",
+
+  "footer_nav_label": "Mapa webu",
+  "footer_group_start": "Začněte zde",
+  "footer_group_tools": "Alternativy a běhová prostředí",
+  "footer_group_features": "Co umí",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Bez účtu, bez telemetrie a nikdy nekomunikuje s internetem.",
+  "footer_source": "Zdrojový kód na GitHubu",
+  "footer_releases": "Vydání",
+  "footer_license": "Licence"
+}

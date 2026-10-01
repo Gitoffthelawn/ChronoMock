@@ -62,6 +62,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - întrebări despre data falsă pe Windows",
       "description": "Schimbă ceasul sistemului? Sunt necesare drepturi de administrator? Merge cu aplicația mea, cu .NET, Java sau Electron? Răspunsuri scurte, inclusiv despre ce nu face."
+    },
+    "cs": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - otázky o falešném datu ve Windows",
+      "description": "Mění systémové hodiny? Jsou potřeba práva správce? Funguje s mou aplikací, s .NET, Javou nebo Electronem? Krátké odpovědi, i o tom, co nedělá."
     }
   }
 }

@@ -62,6 +62,12 @@
       "link_text": "Electron și Chromium",
       "title": "Falsifică data într-o aplicație Electron sau Chromium",
       "description": "Ceasul lor trăiește într-un renderer izolat, în care injecția nu ajunge. Un alt mecanism pune API-urile de timp JavaScript ale aplicației pe ceasul sesiunii, inclusiv în workeri."
+    },
+    "cs": {
+      "slug": "electron-chromium",
+      "link_text": "Electron a Chromium",
+      "title": "Falšování data v aplikaci Electron nebo Chromium",
+      "description": "Jejich hodiny žijí v izolovaném rendereru, kam injektáž nedosáhne. Jiný mechanismus přepne časová API JavaScriptu aplikace na hodiny sezení, včetně workerů."
     }
   }
 }

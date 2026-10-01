@@ -62,6 +62,12 @@
       "link_text": "libfaketime pe Windows",
       "title": "libfaketime pentru Windows - cel mai apropiat echivalent",
       "description": "libfaketime are nevoie de LD_PRELOAD, pe care Windows nu îl are. Iată ce îl înlocuiește, cu opțiunile FAKETIME puse pe rând în corespondență cu echivalentele Windows."
+    },
+    "cs": {
+      "slug": "libfaketime-windows",
+      "link_text": "libfaketime na Windows",
+      "title": "libfaketime pro Windows - nejbližší ekvivalent",
+      "description": "libfaketime potřebuje LD_PRELOAD, který Windows nemají. Tady je, co ho nahrazuje, s přepínači FAKETIME převedenými jeden po druhém na jejich ekvivalenty pro Windows."
     }
   }
 }

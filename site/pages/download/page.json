@@ -60,6 +60,12 @@
       "link_text": "Descărcare",
       "title": "Descarcă Chrono Mock pentru Windows - gratuit, portabil",
       "description": "Descarcă versiunea gratuită pentru Windows: o aplicație desktop și un instrument de linie de comandă. Fără instalator, fără drepturi de administrator, nimic în registru."
+    },
+    "cs": {
+      "slug": "stazeni",
+      "link_text": "Stažení",
+      "title": "Stáhnout Chrono Mock pro Windows - zdarma, bez instalace",
+      "description": "Stáhněte si bezplatnou verzi pro Windows: desktopovou aplikaci a nástroj pro příkazový řádek. Bez instalátoru, bez práv správce a bez zásahu do registru."
     }
   }
 }

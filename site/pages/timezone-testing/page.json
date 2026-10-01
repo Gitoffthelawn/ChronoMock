@@ -60,6 +60,12 @@
       "link_text": "Fusuri orare",
       "title": "Rulează o aplicație în alt fus orar, fără să schimbi Windows",
       "description": "Dă unui singur proces propriul decalaj de fus orar, în timp ce fusul sistemului rămâne unde era. Reproduce bug-ul care apare doar la clientul aflat la cinci fusuri orare distanță."
+    },
+    "cs": {
+      "slug": "testovani-casovych-pasem",
+      "link_text": "Časová pásma",
+      "title": "Spusťte aplikaci v jiném časovém pásmu, Windows zůstane",
+      "description": "Dejte jednomu procesu vlastní posun časového pásma, zatímco systémové pásmo zůstane, kde bylo. Reprodukujte chybu, která se objeví jen u zákazníka o pět časových pásem dál."
     }
   }
 }

@@ -60,6 +60,12 @@
       "link_text": "Date de testat",
       "title": "Date de testat - sfârșit de lună, 29 februarie, anul 2038",
       "description": "Datele care strică software-ul: limite de perioadă, ziua bisectă, epoch zero, limita de 32 de biți, marginile probelor și decalajul ceasului. {{preset_count}} vin ca scenarii cu nume."
+    },
+    "cs": {
+      "slug": "testovaci-scenare-dat",
+      "link_text": "Data k testování",
+      "title": "Data k testování - konec měsíce, 29. únor, rok 2038",
+      "description": "Data, na kterých se software rozbíjí: hranice období, přestupný den, nulová epocha, 32bitová hranice, okraje zkušebních dob a odchylka hodin. {{preset_count}} z nich je v balení jako pojmenované scénáře."
     }
   }
 }
