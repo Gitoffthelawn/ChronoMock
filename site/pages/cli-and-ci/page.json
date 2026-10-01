@@ -54,6 +54,12 @@
       "link_text": "CLI en CI",
       "title": "Datumtesten in CI - afsluitcodes en JSON-uitvoer",
       "description": "Een opdrachtregelbuild van 1,6 MB zonder runtime. De afsluitcode is het dekkingsoordeel, niet dat van het doel: de pipeline faalt als de vervanging niet is aangeslagen."
+    },
+    "ro": {
+      "slug": "cli-si-ci",
+      "link_text": "CLI și CI",
+      "title": "Testarea datelor în CI - coduri de ieșire și ieșire JSON",
+      "description": "Un build de linie de comandă de 1,6 MB, fără runtime. Codul de ieșire este verdictul de acoperire, nu cel al țintei: pipeline-ul pică dacă înlocuirea nu a avut efect."
     }
   }
 }

@@ -57,6 +57,12 @@
       "link_text": "Start",
       "title": "Chrono Mock - draai elke Windows-app met een andere datum",
       "description": "Gratis en open source Windows-gereedschap. Draai een applicatie op elke datum, bevries of versnel haar klok zonder de systeemtijd aan te raken. En het zegt of het gewerkt heeft."
+    },
+    "ro": {
+      "slug": "",
+      "link_text": "Acasă",
+      "title": "Chrono Mock - rulează orice aplicație Windows la altă dată",
+      "description": "Instrument Windows gratuit și open source. Rulează o aplicație la orice dată, oprește sau accelerează-i ceasul fără să atingi ora sistemului. Îți spune dacă a funcționat."
     }
   }
 }

@@ -54,6 +54,12 @@
       "link_text": "Datums om te testen",
       "title": "Datums om te testen - maandeinde, 29 februari, 2038",
       "description": "De datums die software breken: periodegrenzen, de schrikkeldag, epoch nul, de 32-bitsgrens, randen van proefperiodes en klokafwijking. {{preset_count}} ervan worden meegeleverd als benoemde scenario's."
+    },
+    "ro": {
+      "slug": "scenarii-de-testare-a-datelor",
+      "link_text": "Date de testat",
+      "title": "Date de testat - sfârșit de lună, 29 februarie, anul 2038",
+      "description": "Datele care strică software-ul: limite de perioadă, ziua bisectă, epoch zero, limita de 32 de biți, marginile probelor și decalajul ceasului. {{preset_count}} vin ca scenarii cu nume."
     }
   }
 }

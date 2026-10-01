@@ -1,0 +1,134 @@
+<!-- CLI și CI, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testarea cu date într-un pipeline</h1>
+    <p class="sub">
+      Fereastra este pentru explorat. Asta este cealaltă jumătate: un build de linie de comandă de circa
+      <strong>1,6 MB</strong>, fără runtime de instalat, al cărui cod de ieșire este verdictul de acoperire,
+      nu cel al țintei.
+    </p>
+  </section>
+
+  <section>
+    <h2>Codul de ieșire este verdictul</h2>
+    <div class="prose">
+      <p>
+        Aceasta este decizia de proiectare care face instrumentul scriptabil. Când se încheie o sesiune,
+        codul de ieșire răspunde la <em>„a avut efect înlocuirea timpului”</em>, nu la <em>„ce a returnat
+        aplicația”</em>. Un pipeline poate deci să pice din cauza unei înlocuiri care nu s-a petrecut în
+        tăcere - adică eșecul pentru care merită să pice, pentru că tot ce urmează după el este un test
+        care nu a dovedit nimic.
+      </p>
+      <p>
+        Codul de ieșire al țintei este raportat în continuare, în datele sesiunii.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Cod</th><th>Semnificație</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>funcționează - fiecare proces care a citit ora a văzut ceasul sesiunii</td></tr>
+          <tr><td>10</td><td>funcționează parțial - unele canale acoperite, altele nu</td></tr>
+          <tr><td class="n">11</td><td>nu funcționează - înlocuirea nu a ajuns la canalele cheie</td></tr>
+          <tr><td>4</td><td>nedeterminat - acoperirea nu a putut fi stabilită</td></tr>
+          <tr><td>1</td><td>eroare de utilizare - un flag greșit sau o expresie greșită</td></tr>
+          <tr><td>2</td><td>ținta nu a putut fi lansată sau injectată</td></tr>
+          <tr><td>12</td><td>ținta a dispărut, ceea ce sugerează o aplicație cu o singură instanță</td></tr>
+          <tr><td>3</td><td>eroare internă - motorul nu a putut porni, a întâlnit o stare neașteptată sau s-a oprit înainte să închidă sesiunea (indiferent de codul de ieșire al țintei). O astfel de rulare nu are verdict</td></tr>
+          <tr><td>5</td><td>operațiunea nu este inclusă în această versiune</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Fiecare flag al ambelor comenzi, plus același tabel pentru calculator, se găsesc în
+        <a href="/ro/referinta-cli/">referința liniei de comandă</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rulări cu limită</h2>
+    <div class="prose">
+      <p>
+        Un pipeline nu poate aștepta ca un om să închidă o aplicație desktop.
+        <code>--ticks N</code> încheie sesiunea după N bătăi de inimă - câte o secundă reală fiecare - și
+        raportează ce a găsit până în acel moment. Acoperirea se stabilește oricum în primele clipe ale
+        procesului, așa că de obicei este suficientă o limită scurtă.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Zece secunde, apoi oprește-te și raportează</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Ieșire pentru mașini și dovezi</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> emite sesiunea sub formă de înregistrări care se pot citi automat, în loc de
+          raportul pentru oameni - aceleași fapte, inclusiv acoperirea pe fiecare canal.</li>
+        <li><code>--report &lt;path&gt;</code> scrie raportul pentru oameni într-un fișier, care face un
+          artefact de build potrivit. O sesiune al cărei verdict este altul decât <em>funcționează</em>
+          începe fișierul cu un banner de dovezi nesigure, în loc să îngroape avertismentul la
+          sfârșit.</li>
+        <li>Calculatorul vorbește și el <code>--json</code>, așa că un pipeline poate calcula data de care
+          are nevoie și o poate trimite înapoi.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Calculează data, apoi rulează la ea</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Un pas, cam așa</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># un cod de ieșire diferit de zero aici înseamnă că înlocuirea nu a prins, deci</span>
+    <span class="c"># testul de după ea nu ar fi dovedit nimic</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Două avertismente sincere despre runner-e</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Are nevoie de un runner Windows.</strong> Nu există build pentru Linux sau macOS și nici
+          nu va exista - pe Linux,
+          <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> acoperă deja acest caz.</li>
+        <li><strong>Antivirusul de pe un runner găzduit poate bloca injecția.</strong> Mutarea timpului
+          înseamnă injectarea unei biblioteci în procesul țintă, o tehnică Windows documentată pe care o
+          folosește și malware-ul. Un runner care o blochează produce un cod de ieșire care spune asta, în
+          loc de o trecere falsă - dar este ceva ce merită aflat înainte să te bazezi pe el.</li>
+      </ul>
+      <p>
+        Din același motiv, suita end-to-end a acestui proiect rulează pe mașini reale, nu pe un runner
+        găzduit. Integrarea continuă a proiectului compilează și testează unitar totul, iar înlocuirea
+        propriu-zisă este exersată manual pe aplicații reale, atât în build-uri pe 32 de biți, cât și pe
+        64 de biți, înainte de fiecare versiune.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/auditul-surselor-de-timp/">Ce înseamnă verdictele</a>
+    </div>
+  </section>
+
+</div>

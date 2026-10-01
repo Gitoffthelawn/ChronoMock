@@ -1,0 +1,26 @@
+{
+  "//": "Textele în limba română ale site-ului - aceleași chei ca în en.json (o cheie lipsă oprește build-ul).",
+
+  "html_lang": "ro",
+  "dir": "ltr",
+  "og_locale": "ro_RO",
+
+  "social_image_alt": "Chrono Mock - rulează o aplicație Windows la orice dată și oră, fără să schimbi ceasul sistemului",
+
+  "skip_to_content": "Sari la conținut",
+  "nav_label": "Navigarea principală",
+
+  "language_name": "Română",
+  "language_title": "Această pagină în română",
+  "language_menu_label": "Limba",
+
+  "footer_nav_label": "Harta site-ului",
+  "footer_group_start": "Începe de aici",
+  "footer_group_tools": "Alternative și runtime-uri",
+  "footer_group_features": "Ce face",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Fără cont, fără telemetrie, și nu se conectează niciodată la internet.",
+  "footer_source": "Codul sursă pe GitHub",
+  "footer_releases": "Versiuni",
+  "footer_license": "Licență"
+}

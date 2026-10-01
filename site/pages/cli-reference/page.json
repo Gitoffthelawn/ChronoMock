@@ -54,6 +54,12 @@
       "link_text": "CLI-referentie",
       "title": "Chrono Mock CLI-referentie - elke optie en afsluitcode",
       "description": "Volledige referentie voor chrono run en chrono calc: elke opdrachtregeloptie, beide tabellen met afsluitcodes en hoe je het sessierapport leest."
+    },
+    "ro": {
+      "slug": "referinta-cli",
+      "link_text": "Referința CLI",
+      "title": "Referința CLI Chrono Mock - fiecare opțiune și cod de ieșire",
+      "description": "Referința completă pentru chrono run și chrono calc: fiecare opțiune de linie de comandă, ambele tabele de coduri de ieșire și cum se citește raportul sesiunii."
     }
   }
 }

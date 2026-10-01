@@ -56,6 +56,12 @@
       "link_text": "De audit",
       "title": "Zo weet je of de valse datum je app echt bereikte",
       "description": "Elke sessie eindigt met een oordeel, de tijdkanalen die werkelijk zijn gelezen met aantal aanroepen, de gemiste en waarschuwingen. Een stil falen is de enige uitkomst die wordt geweigerd."
+    },
+    "ro": {
+      "slug": "auditul-surselor-de-timp",
+      "link_text": "Auditul",
+      "title": "Cum afli dacă data falsă a ajuns cu adevărat la aplicație",
+      "description": "Fiecare sesiune se încheie cu un verdict, canalele de timp citite efectiv, cu numărul de apeluri, cele ratate și avertismentele. Un eșec tăcut este singurul rezultat care nu este acceptat."
     }
   }
 }

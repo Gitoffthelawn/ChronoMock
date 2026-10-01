@@ -56,6 +56,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - vragen over datums vervalsen onder Windows",
       "description": "Verandert het de systeemklok? Zijn beheerdersrechten nodig? Werkt het met mijn app, met .NET, Java of Electron? Korte antwoorden, ook over wat het niet doet."
+    },
+    "ro": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - întrebări despre data falsă pe Windows",
+      "description": "Schimbă ceasul sistemului? Sunt necesare drepturi de administrator? Merge cu aplicația mea, cu .NET, Java sau Electron? Răspunsuri scurte, inclusiv despre ce nu face."
     }
   }
 }

@@ -54,6 +54,12 @@
       "link_text": "Downloaden",
       "title": "Chrono Mock downloaden voor Windows - gratis, zonder installatie",
       "description": "Download de gratis Windows-versie: een desktopapplicatie en een opdrachtregelprogramma. Geen installatieprogramma, geen beheerdersrechten en niets in het register."
+    },
+    "ro": {
+      "slug": "descarcare",
+      "link_text": "Descărcare",
+      "title": "Descarcă Chrono Mock pentru Windows - gratuit, portabil",
+      "description": "Descarcă versiunea gratuită pentru Windows: o aplicație desktop și un instrument de linie de comandă. Fără instalator, fără drepturi de administrator, nimic în registru."
     }
   }
 }

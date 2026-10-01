@@ -1,0 +1,130 @@
+<!-- Pagina de descărcare, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Descarcă Chrono Mock</h1>
+    <p class="sub">
+      Două build-uri ale aceluiași motor: o fereastră pentru explorat, o linie de comandă pentru CI.
+      Dezarhivează oricare dintre ele oriunde și rulează-l - nu există instalator, nu se scrie nimic în
+      registru și nu sunt necesare drepturi de administrator.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Ia ultima versiune</a>
+      <a class="btn btn-ghost" href="{{repo}}">Vezi codul pe GitHub</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Fișier</th><th>Ce este</th><th>Dimensiune</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>Aplicația desktop, autonomă - nu este nevoie de instalarea .NET</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Doar instrumentul de linie de comandă, pentru CI și scripturi</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>De ce ai nevoie</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 sau Windows 11.</strong> Nu există build pentru macOS sau Linux -
+          pe Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> acoperă deja bine
+          acest caz.</li>
+        <li><strong>De nimic altceva.</strong> Build-ul desktop își aduce propriul runtime, iar build-ul de
+          linie de comandă nu aduce absolut nimic.</li>
+        <li><strong>Sunt acceptate atât aplicațiile pe 32 de biți, cât și cele pe 64 de biți.</strong>
+          Pachetul le conține pe amândouă și o alege pe cea potrivită cu aplicația către care o
+          îndrepți.</li>
+      </ul>
+      <p>
+        ARM64 este în afara domeniului până la versiunea 1.0, iar aplicațiile împachetate din Store
+        (UWP și MSIX) nu sunt acceptate - modelul lor de lansare nu o permite.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cum îl rulezi</h2>
+    <div class="prose">
+      <p>
+        Dezarhivează, apoi rulează <code>ChronoMock.exe</code> pentru fereastră sau
+        <code>chrono.exe</code> pentru linia de comandă. O primă sesiune înseamnă trei
+        decizii: ce aplicație, ce moment și cât de repede să meargă ceasul.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Rulează o aplicație ca și cum ar fi ultima secundă din 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Același lucru, cu ceasul mergând o zi pe minut</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Două lucruri de citit mai întâi</h2>
+
+    <div class="note warning">
+      <p><strong>Fă o copie de rezervă a directorului de date al aplicației înainte de prima sesiune cu o
+        dată din viitor.</strong></p>
+      <p>
+        O aplicație care rulează în 2028 scrie date din 2028 oriunde își stochează datele: în baza de date,
+        în configurație, în cache, în fișierul de licență. Acele valori rămân acolo după ce te întorci la
+        timpul real. Pentru software cu protecție prin licență, asta poate fi permanent -
+        <em>„clock rollback detected, licence invalidated”</em> este un tipar standard în industrie și
+        va face exact ce a fost proiectat să facă.
+      </p>
+      <p>
+        Chrono Mock face curat după el. Nu poate face curat după aplicația pe care ai testat-o.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Antivirusul tău îl poate semnala, iar asta este de așteptat.</strong></p>
+      <p>
+        Timpul este mutat prin injectarea unei mici biblioteci în procesul țintă. Este o tehnică Windows
+        legitimă, documentată - și totodată una pe care o folosește și malware-ul, așa că Microsoft
+        Defender și altele pot semnala biblioteca injectată sau pot bloca de-a dreptul injecția. Este un
+        fals pozitiv declanșat de tehnică.
+      </p>
+      <p>
+        Dacă o sesiune refuză să pornească și Defender raportează o amenințare, exclude biblioteca, nu
+        folderul: alege <strong>File</strong> în Windows Security și dă calea completă către
+        <code>chrono_hook.dll</code>. O excludere de folder ar opri scanarea oricărui lucru chiar în
+        directorul din care injectează instrumentul. Sau rulează-l pe o mașină unde ai voie să o faci.
+        Biblioteca injectată este construită din codul din acest depozit, sub GPL-3.0 - o poți
+        recompila singur. Modul Chromium și Electron nu injectează deloc și nu este afectat.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce lasă în urmă</h2>
+    <div class="prose">
+      <p>
+        Nimic în sistemul tău: nicio interceptare persistentă, nicio intrare în registru și nimic în afara
+        propriului folder, cu excepția a trei lucruri pe care ți le va numi - istoricul sesiunilor și
+        jurnalul de diagnosticare, care se mută în <code>%LOCALAPPDATA%\ChronoMock\</code> când folderul
+        propriu al instrumentului nu poate fi scris și, pentru o țintă Electron sau Chromium, un profil de
+        browser de unică folosință în <code>%TEMP%</code>, care este șters când se încheie sesiunea și
+        raportat în rezumatul sesiunii dacă nu a putut fi șters.
+      </p>
+      <p>
+        Nu comunică niciodată cu internetul, nu ține niciun cont și nu trimite telemetrie.
+      </p>
+    </div>
+  </section>
+
+</div>

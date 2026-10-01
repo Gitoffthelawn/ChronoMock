@@ -1,0 +1,189 @@
+<!-- Auditul surselor de timp, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>De unde știi că a funcționat?</h1>
+    <p class="sub">
+      Cu orice alt instrument de acest fel, nu știi. Aplicația pornește, afișează o dată oarecare și
+      presupui. Dar ea poate citi ceasul pe o cale pe care nimic nu a interceptat-o - și atunci
+      <em>„testul a trecut”</em> nu înseamnă absolut nimic.
+    </p>
+  </section>
+
+  <section>
+    <h2>Eșecul care nu are niciun simptom</h2>
+    <div class="prose">
+      <p>
+        Un instrument de mutare a timpului care ratează un canal nu se blochează și nu avertizează.
+        Aplicația citește pur și simplu data reală prin singura funcție pe care nimeni nu a interceptat-o
+        și se comportă exact cum s-ar fi comportat în orice după-amiază obișnuită. Testul devine verde.
+        Bug-ul ajunge în producție.
+      </p>
+      <p>
+        RunAsDate este onest în privința asta în propria documentație - spune că
+        <strong>„nu va afecta aplicațiile care iau data/ora curentă dintr-o altă sursă”</strong> - și apoi
+        te lasă să afli singur dacă a ta este una dintre ele. Acest instrument tratează aceeași propoziție
+        ca pe ceva de măsurat.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce raportează de fapt o sesiune</h2>
+    <div class="prose">
+      <p>
+        Ieșire reală, din rularea instrumentului pe una dintre sondele de test ale acestui proiect - una
+        care deschide în mod deliberat o conexiune de rețea:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> run "...\pnet-x64.exe" --at 2038-01-19T03:14:07 --report session.txt
+
+Chrono Mock - session report
+  target:   C:\ChronoMock\tools\probes\bin\pnet-x64.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:10
+            real elapsed 3.3s, fake elapsed 3.3s
+  covered channels (substituted, with call counts):
+            - pid 38828: NtQuerySystemTime (3 calls)
+<span class="c">            ... every other channel, including the ones never called</span>
+  observed channels (hooked but left real):
+            - pid 38828: NtCreateUserProcess (0 calls)
+            - pid 38828: connect (1 call)
+  warnings:
+            - the target opened a network connection - it may read time from a
+              server, which no local hook can cover (source.network_at_start)
+  requested:  2038-01-19T03:14:07 (zone +02:00 (host default), mode flow)</pre>
+
+    <div class="prose">
+      <p>
+        Ultimele două blocuri sunt miezul. Nimic nu a eșuat aici - verdictul este
+        <strong>funcționează</strong> - iar raportul spune totuși, nesolicitat, că această aplicație a
+        comunicat cu rețeaua înainte să termine, deci un hook local poate să nu fie toată povestea. Acea
+        propoziție este diferența dintre un test în care poți avea încredere și unul în care nu poți.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/audit-table.png" width="1560" height="1200" loading="lazy"
+           alt="Ecranul de rezultate Chrono Mock cu What the application read deschis: un tabel cu Function, Read from și Reads. NtCreateUserProcess este marcat ca citit de pe ceasul real prin proiectare, iar connect ca citit de pe ceasul real prin proiectare și interceptat târziu, în timp ce celelalte rânduri - GetSystemTimeAsFileTime, NtQuerySystemTime, GetTimeZoneInformation și restul - citesc de pe ceasul fals, fiecare cu propriul număr. Două avertismente se află sub tabel.">
+      <figcaption>Același răspuns, în fereastră. Fiecare funcție pe care ar fi putut-o întreba aplicația,
+        de unde a citit efectiv și de câte ori - inclusiv cele lăsate pe ceasul real în mod deliberat,
+        care sunt numite, nu numărate pe tăcute drept trecere.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Patru verdicte și un cod de ieșire pentru fiecare</h2>
+    <div class="prose">
+      <p>
+        Verdictul se stabilește din interiorul procesului aflat în execuție, înainte să începi să lucrezi,
+        și este chiar codul de ieșire al instrumentului, ca un pipeline să poată ramifica după el.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Verdict</th><th>Ieșire</th><th>Semnificație</th></tr></thead>
+        <tbody>
+          <tr><td class="y">funcționează</td><td>0</td><td>fiecare proces care a citit ora a văzut ceasul sesiunii</td></tr>
+          <tr><td>funcționează parțial</td><td>10</td><td>unele canale acoperite, altele nu - cele neacoperite sunt enumerate</td></tr>
+          <tr><td class="n">nu funcționează</td><td>11</td><td>înlocuirea nu a ajuns la canalele cheie</td></tr>
+          <tr><td>nedeterminat</td><td>4</td><td>acoperirea nu a putut fi stabilită - un „nu știu” onest</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        <strong>Când verdictul este „nu funcționează”, procesul este oprit imediat</strong>, înainte să
+        poți interacționa cu el. Verdictul nu poate precede lansarea, pentru că singura sursă de adevăr
+        este o citire făcută din interiorul procesului aflat în execuție. Ce este garantat este că afli
+        adevărul înainte să începi să lucrezi - nu că o lansare condamnată nu are loc niciodată. Poți
+        forța și continua, iar sesiunea este apoi marcată ca nesigură peste tot unde apare, inclusiv în
+        orice dovezi exportezi.
+      </p>
+      <p>
+        Mai există trei coduri pentru lucruri care nu sunt deloc verdicte: <code>1</code> pentru o eroare
+        de utilizare, <code>2</code> când ținta nu a putut fi lansată sau injectată și
+        <code>12</code> când ținta a dispărut într-un fel care sugerează o aplicație cu o singură instanță,
+        care a predat controlul unei copii deja pornite.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Acoperite, observate, neacoperite</h2>
+    <div class="prose">
+      <p>Canalele se împart în trei categorii, iar cea din mijloc este cea interesantă.</p>
+      <ul>
+        <li><strong>Acoperite</strong> - interceptate și înlocuite. Aplicația a întrebat și a primit ceasul
+          sesiunii. Numărul de apeluri spune de câte ori.</li>
+        <li><strong>Observate</strong> - interceptate, numărate și lăsate deliberat să spună adevărul.
+          Contorul de înaltă rezoluție este aici implicit, pentru că scalarea lui a destabilizat randarea.
+          Temporizatoarele multimedia sunt aici pentru că scalarea lor ar deplasa sincronizarea audio și
+          MIDI. Conexiunile de rețea și o cale de creare de procese sunt aici pentru că sunt dovezi, nu
+          ceasuri.</li>
+        <li><strong>Neacoperite</strong> - un canal pe care aplicația l-a citit și la care înlocuirea nu a
+          ajuns. Asta transformă un verdict în <em>funcționează parțial</em>, iar canalul este enumerat
+          pe nume, nu rezumat până dispare.</li>
+      </ul>
+      <p>
+        Un număr de zero este tot informație: canalul a fost interceptat, iar aplicația nu a întrebat
+        niciodată. De aceea raportul le enumeră, în loc să le ascundă.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ce nu poate vedea auditul</h2>
+    <div class="prose">
+      <p>
+        Raportul este onest în privința acoperirii, ceea ce înseamnă să fie onest și în privința propriilor
+        margini. Acestea sunt citite fără niciun apel de funcție de interceptat sau în afara procesului
+        cu totul:
+      </p>
+      <ul>
+        <li>citiri directe ale paginii de date partajate din user-mode - valoarea stă în memorie, deci nu
+          există nimic de interceptat. Rar în aplicațiile obișnuite, frecvent în codul de licențiere și
+          anti-tamper</li>
+        <li>apeluri sistem directe care ocolesc exporturile standard - același tipar</li>
+        <li>ora obținută în afara procesului, prin WMI, un server COM din afara procesului sau RPC</li>
+        <li>ora din rețea - un antet HTTP <code>Date</code>, NTP, un răspuns de API sau ceasul propriu al
+          unui server de baze de date</li>
+        <li>ora din drivere de kernel</li>
+      </ul>
+      <p>
+        Cazul rețelei este cel pe care auditul îl poate cel puțin <em>observa</em>, de aceea există
+        avertismentul din raportul de mai sus. Pentru restul, un verdict <em>funcționează</em> înseamnă
+        că au fost acoperite canalele pe care instrumentul le poate vedea - nu că nu există nicio altă
+        cale.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Într-un pipeline</h2>
+    <div class="prose">
+      <p>
+        <code>--json</code> emite aceleași fapte în formă pentru mașini, <code>--report</code> scrie
+        versiunea pentru oameni într-un fișier, iar o sesiune al cărei verdict este altul decât
+        <em>funcționează</em> începe acel fișier cu un banner de dovezi nesigure, în loc să-l îngroape la
+        sfârșit.
+      </p>
+    </div>
+
+    <pre class="term"><span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --json --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/alternativa-la-runasdate/">Comparat cu RunAsDate</a>
+    </div>
+  </section>
+
+</div>

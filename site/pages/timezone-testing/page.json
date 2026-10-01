@@ -54,6 +54,12 @@
       "link_text": "Tijdzones",
       "title": "Draai een app in een andere tijdzone - Windows blijft staan",
       "description": "Geef één proces zijn eigen tijdzone-offset terwijl de systeemzone blijft waar hij is. Reproduceer de bug die alleen optreedt bij de klant vijf tijdzones verderop."
+    },
+    "ro": {
+      "slug": "testarea-fusurilor-orare",
+      "link_text": "Fusuri orare",
+      "title": "Rulează o aplicație în alt fus orar, fără să schimbi Windows",
+      "description": "Dă unui singur proces propriul decalaj de fus orar, în timp ce fusul sistemului rămâne unde era. Reproduce bug-ul care apare doar la clientul aflat la cinci fusuri orare distanță."
     }
   }
 }

@@ -56,6 +56,12 @@
       "link_text": "Electron en Chromium",
       "title": "De datum vervalsen in een Electron- of Chromium-app",
       "description": "Hun klok leeft in een afgeschermde renderer die injectie niet bereikt. Een ander mechanisme zet de JavaScript-tijd-API's van de app op de sessieklok, workers inbegrepen."
+    },
+    "ro": {
+      "slug": "electron-chromium",
+      "link_text": "Electron și Chromium",
+      "title": "Falsifică data într-o aplicație Electron sau Chromium",
+      "description": "Ceasul lor trăiește într-un renderer izolat, în care injecția nu ajunge. Un alt mecanism pune API-urile de timp JavaScript ale aplicației pe ceasul sesiunii, inclusiv în workeri."
     }
   }
 }

@@ -54,6 +54,12 @@
       "link_text": "Calculator",
       "title": "Datumcalculator voor QA - werkdagen en randgevallen",
       "description": "Bereken welke datum je moet testen: maandeinde, kwartaalafsluiting, N werkdagen met echte feestdagen, de grens van 2038. Alle formaten tegelijk en wat elke datum test."
+    },
+    "ro": {
+      "slug": "calculator-de-date",
+      "link_text": "Calculator",
+      "title": "Calculator de date pentru QA - zile lucrătoare, cazuri limită",
+      "description": "Află ce dată să testezi: sfârșit de lună, închidere de trimestru, N zile lucrătoare cu sărbători reale, limita 2038. Toate formatele deodată și ce testează fiecare dată."
     }
   }
 }

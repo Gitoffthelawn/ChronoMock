@@ -56,6 +56,12 @@
       "link_text": "WebView2 en Qt WebEngine",
       "title": "De datum vervalsen voor de webpagina's in een native app",
       "description": "Een native applicatie met een ingebouwde webengine draait haar pagina's in een proces waar injectie niet in kan, dus ze houden de echte datum. De sessie bereikt ze via de debugpoort van de engine."
+    },
+    "ro": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 și Qt WebEngine",
+      "title": "Falsifică data paginilor web dintr-o aplicație nativă",
+      "description": "O aplicație nativă cu motor web încorporat își rulează paginile într-un proces în care injecția nu intră, deci ele păstrează data reală. Sesiunea ajunge la ele prin portul de depanare al motorului."
     }
   }
 }

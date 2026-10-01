@@ -1,0 +1,161 @@
+<!-- Calculatorul de date, română. Structura, clasele și token-urile ca în en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Ce dată ar trebui să testezi?</h1>
+    <p class="sub">
+      O jumătate din testarea cu date înseamnă mutarea ceasului. Cealaltă jumătate înseamnă să știi unde
+      să-l muți. Un calculator online îți spune cât face nouăzeci de zile de azi încolo. Nu îți spune că
+      răspunsul este o sărbătoare bancară sau că este ultima zi a trimestrului.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Calculatorul Chrono Mock. O listă de scenarii cu căutare și explicațiile lor coboară pe partea stângă, constructorul de date este la mijloc, iar coloana de rezultate din dreapta enumeră fiecare format, cu un buton de copiere lângă fiecare și Use this date sub ele. Sub constructor, o dată lipită, 04/08/2008, este raportată ca ambiguă, cu ambele citiri, americană și poloneză, afișate.">
+      <figcaption>Sub constructor se află direcția inversă: <code>04/08/2008</code> lipit, și
+        ambele citiri afișate, nu una singură ghicită.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Zile lucrătoare, cu sărbători reale</h2>
+    <div class="prose">
+      <p>
+        „Zece zile lucrătoare de acum” nu este aritmetică - depinde de calendarul cărei țări îl numeri.
+        Aceeași dată de început, aceleași zece zile, două răspunsuri diferite:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        O zi diferență, iar calculatorul îți spune de ce dacă îl întrebi despre data din mijloc:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        Statele Unite și Polonia vin ca calendare de referință, alese pentru că împreună exersează fiecare
+        tip de regulă existent: date fixe, a n-a zi a săptămânii din lună, date calculate din Paște și
+        regula americană după care o sărbătoare căzută într-o sâmbătă este respectată în vinerea
+        precedentă. Adăugarea unei țări înseamnă un fișier de date, nu o modificare de cod.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Toate formatele deodată</h2>
+    <div class="prose">
+      <p>
+        Aplicația testată vrea data în forma pe care o așteaptă. În loc să te pună să convertești,
+        calculatorul le afișează pe toate - plus o mască personalizată pentru cele care nu se
+        potrivesc cu nimic standard.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        Valoarea epoch nu este o coincidență - <code>2147483647</code> este exact cel mai mare număr pe
+        care îl poate stoca un întreg cu semn pe 32 de biți, ceea ce este întregul motiv pentru care data
+        contează.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Citirea unei date în sens invers</h2>
+    <div class="prose">
+      <p>
+        Direcția opusă este la fel de utilă: lipești o dată dintr-un jurnal și afli ce este. Când formatul
+        este ambiguu - iar <code>04/08</code> este ambiguu în jumătate din lume - <strong>sunt afișate
+        ambele citiri, în loc să fie ghicită una</strong>, pentru că din ghicit a pornit raportul de bug
+        inițial.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        La patru luni distanță, în zile diferite ale săptămânii. O dată ISO este neambiguă și este citită
+        ca atare, iar ceva care nu este deloc o dată este refuzat, nu ghicit.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Construit din pași, nu dintr-o propoziție</h2>
+    <div class="prose">
+      <p>
+        Un moment este un punct de pornire plus pași, iar rezultatul intermediar este afișat după fiecare,
+        așa că o expresie care produce un răspuns surprinzător îți arată unde a luat-o razna. Cinci tipuri
+        de pași: deplasare cu o unitate, setarea orei din zi, sărirea la o limită de perioadă, mutarea la
+        cea mai apropiată zi lucrătoare și reexprimarea într-un alt fus orar.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Ultima secundă înainte să se încheie anul</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Nouăzeci de zile lucrătoare de acum, în calendarul bancar american</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># Optsprezece ani și o zi în urmă, pentru o verificare de vârstă</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Orice dată calculată merge direct într-o sesiune de înlocuire, iar
+        <code>--json</code> emite același rezultat în formă pentru mașini.
+        <a href="/ro/scenarii-de-testare-a-datelor/">Datele care merită testate &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Încearcă-l</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ro/descarcare/">Descarcă pentru Windows</a>
+      <a class="btn btn-ghost" href="/ro/scenarii-de-testare-a-datelor/">Vezi scenariile</a>
+      <a class="btn btn-ghost" href="/ro/referinta-cli/">Fiecare flag al calculatorului</a>
+    </div>
+  </section>
+
+</div>
