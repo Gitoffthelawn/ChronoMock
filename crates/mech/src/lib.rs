@@ -26,7 +26,7 @@ mod tree;
 
 pub use batch::{batch_launch_problem, is_batch_script};
 pub use ending::FamilyEnd;
-pub use environment::{current_environment, encode_block, environment_block, merge_entries};
+pub use environment::{current_environment, environment_block};
 pub use family::FamilyMember;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
