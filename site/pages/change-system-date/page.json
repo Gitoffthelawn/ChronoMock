@@ -73,6 +73,12 @@
       "link_text": "Saati değiştirmeyin",
       "title": "Test için sistem tarihini değiştirmek: Windows’ta ne bozulur",
       "description": "Bir tarihi test etmek için Windows saatini kaydırmak tüm makineyi kaydırır: etki alanı, sertifikalar, zaman eşitleme. Ne bozulur ve yalnızca bir uygulama nasıl kaydırılır."
+    },
+    "id": {
+      "slug": "mengubah-tanggal-sistem-untuk-pengujian",
+      "link_text": "Jangan ubah jamnya",
+      "title": "Mengubah tanggal sistem untuk menguji: yang rusak di Windows",
+      "description": "Menggeser jam Windows untuk menguji tanggal ikut menggeser seluruh mesin: domain, sertifikat, sinkronisasi. Apa yang rusak dan cara menggeser satu aplikasi saja."
     }
   }
 }

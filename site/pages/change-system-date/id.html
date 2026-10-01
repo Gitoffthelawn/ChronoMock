@@ -1,0 +1,116 @@
+<!-- Mengubah tanggal sistem untuk pengujian, Bahasa Indonesia. Struktur, kelas, dan token seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Mengubah tanggal sistem untuk menguji sebuah aplikasi</h1>
+    <p class="sub">
+      Ini trik paling tua yang ada: setel jam Windows ke tanggal yang ingin Anda uji, jalankan program,
+      lalu kembalikan jamnya. Caranya berhasil - dan selama jam digeser, ia ikut menggeser semua hal lain
+      di mesin itu.
+    </p>
+  </section>
+
+  <section>
+    <h2>Apa yang sebenarnya ikut bergeser bersama jam</h2>
+    <div class="prose">
+      <p>
+        Jam sistem bukan milik program yang sedang Anda uji saja. Setiap proses, layanan, dan percakapan
+        jaringan di mesin membaca jam yang sama, sehingga perubahan untuk satu pengujian adalah perubahan
+        untuk semuanya.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Yang membaca jam</th><th>Yang terjadi saat Anda menggesernya</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Masuk ke domain dan folder bersama</td><td>Kerberos secara bawaan menoleransi selisih jam lima menit. Lebih dari itu, tiketnya ditolak, dan proses masuk atau akses ke folder bersama gagal.</td></tr>
+          <tr><td>Sertifikat dan HTTPS</td><td>Valid atau tidaknya sebuah sertifikat ditentukan dengan jam. Setel jam melewati tanggal berakhir sebuah sertifikat dan setiap koneksi yang bergantung padanya ditolak karena kedaluwarsa; mundurkan cukup jauh dan sertifikat itu belum berlaku.</td></tr>
+          <tr><td>Layanan Waktu Windows</td><td>Mesin yang bergabung ke domain mengambil waktu dari pengendali domain, dan secara bawaan layanan itu mengoreksi jam berapa pun besarnya selisih. Tanggal yang Anda setel bisa dibatalkan saat Anda masih menguji.</td></tr>
+          <tr><td>Semua yang mencatat waktu</td><td>Berkas, log, baris basis data, dan surel terkirim yang dibuat saat jam digeser membawa tanggal pengujian, dan tetap membawanya setelah Anda mengembalikan jam.</td></tr>
+          <tr><td>Perangkat lunak yang mengingat tanggal terbaru yang pernah dilihat</td><td>Beberapa program membaca jam yang mundur sebagai tanda pemalsuan - dan itulah yang terjadi saat Anda memulihkan tanggal yang sebenarnya.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose">
+      <p>
+        Semakin jauh tanggalnya, semakin banyak hal ini yang Anda temui. Mesin yang disetel ke 2038
+        melihat setiap sertifikat yang diterbitkan hari ini sebagai kedaluwarsa.
+        <a href="/id/menguji-masalah-tahun-2038/">Menguji 2038 tanpa itu &rarr;</a>
+      </p>
+      <p>
+        Selain itu diperlukan hak yang tidak dimiliki kebanyakan akun: mengubah waktu sistem adalah hak
+        istimewa administrator, dan di mesin yang dikelola sering kali bukan hak Anda.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kapan menggeser jam adalah jawaban yang tepat</h2>
+    <div class="prose">
+      <p>
+        Mesin virtual yang tidak dipakai orang lain, dengan sinkronisasi jamnya sendiri dimatikan, adalah
+        bangku uji yang sangat baik. Anda membuangnya setelahnya, jadi apa pun yang dicatatnya tidak
+        berarti. Jika Anda punya satu dan pengujiannya hanya satu tanggal, itulah hal paling sederhana
+        yang berhasil.
+      </p>
+      <p>
+        Masalah dimulai ketika itu mesin tempat Anda bekerja, mesin di dalam domain, atau mesin yang pada
+        saat yang sama menjalankan sesuatu yang tidak boleh menyadari apa pun.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Geser jam satu program saja</h2>
+    <div class="prose">
+      <p>
+        Waktu yang digeser terlihat oleh <strong>satu proses dan anak-anak yang dijalankannya</strong>.
+        Masuk domain Anda, sertifikat Anda, dan Windows Update tidak pernah melihatnya, sehingga tidak ada
+        yang bergeser dari tabel di atas - dan tidak ada yang perlu dikembalikan sesudahnya.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Aplikasi melihat 31 Desember 2027, 23:59:50. Semua yang lain tetap memakai tanggal asli.</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:50
+
+<span class="c"># Mulai sepuluh menit sebelum tengah malam dan jalankan dengan kecepatan x60 - pergantian tahun tiba dalam sepuluh detik</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:50:00 --mode x60</pre>
+
+    <div class="prose">
+      <p>
+        Apakah tanggal yang digeser untuk satu program benar-benar sampai kepadanya bukan sesuatu yang
+        boleh diasumsikan. Setiap sesi berakhir dengan sebuah putusan dan daftar kanal waktu yang
+        benar-benar dibaca program.
+        <a href="/id/audit-sumber-waktu/">Bagaimana Anda tahu itu berhasil &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Yang tidak digantikan oleh ini</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Program yang menanyakan waktu ke server</strong> berada di luar jangkauan penggantian
+          lokal. Sesi memberi tahu hal itu ketika melihat program membuka koneksi jaringan, alih-alih
+          membiarkan Anda mengira pengujiannya lolos.</li>
+        <li><strong>Menguji sistem itu sendiri</strong> - layanan yang bereaksi saat jam asli berubah,
+          tugas terjadwal, perilaku Windows di sekitar perubahan jam - tidak punya pengganti selain
+          mengubah jam, di mesin yang boleh Anda korbankan.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/skenario-uji-tanggal/">Tanggal yang layak diuji</a>
+    </div>
+  </section>
+
+</div>

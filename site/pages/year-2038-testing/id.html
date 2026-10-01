@@ -1,0 +1,130 @@
+<!-- Masalah tahun 2038 di Windows, Bahasa Indonesia. Struktur, kelas, dan token seperti di en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Menguji masalah tahun 2038 di Windows</h1>
+    <p class="sub">
+      Pada 19 Januari 2038 pukul 03:14:07 UTC, penghitung detik sejak 1970 yang bertanda 32 bit habis.
+      Jam Windows terus berjalan melewatinya - program, format berkas, dan pustaka yang menyimpan salinan
+      32 bit sendiri tidak. Berikut cara menemukannya di satu aplikasi, tanpa menyetel tanggal seluruh
+      mesin ke 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>Di mana bug itu masih bisa bersembunyi</h2>
+    <div class="prose">
+      <p>
+        Jam Windows adalah penghitung 64 bit berisi langkah 100 nanodetik sejak 1601, jadi ia tidak
+        mengenal 2038. Tipe <code>time_t</code> pada pustaka runtime C bernilai 64 bit secara bawaan sejak
+        Visual Studio 2005. Yang tersisa adalah kode yang memilih waktu 32 bit atau kehilangan separuh
+        atasnya di tengah jalan:
+      </p>
+      <ul>
+        <li><strong>Build 32 bit yang dikompilasi dengan <code>_USE_32BIT_TIME_T</code></strong>, atau
+          yang memanggil <code>_time32</code> dan <code>__time32_t</code> secara langsung. Dokumentasi
+          Microsoft sendiri memperingatkan bahwa aplikasi seperti itu bisa gagal setelah 18 Januari
+          2038.</li>
+        <li><strong>Waktu 64 bit yang disimpan dalam <code>int</code> atau <code>long</code>.</strong> Di
+          Windows keduanya 32 bit, bahkan di program 64 bit.</li>
+        <li><strong>Pustaka, format berkas, protokol jaringan, dan kolom basis data</strong> yang
+          menyimpan detik sejak 1970 dalam 32 bit.</li>
+        <li><strong>Kode yang menambahkan tahun.</strong> Lisensi dua puluh tahun, jadwal cicilan tiga
+          puluh tahun, atau sertifikat yang berlaku hingga 2040 melewati batas itu jauh sebelum 2038
+          tiba.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Melewati batas di satu aplikasi</h2>
+    <div class="prose">
+      <p>
+        Batas itu didefinisikan dalam UTC dan <code>--at</code> dibaca dalam zona sesi, jadi kunci zona ke
+        UTC saat Anda menulis momennya sendiri. Skenario siap pakai sudah membawa momen UTC absolut dan
+        tidak memerlukan zona.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Skenarionya: sesi dimulai tepat di batas, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Mulai tujuh belas detik sebelumnya dan biarkan aplikasi melewatinya secara langsung</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Mulai lebih awal dan jalankan dengan kecepatan x60 - batasnya tiba dalam sekitar 14 detik</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Atau jalankan dengan tanggal hari ini dan lompati batasnya saat aplikasi terbuka</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Satu detik setelah batas, penghitung 32 bit bertanda menjadi -2.147.483.648, yang terbaca sebagai
+        <strong>13 Desember 1901, 20:45:52 UTC</strong>. Tanggal tahun 1901, angka negatif, butir yang
+        tiba-tiba kedaluwarsa atau terurut paling depan, pengecualian yang dilempar dari kode tanggal -
+        begitulah wujud luapan itu dari luar.
+      </p>
+      <p>
+        Menyetel jam asli ke 2038 adalah cara lain untuk sampai ke sini, dan cara yang paling banyak
+        merusak.
+        <a href="/id/mengubah-tanggal-sistem-untuk-pengujian/">Apa yang terjadi saat Anda mengubah tanggal sistem &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Memastikan batas itu sampai ke program</h2>
+    <div class="prose">
+      <p>
+        Pengujian yang lolos karena program tidak pernah melihat 2038 lebih buruk daripada tanpa
+        pengujian. Laporan di akhir setiap sesi menyebutkan jam mana yang dibaca program dan berapa
+        kali:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        Baris <strong>session</strong> memastikan jam aplikasi telah melewati batas. Putusan
+        <em>works</em> dengan hitungan panggilan berarti program membaca jam dan menerima tanggal 2038;
+        <em>works partially</em> menyebutkan kanal yang dibacanya lewat jalur lain.
+        <a href="/id/audit-sumber-waktu/">Apa arti putusan-putusan itu &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Yang tidak dibuktikan oleh pengujian yang lolos</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Hanya jam milik program itu sendiri yang bergeser.</strong> Tanggal yang ia muat dari
+          berkas atau basis data adalah apa yang tersimpan di sana, jadi tanggal 2038 di dalam data
+          adalah pengujian tersendiri. Kalkulator tanggal menghitung tanggal semacam itu untuk Anda:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Server yang diajak bicara program tetap berjalan di tanggal asli.</strong> Batas 32
+          bit di sisi itu berada di luar jangkauan, dan sesi memperingatkan saat melihat program membuka
+          koneksi jaringan.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cobalah</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/id/unduh/">Unduh untuk Windows</a>
+      <a class="btn btn-ghost" href="/id/skenario-uji-tanggal/">Tanggal lain yang layak diuji</a>
+    </div>
+  </section>
+
+</div>

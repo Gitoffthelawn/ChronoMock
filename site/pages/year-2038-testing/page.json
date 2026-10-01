@@ -73,6 +73,12 @@
       "link_text": "2038 yılı",
       "title": "2038 sorunu: Windows uygulamasını 03:14:07 UTC sonrası test edin",
       "description": "Windows saati 2038’i aşar; 32 bitlik zaman alanları aşamaz. Sistem tarihine dokunmadan tek bir uygulamayı 19 Ocak 2038’in ötesine nasıl taşırsınız."
+    },
+    "id": {
+      "slug": "menguji-masalah-tahun-2038",
+      "link_text": "Tahun 2038",
+      "title": "Masalah tahun 2038: uji aplikasi Windows lewat 03:14:07 UTC",
+      "description": "Jam Windows berjalan melewati 2038; kolom waktu 32 bit tidak. Cara melewatkan satu aplikasi melintasi 19 Januari 2038 tanpa mengubah tanggal sistem."
     }
   }
 }
