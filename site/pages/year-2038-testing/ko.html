@@ -1,0 +1,100 @@
+<!-- Windows의 2038년 문제, 한국어. 구조, 클래스, 토큰은 en.html과 같습니다. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows에서 2038년 문제 테스트하기</h1>
+    <p class="sub">
+      2038년 1월 19일 03:14:07 UTC에 1970년부터의 초를 세는 부호 있는 32비트 카운터가 바닥납니다. Windows의 시계는 그 너머로 계속 가지만, 자체 32비트 사본을 유지한 프로그램, 파일 형식, 라이브러리는 그렇지 않습니다. 컴퓨터 전체의 날짜를 2038년으로 맞추지 않고 애플리케이션 하나에서 그것들을 찾는 방법입니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>버그가 아직 남아 있을 수 있는 곳</h2>
+    <div class="prose">
+      <p>
+        Windows 시계는 1601년부터 100나노초 단위로 세는 64비트 카운터이므로 2038년이 없습니다. C 런타임 라이브러리의 <code>time_t</code>는 Visual Studio 2005부터 기본이 64비트입니다. 남는 것은 32비트 시간을 선택했거나 도중에 상위 절반을 잃은 코드입니다.
+      </p>
+      <ul>
+        <li><strong><code>_USE_32BIT_TIME_T</code>로 컴파일한 32비트 빌드</strong>, 또는 <code>_time32</code>와 <code>__time32_t</code>를 직접 호출하는 코드. Microsoft 자체 문서도 이런 애플리케이션이 2038년 1월 18일 이후 실패할 수 있다고 경고합니다.</li>
+        <li><strong>64비트 시간을 <code>int</code>나 <code>long</code>에 저장하는 코드.</strong> Windows에서는 둘 다 32비트이며, 64비트 프로그램에서도 마찬가지입니다.</li>
+        <li><strong>1970년부터의 초를 32비트로 보관하는 라이브러리, 파일 형식, 네트워크 프로토콜, 데이터베이스 열.</strong></li>
+        <li><strong>연도를 더하는 코드.</strong> 20년짜리 라이선스, 30년 상환 일정, 2040년까지 유효한 인증서는 2038년이 오기 훨씬 전에 이 경계를 넘습니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>애플리케이션 하나에서 경계 넘기</h2>
+    <div class="prose">
+      <p>
+        이 한계는 UTC로 정의되며 <code>--at</code>은 세션 시간대로 읽히므로, 시점을 직접 쓸 때는 시간대를 UTC로 고정하세요. 준비된 시나리오에는 이미 절대적인 UTC 시점이 들어 있어 시간대가 필요 없습니다.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 시나리오: 세션이 한계 지점인 03:14:07 UTC에서 시작합니다</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># 17초 전에 시작해 애플리케이션이 경계를 실시간으로 넘게 합니다</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># 더 일찍 시작해 60배속으로 실행 - 약 14초 뒤에 한계에 도달합니다</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># 또는 오늘 날짜로 실행하다가 애플리케이션이 열려 있는 동안 경계를 건너뜁니다</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        한계를 1초 지나면 부호 있는 32비트 카운터는 -2,147,483,648이 되며, 이는 <strong>1901년 12월 13일 20:45:52 UTC</strong>로 읽힙니다. 1901년의 날짜, 음수, 갑자기 만료되거나 정렬 맨 앞으로 오는 항목, 날짜 코드에서 던져진 예외. 오버플로는 밖에서 보면 이런 모습입니다.
+      </p>
+      <p>
+        실제 시계를 2038년으로 맞추는 것은 여기에 이르는 또 다른 방법이며, 가장 많은 것을 망가뜨리는 방법입니다. <a href="/ko/change-system-date-testing/">시스템 날짜를 바꾸면 무슨 일이 생기는지 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>프로그램에 닿았는지 확인하기</h2>
+    <div class="prose">
+      <p>
+        프로그램이 2038년을 한 번도 보지 못했기 때문에 통과한 테스트는 테스트가 없는 것보다 나쁩니다. 모든 세션 끝의 보고서는 프로그램이 어떤 시계를 몇 번 읽었는지 알려 줍니다.
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        <strong>session</strong> 줄은 애플리케이션의 시계가 한계를 넘었음을 확인해 줍니다. 호출 횟수와 함께 나온 <em>works</em> 판정은 프로그램이 시계를 읽고 2038년 날짜를 받았다는 뜻이며, <em>works partially</em>는 다른 경로로 읽은 채널을 알려 줍니다. <a href="/ko/time-source-audit/">판정이 뜻하는 것 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>통과한 테스트가 증명하지 못하는 것</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>프로그램 자신의 시계만 움직였습니다.</strong> 파일이나 데이터베이스에서 불러오는 날짜는 거기에 저장된 그대로이므로, 데이터 안의 2038년 날짜는 별도의 테스트입니다. 날짜 계산기가 그런 날짜를 대신 계산해 줍니다. <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>프로그램이 통신하는 서버는 여전히 실제 날짜로 동작합니다.</strong> 그쪽의 32비트 한계에는 손이 닿지 않으며, 세션은 프로그램이 네트워크 연결을 여는 것을 보면 경고합니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>직접 써 보세요</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/ko/download/">Windows용 다운로드</a>
+      <a class="btn btn-ghost" href="/ko/date-test-scenarios/">그 밖의 테스트할 날짜</a>
+    </div>
+  </section>
+
+</div>
