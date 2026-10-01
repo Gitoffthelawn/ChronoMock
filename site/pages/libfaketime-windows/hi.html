@@ -1,0 +1,111 @@
+<!-- Windows पर libfaketime, हिन्दी। संरचना, क्लास और टोकन en.html जैसे ही हैं। -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows के लिए libfaketime</h1>
+    <p class="sub">
+      <strong>संक्षिप्त उत्तर:</strong> libfaketime Windows पर नहीं चलता, और चल भी नहीं सकता - यह <code>LD_PRELOAD</code> पर बना है, जो Windows में नहीं होता। Chrono Mock वही विचार है, उस तरह बनाया गया जिस तरह Windows अनुमति देता है।
+    </p>
+  </section>
+
+  <section>
+    <h2>इसे सीधे पोर्ट क्यों नहीं किया जा सकता</h2>
+    <div class="prose">
+      <p>
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> इस तरह काम करता है कि डायनेमिक लोडर C लाइब्रेरी के आगे एक छोटी लाइब्रेरी रख देता है, जिससे प्रोग्राम की <code>time()</code> कॉल पहले प्रतिस्थापन तक पहुँचती हैं। वह हुक Linux पर <code>LD_PRELOAD</code> है और macOS पर <code>DYLD_INSERT_LIBRARIES</code>। उसकी अपनी README ठीक इन्हीं दो प्लेटफ़ॉर्म को सूचीबद्ध करती है।
+      </p>
+      <p>
+        Windows में इसके समकक्ष कुछ नहीं है, और उसकी घड़ी वैसे भी किसी एक फ़ंक्शन के पीछे नहीं रहती। ऐप्लिकेशन समय Win32 API से पढ़ते हैं, उसके नीचे के नेटिव API से, और उन दोनों में से किसी के भी इर्द-गिर्द उनका रनटाइम जो कुछ लपेटता है उससे - इसलिए इस विचार का Windows संस्करण टारगेट प्रोसेस में इंजेक्ट की गई एक लाइब्रेरी है, जो एक सिंबल की जगह निर्यात किए गए फ़ंक्शन के एक समूह को रीडायरेक्ट करती है।
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>फ़्लैग, एक से दूसरे में मैप किए हुए</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>यहाँ डिफ़ॉल्ट है - नीचे देखें</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>कुछ सेट नहीं करना - टूल ख़ुद इंजेक्ट करता है</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">तो एक ही परीक्षण के दोनों पक्ष कुछ ऐसे दिखते हैं:</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>जहाँ दोनों सचमुच अलग हैं</h2>
+    <div class="prose">
+      <p>
+        <strong>मोनोटोनिक घड़ियाँ उलटी हैं।</strong> libfaketime उन्हें डिफ़ॉल्ट रूप से नक़ली बनाता है और रोकने के लिए <code>FAKETIME_DONT_FAKE_MONOTONIC</code> देता है। यहाँ हाई-रेज़ोल्यूशन काउंटर डिफ़ॉल्ट रूप से असली रहता है, क्योंकि उसे स्केल करने से परीक्षण में रेंडरिंग अस्थिर हुई थी, और <code>--scale-qpc</code> उसे चालू करता है। यही स्विच Python 3.13+ के <code>monotonic</code>, .NET के <code>Stopwatch</code> और Java के <code>nanoTime</code> को सत्र की घड़ी का अनुसरण कराता है।
+      </p>
+      <p>
+        <strong>Windows में रोकने की जगहें ज़्यादा हैं।</strong> वॉल क्लॉक के अलावा टाइम ज़ोन, बीते-समय का अक्ष, टाइमरों के चार परिवार, स्लीप और वेट फ़ंक्शन, और प्रोसेस निर्माण हैं - कुल मिलाकर {{channel_count}} चैनल।
+      </p>
+      <p>
+        <strong>यह टूल अपनी कवरेज ख़ुद रिपोर्ट करता है।</strong> हर सत्र एक निर्णय के साथ, उन चैनलों के साथ जो ऐप्लिकेशन ने वास्तव में पढ़े और हर एक की गिनती के साथ, और उन चैनलों के साथ ख़त्म होता है जो छूट गए। यह वह हिस्सा है जिसका किसी भी प्लेटफ़ॉर्म पर कोई समकक्ष नहीं है।
+      </p>
+      <p>
+        <strong>libfaketime पुराना है और अपने क्षेत्र में ज़्यादा व्यापक।</strong> उसके पीछे वर्षों का उपयोग है, वह C लाइब्रेरी के प्रवेश बिंदुओं की एक बड़ी श्रृंखला कवर करता है, और Linux पर वही सही टूल है। यहाँ की कोई भी चीज़ वहाँ उसकी जगह नहीं लेती।
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>अगर आपको वास्तव में libfaketime ही चाहिए</h2>
+    <div class="prose">
+      <p>
+        दो ईमानदार रास्ते हैं, और दोनों परीक्षणाधीन प्रोग्राम को Linux पर ले जाते हैं:
+      </p>
+      <ul>
+        <li><strong>WSL</strong> - Linux सबसिस्टम के भीतर libfaketime बनाएँ और चलाएँ। तब ठीक है जब जिसे परखा जा रहा है वह Linux प्रोग्राम है जिसे आप संयोग से Windows पर विकसित करते हैं।</li>
+        <li><strong>एक कंटेनर</strong> - वही विचार, ज़्यादा दोहराने योग्य।</li>
+      </ul>
+      <p>
+        दोनों में से कोई Windows ऐप्लिकेशन के काम नहीं आता, और यही वह मामला है जिसके लिए यह टूल मौजूद है।
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>आज़माएँ</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/hi/download/">Windows के लिए डाउनलोड करें</a>
+      <a class="btn btn-ghost" href="/hi/faq/">FAQ पढ़ें</a>
+    </div>
+  </section>
+
+</div>

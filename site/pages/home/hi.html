@@ -1,0 +1,212 @@
+<!-- होम पेज, हिन्दी। संरचना, क्लास और टोकन en.html जैसे ही हैं। -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>सिस्टम घड़ी को छुए बिना, Windows ऐप को <span class="hl">किसी भी तारीख़</span> पर चलाएँ</h1>
+
+        <p class="lede">
+          किसी एक ऐप्लिकेशन की घड़ी को अगले साल पर सेट करें, उसे रोक दें, या <strong>उसे इतना तेज़ कर दें कि आप कॉफ़ी बनाएँ और 30 दिन का ट्रायल ख़त्म हो जाए</strong>। बाकी मशीन असली समय पर ही रहती है - आपका डोमेन लॉगऑन, आपके सर्टिफ़िकेट और बाकी हर प्रोग्राम सामान्य रूप से चलते रहते हैं।
+        </p>
+        <p class="lede">
+          फिर यह आपको बताता है कि बदलाव <strong>सचमुच काम किया या नहीं</strong>।
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/hi/download/">Windows के लिए डाउनलोड करें</a>
+          <a class="btn btn-ghost" href="{{repo}}">GitHub पर कोड देखें</a>
+        </div>
+
+        <p class="trust">
+          <span>मुफ़्त और ओपन सोर्स, GPL-3.0</span>
+          <span>कोई इंस्टॉलर नहीं</span>
+          <span>एडमिनिस्ट्रेटर अधिकार नहीं चाहिए</span>
+          <span>कभी इंटरनेट से संपर्क नहीं करता</span>
+        </p>
+      </div>
+
+      <div class="panel">
+        <p class="panel-cap">सत्र कैसा दिखता है</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">ऐप्लिकेशन को यह दिखता है</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">सत्र का ज़ोन -05:00</div>
+          </div>
+          <div class="clock">
+            <div class="who">मशीन को अब भी यह दिखता है</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">होस्ट का ज़ोन +02:00</div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>काम करता है</b> - बदलाव इस प्रोसेस तक पहुँच गया</span>
+        </div>
+        <div class="chan">
+          <span>कवर किए गए समय चैनल</span>
+          <span class="n">26 / {{channel_count}} &middot; कॉल की गिनती के साथ</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock का सत्र पैनल। ऐप्लिकेशन की घड़ी 2038-01-19 03:14:14 दिखा रही है और उसके पास की असली घड़ी 2026-09-22 15:50:30, दोनों के अपने बीते हुए समय के साथ। नीचे x1 से x1440 तक की गतियाँ और एक Freeze बटन हैं, फिर सापेक्ष छलाँगें और टाइप की गई तारीख़ पर छलाँग, और फ़ुटर में Works के बगल में हरा टिक और लाल Stop session बटन है।">
+      <figcaption>चल रहा एक सत्र। ऐप्लिकेशन 2038 में है, मशीन नहीं, और निर्णय बताता है कि बदलाव उस तक पहुँचा।</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">यह क्यों है</p>
+    <h2>तारीख़ पर निर्भर किसी भी चीज़ को परखने के लिए समय को आगे-पीछे करना पड़ता है। दोनों आम तरीके ख़राब हैं।</h2>
+    <p class="sub">
+      लाइसेंस की समाप्ति, ट्रायल अवधि, सब्सक्रिप्शन का नवीनीकरण, सर्टिफ़िकेट की वैधता, टोकन की आयु, माह-अंत और वर्ष-अंत की रिपोर्टें, ब्याज की गणना, रिमाइंडर।
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">विकल्प 1 - सिस्टम घड़ी बदलना</p>
+        <p>
+          यह डोमेन लॉगऑन और Kerberos को तोड़ देता है, TLS सर्टिफ़िकेट अमान्य कर देता है जिससे ब्राउज़र काम करना बंद कर देता है, Windows Update को उलझा देता है, और मशीन के हर दूसरे ऐप से ग़लत टाइमस्टैम्प लिखवाता है। डोमेन से जुड़ी मशीन पर ग्रुप पॉलिसी आम तौर पर इस बदलाव को रोक देती है या कुछ मिनट बाद वापस पलट देती है, इसलिए परीक्षण दोहराया भी नहीं जा सकता।
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">विकल्प 2 - इंतज़ार करना</p>
+        <p>
+          यानी: परखना ही नहीं। तो तारीख़ पर निर्भर मामले छूट जाते हैं, और <em>“लाइसेंस कभी ख़त्म नहीं होता”</em> वाला संस्करण ग्राहक तक पहुँच जाता है।
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>यह क्या करता है</h2>
+    <p class="sub">एक प्रोसेस समय में आगे बढ़ती है। मशीन की बाकी हर चीज़ नहीं बढ़ती।</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>कोई भी क्षण</h3>
+        <p>कोई ख़ास तारीख़ और समय, या सापेक्ष समय - <code>+30 days</code>, <code>-1 year</code>।</p>
+      </div>
+      <div class="feat">
+        <h3>बहता, रुका हुआ या तेज़</h3>
+        <p>सामान्य गति, रुकी हुई घड़ी, या पूर्ण संख्या का गुणक। <code>x1440</code> एक दिन को एक मिनट में बदल देता है।</p>
+      </div>
+      <div class="feat">
+        <h3>अपना टाइम ज़ोन</h3>
+        <p>सिर्फ़ उसी प्रोसेस के लिए एक स्थिर ऑफ़सेट, जबकि सिस्टम ज़ोन ठीक वहीं रहता है जहाँ था।</p>
+      </div>
+      <div class="feat">
+        <h3>चाइल्ड प्रोसेस साथ चलते हैं</h3>
+        <p>इंस्टॉलर और लॉन्चर चाइल्ड प्रोसेस शुरू करते हैं। इसके बिना परीक्षण उसका सिर्फ़ आधा हिस्सा कवर करता है जो चला।</p>
+      </div>
+      <div class="feat">
+        <h3>सत्र के बीच में छलाँग</h3>
+        <p>आगे या पीछे - उस पीछे की छलाँग समेत जो लैपटॉप टाइम सर्वर से दोबारा सिंक होने पर लगाता है।</p>
+      </div>
+      <div class="feat">
+        <h3>Electron और Chromium भी</h3>
+        <p>एक अलग तरीके से, क्योंकि उनकी घड़ी एक सैंडबॉक्स्ड रेंडरर में रहती है जहाँ इंजेक्शन नहीं पहुँचता।</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">वह हिस्सा जो कोई और नहीं करता</p>
+      <h2>आपको कैसे पता चलेगा कि यह काम किया?</h2>
+      <p class="sub">
+        बाकी हर टूल के साथ आपको पता नहीं चलता। ऐप शुरू होता है, कोई तारीख़ दिखाता है, और आप मान लेते हैं। लेकिन वह घड़ी ऐसे चैनल से पढ़ सकता है जिसे टूल ने कभी रोका ही नहीं - किसी सर्वर से, किसी डेटाबेस से, किसी रनटाइम लेयर से - और तब <em>“परीक्षण पास हुआ”</em> का कोई मतलब नहीं रह जाता।
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&rarr;</span><span>असली परीक्षण शुरू होने से पहले एक निर्णय: <b>काम करता है / आंशिक रूप से काम करता है / काम नहीं करता</b></span></li>
+        <li><span class="tick">&rarr;</span><span><b>{{channel_count}} समय चैनलों</b> में से कौन-से कवर हुए, और ऐप ने हर एक को कितनी बार पूछा</span></li>
+        <li><span class="tick">&rarr;</span><span><b>कौन-से चैनल कवर नहीं हुए</b> - साफ़ शब्दों में बताया जाता है, कभी छोड़ा नहीं जाता</span></li>
+        <li><span class="tick">&rarr;</span><span>नतीजों के साथ चेतावनियाँ: <em>“यह ऐप नेटवर्क से समय पढ़ता है - स्थानीय बदलाव काफ़ी न हो सकता है”</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/hi/time-source-audit/">समय स्रोत ऑडिट कैसे काम करता है &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>इसके साथ दो मिनट</h2>
+    <p class="sub">खोजबीन के लिए एक विंडो, CI के लिए एक कमांड लाइन। दोनों के पीछे एक ही इंजन।</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># किसी ऐप को ऐसे चलाएँ मानो 2027 का आख़िरी सेकंड हो</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># कॉफ़ी बनाते हुए 30 दिन का ट्रायल ख़त्म होते देखें: x1440 यानी हर मिनट में एक दिन</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># तारीख़ की जगह नामित परिदृश्य इस्तेमाल करें, और सबूत फ़ाइल में लिखें</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        कैलकुलेटर तारीख़ के परीक्षण के दूसरे आधे हिस्से का जवाब देता है - <em>कौन-सी</em> तारीख़ इस्तेमाल करें:
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">आप जो शायद इस्तेमाल कर रहे हैं उससे तुलना</p>
+    <h2>RunAsDate जैसा, पर जो हिस्से ग़ायब थे उनके साथ</h2>
+    <p class="sub">
+      RunAsDate पाँच वॉल-क्लॉक फ़ंक्शन को रोकता है और यह काम अच्छी तरह करता है। दोनों में अंतर यहाँ हैं - और पूरा पेज यह भी बताता है कि RunAsDate कहाँ अब भी बेहतर चुनाव है।
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>एक ऐप को नक़ली तारीख़ पर चलाता है</td><td class="y">हाँ</td><td class="y">हाँ</td></tr>
+          <tr><td>रोके गए समय चैनल</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>घड़ी को तेज़ करना</td><td class="n">नहीं</td><td class="y">हाँ</td></tr>
+          <tr><td>स्वतंत्र टाइम ज़ोन</td><td class="n">दस्तावेज़ में नहीं</td><td class="y">हाँ</td></tr>
+          <tr><td>चाइल्ड प्रोसेस का अनुसरण</td><td class="n">दस्तावेज़ में नहीं</td><td class="y">हाँ</td></tr>
+          <tr><td>बताता है कि काम किया या नहीं</td><td class="n">नहीं</td><td class="y">हाँ, हर चैनल के लिए</td></tr>
+          <tr><td>सोर्स उपलब्ध</td><td class="n">फ़्रीवेयर, बंद</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/hi/runasdate-alternative/">पूरी तुलना, जिसमें यह भी है कि RunAsDate कहाँ जीतता है &rarr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>इसे पाएँ</h2>
+    <p class="sub">
+      कहीं भी अनज़िप करें और चलाएँ। कोई इंस्टॉलर नहीं, रजिस्ट्री में कुछ नहीं लिखा जाता, एडमिनिस्ट्रेटर अधिकार नहीं चाहिए।
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/hi/download/">Windows के लिए डाउनलोड करें</a>
+      <a class="btn btn-ghost" href="{{repo}}">GitHub पर कोड देखें</a>
+    </div>
+  </section>
+
+</div>
