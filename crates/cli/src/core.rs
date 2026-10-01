@@ -1362,6 +1362,29 @@ mod tests {
         assert_eq!(warnings, ["a", "b"]);
     }
 
+    /// Every way a start can end once the registry step has run says what became of the value it wrote. The
+    /// three ends that follow it - a vanished target, a refusal, a start that could not be prepared - are one
+    /// line each, and a line that said `ended_clean()` would let a value that could not be removed go
+    /// without a word. The unit tests cover the account itself and not that each end asks for it, and
+    /// reaching an end with a value that cannot be removed takes a real elevated session, so this reads
+    /// the source. The count is a canary: a body that lost its ends would pass the first assertion alone.
+    #[test]
+    fn no_start_ends_clean_once_the_registry_step_has_run() {
+        let source = include_str!("core.rs");
+        let from = source.find("PolicySession::start(&target").expect("the registry step is where the guard starts");
+        let rest = &source[from..];
+        let body = &rest[..rest.find("\n}\n").expect("the function ends at a closing brace in column 0")];
+        assert!(
+            !body.contains("ended_clean()"),
+            "an end after the registry step said ended_clean(): use policy.ended_before_running(), which says a value that is still set"
+        );
+        assert_eq!(
+            body.matches("policy.ended_before_running()").count(),
+            3,
+            "the vanished, refused and unprepared ends each ask the registry step for the account"
+        );
+    }
+
     /// The tree and the hook's ring may name the same process. It is listed once and the total gives the
     /// second naming back, and a ring child the tree never named is listed as always.
     #[test]
