@@ -11,7 +11,7 @@
   "languages": [
     "en", "pl", "zh-hans", "ja", "de", "fr", "es", "pt-br",
     "it", "id", "ru", "tr", "cs", "vi", "ko", "ro",
-    "nl", "uk"
+    "nl", "zh-hant", "uk"
   ],
 
   "//theme": "Taken from the product icon (assets/chrono-bean.svg), not chosen separately - #C0392B is the bean body and #E4573F its highlight. The background matches the application's dark theme.",

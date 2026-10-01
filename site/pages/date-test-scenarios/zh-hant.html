@@ -1,0 +1,118 @@
+<!-- 值得測試的日期，繁體中文。結構、class 與預留位置和 en.html 相同。 -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>值得測試的日期</h1>
+    <p class="sub">
+      軟體不會在普通的星期二出問題。它出問題的時候是季度的最後一天、2 月 29 日、一年翻篇的那一刻，以及授權到期後的一秒鐘。這些日期能找出那些錯誤——其中 <strong>{{preset_count}}</strong> 個以具名情境的形式內建。
+    </p>
+  </section>
+
+  <section>
+    <h2>週期邊界</h2>
+    <div class="prose">
+      <p>
+        凡是要結算一個週期、依年份為單據編號、或是計提到某個截止日的功能，最先在這些日期上出錯。
+      </p>
+      <ul>
+        <li><strong>月底最後一天</strong>——月底結帳與期間計提在當月的最後一天表現正常嗎？</li>
+        <li><strong>季底最後一天</strong>——季底結帳與報表在當季的最後一天表現正常嗎？</li>
+        <li><strong>會計年度最後一天</strong>——應用程式會不會在正確的那一天結束會計年度，也就是新會計年度開始的前一天？</li>
+        <li><strong>跨年，即時發生</strong>——單據編號、名稱中的年份與年度報表，能否在跨年的<em>過程中</em>正確處理，而不是事後重新啟動才恢復？</li>
+      </ul>
+      <p>
+        最後一項通常是人們根本無法測試的，因為這需要時鐘在應用程式執行期間越過 12 月 31 日的午夜。用加速的時鐘，這只是十秒鐘的事。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>日曆與表示形式的邊緣</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>2 月 29 日</strong>——四年才有一次的閏日，數量驚人的驗證程式碼會直接拒絕它。</li>
+        <li><strong>Unix 紀元零點</strong>——應用程式把 1970 年 1 月 1 日當作一個真實的日期，還是當作一個本該拒絕儲存的空值？</li>
+        <li><strong>2038 年邊界</strong>——有號 32 位元 <code>time_t</code> 耗盡的時刻，即 <code>2038-01-19T03:14:07Z</code>。再過一秒，計數器就會溢位回到 1901 年。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>授權、試用期與安裝</h2>
+    <div class="prose">
+      <p>
+        它們是用來測試<em>你自己的</em>授權機制的，這也正是撰寫它們的初衷。
+      </p>
+      <ul>
+        <li><strong>試用期最後一天</strong>——在試用期的最後一刻，應用程式還能正常運作嗎？</li>
+        <li><strong>試用期結束後的第一天</strong>——試用一結束它就拒絕存取了嗎？拒絕的方式如何？是一則合理的提示，還是一堆堆疊追蹤？</li>
+        <li><strong>授權一年前已過期</strong>——它能處理早就過期的授權嗎，而不只是昨天剛過期的？</li>
+        <li><strong>早於安裝日期的日期</strong>——當時鐘被設到應用程式自己的安裝日期之前，它的表現如何？這一項讀取的是目標程式自己的檔案日期，所以不需要參數。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>商業規則與時鐘行為</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>付款到期，+N 個工作日</strong>——N 個工作日後到期的付款，能否落在正確的那一天，跳過週末與相應國家的假日？這是唯一需要日曆的情境，而且不同市場的答案不同。</li>
+        <li><strong>成年年齡的邊界</strong>——應用程式會接納恰好到達邊界的人，並拒絕差一天的人嗎？</li>
+        <li><strong>時鐘偏差，+90 s</strong>——當應用程式的時鐘比真實時間快九十秒時，它還能應對嗎？以時間為基礎的一次性密碼與權杖驗證就是在這種情形下失效的。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>如何使用</h2>
+    <div class="prose">
+      <p>
+        一個情境就是一個具名的日期運算式。計算機會算出它的意義，替換則讓應用程式在該時刻執行——兩處使用的是同一個名稱。
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># 現在是哪一天，這一天測試的是什麼？</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># 讓應用程式在該時刻執行</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># 試用類情境從目標程式自己的檔案日期取開始日期</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        在視窗裡，它們是日期輸入欄上方的一排小標籤——點一下就會填入。每一個都附帶一句話，說明它能抓到什麼問題，而這正是線上日期計算機無法提供的部分。
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Chrono Mock 的設定畫面，Scenarios 區域已展開：清單上方有搜尋欄，然後是每一個現成的日期及其所回答的問題——2038 年邊界、2 月 29 日、快九十秒的時鐘、月底最後一天——清單下方一行說明還有三個需要你自己選擇一個值。頁尾在 Start 按鈕上方，用白話把這個時刻讀了出來。">
+      <figcaption>每個情境都帶著它所回答的問題，而不只是一個日期。需要你自己選擇數值的那三個情境，會在清單下方點名，而不是被藏起來。</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>這裡沒有的內容</h2>
+    <div class="prose">
+      <p>
+        <strong>日光節約時間的切換。</strong>讓應用程式經歷春季撥快或秋季撥慢的邊界，是一項真正有用的測試，而它<em>刻意缺席</em>，因為工作階段時區是沒有日光節約時間的固定偏移量——目前沒有可模擬的切換。內建一個悄悄什麼都不做的情境，比不內建更糟。
+      </p>
+      <p>
+        等到有了時區規則的模型，它就會回來。
+        <a href="/zh-hant/timezone-testing/">時區能做什麼、不能做什麼 &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>親自試試</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/zh-hant/download/">下載 Windows 版</a>
+      <a class="btn btn-ghost" href="/zh-hant/date-calculator/">計算機</a>
+    </div>
+  </section>
+
+</div>

@@ -114,6 +114,12 @@
       "link_text": "下载",
       "title": "下载 Chrono Mock Windows 版 - 免费，无需安装",
       "description": "下载免费的 Windows 版本：桌面应用和命令行工具，无需安装程序、管理员权限，也不写注册表。"
+    },
+    "zh-hant": {
+      "slug": "download",
+      "link_text": "下載",
+      "title": "下載 Chrono Mock Windows 版 - 免費，無需安裝",
+      "description": "下載免費的 Windows 版本：桌面應用程式與命令列工具，無需安裝程式、系統管理員權限，也不寫入登錄。"
     }
   }
 }

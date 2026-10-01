@@ -1,0 +1,26 @@
+{
+  "//": "網站的繁體中文文案——鍵與 en.json 完全相同（缺少任何一個鍵都會導致建置失敗）。",
+
+  "html_lang": "zh-Hant",
+  "dir": "ltr",
+  "og_locale": "zh_TW",
+
+  "social_image_alt": "Chrono Mock——不更動系統時鐘，讓 Windows 應用程式以任意日期與時間執行",
+
+  "skip_to_content": "跳到主要內容",
+  "nav_label": "主選單",
+
+  "language_name": "繁體中文",
+  "language_title": "檢視本頁的繁體中文版",
+  "language_menu_label": "語言",
+
+  "footer_nav_label": "網站地圖",
+  "footer_group_start": "開始使用",
+  "footer_group_tools": "替代方案與執行階段",
+  "footer_group_features": "功能詳解",
+
+  "footer_summary": "Chrono Mock - GPL-3.0。無需帳號、無遙測，也從不連上網際網路。",
+  "footer_source": "GitHub 上的原始碼",
+  "footer_releases": "版本發行",
+  "footer_license": "授權條款"
+}

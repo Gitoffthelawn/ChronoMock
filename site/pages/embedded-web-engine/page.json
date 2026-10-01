@@ -116,6 +116,12 @@
       "link_text": "WebView2 与 Qt WebEngine",
       "title": "在原生应用内的网页中伪造日期",
       "description": "内置网页引擎的原生应用在注入进不去的进程中运行页面，因此保持真实日期。会话通过引擎的调试端口到达它们。"
+    },
+    "zh-hant": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 與 Qt WebEngine",
+      "title": "在原生應用程式內的網頁中偽造日期",
+      "description": "內建網頁引擎的原生應用程式在注入進不去的處理序中執行頁面，因此保持真實日期。工作階段透過引擎的偵錯連接埠到達它們。"
     }
   }
 }

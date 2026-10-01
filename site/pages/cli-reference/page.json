@@ -114,6 +114,12 @@
       "link_text": "CLI 参考",
       "title": "Chrono Mock 命令行参考 - 全部参数与退出码",
       "description": "chrono run 与 chrono calc 的完整参考：每一个命令行参数、两张退出码表，以及如何阅读会话报告。"
+    },
+    "zh-hant": {
+      "slug": "cli-reference",
+      "link_text": "CLI 參考",
+      "title": "Chrono Mock 命令列參考 - 全部參數與結束代碼",
+      "description": "chrono run 與 chrono calc 的完整參考：每一個命令列參數、兩張結束代碼表，以及如何閱讀工作階段報告。"
     }
   }
 }

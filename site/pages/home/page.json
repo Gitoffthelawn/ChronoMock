@@ -117,6 +117,12 @@
       "link_text": "首页",
       "title": "Chrono Mock - 让 Windows 应用以任意日期运行",
       "description": "免费开源的 Windows 工具：不改系统时钟，让应用以任意日期运行，可冻结或加速时钟，并告诉你时间替换是否真的生效。"
+    },
+    "zh-hant": {
+      "slug": "",
+      "link_text": "首頁",
+      "title": "Chrono Mock - 讓 Windows 應用程式以任意日期執行",
+      "description": "免費開放原始碼的 Windows 工具：不改系統時鐘，讓應用程式以任意日期執行，可凍結或加速時鐘，並告訴你時間替換是否真的生效。"
     }
   }
 }
