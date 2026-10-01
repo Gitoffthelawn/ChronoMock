@@ -79,6 +79,12 @@
       "link_text": "Tahun 2038",
       "title": "Masalah tahun 2038: uji aplikasi Windows lewat 03:14:07 UTC",
       "description": "Jam Windows berjalan melewati 2038; kolom waktu 32 bit tidak. Cara melewatkan satu aplikasi melintasi 19 Januari 2038 tanpa mengubah tanggal sistem."
+    },
+    "vi": {
+      "slug": "kiem-thu-loi-nam-2038",
+      "link_text": "Năm 2038",
+      "title": "Lỗi năm 2038: kiểm thử ứng dụng Windows qua 03:14:07 UTC",
+      "description": "Đồng hồ Windows chạy qua 2038, trường thời gian 32 bit thì không. Cách cho một ứng dụng vượt ngày 19 tháng 1 năm 2038 mà không đổi ngày hệ thống."
     }
   }
 }

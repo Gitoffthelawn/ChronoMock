@@ -79,6 +79,12 @@
       "link_text": "Jangan ubah jamnya",
       "title": "Mengubah tanggal sistem untuk menguji: yang rusak di Windows",
       "description": "Menggeser jam Windows untuk menguji tanggal ikut menggeser seluruh mesin: domain, sertifikat, sinkronisasi. Apa yang rusak dan cara menggeser satu aplikasi saja."
+    },
+    "vi": {
+      "slug": "doi-ngay-he-thong-de-kiem-thu",
+      "link_text": "Đừng đổi đồng hồ",
+      "title": "Đổi ngày hệ thống để kiểm thử: điều gì hỏng trên Windows",
+      "description": "Dời đồng hồ Windows để thử một ngày sẽ dời cả máy: miền, chứng chỉ, đồng bộ giờ. Điều gì hỏng và cách chỉ dời đồng hồ của một ứng dụng."
     }
   }
 }

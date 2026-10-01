@@ -1,0 +1,124 @@
+<!-- Lỗi năm 2038 trên Windows, tiếng Việt. Cấu trúc, lớp và token như trong en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Kiểm thử lỗi năm 2038 trên Windows</h1>
+    <p class="sub">
+      Vào 03:14:07 UTC ngày 19 tháng 1 năm 2038, bộ đếm giây có dấu 32 bit tính từ năm 1970 sẽ hết. Đồng
+      hồ Windows vẫn chạy tiếp qua mốc đó - còn các chương trình, định dạng tệp và thư viện giữ bản sao 32
+      bit riêng thì không. Dưới đây là cách tìm chúng trong một ứng dụng, mà không phải đặt ngày của cả
+      máy về năm 2038.
+    </p>
+  </section>
+
+  <section>
+    <h2>Lỗi vẫn có thể nằm ở đâu</h2>
+    <div class="prose">
+      <p>
+        Đồng hồ Windows là bộ đếm 64 bit các bước 100 nano giây tính từ năm 1601, nên nó không có năm
+        2038. Kiểu <code>time_t</code> của thư viện thời gian chạy C mặc định là 64 bit từ Visual Studio
+        2005. Phần còn lại là mã đã chọn thời gian 32 bit hoặc đánh mất nửa cao trên đường đi:
+      </p>
+      <ul>
+        <li><strong>Bản dựng 32 bit biên dịch với <code>_USE_32BIT_TIME_T</code></strong>, hoặc gọi trực
+          tiếp <code>_time32</code> và <code>__time32_t</code>. Tài liệu của chính Microsoft cảnh báo ứng
+          dụng như vậy có thể hỏng sau ngày 18 tháng 1 năm 2038.</li>
+        <li><strong>Thời gian 64 bit lưu trong <code>int</code> hoặc <code>long</code>.</strong> Trên
+          Windows cả hai đều là 32 bit, kể cả trong chương trình 64 bit.</li>
+        <li><strong>Thư viện, định dạng tệp, giao thức mạng và cột cơ sở dữ liệu</strong> lưu số giây từ
+          năm 1970 trong 32 bit.</li>
+        <li><strong>Mã cộng thêm năm.</strong> Giấy phép hai mươi năm, lịch trả nợ ba mươi năm hay chứng
+          chỉ có hiệu lực đến năm 2040 vượt qua ranh giới này rất lâu trước khi năm 2038 đến.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vượt qua ranh giới trong một ứng dụng</h2>
+    <div class="prose">
+      <p>
+        Ranh giới được định nghĩa theo UTC và <code>--at</code> được đọc theo múi giờ của phiên, nên hãy
+        cố định múi giờ là UTC khi bạn tự viết thời điểm. Kịch bản dựng sẵn đã mang một thời điểm UTC
+        tuyệt đối và không cần múi giờ.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Kịch bản: phiên bắt đầu ngay tại ranh giới, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Bắt đầu trước mười bảy giây và để ứng dụng vượt qua nó trực tiếp</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Bắt đầu sớm hơn và chạy với tốc độ x60 - ranh giới đến sau khoảng 14 giây</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Hoặc chạy với ngày hôm nay và nhảy qua nó khi ứng dụng đang mở</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Một giây sau ranh giới, bộ đếm 32 bit có dấu trở thành -2.147.483.648, được đọc là
+        <strong>ngày 13 tháng 12 năm 1901, 20:45:52 UTC</strong>. Một ngày thuộc năm 1901, một số âm, một
+        mục đột nhiên hết hạn hoặc bị xếp lên đầu, một ngoại lệ ném ra từ mã xử lý ngày - đó là dáng vẻ
+        của hiện tượng tràn số nhìn từ bên ngoài.
+      </p>
+      <p>
+        Đặt đồng hồ thật về năm 2038 là con đường khác để đến đây, và là con đường làm hỏng nhiều nhất.
+        <a href="/vi/doi-ngay-he-thong-de-kiem-thu/">Điều gì xảy ra khi bạn đổi ngày hệ thống &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Kiểm tra rằng nó đã đến được chương trình</h2>
+    <div class="prose">
+      <p>
+        Một bài kiểm thử đạt chỉ vì chương trình chưa bao giờ thấy năm 2038 còn tệ hơn không có bài kiểm
+        thử. Báo cáo ở cuối mỗi phiên cho biết chương trình đã đọc đồng hồ nào và bao nhiêu lần:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        Dòng <strong>session</strong> xác nhận đồng hồ của ứng dụng đã vượt qua ranh giới. Kết luận
+        <em>works</em> cùng số lần gọi nghĩa là chương trình đã đọc đồng hồ và nhận được ngày năm 2038;
+        <em>works partially</em> nêu tên các kênh nó đọc qua đường khác.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Các kết luận có nghĩa là gì &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Điều một bài kiểm thử đạt không chứng minh</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Chỉ đồng hồ của chính chương trình đã dịch chuyển.</strong> Ngày nó nạp từ tệp hoặc cơ
+          sở dữ liệu là ngày đang lưu ở đó, nên một ngày năm 2038 nằm trong dữ liệu là một bài kiểm thử
+          riêng. Máy tính ngày sẽ tính những ngày như vậy cho bạn:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Máy chủ mà chương trình giao tiếp vẫn chạy theo ngày thật.</strong> Giới hạn 32 bit ở
+          phía đó nằm ngoài tầm với, và phiên sẽ cảnh báo khi thấy chương trình mở kết nối mạng.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/kich-ban-kiem-thu-ngay/">Những ngày khác cần kiểm thử</a>
+    </div>
+  </section>
+
+</div>
