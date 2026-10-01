@@ -1045,6 +1045,20 @@ pub(crate) fn reclaim_notice(reclaimed: chrono_mech::Reclaimed) -> Option<&'stat
     }
 }
 
+/// The key for a target that ended while Windows was loading it (R4-S6). The four statuses the loader
+/// ends a process with when a static import fails are each named for what the tester can do about it,
+/// and every other code - a library's start-up code that ended the process itself, say - gets one key
+/// that says only what is known: the application ended before it ran.
+pub(crate) fn loader_failure_key(code: u32) -> &'static str {
+    match code {
+        0xC000_0135 => "target.loader_dll_not_found",
+        0xC000_0139 => "target.loader_entry_missing",
+        0xC000_007B => "target.loader_bad_image",
+        0xC000_0142 => "target.loader_init_failed",
+        _ => "target.died_while_loading",
+    }
+}
+
 pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static str, &'static str, String) {
     use chrono_mech::PrepareError as P;
     match e {
@@ -1052,6 +1066,14 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
         P::Control(m) => (3, "session.control_failed", "mechanism", m),
         P::Launch(m) => (2, "target.launch_failed", "mechanism", m),
         P::Inject(m) => (2, "target.inject_failed", "mechanism", m),
+        // The application's own start failed before the hook got its turn (R4-S6): exit 2 like every
+        // failure of the target, with the code on the detail line whichever key names it.
+        P::EndedLoading(code) => (
+            2,
+            loader_failure_key(code),
+            "mechanism",
+            format!("the target ended while Windows was loading it, with code 0x{code:08X}"),
+        ),
         // A usage error, not a failure of the target (docs/08 section 8, exit 1): nothing is wrong
         // with the application - the wrong build of the tool was pointed at it, and the fix is a
         // different command. Injection cannot cross bitness, so this is a known impossibility
@@ -1086,6 +1108,25 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
 mod tests {
     use super::*;
     use crate::testutil::unique_temp_dir;
+
+    /// A target the loader ended is named by its status (R4-S6): four statuses each with the key that
+    /// says what to do about it, every other code with the general one, all exit 2, and the code on the
+    /// detail line whichever key names it.
+    #[test]
+    fn a_target_the_loader_ended_is_named_by_its_status() {
+        for (code, key) in [
+            (0xC000_0135, "target.loader_dll_not_found"),
+            (0xC000_0139, "target.loader_entry_missing"),
+            (0xC000_007B, "target.loader_bad_image"),
+            (0xC000_0142, "target.loader_init_failed"),
+            (0xC000_0017, "target.died_while_loading"),
+            (1, "target.died_while_loading"),
+        ] {
+            let (exit, got, origin, detail) = map_prepare_error(chrono_mech::PrepareError::EndedLoading(code));
+            assert_eq!((exit, got, origin), (2, key, "mechanism"), "code 0x{code:08X}");
+            assert!(detail.contains(&format!("0x{code:08X}")), "the code is not on the detail line: {detail}");
+        }
+    }
 
     /// A takeover is always said, and said the way the previous session ended (R4-D19). The ordered end
     /// used to be reported as a dead core, which it was not.

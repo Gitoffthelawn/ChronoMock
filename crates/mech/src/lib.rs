@@ -17,6 +17,7 @@ mod environment;
 mod family;
 mod job;
 mod listeners;
+mod loader;
 mod policy;
 mod policy_value;
 mod process_facts;
@@ -104,6 +105,10 @@ pub enum PrepareError {
     Control(String),
     Launch(String),
     Inject(String),
+    /// The target ended while Windows was loading it, before its first instruction, with this exit
+    /// code - the loader's status when a static import was missing, of the other bitness, lacked a
+    /// function or would not initialise (R4-S6). Nothing about the hook is known: it never got its turn.
+    EndedLoading(u32),
     /// Another session's core (this pid) is already running - single-session limit (fixed section
     /// name). The caller refuses rather than sharing one control block between two sessions.
     SessionActive(u32),
@@ -1667,11 +1672,23 @@ fn build_command_line(path: &str, args: &[String]) -> Vec<u16> {
 /// hang `prepare` forever (M-1).
 const INJECT_TIMEOUT_MS: u32 = 10_000;
 
-/// Manual LoadLibrary injection: write the DLL path into the target and run `LoadLibraryW` there on a
-/// remote thread. Returns `Err` (and frees the remote page) on any failure, INCLUDING a `LoadLibraryW`
-/// that returned NULL in the target - the caller then terminates the still-suspended target rather than
-/// resume an unhooked process reading real time (H-2).
+/// Inject the hook with Windows's error window off while the target loads, and back the way the target
+/// inherited it before its first instruction (R4-S6, `loader::QuietLoader`). On `Err` the caller ends the
+/// target, which has run nothing of its own, so the mode is not given back on that road.
 unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { unsafe {
+    let quiet = loader::QuietLoader::begin(hproc);
+    load_hook(hproc, dll_wide)?;
+    match quiet {
+        Some(quiet) => quiet.end().map_err(PrepareError::Inject),
+        None => Ok(()),
+    }
+}}
+
+/// Manual LoadLibrary injection: write the DLL path into the target and run `LoadLibraryW` there on a
+/// remote thread. Returns `Err` on any failure, INCLUDING a `LoadLibraryW` that returned NULL in the
+/// target - the caller then terminates the still-suspended target rather than resume an unhooked process
+/// reading real time (H-2) - and a target the loader ended before the hook got its turn (R4-S6).
+unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { unsafe {
     let bytes = dll_wide.len() * 2;
     let remote = VirtualAllocEx(hproc, None, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if remote.is_null() {
@@ -1703,33 +1720,55 @@ unsafe fn inject(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError> { 
         Err(e) => return Err(fail(win32_detail("CreateRemoteThread", &e))),
     };
 
-    // Bounded wait (M-1): a hung DllMain (loader lock) must not hang prepare forever.
+    // Bounded wait (M-1): a hung DllMain (loader lock) must not hang prepare forever. The thread alone is
+    // enough to wait on: a target that ends takes its threads with it, so the thread is signalled no
+    // later than the process.
     let waited = WaitForSingleObject(hthread, INJECT_TIMEOUT_MS);
-    // The remote thread's exit code is the low 32 bits of the HMODULE LoadLibraryW returned - 0 means the
-    // DLL did not load (bad architecture, missing runtime dependency, AV block, target tearing down). We
-    // only read it when the thread actually finished. (On x64 a module base whose low 32 bits are exactly
-    // 0 - a 4 GB-aligned load - would read as 0 too. That false negative is astronomically rare, and
-    // refusing is the safe direction: a retry lands a different ASLR base, never an unhooked target.)
-    let mut exit_code: u32 = 0;
-    let got_code = waited != WAIT_TIMEOUT && GetExitCodeThread(hthread, &mut exit_code).is_ok();
-    let _ = VirtualFreeEx(hproc, remote, 0, MEM_RELEASE);
+    let wait_error = GetLastError();
+    let wait = match waited {
+        WAIT_OBJECT_0 => loader::Wait::ThreadDone,
+        WAIT_TIMEOUT => loader::Wait::TimedOut,
+        _ => loader::Wait::Failed,
+    };
+    // Signalled first, then the code: read the other way round, a target that ends between the two
+    // reads would be a signalled process with the code of a live one.
+    let signalled = WaitForSingleObject(hproc, 0) == WAIT_OBJECT_0;
+    let mut process_code: u32 = 0;
+    let process = loader::ProcessAfter {
+        signalled,
+        code: GetExitCodeProcess(hproc, &mut process_code).is_ok().then_some(process_code),
+    };
+    // Only a finished thread's code is a result - a running one reads 259.
+    let mut thread_code: u32 = 0;
+    let thread_code = (wait == loader::Wait::ThreadDone && GetExitCodeThread(hthread, &mut thread_code).is_ok())
+        .then_some(thread_code);
+    let outcome = loader::outcome(wait, process, thread_code);
+    if loader::page_released_safely(outcome) {
+        let _ = VirtualFreeEx(hproc, remote, 0, MEM_RELEASE);
+    }
     let _ = CloseHandle(hthread);
 
-    if waited == WAIT_TIMEOUT {
-        return Err(PrepareError::Inject(format!(
-            "LoadLibraryW did not return within {INJECT_TIMEOUT_MS} ms (suspected loader lock)"
-        )));
-    }
-    if !got_code || exit_code == 0 {
+    match outcome {
+        loader::Outcome::Loaded => Ok(()),
         // Two causes give the same NULL since R4-D18: the library did not load, or it loaded, found a
         // control block it could not confirm as this live session's, and unloaded itself.
-        return Err(PrepareError::Inject(
+        loader::Outcome::LibraryNotLoaded => Err(PrepareError::Inject(
             "LoadLibraryW returned NULL in the target (the hook DLL failed to load, or would not join a \
              session it could not confirm)"
                 .into(),
-        ));
+        )),
+        loader::Outcome::TargetEnded(code) => Err(PrepareError::EndedLoading(code)),
+        loader::Outcome::TargetEndedUnread => Err(PrepareError::Inject(
+            "the target ended while Windows was loading it, and its exit code could not be read".into(),
+        )),
+        loader::Outcome::TimedOut => Err(PrepareError::Inject(format!(
+            "LoadLibraryW did not return within {INJECT_TIMEOUT_MS} ms - the target's loading is stuck (a \
+             library's start-up code waiting, or a loader lock)"
+        ))),
+        loader::Outcome::WaitFailed => Err(PrepareError::Inject(format!(
+            "waiting for the remote LoadLibraryW thread failed ({wait_error:?})"
+        ))),
     }
-    Ok(())
 }}
 
 #[cfg(test)]

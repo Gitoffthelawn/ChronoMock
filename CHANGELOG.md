@@ -129,6 +129,16 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **An application that cannot load is named for what it lacks, at once.** An application whose
+  library was missing, built for the other bitness, without a function it needs, or refusing to
+  initialise ended before it ran, and the session reported a single-instance application that
+  vanished (exit 12) - or, started from the window or from Explorer, waited ten seconds on Windows'
+  error window, reported a loader lock and left the window on the desktop. It now ends with a key that
+  says which (`target.loader_dll_not_found`, `target.loader_entry_missing`, `target.loader_bad_image`,
+  `target.loader_init_failed`, or `target.died_while_loading` with the code it ended with), exit 2.
+  Windows' error window is kept off while the application loads and switched back before its first
+  instruction, so the application runs with the error mode it inherited, and the message says how to
+  see the name that window would have shown: start the application once without Chrono Mock.
 - **An application that runs as administrator and uses WebView2 is no longer reported as working
   over pages that ran on the real clock.** WebView2 ignores the environment variable the session
   reaches its web engine through when the application is elevated, so the session never reached the

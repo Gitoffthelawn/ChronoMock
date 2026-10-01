@@ -907,6 +907,7 @@ public class LayoutGuardTests
         yield return ("result refused, search incomplete", ResultView(PhaseStates.ResultRefusedIncomplete()));
         yield return ("result that did not take effect", ResultView(PhaseStates.ResultVanished()));
         yield return ("result that did not start", ResultView(PhaseStates.ResultNotStarted()));
+        yield return ("result whose application could not load", ResultView(PhaseStates.ResultLoaderFailed()));
         yield return ("result that went on for the programs the application started", ResultView(PhaseStates.ResultWorksAfterHandOff()));
         yield return ("result with the history open", ResultView(PhaseStates.ResultWithHistoryChosen(), "HistorySection"));
     }
