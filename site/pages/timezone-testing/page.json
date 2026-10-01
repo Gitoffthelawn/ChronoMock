@@ -78,6 +78,12 @@
       "link_text": "Zona waktu",
       "title": "Jalankan aplikasi di zona waktu lain tanpa mengubah Windows",
       "description": "Beri satu proses selisih zona waktunya sendiri sementara zona sistem tetap di tempatnya. Reproduksi bug yang hanya muncul pada pelanggan lima zona waktu jauhnya."
+    },
+    "vi": {
+      "slug": "kiem-thu-mui-gio",
+      "link_text": "Múi giờ",
+      "title": "Chạy ứng dụng ở múi giờ khác mà không đổi Windows",
+      "description": "Cho một tiến trình độ lệch múi giờ riêng trong khi múi giờ hệ thống vẫn nguyên chỗ cũ. Tái hiện lỗi chỉ xuất hiện với khách hàng ở cách đó năm múi giờ."
     }
   }
 }

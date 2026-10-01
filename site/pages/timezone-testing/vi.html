@@ -1,0 +1,112 @@
+<!-- Múi giờ, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Chạy một ứng dụng ở múi giờ khác</h1>
+    <p class="sub">
+      Báo cáo rơi vào sai ngày, lời nhắc reo sớm một giờ, dấu thời gian đọc ra là ngày mai - phần lớn chỉ
+      lộ ra ở một múi giờ mà bạn không ngồi trong đó. Công cụ này cho một tiến trình độ lệch riêng của nó,
+      trong khi múi giờ hệ thống của bạn vẫn nguyên chỗ cũ.
+    </p>
+  </section>
+
+  <section>
+    <h2>Vì sao các cách thông thường không giúp được</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Đổi múi giờ Windows</strong> thay đổi nó cho mọi thứ - lịch, nhật ký, các cuộc họp của
+          bạn - và trên một máy được quản lý, có thể bạn không có quyền đổi.</li>
+        <li><strong>Đặt <code>TZ</code></strong> hoạt động với một số runtime và không với số khác. Một ứng
+          dụng Windows native đọc <code>GetTimeZoneInformation</code> sẽ chẳng hề nhận ra.</li>
+        <li><strong>Công cụ dành cho nhà phát triển của trình duyệt</strong> ghi đè múi giờ cho một trang
+          web, rất tuyệt, và không liên quan gì đến ứng dụng máy tính để bàn.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Một tiến trình, một độ lệch</h2>
+    <div class="prose">
+      <p>
+        Phiên mang độ lệch riêng của nó. Ứng dụng hỏi Windows nó đang ở múi giờ nào và nhận câu trả lời đó,
+        trong khi mọi chương trình khác trên máy nhận câu trả lời thật.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Cùng một thời điểm, nhìn từ bờ Tây nước Mỹ</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-01-15T09:00:00 --zone -08:00
+
+<span class="c"># Chỉ múi giờ - ngày thật của hôm nay, đồng hồ của người khác</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --zone +09:00</pre>
+
+    <div class="prose">
+      <p>
+        Máy tính ngày trả lời nửa còn lại của câu hỏi - một thời điểm nhất định thực sự đọc ra thế nào ở nơi
+        khác. Phép chuyển đổi giữ nguyên thời điểm và chỉ đổi đồng hồ treo tường, chính là cách một ngày rơi
+        vào sai ngày:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-01-15T09:00:00 --zone +01:00 --to-zone -08:00
+Chrono Mock - date calculator
+  base:    2027-01-15T09:00:00
+  step 1:  zone -08:00  -&gt; <span class="v">2027-01-15T00:00:00</span>
+  result:  <span class="v">2027-01-15T00:00:00</span>
+  formats:
+    ISO date      2027-01-15
+    ISO datetime  2027-01-15T00:00:00-08:00
+    US            01/15/2027
+    PL            15.01.2027</pre>
+
+    <div class="prose">
+      <p>
+        Chín giờ sáng ở Trung Âu là <strong>nửa đêm</strong> ở bờ Tây nước Mỹ. Cùng một thời điểm, và một báo
+        cáo hằng ngày nhóm theo ngày địa phương sẽ xếp nó vào một ngày khác tùy theo nơi nó chạy.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Những giới hạn trung thực, và ở đây chúng quan trọng</h2>
+
+    <div class="note warning">
+      <p><strong>Múi giờ của phiên là một độ lệch cố định không có giờ mùa hè.</strong></p>
+      <p>
+        Một phiên đặt ở <code>+01:00</code> vẫn ở <code>+01:00</code> dù đồng hồ của nó chỉ tháng Một hay
+        tháng Bảy. Một lần chạy vượt qua lần chuyển giờ thật vì vậy sẽ lệch một giờ so với những gì múi giờ đó
+        thực sự hiển thị, và ép một ứng dụng đi qua một lần chuyển giờ mùa hè chưa phải thứ công cụ này làm
+        được. Máy tính ngày nói rõ điều đó thay vì đoán.
+      </p>
+    </div>
+
+    <div class="prose">
+      <ul>
+        <li><strong>Múi giờ tự báo là “Chrono Session”</strong>, một cái tên mà không registry Windows nào
+          biết. Bất cứ thứ gì ánh xạ cái tên đó ngược về một múi giờ - trong đó có
+          <code>TimeZoneInfo.Local</code> của .NET - sẽ quay về dùng độ lệch, và đó là câu trả lời đúng. Một
+          ứng dụng khăng khăng đòi tên trong registry sẽ không tìm thấy.</li>
+        <li><strong>Java nhận múi giờ phiên dưới dạng một độ lệch.</strong> Múi giờ phiên không có giờ mùa
+          hè và không có thành phố nào đứng sau, nên Java đặt tên nó theo độ lệch - <code>GMT+05:30</code>
+          cho một phiên ở +05:30.</li>
+        <li><strong>Ở chế độ Chromium và Electron, múi giờ đi theo máy chủ.</strong> Thời điểm là giả, các
+          hàm lấy giờ địa phương thì không.</li>
+        <li><strong>Độ lệch chạy từ -14:00 đến +14:00</strong> theo số phút nguyên. Mọi thứ ngoài khoảng đó
+          bị từ chối chứ không bị lặng lẽ quay vòng.</li>
+      </ul>
+      <p>
+        Điều nào trong số đó áp dụng cho ứng dụng của bạn là thứ đo được chứ không phải đoán.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Phiên tự báo cáo độ bao phủ của nó &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/faq/">Đọc FAQ</a>
+    </div>
+  </section>
+
+</div>

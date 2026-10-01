@@ -80,6 +80,12 @@
       "link_text": "WebView2 dan Qt WebEngine",
       "title": "Memalsukan tanggal untuk halaman web di aplikasi native",
       "description": "Aplikasi native dengan web engine bawaan menjalankan halamannya di proses yang tidak dapat dimasuki injeksi, sehingga halaman tetap memakai tanggal asli. Sesi menjangkaunya lewat port debug engine."
+    },
+    "vi": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 và Qt WebEngine",
+      "title": "Làm giả ngày cho các trang web trong một ứng dụng native",
+      "description": "Ứng dụng native có động cơ web tích hợp chạy các trang của nó trong một tiến trình mà việc chèn mã không vào được, nên chúng giữ ngày thật. Phiên tiếp cận chúng qua cổng gỡ lỗi của động cơ."
     }
   }
 }

@@ -78,6 +78,12 @@
       "link_text": "CLI dan CI",
       "title": "Pengujian tanggal di CI - kode keluar dan keluaran JSON",
       "description": "Build baris perintah 1,6 MB tanpa runtime. Kode keluarnya adalah putusan cakupan, bukan milik target: pipeline gagal jika penggantian waktu tidak berlaku."
+    },
+    "vi": {
+      "slug": "cli-va-ci",
+      "link_text": "CLI và CI",
+      "title": "Kiểm thử ngày tháng trong CI - mã thoát và đầu ra JSON",
+      "description": "Bản dựng dòng lệnh 1,6 MB không cần runtime. Mã thoát là kết luận về độ bao phủ chứ không phải của mục tiêu: pipeline sẽ lỗi nếu việc thay thế thời gian không có hiệu lực."
     }
   }
 }

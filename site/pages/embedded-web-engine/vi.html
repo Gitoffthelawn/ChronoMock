@@ -1,0 +1,165 @@
+<!-- WebView2 và Qt WebEngine, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Các trang web bên trong một ứng dụng native</h1>
+    <p class="sub">
+      Một ứng dụng máy tính để bàn có động cơ web tích hợp chạy các trang của nó trong một tiến trình riêng,
+      bị cô lập. Cơ chế native bao phủ ứng dụng và dừng lại ở ranh giới đó - nên cửa sổ chuyển sang ngày bạn
+      yêu cầu còn bảng điều khiển bên trong nó thì không. Phần này lấp khoảng trống đó.
+    </p>
+  </section>
+
+  <section>
+    <h2>Thất bại trông giống như thành công</h2>
+    <div class="prose">
+      <p>
+        Rất nhiều ứng dụng Windows là native ở bên ngoài và là một trang web ở bên trong. Một màn hình cài
+        đặt, một bảng điều khiển, một khung xem báo cáo, một bảng giấy phép - xây một lần bằng HTML và được
+        lưu trữ trong <strong>WebView2</strong> hoặc <strong>Qt WebEngine</strong> thay vì viết hai lần.
+      </p>
+      <p>
+        Động cơ chạy các trang đó trong tiến trình riêng của nó, và tiến trình đó bị cô lập. Một thư viện
+        được chèn vào ứng dụng không vào được đó. Mọi thứ ứng dụng hỏi Windows đều chuyển sang ngày của
+        phiên, còn mọi thứ trang hỏi JavaScript thì không:
+      </p>
+      <ul>
+        <li>Thanh tiêu đề, nhật ký và tệp đều nói <strong>2038</strong>.</li>
+        <li>Bảng điều khiển trong cùng cửa sổ nói <strong>hôm nay</strong>.</li>
+        <li>Không có lỗi, không có cảnh báo, và cả hai nửa trông đều tự tin như nhau.</li>
+      </ul>
+      <p>
+        Đây là phiên bản tốn kém của lỗi này, vì bài kiểm thử dường như đã chạy. Hành vi cũ báo một phiên như
+        vậy là qua sạch sẽ, một khẳng định mà công cụ không thể chứng minh.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Thay vào đó phiên làm gì</h2>
+    <div class="prose">
+      <p>
+        Phiên chạy <strong>cả hai cơ chế cùng lúc</strong>. Hook native đi vào ứng dụng như thường lệ, còn
+        các trang được tiếp cận theo cách duy nhất để chạm đến một renderer bị cô lập: hỏi chính động cơ.
+      </p>
+      <p>
+        Khi khởi chạy, ứng dụng kế thừa hai biến môi trường yêu cầu động cơ của nó mở một cổng gỡ lỗi cục bộ.
+        Chúng được nối thêm vào các công tắc mà ứng dụng vốn đã truyền, chứ không thay thế chúng. Sau đó phiên
+        theo dõi các tiến trình của chính nó cho đến khi cổng đó xuất hiện, và khi nó xuất hiện, mọi trang và
+        mọi worker phía sau chuyển sang cùng đồng hồ với ứng dụng.
+      </p>
+      <p>
+        Một điểm bắt đầu, một tốc độ, một dòng thời gian. Một thay đổi tốc độ hay một bước nhảy đến ứng dụng
+        và các trang của nó cùng lúc, và bộ hẹn giờ của các trang chạy theo nhịp của ứng dụng chứ không theo
+        nhịp riêng.
+      </p>
+      <p>
+        Nó được bật theo mặc định và tắt bằng một công tắc, công tắc đó không mở cổng nào cả và để các trang
+        chạy theo đồng hồ thật.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Không có gì cần cấu hình - động cơ được tìm thấy nếu có</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --mode x60
+
+<span class="c"># Hoặc để yên các trang, và không mở cổng nào</span>
+<span class="p">chrono</span> run "C:\Program Files\YourApp\YourApp.exe" --at 2038-01-01T00:00:00 --no-embedded</pre>
+  </section>
+
+  <section>
+    <h2>Báo cáo nói gì về các trang</h2>
+    <div class="prose">
+      <p>
+        Các trang không bị gộp vào số liệu của riêng ứng dụng. Chúng được đếm như những đơn vị riêng, vì một
+        tiến trình và một trang là hai thứ khác nhau, và cộng chúng lại sẽ bịa ra một con số vô nghĩa:
+      </p>
+      <ul>
+        <li>Dòng tiêu đề đếm cả hai - <code>processes: 4, contexts: 1</code>.</li>
+        <li>Mỗi trang có các dòng riêng, chẳng hạn <code>context 1: page Date.now (12 calls)</code> trên dòng
+          lệnh và <em>page Date.now - fake clock</em> trong bảng kiểm toán của cửa sổ.</li>
+        <li>Động cơ đã tiếp cận được nêu tên cùng cổng của nó, để bạn có thể trỏ DevTools của chính mình vào
+          đúng các trang mà phiên đang điều khiển.</li>
+      </ul>
+      <p>
+        Một lần chạy thử (dry run) cho biết các trang có được tiếp cận không trước khi bất cứ gì được khởi
+        động.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Các kết luận có nghĩa là gì &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ba giới hạn đáng biết trước khi bắt đầu</h2>
+
+    <div class="note warning">
+      <p><strong>Một cổng gỡ lỗi mở suốt khi động cơ còn chạy.</strong></p>
+      <p>
+        Nó chỉ lắng nghe trên máy này, nhưng nó mở với <em>bất kỳ</em> chương trình nào trên máy này chừng
+        nào động cơ còn chạy, và bất cứ thứ gì với tới được nó đều có thể điều khiển các trang đó. Phiên cảnh
+        báo điều này mỗi lần một cổng được mở, và nêu tên cổng chứ không nhắc chung chung. Trên máy dùng chung
+        hoặc không đáng tin, hãy dùng công tắc không mở gì cả.
+      </p>
+    </div>
+
+    <div class="note warning">
+      <p><strong>Ứng dụng chạy với quyền nâng cao thì ngoài tầm với.</strong></p>
+      <p>
+        Một động cơ do ứng dụng chạy quyền nâng cao lưu trữ sẽ bỏ qua các biến mà phiên đặt, nên các trang
+        của nó vẫn ở đồng hồ thật. Đây là quy tắc riêng của động cơ, không phải một thiết lập, và không có
+        cách nào vượt qua từ bên ngoài.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Một phiên như vậy báo PARTIAL, và đó là câu trả lời trung thực.</strong></p>
+      <p>
+        Các tiến trình phụ trợ của động cơ, và các lệnh gọi thời gian native của chính renderer, vẫn ở đồng hồ
+        thật. Các trang ở đồng hồ phiên còn phần còn lại của nhóm thì không, nên kết luận nói
+        <em>một phần</em> và nêu tên những gì bị bỏ sót, thay vì làm tròn lên thành đạt.
+      </p>
+    </div>
+
+    <div class="prose">
+      <p>
+        Hai điều nhỏ hơn, nói thẳng. Các trang giữ <strong>múi giờ của máy này</strong>, nên múi giờ phiên
+        độc lập chỉ là tính năng của chế độ native. Và một bộ hẹn giờ đã được lên lịch <em>trước khi</em> phiên
+        đến được trang giữ nguyên nhịp cũ, giống hệt như trong một phiên Chromium thuần - phiên cảnh báo thay
+        vì để bạn kết luận rằng không có gì xảy ra.
+      </p>
+      <p>
+        Nếu động cơ được cấu hình qua chính sách đối số trình duyệt trong registry, biến của phiên được ưu
+        tiên trong suốt thời gian phiên, và báo cáo nói rõ điều đó - vì một cổng gỡ lỗi bạn thiết lập ở đó
+        sẽ không được áp dụng.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Được kiểm thử tốt đến đâu</h2>
+    <div class="prose">
+      <p>
+        <strong>Thử nghiệm</strong>, với cùng nghĩa xác định như ở các chỗ khác trên trang này: nó hoạt động
+        trên các mục tiêu mà nó được xây dựng để chống lại, chưa được kiểm thử rộng rãi, và kiểm toán tích hợp
+        sẵn là nguồn chân lý của bạn chứ không phải trang này. Nó được đo thủ công trên một máy chủ WebView2
+        và một máy chủ Qt WebEngine chạy Windows 64-bit, không phải bằng bộ kiểm thử tự động. Trong các lần
+        chạy đó, các trang đọc năm của phiên với tốc độ của phiên và theo kịp một bước nhảy.
+      </p>
+      <p>
+        Trên Windows 32-bit có một điểm rắc rối đáng biết hơn là phải tự khám phá: runtime WebView2 là 64-bit
+        ngay cả khi ứng dụng lưu trữ nó là 32-bit, nên một phiên 32-bit không thể nêu tên các tiến trình của
+        động cơ hay vai trò của chúng. Kênh đến các trang vẫn hoạt động. Báo cáo chỉ kém cụ thể hơn về những
+        gì nó không nhận diện được, và nói rõ đó là trường hợp nào trong hai.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/faq/">Đọc FAQ</a>
+    </div>
+  </section>
+
+</div>

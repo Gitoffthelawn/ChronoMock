@@ -1,0 +1,128 @@
+<!-- Trang tải về, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Tải Chrono Mock</h1>
+    <p class="sub">
+      Hai bản dựng của cùng một động cơ: một cửa sổ để khám phá, một dòng lệnh cho CI.
+      Giải nén một trong hai ở bất cứ đâu rồi chạy - không có trình cài đặt, không ghi gì vào registry,
+      và không cần quyền quản trị viên.
+    </p>
+
+    <div class="cta">
+      <a class="btn btn-primary" href="{{releases}}">Lấy bản phát hành mới nhất</a>
+      <a class="btn btn-ghost" href="{{repo}}">Xem mã nguồn trên GitHub</a>
+    </div>
+
+    <div class="wrap" style="margin-top:34px">
+      <table>
+        <thead>
+          <tr><th>Tệp</th><th>Đó là gì</th><th>Dung lượng</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.zip</code></td>
+            <td>Ứng dụng máy tính để bàn, độc lập - không cần cài .NET</td>
+            <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-cli-win.zip</code></td>
+            <td>Chỉ là công cụ dòng lệnh, dành cho CI và script</td>
+            <td>~1,6 MB</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bạn cần gì</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Windows 10 hoặc Windows 11.</strong> Không có bản dựng cho macOS hay Linux -
+          trên Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> đã làm tốt việc
+          này.</li>
+        <li><strong>Không cần gì khác.</strong> Bản dựng máy tính để bàn mang theo runtime của riêng nó,
+          còn bản dựng dòng lệnh không mang theo gì cả.</li>
+        <li><strong>Hỗ trợ cả ứng dụng 32-bit lẫn 64-bit.</strong> Gói cung cấp cả hai, và chọn bản khớp
+          với ứng dụng mà bạn trỏ tới.</li>
+      </ul>
+      <p>
+        ARM64 nằm ngoài phạm vi cho đến phiên bản 1.0, và các ứng dụng Store đóng gói (UWP và MSIX) không
+        được hỗ trợ - mô hình khởi chạy của chúng không cho phép.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cách chạy</h2>
+    <div class="prose">
+      <p>
+        Giải nén, rồi chạy <code>ChronoMock.exe</code> để dùng cửa sổ hoặc
+        <code>chrono.exe</code> để dùng dòng lệnh. Phiên đầu tiên gồm ba quyết định:
+        ứng dụng nào, thời điểm nào, và đồng hồ nên chạy nhanh đến mức nào.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Chạy một ứng dụng như thể đây là giây cuối cùng của năm 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Điều tương tự, với đồng hồ chạy một ngày mỗi phút</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59 --mode x1440</pre>
+  </section>
+
+  <section>
+    <h2>Hai điều cần đọc trước</h2>
+
+    <div class="note warning">
+      <p><strong>Hãy sao lưu thư mục dữ liệu của ứng dụng trước phiên đầu tiên đặt ngày trong tương lai.</strong></p>
+      <p>
+        Một ứng dụng chạy ở năm 2028 sẽ ghi các ngày năm 2028 vào bất cứ nơi nào nó lưu dữ liệu: cơ sở dữ
+        liệu, cấu hình, bộ nhớ đệm, tệp giấy phép. Các giá trị đó vẫn ở đó sau khi bạn trở về giờ thật.
+        Với phần mềm có bảo vệ bản quyền, điều này có thể là vĩnh viễn -
+        <em>“clock rollback detected, licence invalidated”</em> là một mẫu chuẩn trong ngành, và nó sẽ làm
+        đúng điều nó được thiết kế để làm.
+      </p>
+      <p>
+        Chrono Mock tự dọn dẹp sau khi dùng. Nó không thể dọn dẹp sau ứng dụng mà bạn đã kiểm thử.
+      </p>
+    </div>
+
+    <div class="note">
+      <p><strong>Phần mềm diệt virus của bạn có thể cảnh báo, và điều đó là bình thường.</strong></p>
+      <p>
+        Thời gian được dịch chuyển bằng cách chèn một thư viện nhỏ vào tiến trình mục tiêu. Đó là một kỹ
+        thuật Windows hợp pháp, có tài liệu - và cũng là kỹ thuật mà mã độc dùng, nên Microsoft Defender và
+        các phần mềm khác có thể gắn cờ thư viện được chèn hoặc chặn hẳn việc chèn. Đó là một cảnh báo giả
+        do chính kỹ thuật gây ra.
+      </p>
+      <p>
+        Nếu một phiên từ chối khởi động và Defender báo có mối đe dọa, hãy loại trừ thư viện chứ không phải
+        thư mục: chọn <strong>File</strong> trong Windows Security và nhập đường dẫn đầy đủ tới
+        <code>chrono_hook.dll</code>. Loại trừ cả thư mục sẽ khiến không có gì được quét ngay trong thư mục
+        mà công cụ chèn mã từ đó. Hoặc chạy nó trên máy mà bạn được phép làm vậy. Thư viện được chèn được
+        dựng từ mã trong kho này theo GPL-3.0 - bạn có thể tự dựng lại. Chế độ Chromium và Electron hoàn
+        toàn không chèn mã và không bị ảnh hưởng.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Nó để lại gì</h2>
+    <div class="prose">
+      <p>
+        Không để lại gì trong hệ thống của bạn: không có hook tồn tại lâu dài, không có mục registry, và
+        không có gì bên ngoài thư mục của chính nó, ngoại trừ ba thứ mà nó sẽ nêu tên cho bạn - lịch sử
+        phiên và nhật ký chẩn đoán, được chuyển sang <code>%LOCALAPPDATA%\ChronoMock\</code> khi thư mục
+        riêng của công cụ không ghi được, và, với mục tiêu Electron hoặc Chromium, một hồ sơ trình duyệt
+        dùng một lần trong <code>%TEMP%</code>, được xóa khi phiên kết thúc và được báo trong bản tóm tắt
+        phiên nếu không xóa được.
+      </p>
+      <p>
+        Không bao giờ kết nối internet, không giữ tài khoản và không gửi telemetry.
+      </p>
+    </div>
+  </section>
+
+</div>

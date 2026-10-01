@@ -1,0 +1,130 @@
+<!-- libfaketime trên Windows, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>libfaketime cho Windows</h1>
+    <p class="sub">
+      <strong>Trả lời ngắn:</strong> libfaketime không chạy được trên Windows, và không thể - nó được xây
+      trên <code>LD_PRELOAD</code>, thứ mà Windows không có. Chrono Mock là cùng một ý tưởng, được xây theo
+      cách Windows cho phép.
+    </p>
+  </section>
+
+  <section>
+    <h2>Vì sao không thể đơn giản chuyển nó sang</h2>
+    <div class="prose">
+      <p>
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> hoạt động bằng cách để trình nạp động
+        đặt một thư viện nhỏ phía trước thư viện C, để các lệnh gọi <code>time()</code> của chương trình đến
+        bản thay thế trước. Cái móc đó là <code>LD_PRELOAD</code> trên Linux và
+        <code>DYLD_INSERT_LIBRARIES</code> trên macOS. README của chính nó liệt kê đúng hai nền tảng ấy.
+      </p>
+      <p>
+        Windows không có thứ tương đương, và đồng hồ của nó dù sao cũng không nằm sau một hàm duy nhất. Các
+        ứng dụng đọc giờ qua API Win32, qua API native bên dưới nó, và qua bất cứ thứ gì runtime của chúng bọc
+        quanh cả hai - nên phiên bản Windows của ý tưởng này là một thư viện được chèn vào tiến trình mục
+        tiêu, chuyển hướng một tập các hàm được xuất ra, chứ không phải một ký hiệu duy nhất.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Các tùy chọn, được ánh xạ sang nhau</h2>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>libfaketime</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FAKETIME="2020-12-24 20:30:00"</code></td>
+            <td><code>--at 2020-12-24T20:30:00</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+14d"</code></td>
+            <td><code>--at +14d</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="-10m"</code></td>
+            <td><code>--at -10m</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME="+0 x2"</code></td>
+            <td><code>--mode x2</code></td>
+          </tr>
+          <tr>
+            <td><code>FAKETIME_DONT_FAKE_MONOTONIC=1</code></td>
+            <td>mặc định ở đây - xem bên dưới</td>
+          </tr>
+          <tr>
+            <td><code>LD_PRELOAD=libfaketime.so.1</code></td>
+            <td>không cần đặt gì - công cụ tự chèn mã</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:26px">Vậy hai phía của cùng một bài kiểm thử trông như thế này:</p>
+
+    <pre class="term"><span class="c"># Linux</span>
+FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
+
+<span class="c"># Windows</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2020-12-24T20:30:00</pre>
+  </section>
+
+  <section>
+    <h2>Chỗ hai công cụ thực sự khác nhau</h2>
+    <div class="prose">
+      <p>
+        <strong>Đồng hồ đơn điệu bị đảo ngược.</strong> libfaketime làm giả chúng theo mặc định và cho bạn
+        <code>FAKETIME_DONT_FAKE_MONOTONIC</code> để dừng việc đó. Ở đây bộ đếm độ phân giải cao mặc định vẫn
+        là thật, vì nhân tỷ lệ nó làm mất ổn định việc kết xuất khi kiểm thử, và
+        <code>--scale-qpc</code> bật nó lên. Công tắc đó là thứ khiến <code>monotonic</code> của Python
+        3.13+, <code>Stopwatch</code> của .NET và <code>nanoTime</code> của Java theo đồng hồ phiên.
+      </p>
+      <p>
+        <strong>Windows có nhiều chỗ để chặn hơn.</strong> Ngoài đồng hồ treo tường còn có múi giờ, trục thời
+        gian đã trôi, bốn họ bộ hẹn giờ, các hàm sleep và chờ, và việc tạo tiến trình - tổng cộng
+        {{channel_count}} kênh.
+      </p>
+      <p>
+        <strong>Công cụ này báo cáo độ bao phủ của chính nó.</strong> Mỗi phiên kết thúc bằng một kết luận, các
+        kênh mà ứng dụng thực sự đã đọc kèm số đếm của từng kênh, và các kênh bị bỏ sót. Đó là phần không có
+        thứ tương đương trên cả hai nền tảng.
+      </p>
+      <p>
+        <strong>libfaketime lâu đời hơn và rộng hơn trên sân nhà của nó.</strong> Nó có nhiều năm sử dụng
+        phía sau, bao phủ một dải rộng các điểm vào của thư viện C, và trên Linux nó là công cụ phù hợp. Không
+        gì ở đây thay thế nó ở đó.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Nếu bạn thực sự muốn chính libfaketime</h2>
+    <div class="prose">
+      <p>
+        Hai hướng trung thực, cả hai đều chuyển chương trình được kiểm thử sang Linux:
+      </p>
+      <ul>
+        <li><strong>WSL</strong> - dựng và chạy libfaketime bên trong hệ thống con Linux. Ổn khi thứ được
+          kiểm thử là một chương trình Linux mà bạn tình cờ phát triển trên Windows.</li>
+        <li><strong>Một container</strong> - cùng ý tưởng, dễ tái lập hơn.</li>
+      </ul>
+      <p>
+        Không cách nào giúp được với một ứng dụng Windows, là trường hợp mà công cụ này tồn tại để phục vụ.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/faq/">Đọc FAQ</a>
+    </div>
+  </section>
+
+</div>

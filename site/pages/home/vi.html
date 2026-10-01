@@ -1,0 +1,234 @@
+<!-- Trang chủ, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+  <div class="hero">
+    <div class="hero-grid">
+      <div>
+        <h1>Chạy ứng dụng Windows ở <span class="hl">bất kỳ ngày nào</span> - mà không đụng đến đồng hồ hệ thống</h1>
+
+        <p class="lede">
+          Đặt đồng hồ của một ứng dụng sang năm sau, đóng băng nó, hoặc
+          <strong>tăng tốc để bản dùng thử 30 ngày hết hạn trong lúc bạn pha cà phê</strong>.
+          Phần còn lại của máy vẫn giữ giờ thật - đăng nhập domain, chứng chỉ của bạn và mọi chương trình
+          khác vẫn chạy bình thường.
+        </p>
+        <p class="lede">
+          Rồi nó cho bạn biết việc thay thế thời gian <strong>có thực sự hiệu quả</strong> hay không.
+        </p>
+
+        <div class="cta">
+          <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+          <a class="btn btn-ghost" href="{{repo}}">Xem mã nguồn trên GitHub</a>
+        </div>
+
+        <p class="trust">
+          <span>Miễn phí và mã nguồn mở, GPL-3.0</span>
+          <span>Không cần trình cài đặt</span>
+          <span>Không cần quyền quản trị viên</span>
+          <span>Không bao giờ kết nối internet</span>
+        </p>
+      </div>
+
+      <!-- Hình minh họa những gì một phiên hiển thị, được vẽ bằng các phần tử trang. Cố ý không có
+           khung cửa sổ - xem ghi chú trong style.css. -->
+      <div class="panel">
+        <p class="panel-cap">Một phiên trông như thế nào</p>
+        <div class="clocks">
+          <div class="clock fake">
+            <div class="who">Ứng dụng thấy</div>
+            <div class="val">2027-12-31<br>23:59:50</div>
+            <div class="zone">múi giờ phiên -05:00</div>
+          </div>
+          <div class="clock">
+            <div class="who">Máy vẫn thấy</div>
+            <div class="val">2026-09-04<br>18:12:33</div>
+            <div class="zone">múi giờ máy chủ +02:00</div>
+          </div>
+        </div>
+        <div class="verdict">
+          <span class="dot"></span>
+          <span><b>Hoạt động</b> - việc thay thế thời gian đã đến được tiến trình này</span>
+        </div>
+        <div class="chan">
+          <span>Kênh thời gian được bao phủ</span>
+          <span class="n">26 trên {{channel_count}} &middot; kèm số lần gọi</span>
+        </div>
+      </div>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/session-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Bảng điều khiển phiên của Chrono Mock. Đồng hồ của ứng dụng hiển thị 2038-01-19 03:14:14 và đồng hồ thật bên cạnh hiển thị 2026-09-22 15:50:30, mỗi đồng hồ có thời gian đã trôi riêng. Bên dưới là các tốc độ từ x1 đến x1440 cùng nút Freeze, rồi các bước nhảy tương đối và bước nhảy đến một ngày được nhập, còn ở chân bảng là dấu tích xanh ghi Works cạnh nút Stop session màu đỏ.">
+      <figcaption>Một phiên đang chạy. Ứng dụng đang ở năm 2038, máy thì không, và kết luận cho biết
+        việc thay thế thời gian đã đến được ứng dụng.</figcaption>
+    </figure>
+  </div>
+</div>
+
+<div class="shell">
+
+  <section>
+    <p class="eyebrow">Vì sao nó tồn tại</p>
+    <h2>Kiểm thử bất cứ thứ gì phụ thuộc vào ngày tháng đều phải dịch chuyển thời gian. Cả hai cách thông thường đều tệ.</h2>
+    <p class="sub">
+      Hạn giấy phép, thời gian dùng thử, gia hạn gói đăng ký, hiệu lực chứng chỉ, tuổi thọ token,
+      báo cáo cuối tháng và cuối năm, tính lãi, lời nhắc.
+    </p>
+    <div class="two">
+      <div class="card">
+        <p class="bad">Cách 1 - đổi đồng hồ hệ thống</p>
+        <p>
+          Nó làm hỏng đăng nhập domain và Kerberos, vô hiệu hóa chứng chỉ TLS khiến trình duyệt ngừng hoạt
+          động, làm Windows Update rối loạn, và khiến mọi ứng dụng khác trên máy ghi dấu thời gian sai.
+          Trên máy tham gia domain, chính sách nhóm thường chặn thay đổi này hoặc hoàn nguyên sau vài phút,
+          nên bài kiểm thử thậm chí không lặp lại được.
+        </p>
+      </div>
+      <div class="card">
+        <p class="bad">Cách 2 - chờ</p>
+        <p>
+          Nghĩa là: không kiểm thử. Các trường hợp phụ thuộc vào ngày tháng bị bỏ qua, và
+          <em>“giấy phép không bao giờ hết hạn”</em> đến tay khách hàng.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Nó làm được gì</h2>
+    <p class="sub">Một tiến trình di chuyển trong thời gian. Không có gì khác trên máy làm vậy.</p>
+    <div class="grid">
+      <div class="feat">
+        <h3>Bất kỳ thời điểm nào</h3>
+        <p>Một ngày giờ cụ thể, hoặc một mốc tương đối - <code>+30 days</code>, <code>-1 year</code>.</p>
+      </div>
+      <div class="feat">
+        <h3>Trôi, đóng băng hoặc tăng tốc</h3>
+        <p>Tốc độ bình thường, đồng hồ bị giữ nguyên, hoặc hệ số nhân là số nguyên. <code>x1440</code>
+          biến một ngày thành một phút.</p>
+      </div>
+      <div class="feat">
+        <h3>Múi giờ riêng</h3>
+        <p>Một độ lệch cố định chỉ cho tiến trình đó, trong khi múi giờ hệ thống vẫn nguyên chỗ cũ.</p>
+      </div>
+      <div class="feat">
+        <h3>Tiến trình con đi theo</h3>
+        <p>Trình cài đặt và trình khởi chạy sinh ra các tiến trình con. Thiếu điều đó, bài kiểm thử chỉ
+          bao phủ một nửa những gì đã chạy.</p>
+      </div>
+      <div class="feat">
+        <h3>Nhảy giữa chừng phiên</h3>
+        <p>Tiến hoặc lùi - kể cả bước nhảy lùi mà laptop thực hiện sau khi đồng bộ lại với máy chủ thời
+          gian.</p>
+      </div>
+      <div class="feat">
+        <h3>Cả Electron và Chromium</h3>
+        <p>Thông qua một cơ chế khác, vì đồng hồ của chúng nằm trong renderer bị cô lập mà việc chèn mã
+          không với tới.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <p class="eyebrow">Phần mà không ai khác làm</p>
+      <h2>Làm sao bạn biết nó đã hiệu quả?</h2>
+      <p class="sub">
+        Với mọi công cụ khác, bạn không biết. Ứng dụng khởi động, hiển thị một ngày nào đó, và bạn đoán.
+        Nhưng nó có thể đọc đồng hồ qua một kênh mà công cụ chưa bao giờ chặn - từ máy chủ, từ cơ sở dữ
+        liệu, qua một lớp runtime - và khi đó <em>“bài kiểm thử đã qua”</em> hoàn toàn vô nghĩa.
+      </p>
+      <ul class="vlist">
+        <li><span class="tick">&rarr;</span><span>Một kết luận trước khi bài kiểm thử thật bắt đầu:
+          <b>hoạt động / hoạt động một phần / không hoạt động</b></span></li>
+        <li><span class="tick">&rarr;</span><span>Trong <b>{{channel_count}} kênh thời gian</b>, kênh nào
+          đã được bao phủ, và ứng dụng đã truy vấn mỗi kênh bao nhiêu lần</span></li>
+        <li><span class="tick">&rarr;</span><span><b>Kênh nào không được bao phủ</b> - nói thẳng,
+          không bao giờ bỏ sót</span></li>
+        <li><span class="tick">&rarr;</span><span>Cảnh báo kèm hệ quả: <em>“ứng dụng này đọc giờ từ
+          mạng - việc thay thế cục bộ có thể chưa đủ”</em></span></li>
+      </ul>
+      <p class="sub" style="margin:22px 0 0">
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Cách kiểm toán nguồn thời gian hoạt động &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Hai phút làm quen</h2>
+    <p class="sub">Một cửa sổ để khám phá, một dòng lệnh cho CI. Cùng một động cơ phía sau cả hai.</p>
+    <div class="stack">
+      <pre class="term"><span class="c"># Chạy một ứng dụng như thể đây là giây cuối cùng của năm 2027</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-31T23:59:59
+
+<span class="c"># Xem bản dùng thử 30 ngày hết hạn trong lúc bạn pha cà phê: x1440 là một ngày mỗi phút</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Dùng một kịch bản có tên thay cho ngày, và ghi bằng chứng ra tệp</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt</pre>
+
+      <p class="sub" style="margin:6px 0 0">
+        Máy tính ngày trả lời nửa còn lại của việc kiểm thử ngày tháng - dùng ngày <em>nào</em>:
+      </p>
+
+      <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  base:    2038-01-19T03:14:07
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">So với thứ bạn có lẽ đang dùng</p>
+    <h2>Giống RunAsDate, cộng thêm những phần còn thiếu</h2>
+    <p class="sub">
+      RunAsDate chặn năm hàm đồng hồ treo tường và làm việc đó tốt. Đây là chỗ hai công cụ khác nhau -
+      và trang đầy đủ cũng nói rõ chỗ RunAsDate vẫn là lựa chọn tốt hơn.
+    </p>
+    <div class="wrap">
+      <table>
+        <thead>
+          <tr><th>&nbsp;</th><th>RunAsDate</th><th>Chrono Mock</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Chạy một ứng dụng ở ngày giả</td><td class="y">có</td><td class="y">có</td></tr>
+          <tr><td>Kênh thời gian bị chặn</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>Tăng tốc đồng hồ</td><td class="n">không</td><td class="y">có</td></tr>
+          <tr><td>Múi giờ độc lập</td><td class="n">không có tài liệu</td><td class="y">có</td></tr>
+          <tr><td>Theo dõi tiến trình con</td><td class="n">không có tài liệu</td><td class="y">có</td></tr>
+          <tr><td>Cho bạn biết có hiệu quả hay không</td><td class="n">không</td><td class="y">có, theo từng kênh</td></tr>
+          <tr><td>Có mã nguồn</td><td class="n">freeware, đóng</td><td class="y">GPL-3.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin:22px 0 0">
+      <a href="/vi/thay-the-runasdate/">So sánh đầy đủ, gồm cả chỗ RunAsDate thắng thế &rarr;</a>
+    </p>
+  </section>
+
+  <section>
+    <h2>Lấy về</h2>
+    <p class="sub">
+      Giải nén ở bất cứ đâu rồi chạy. Không cần trình cài đặt, không ghi gì vào registry, không cần quyền quản trị viên.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="{{repo}}">Xem mã nguồn trên GitHub</a>
+    </div>
+  </section>
+
+</div>

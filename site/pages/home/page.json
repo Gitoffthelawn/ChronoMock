@@ -81,6 +81,12 @@
       "link_text": "Beranda",
       "title": "Chrono Mock - jalankan aplikasi Windows pada tanggal lain",
       "description": "Alat Windows gratis dan open source. Jalankan aplikasi pada tanggal apa pun, bekukan atau percepat jamnya tanpa menyentuh jam sistem. Ia memberi tahu apakah berhasil."
+    },
+    "vi": {
+      "slug": "",
+      "link_text": "Trang chủ",
+      "title": "Chrono Mock - chạy ứng dụng Windows ở một ngày khác",
+      "description": "Công cụ Windows miễn phí, mã nguồn mở. Chạy ứng dụng ở bất kỳ ngày nào, đóng băng hoặc tăng tốc đồng hồ của nó mà không đụng đến giờ hệ thống. Nó cho bạn biết có hiệu quả hay không."
     }
   }
 }

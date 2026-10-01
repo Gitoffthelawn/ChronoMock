@@ -80,6 +80,12 @@
       "link_text": "Electron dan Chromium",
       "title": "Memalsukan tanggal di aplikasi Electron atau Chromium",
       "description": "Jam mereka berada di renderer terisolasi yang tidak dijangkau injeksi. Mekanisme lain memasang API waktu JavaScript aplikasi ke jam sesi, termasuk di dalam worker."
+    },
+    "vi": {
+      "slug": "electron-chromium",
+      "link_text": "Electron và Chromium",
+      "title": "Làm giả ngày trong ứng dụng Electron hoặc Chromium",
+      "description": "Đồng hồ của chúng nằm trong renderer bị cô lập mà việc chèn mã không với tới. Một cơ chế khác đặt các API thời gian JavaScript của ứng dụng lên đồng hồ phiên, kể cả trong worker."
     }
   }
 }

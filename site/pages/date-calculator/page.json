@@ -78,6 +78,12 @@
       "link_text": "Kalkulator",
       "title": "Kalkulator tanggal untuk QA - hari kerja dan kasus tepi",
       "description": "Cari tahu tanggal mana yang diuji: akhir bulan, penutupan kuartal, N hari kerja dengan hari libur nyata, batas 2038. Semua format sekaligus dan apa yang diuji tiap tanggal."
+    },
+    "vi": {
+      "slug": "may-tinh-ngay",
+      "link_text": "Máy tính ngày",
+      "title": "Máy tính ngày cho QA - ngày làm việc và trường hợp biên",
+      "description": "Tìm ra ngày cần kiểm thử: cuối tháng, khóa sổ quý, N ngày làm việc với ngày lễ thật, ranh giới 2038. Mọi định dạng cùng lúc và mỗi ngày kiểm thử điều gì."
     }
   }
 }

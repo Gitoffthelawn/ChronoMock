@@ -78,6 +78,12 @@
       "link_text": "Referensi CLI",
       "title": "Referensi CLI Chrono Mock - setiap opsi dan kode keluar",
       "description": "Referensi lengkap chrono run dan chrono calc: setiap opsi baris perintah, kedua tabel kode keluar, dan cara membaca laporan sesi."
+    },
+    "vi": {
+      "slug": "tham-chieu-cli",
+      "link_text": "Tham chiếu CLI",
+      "title": "Tham chiếu CLI Chrono Mock - mọi tùy chọn và mã thoát",
+      "description": "Tham chiếu đầy đủ cho chrono run và chrono calc: mọi tùy chọn dòng lệnh, cả hai bảng mã thoát và cách đọc báo cáo phiên."
     }
   }
 }

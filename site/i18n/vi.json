@@ -1,0 +1,26 @@
+{
+  "//": "Văn bản tiếng Việt của trang web - cùng các khóa như en.json (thiếu một khóa sẽ làm hỏng bản dựng).",
+
+  "html_lang": "vi",
+  "dir": "ltr",
+  "og_locale": "vi_VN",
+
+  "social_image_alt": "Chrono Mock - chạy ứng dụng Windows ở bất kỳ ngày giờ nào mà không đổi đồng hồ hệ thống",
+
+  "skip_to_content": "Chuyển đến nội dung",
+  "nav_label": "Điều hướng chính",
+
+  "language_name": "Tiếng Việt",
+  "language_title": "Trang này bằng tiếng Việt",
+  "language_menu_label": "Ngôn ngữ",
+
+  "footer_nav_label": "Sơ đồ trang",
+  "footer_group_start": "Bắt đầu từ đây",
+  "footer_group_tools": "Lựa chọn thay thế và runtime",
+  "footer_group_features": "Nó làm được gì",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Không cần tài khoản, không telemetry và không bao giờ kết nối internet.",
+  "footer_source": "Mã nguồn trên GitHub",
+  "footer_releases": "Bản phát hành",
+  "footer_license": "Giấy phép"
+}

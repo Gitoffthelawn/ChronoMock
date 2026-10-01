@@ -1,0 +1,136 @@
+<!-- Tăng tốc đồng hồ, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Cho đồng hồ của một ứng dụng chạy nhanh hơn</h1>
+    <p class="sub">
+      Một bản dùng thử 30 ngày cần 30 ngày để hết hạn, trừ khi bạn dịch chuyển được thời gian. Lời khuyên
+      thông thường là đẩy đồng hồ hệ thống tiến lên, việc này cần quyền quản trị viên và kéo theo mọi chương
+      trình khác trên máy. Công cụ này dịch chuyển một tiến trình duy nhất.
+    </p>
+  </section>
+
+  <section>
+    <h2>Nhanh đến mức nào</h2>
+    <div class="prose">
+      <p>
+        Chọn một hệ số nhân là số nguyên. Đồng hồ của ứng dụng tiến nhanh gấp chừng ấy lần đồng hồ thật, từ
+        bất cứ thời điểm nào mà phiên bắt đầu.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:24px">
+      <table>
+        <thead>
+          <tr><th>Hệ số nhân</th><th>Một phút thật trở thành</th><th>Hữu ích cho</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>x60</code></td><td>một giờ</td><td>tác vụ theo giờ, hết thời gian chờ phiên, tuổi thọ token</td></tr>
+          <tr><td><code>x1440</code></td><td>một ngày</td><td>chuyển ngày, bản dùng thử 30 ngày trong nửa giờ</td></tr>
+          <tr><td><code>x43200</code></td><td>một bản dùng thử 30 ngày</td><td>xem cả bản dùng thử kết thúc trong lúc bạn đọc dòng này</td></tr>
+          <tr><td><code>x525600</code></td><td>một năm</td><td>gia hạn hằng năm, hết hạn chứng chỉ</td></tr>
+          <tr><td><code>x1000000</code></td><td>khoảng 1,9 năm</td><td>mức trần</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre class="term" style="margin-top:26px"><span class="c"># Bắt đầu từ giờ thật bây giờ, và chạy một ngày mỗi phút</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x1440
+
+<span class="c"># Bắt đầu ở một ngày đã chọn và tăng tốc từ đó</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2027-12-01T09:00:00 --mode x1440
+
+<span class="c"># Hoặc giữ đồng hồ đứng yên hoàn toàn</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode frozen</pre>
+
+    <figure class="shot filled">
+      <img src="/assets/chrono-in-action.gif" width="2644" height="1206" loading="lazy"
+           alt="Một bản ghi phiên đang điều khiển một ứng dụng Windows khác. Cửa sổ bên trái là Chrono Mock với đồng hồ của ứng dụng ở ngày 2038-01-19 đang tăng với tốc độ gấp sáu mươi lần thật, trong khi đồng hồ thật bên cạnh chỉ nhích vài giây. Cửa sổ bên phải là ứng dụng được kiểm thử, có nhật ký phiên riêng cho thấy nó bắt đầu vào 2038-01-19 và đã chạy được vài phút so với chỉ nửa phút ngoài phòng.">
+      <figcaption>Một phiên thật đang điều khiển một ứng dụng thật. Hãy chú ý cửa sổ bên phải: chương trình
+        được kiểm thử ghi lại thời điểm bắt đầu của chính nó là <strong>19 tháng 1 năm 2038</strong>, và phiên
+        của nó đã kéo dài vài phút trong khi đồng hồ trong phòng chỉ nhích vài giây. Tốc độ được đổi khi nó
+        đang chạy, mà không phải khởi động lại gì cả.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Phần khiến người ta vấp: có hai đồng hồ</h2>
+    <div class="prose">
+      <p>
+        Tăng tốc <strong>đồng hồ treo tường</strong> - thứ mà <code>DateTime.Now</code> và các hàm tương
+        đương trả về - tự nó không làm <strong>bộ đếm ngược</strong> nhanh lên. Đó là hai câu hỏi khác nhau
+        mà một ứng dụng có thể hỏi hệ điều hành, và rất nhiều phần mềm đo “ba mươi ngày” bằng câu thứ hai
+        chứ không phải câu thứ nhất.
+      </p>
+      <p>
+        Vì vậy trục khoảng thời gian - số tick, sleep, chờ và bộ hẹn giờ - là một công tắc riêng:
+      </p>
+      <ul>
+        <li><code>--scale-duration</code> cũng đặt sleep, chờ và bộ hẹn giờ lên đồng hồ phiên. Nếu không có
+          nó, <code>x1440</code> đẩy lịch tiến vùn vụt trong khi một bộ hẹn giờ năm giây vẫn mất năm giây
+          thật.</li>
+        <li><code>--scale-qpc</code> còn nhân tỷ lệ cả bộ đếm độ phân giải cao. Đó là nơi
+          <code>monotonic</code> của Python 3.13+, <code>Stopwatch</code> của .NET và
+          <code>nanoTime</code> của Java đọc thời gian đã trôi, và nó tắt theo mặc định vì nhân tỷ lệ nó làm
+          mất ổn định việc kết xuất khi kiểm thử.</li>
+      </ul>
+      <p>
+        Nếu hệ số nhân dường như chẳng làm gì với một bộ đếm ngược, gần như luôn là vì lý do này.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Một ứng dụng hẹn giờ: tăng tốc lịch VÀ các bộ đếm ngược</span>
+<span class="p">chrono</span> run "C:\apps\Timer.exe" --mode x60 --scale-duration
+
+<span class="c"># Một ứng dụng Python hoặc .NET đo thời gian đã trôi trên bộ đếm độ phân giải cao</span>
+<span class="p">chrono</span> run "C:\apps\Job.exe" --mode x60 --scale-duration --scale-qpc</pre>
+  </section>
+
+  <section>
+    <h2>Đổi tốc độ mà không khởi động lại</h2>
+    <div class="prose">
+      <p>
+        Hệ số nhân có thể đổi giữa phiên, và đồng hồ được neo lại chứ không bị nhảy, nên nó không bao giờ
+        chạy lùi khi tốc độ giảm. Bạn cũng có thể nhảy thẳng đồng hồ - tiến, hoặc lùi như cách một laptop
+        làm sau khi đồng bộ lại với máy chủ thời gian, trường hợp làm hỏng mọi thứ đo thời gian đã trôi mà
+        không có biện pháp bảo vệ.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Chạy ở x60, rồi chuyển sang x1440 sau hai giây</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --mode x60 --set-after 2:1440
+
+<span class="c"># Chạy, rồi nhảy đồng hồ đến một thời điểm đã chọn sau năm giây</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2028-01-01T00:00:00</pre>
+  </section>
+
+  <section>
+    <h2>Những gì nó sẽ không làm</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Nó không đụng đến đồng hồ hệ thống.</strong> Đó là mục đích, không phải hạn chế - nhưng
+          nó có nghĩa là bất cứ thứ gì đọc giờ từ máy chủ, cơ sở dữ liệu hay máy khác đều không bị ảnh
+          hưởng, và kiểm toán sẽ cho bạn biết khi điều đó xảy ra.</li>
+        <li><strong>Một bước nhảy đổi những gì ứng dụng thấy, không đổi lúc nó thức dậy.</strong> Các bộ hẹn
+          giờ đã giao cho nhân hệ điều hành chạy theo giờ thật. Đa số ứng dụng thăm dò đồng hồ, nên các bước
+          nhảy hoạt động trong thực tế - nhưng không phải tất cả đều vậy.</li>
+        <li><strong>Nó không làm chậm thời gian.</strong> Các hệ số nhân là số nguyên từ một trở lên, cộng
+          thêm đồng hồ đóng băng ở không.</li>
+      </ul>
+      <p>
+        Việc có thứ nào trong số đó đến được ứng dụng của bạn hay không không phải điều để giả định.
+        <a href="/vi/kiem-toan-nguon-thoi-gian/">Phiên sẽ nói cho bạn &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/faq/">Đọc FAQ</a>
+    </div>
+  </section>
+
+</div>

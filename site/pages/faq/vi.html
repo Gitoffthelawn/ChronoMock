@@ -1,0 +1,197 @@
+<!-- FAQ, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. Mỗi tiêu đề được viết như cách người ta gõ câu hỏi. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Hỏi và đáp</h1>
+    <p class="sub">
+      Các câu trả lời ngắn, kể cả những câu về điều công cụ này sẽ không làm.
+    </p>
+  </section>
+
+  <section>
+
+    <div class="qa">
+      <h3>Nó có đổi đồng hồ máy tính của tôi không?</h3>
+      <p>
+        Không, và sẽ không bao giờ - đó là toàn bộ mục đích của công cụ. Giờ bị dịch chuyển chỉ hiển thị với
+        <strong>một tiến trình và các tiến trình con mà nó khởi chạy</strong>. Đăng nhập domain, chứng chỉ,
+        Windows Update và mọi ứng dụng khác vẫn thấy ngày thật suốt thời gian đó.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Tôi có cần quyền quản trị viên không?</h3>
+      <p>
+        Không. Không có trình cài đặt, không ghi gì vào registry, và nó chạy từ một thư mục mà bạn có thể
+        để trên USB.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Nó có hoạt động với ứng dụng của tôi không?</h3>
+      <p>
+        Câu trả lời trung thực là không công cụ nào thuộc loại này có thể hứa trước - nên công cụ này đo
+        nó. Mỗi phiên kết thúc bằng một kết luận
+        (<strong>hoạt động, hoạt động một phần, không hoạt động</strong>), danh sách các kênh thời gian mà
+        ứng dụng thực sự đã đọc kèm số lần gọi của từng kênh, và danh sách các kênh không được bao phủ.
+      </p>
+      <p>
+        Một ứng dụng có thể đọc đồng hồ qua một đường mà không gì chặn được - từ máy chủ, từ cơ sở dữ liệu,
+        qua một lớp runtime. Khi điều đó xảy ra, bạn được cho biết, thay vì bị để mặc cho rằng bài kiểm thử
+        đã qua.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Nó có hoạt động với ứng dụng .NET, Java và Python không?</h3>
+      <p>
+        Một phần, và những khác biệt là quan trọng. Cả ba đều được đánh dấu <strong>thử nghiệm</strong>:
+        chúng hoạt động trên các mục tiêu kiểm thử, chưa được kiểm thử rộng rãi, và kiểm toán tích hợp sẵn là
+        nguồn chân lý của bạn chứ không phải đoạn này.
+      </p>
+      <ul>
+        <li><strong>.NET</strong> - đồng hồ treo tường và múi giờ của phiên được bao phủ.
+          <code>Stopwatch</code> vẫn ở bộ đếm độ phân giải cao thật, trừ khi bạn chọn bật nhân tỷ lệ nó.</li>
+        <li><strong>Java</strong> - đồng hồ treo tường, thời gian đã trôi và múi giờ của phiên được bao phủ.
+          Múi giờ đến dưới dạng một độ lệch cố định, được đặt tên như <code>GMT+05:30</code>.</li>
+        <li><strong>Python</strong> - <code>time.time</code> và <code>datetime</code> được bao phủ.
+          <code>perf_counter</code>, và <code>monotonic</code> trên Python 3.13 trở lên, nằm trên bộ đếm
+          độ phân giải cao, trừ khi bạn chọn bật.</li>
+      </ul>
+    </div>
+
+    <div class="qa">
+      <h3>Nó có hoạt động với ứng dụng Electron và Chromium không?</h3>
+      <p>
+        Có, qua một cơ chế khác. Đồng hồ của chúng nằm trong renderer bị cô lập mà việc chèn mã không với
+        tới, nên ứng dụng được khởi chạy với một cổng gỡ lỗi và một hồ sơ sạch dùng một lần, và các API thời
+        gian JavaScript của chính nó được đặt lên đồng hồ phiên - kể cả bên trong các Web Worker, nơi bộ hẹn
+        giờ thường thực sự nằm.
+      </p>
+      <p>
+        Một giới hạn đáng biết: ở chế độ này phiên đi theo múi giờ của máy chủ. Thời điểm là giả, các hàm
+        lấy giờ địa phương thì không.
+      </p>
+      <p>
+        <a href="/vi/electron-chromium/">Chế độ Chromium và Electron hoạt động thế nào</a> - nó với tới đâu,
+        không với tới đâu, và vì sao cổng gỡ lỗi là phần cần lưu ý.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Tôi có thể làm thời gian chạy nhanh hơn thời gian thật không?</h3>
+      <p>
+        Có. Chọn một hệ số nhân là số nguyên và đồng hồ của ứng dụng chạy ở tốc độ đó - <code>x1440</code>
+        biến một ngày thành một phút, nên bản dùng thử 30 ngày hết hạn trong khoảng nửa giờ. Bạn cũng có thể
+        đóng băng đồng hồ, hoặc nhảy tới và lui giữa phiên.
+      </p>
+      <p>
+        Bộ đếm ngược và bộ hẹn giờ nằm trên một trục riêng, và việc tăng tốc chúng là một công tắc riêng, vì
+        nhân tỷ lệ chúng làm thay đổi hành vi mà rất nhiều ứng dụng phụ thuộc vào.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Tôi có thể chỉ đổi múi giờ mà không đổi ngày không?</h3>
+      <p>
+        Có. Phiên mang độ lệch cố định riêng của nó, hiển thị với tiến trình đó trong khi múi giờ hệ thống
+        vẫn nguyên chỗ cũ. Đây là phần mà đa số công cụ bỏ qua, và là cách để tái hiện lỗi chỉ xuất hiện với
+        khách hàng ở cách đó năm múi giờ.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Còn giờ mùa hè thì sao?</h3>
+      <p>
+        Múi giờ của phiên là một <strong>độ lệch cố định không có giờ mùa hè</strong>. Một phiên đặt theo Ba
+        Lan giữ nguyên độ lệch bạn chọn dù đồng hồ của nó chỉ tháng Ba hay tháng Bảy, nên một lần chạy vượt
+        qua lần chuyển giờ thật sẽ lệch một giờ so với những gì múi giờ đó thực sự hiển thị.
+      </p>
+      <p>
+        Do đó ép một ứng dụng đi qua một lần chuyển giờ mùa hè chưa phải thứ công cụ này làm được, và máy tính
+        ngày nói rõ điều đó thay vì đoán.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Vì sao phần mềm diệt virus của tôi cảnh báo nó?</h3>
+      <p>
+        Vì chèn một thư viện vào tiến trình khác là một kỹ thuật Windows hợp pháp, có tài liệu, mà mã độc
+        cũng dùng. Đó là một cảnh báo giả do chính kỹ thuật gây ra, không phải do bất cứ điều gì công cụ làm
+        với máy của bạn. Thư viện được chèn là <code>chrono_hook.dll</code>, được dựng từ mã nguồn công khai
+        theo GPL-3.0, và bạn có thể tự dựng lại. Chế độ Chromium và Electron hoàn toàn không chèn mã.
+      </p>
+      <p>
+        <a href="/vi/tai-xuong/">Trang tải về</a> nói nên làm gì trong trường hợp đó.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Đây có phải cách để gia hạn bản dùng thử hay vượt qua giấy phép không?</h3>
+      <p>
+        Không, và nó không được xây dựng cho việc đó. Chrono Mock dành để kiểm thử phần mềm mà bạn chịu trách
+        nhiệm - hạn giấy phép của chính bạn, logic gia hạn của chính bạn, báo cáo cuối tháng của chính bạn.
+        Không ví dụ, kịch bản hay trang nào ở đây sẽ từng minh họa việc gia hạn thời gian dùng thử của người
+        khác.
+      </p>
+      <p>
+        Phần mềm có bảo vệ bản quyền thực ra là trường hợp có nhiều khả năng đánh bại công cụ này nhất: mã
+        chống can thiệp thường đọc giờ qua những đường được chọn có chủ ý để khó chặn, và tua đồng hồ lùi là
+        điều kiện mà phần mềm như vậy được viết ra để phát hiện. Một tính năng theo hướng ngược lại đang được
+        lên kế hoạch - một chế độ chạy một loạt thao tác về thời gian nhằm vào ứng dụng <em>của chính
+        bạn</em> và báo cáo thao tác nào đã bị lớp bảo vệ của bạn bắt được.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Tôi có thể dùng nó trong tích hợp liên tục không?</h3>
+      <p>
+        Có. Bản dựng dòng lệnh là một bản tải riêng khoảng 1,6 MB, không cần cài runtime. Mọi lệnh đều nói
+        được <code>--json</code> và thoát với một mã mà pipeline có thể rẽ nhánh theo, và một phiên có thể ghi
+        bằng chứng của nó ra tệp.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Nó khác RunAsDate ở điểm nào?</h3>
+      <p>
+        RunAsDate chặn năm hàm đồng hồ treo tường và làm việc đó tốt. Công cụ này bao phủ {{channel_count}}
+        kênh thời gian, có thể tăng tốc đồng hồ, cho tiến trình múi giờ riêng, theo dõi các tiến trình con, và
+        sau đó cho bạn biết những kênh nào đã thực sự được bao phủ. Nó cũng là mã nguồn mở, trong khi
+        RunAsDate là freeware đóng.
+      </p>
+      <p>
+        <a href="/vi/thay-the-runasdate/">So sánh đầy đủ</a> cũng nói rõ chỗ RunAsDate là lựa chọn tốt
+        hơn.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Đây có phải libfaketime cho Windows không?</h3>
+      <p>
+        Về tinh thần thì có - cùng ý tưởng dịch chuyển thời gian cho một chương trình thay vì cho cả máy.
+        Trên thực tế đó là một cách triển khai khác, vì
+        <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> phụ thuộc vào
+        <code>LD_PRELOAD</code>, thứ không tồn tại trên Windows. Có
+        <a href="/vi/libfaketime-windows/">một trang nói đúng về điều đó</a>.
+      </p>
+    </div>
+
+    <div class="qa">
+      <h3>Nó miễn phí không, và có gửi gì đi đâu không?</h3>
+      <p>
+        Miễn phí và mã nguồn mở theo GPL-3.0. Không cần tài khoản, không telemetry, và nó hoàn toàn không kết
+        nối internet - toàn bộ công cụ chạy được ngay cả khi rút dây mạng.
+      </p>
+      <p>
+        Cửa sổ có đúng một điều khiển dẫn ra bên ngoài, nên đáng nêu tên thay vì để bạn tự phát hiện: một nút
+        <strong>Donate</strong> trên thanh tiêu đề. Nhấn vào đó sẽ chuyển một địa chỉ cho trình duyệt của bạn,
+        và trình duyệt mới là thứ kết nối. Chrono Mock không mở kết nối nào trong cả hai trường hợp, và không
+        gì nó đo được về ứng dụng của bạn được gửi đi đâu cả.
+      </p>
+    </div>
+
+  </section>
+
+</div>

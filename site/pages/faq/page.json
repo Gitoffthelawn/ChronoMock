@@ -80,6 +80,12 @@
       "link_text": "FAQ",
       "title": "FAQ Chrono Mock - tanya jawab tentang tanggal palsu di Windows",
       "description": "Apakah mengubah jam sistem? Perlu hak administrator? Cocok dengan aplikasi saya, .NET, Java, atau Electron? Jawaban singkat, termasuk tentang yang tidak dilakukannya."
+    },
+    "vi": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "FAQ Chrono Mock - hỏi đáp về ngày giả trên Windows",
+      "description": "Nó có đổi đồng hồ hệ thống không? Có cần quyền quản trị viên không? Có chạy với ứng dụng của tôi, .NET, Java hay Electron không? Trả lời ngắn, kể cả về điều nó không làm."
     }
   }
 }

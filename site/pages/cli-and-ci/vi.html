@@ -1,0 +1,133 @@
+<!-- CLI và CI, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Kiểm thử ngày tháng trong pipeline</h1>
+    <p class="sub">
+      Cửa sổ dùng để khám phá. Đây là nửa còn lại: một bản dựng dòng lệnh khoảng
+      <strong>1,6 MB</strong> không cần cài runtime, có mã thoát là kết luận về độ bao phủ chứ không phải
+      mã thoát của chính mục tiêu.
+    </p>
+  </section>
+
+  <section>
+    <h2>Mã thoát chính là kết luận</h2>
+    <div class="prose">
+      <p>
+        Đây là quyết định thiết kế giúp công cụ có thể viết script. Khi một phiên kết thúc, mã thoát trả
+        lời <em>“việc thay thế thời gian có hiệu lực không”</em>, chứ không phải <em>“ứng dụng đã trả về
+        gì”</em>. Nhờ vậy pipeline có thể thất bại vì một sự thay thế đã âm thầm không xảy ra - đó chính là
+        thất bại đáng để làm hỏng pipeline, vì mọi thứ sau nó đều là một bài kiểm thử không chứng minh
+        được gì.
+      </p>
+      <p>
+        Mã thoát của chính mục tiêu vẫn được báo cáo, trong dữ liệu phiên.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Mã</th><th>Ý nghĩa</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>hoạt động - mọi tiến trình đọc giờ đều thấy đồng hồ của phiên</td></tr>
+          <tr><td>10</td><td>hoạt động một phần - một số kênh được bao phủ, một số thì không</td></tr>
+          <tr><td class="n">11</td><td>không hoạt động - việc thay thế không đến được các kênh then chốt</td></tr>
+          <tr><td>4</td><td>chưa xác định - không thể xác lập độ bao phủ</td></tr>
+          <tr><td>1</td><td>lỗi sử dụng - sai tùy chọn hoặc sai biểu thức</td></tr>
+          <tr><td>2</td><td>không thể khởi chạy hoặc chèn mã vào mục tiêu</td></tr>
+          <tr><td>12</td><td>mục tiêu biến mất, gợi ý một ứng dụng chỉ cho phép một thể hiện</td></tr>
+          <tr><td>3</td><td>lỗi nội bộ - lõi không khởi động được, gặp trạng thái bất ngờ, hoặc dừng trước khi đóng phiên (bất kể mã thoát riêng của nó). Lần chạy như vậy không có kết luận</td></tr>
+          <tr><td>5</td><td>thao tác chưa được dựng trong bản phát hành này</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Mọi tùy chọn của cả hai lệnh, và bảng tương tự cho máy tính ngày, nằm trong
+        <a href="/vi/tham-chieu-cli/">tài liệu tham chiếu dòng lệnh</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Các lần chạy có giới hạn</h2>
+    <div class="prose">
+      <p>
+        Pipeline không thể chờ một người đóng ứng dụng máy tính để bàn.
+        <code>--ticks N</code> kết thúc phiên sau N nhịp - mỗi nhịp một giây thật - và báo cáo những gì
+        đã tìm thấy đến lúc đó. Độ bao phủ vốn được xác lập ngay những khoảnh khắc đầu của tiến trình, nên
+        thường chỉ cần một giới hạn ngắn.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Mười giây, rồi dừng và báo cáo</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Đầu ra cho máy và bằng chứng</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> xuất phiên thành các bản ghi máy đọc được thay vì báo cáo cho người - cùng
+          những dữ kiện, gồm cả độ bao phủ theo từng kênh.</li>
+        <li><code>--report &lt;path&gt;</code> ghi báo cáo cho người ra tệp, rất phù hợp làm tạo phẩm của
+          bản dựng. Một phiên có kết luận khác <em>hoạt động</em> sẽ mở đầu tệp bằng biểu ngữ cảnh báo bằng
+          chứng không đáng tin, thay vì chôn lời lưu ý ở cuối.</li>
+        <li>Máy tính ngày cũng nói được <code>--json</code>, nên pipeline có thể tính ngày cần dùng rồi
+          đưa ngược lại vào.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Tính ngày, rồi chạy ở ngày đó</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Một bước, đại khái như sau</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># mã thoát khác không ở đây nghĩa là việc thay thế không có hiệu lực, nên</span>
+    <span class="c"># bài kiểm thử phía sau sẽ chẳng chứng minh được gì</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Hai lưu ý thẳng thắn về runner</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Cần một runner Windows.</strong> Không có bản dựng cho Linux hay macOS, và sẽ không có -
+          trên Linux, <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> đã đảm nhiệm việc
+          này.</li>
+        <li><strong>Phần mềm diệt virus trên runner được lưu trữ có thể chặn việc chèn mã.</strong> Dịch
+          chuyển thời gian nghĩa là chèn một thư viện vào tiến trình mục tiêu, một kỹ thuật Windows có tài
+          liệu mà mã độc cũng dùng. Runner chặn nó sẽ cho ra mã thoát nói rõ điều đó thay vì một kết quả
+          qua giả - nhưng đó là điều nên biết trước khi bạn phụ thuộc vào nó.</li>
+      </ul>
+      <p>
+        Vì lý do tương tự, bộ kiểm thử đầu-cuối của chính dự án này chạy trên máy thật chứ không phải trên
+        runner được lưu trữ. Tích hợp liên tục của nó dựng và kiểm thử đơn vị mọi thứ, còn bản thân việc
+        thay thế thời gian được thử thủ công trên các ứng dụng thật, cả bản dựng 32-bit lẫn 64-bit, trước
+        mỗi bản phát hành.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/kiem-toan-nguon-thoi-gian/">Các kết luận có nghĩa là gì</a>
+    </div>
+  </section>
+
+</div>

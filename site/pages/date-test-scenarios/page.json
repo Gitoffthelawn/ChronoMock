@@ -78,6 +78,12 @@
       "link_text": "Tanggal yang diuji",
       "title": "Tanggal yang layak diuji - akhir bulan, 29 Februari, 2038",
       "description": "Tanggal yang merusak perangkat lunak: batas periode, hari kabisat, epoch nol, batas 32-bit, tepi masa percobaan, dan selisih jam. {{preset_count}} di antaranya tersedia sebagai skenario bernama."
+    },
+    "vi": {
+      "slug": "kich-ban-kiem-thu-ngay",
+      "link_text": "Ngày cần kiểm thử",
+      "title": "Những ngày đáng kiểm thử - cuối tháng, 29 tháng 2, năm 2038",
+      "description": "Những ngày làm phần mềm hỏng: ranh giới kỳ, ngày nhuận, epoch bằng không, ranh giới 32-bit, biên của bản dùng thử và lệch đồng hồ. {{preset_count}} ngày được cung cấp sẵn dưới dạng kịch bản có tên."
     }
   }
 }

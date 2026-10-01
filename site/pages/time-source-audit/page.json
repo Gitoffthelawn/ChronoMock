@@ -80,6 +80,12 @@
       "link_text": "Audit",
       "title": "Cara tahu apakah tanggal palsu benar-benar sampai ke aplikasi",
       "description": "Setiap sesi berakhir dengan putusan, kanal waktu yang benar-benar dibaca beserta jumlah panggilan, yang terlewat, dan peringatan. Kegagalan diam-diam adalah satu-satunya hasil yang ditolak."
+    },
+    "vi": {
+      "slug": "kiem-toan-nguon-thoi-gian",
+      "link_text": "Kiểm toán",
+      "title": "Làm sao biết ngày giả có thực sự đến được ứng dụng",
+      "description": "Mỗi phiên kết thúc bằng một kết luận, các kênh thời gian thực sự đã đọc kèm số lần gọi, các kênh bị bỏ sót và cảnh báo. Thất bại thầm lặng là kết quả duy nhất không được chấp nhận."
     }
   }
 }

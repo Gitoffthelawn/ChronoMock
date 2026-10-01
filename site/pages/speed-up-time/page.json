@@ -78,6 +78,12 @@
       "link_text": "Mempercepat waktu",
       "title": "Percepat waktu untuk satu aplikasi Windows, bukan jam sistem",
       "description": "Biarkan jam satu aplikasi berjalan hingga sejuta kali lebih cepat: masa percobaan 30 hari habis dalam setengah jam. Tanpa hak administrator, program lain tetap memakai waktu nyata."
+    },
+    "vi": {
+      "slug": "tang-toc-thoi-gian",
+      "link_text": "Tăng tốc thời gian",
+      "title": "Tăng tốc thời gian cho một ứng dụng Windows, không phải giờ hệ thống",
+      "description": "Cho đồng hồ của một ứng dụng chạy nhanh gấp tới một triệu lần: bản dùng thử 30 ngày hết hạn trong nửa giờ. Không cần quyền quản trị viên, các chương trình khác giữ giờ thật."
     }
   }
 }

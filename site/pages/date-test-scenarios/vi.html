@@ -1,0 +1,149 @@
+<!-- Những ngày đáng kiểm thử, tiếng Việt. Cấu trúc, lớp CSS và token giống en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Những ngày đáng kiểm thử</h1>
+    <p class="sub">
+      Phần mềm không hỏng vào một ngày thứ Ba bình thường. Nó hỏng vào ngày cuối của quý, vào ngày
+      29 tháng 2, đúng lúc năm mới chuyển sang, và một giây sau khi giấy phép hết hạn. Đây là những ngày
+      tìm ra các lỗi đó - <strong>{{preset_count}}</strong> ngày trong số đó được cung cấp sẵn dưới dạng
+      kịch bản có tên.
+    </p>
+  </section>
+
+  <section>
+    <h2>Ranh giới các kỳ</h2>
+    <div class="prose">
+      <p>
+        Bất cứ thứ gì đóng sổ một kỳ, đánh số tài liệu theo năm, hoặc tích lũy đến một mốc chốt sổ đều
+        làm sai ở đây trước tiên.
+      </p>
+      <ul>
+        <li><strong>Ngày cuối tháng</strong> - việc khóa sổ cuối tháng và tích lũy theo kỳ có hoạt động
+          đúng vào ngày cuối cùng của tháng không?</li>
+        <li><strong>Ngày cuối quý</strong> - việc khóa sổ và báo cáo cuối quý có hoạt động đúng vào ngày
+          cuối cùng của quý không?</li>
+        <li><strong>Ngày cuối năm tài chính</strong> - ứng dụng có đóng năm tài chính đúng ngày, tức ngày
+          trước khi năm tài chính bắt đầu, không?</li>
+        <li><strong>Chuyển năm, trực tiếp</strong> - việc đánh số tài liệu, năm trong tên và báo cáo
+          hằng năm có xử lý đúng lúc chuyển năm <em>khi nó đang diễn ra</em>, thay vì phải khởi động lại
+          sau đó không?</li>
+      </ul>
+      <p>
+        Trường hợp cuối là thứ mà người ta thường không thể kiểm thử, vì nó cần đồng hồ vượt qua nửa đêm
+        ngày 31 tháng 12 trong khi ứng dụng đang chạy. Với đồng hồ được tăng tốc, đó là việc của mười giây.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Các cạnh của lịch và cách biểu diễn</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Ngày 29 tháng 2</strong> - ngày nhuận chỉ có bốn năm một lần, và một lượng đáng ngạc
+          nhiên mã kiểm tra hợp lệ từ chối thẳng.</li>
+        <li><strong>Epoch Unix bằng không</strong> - ứng dụng coi ngày 1 tháng 1 năm 1970 là ngày thật,
+          hay là một giá trị rỗng mà lẽ ra nó phải từ chối lưu?</li>
+        <li><strong>Ranh giới năm 2038</strong> - thời điểm <code>time_t</code> 32-bit có dấu cạn, lúc
+          <code>2038-01-19T03:14:07Z</code>. Một giây sau, bộ đếm tràn và quay về năm 1901.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Giấy phép, bản dùng thử và cài đặt</h2>
+    <div class="prose">
+      <p>
+        Những ngày này dành để kiểm thử cơ chế cấp phép <em>của chính bạn</em>, trường hợp mà chúng được
+        viết ra để phục vụ.
+      </p>
+      <ul>
+        <li><strong>Ngày cuối của bản dùng thử</strong> - ứng dụng có còn hoạt động ở khoảnh khắc cuối cùng
+          của bản dùng thử không?</li>
+        <li><strong>Ngày đầu tiên sau khi bản dùng thử hết hạn</strong> - nó có từ chối truy cập ngay lúc
+          bản dùng thử kết thúc không, và bằng cách nào? Một thông báo hợp lý, hay một stack trace?</li>
+        <li><strong>Giấy phép đã hết hạn một năm trước</strong> - nó có xử lý được giấy phép đã hết hạn từ
+          lâu, chứ không chỉ mới hôm qua không?</li>
+        <li><strong>Ngày trước khi cài đặt</strong> - nó có cư xử đúng khi đồng hồ được đặt trước chính
+          ngày cài đặt của nó không? Trường hợp này đọc ngày tệp của chính mục tiêu, nên không cần tham
+          số.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quy tắc nghiệp vụ và hành vi đồng hồ</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Thanh toán đến hạn, +N ngày làm việc</strong> - khoản thanh toán đến hạn sau N ngày
+          làm việc có rơi vào đúng ngày, bỏ qua cuối tuần và ngày lễ của đúng quốc gia không? Kịch bản duy
+          nhất cần lịch, và đáp án khác nhau giữa các thị trường.</li>
+        <li><strong>Ranh giới tuổi thành niên</strong> - ứng dụng có chấp nhận người vừa đúng ranh giới và
+          từ chối người còn thiếu một ngày không?</li>
+        <li><strong>Lệch đồng hồ, +90 s</strong> - ứng dụng có xoay xở được khi đồng hồ của nó chạy nhanh
+          hơn giờ thật chín mươi giây không? Đây là trường hợp làm hỏng mật khẩu dùng một lần dựa trên thời
+          gian và việc xác thực token.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cách dùng một kịch bản</h2>
+    <div class="prose">
+      <p>
+        Một kịch bản là một biểu thức ngày có tên. Máy tính ngày tính ra nó có nghĩa là gì, và phần thay
+        thế thời gian chạy ứng dụng ở ngày đó - cùng một cái tên ở cả hai nơi.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Đó là ngày nào, và ngày đó kiểm thử điều gì?</span>
+<span class="p">chrono</span> calc --preset month-end
+
+<span class="c"># Chạy một ứng dụng ở ngày đó</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-rollover --report session.txt
+
+<span class="c"># Các kịch bản dùng thử lấy ngày bắt đầu từ ngày tệp của chính mục tiêu</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset trial-first-day-after</pre>
+
+    <div class="prose">
+      <p>
+        Trong cửa sổ, chúng là các chip phía trên ô nhập ngày - một cú nhấp sẽ điền vào. Mỗi chip mang một
+        câu riêng nói nó bắt được điều gì, phần mà một máy tính ngày trực tuyến không có cách nào đưa cho
+        bạn.
+      </p>
+    </div>
+
+    <figure class="shot filled">
+      <img src="/assets/setup-panel.png" width="1560" height="1200" loading="lazy"
+           alt="Màn hình thiết lập của Chrono Mock với phần Scenarios đang mở: một ô tìm kiếm phía trên danh sách, rồi mỗi ngày làm sẵn kèm câu hỏi mà nó trả lời - ranh giới 2038, 29 tháng 2, một đồng hồ chạy nhanh chín mươi giây, ngày cuối tháng - và dưới danh sách là một dòng cho biết còn ba kịch bản nữa cần một giá trị do bạn chọn. Phần chân trang đọc lại thời điểm bằng ngôn ngữ thường ngày, phía trên nút Start.">
+      <figcaption>Mỗi kịch bản mang theo câu hỏi nó trả lời chứ không chỉ một ngày. Ba kịch bản cần giá trị
+        do bạn chọn được nêu tên dưới danh sách chứ không bị giấu đi.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Những gì không có ở đây</h2>
+    <div class="prose">
+      <p>
+        <strong>Các lần chuyển giờ mùa hè.</strong> Ép một ứng dụng đi qua ranh giới chuyển giờ tới hoặc
+        lùi là một bài kiểm thử thực sự hữu ích và nó <em>cố ý vắng mặt</em>, vì múi giờ của phiên là một
+        độ lệch cố định không có giờ mùa hè - hiện chưa có lần chuyển nào để mô phỏng. Cung cấp một kịch bản
+        lặng lẽ không làm gì còn tệ hơn là không cung cấp.
+      </p>
+      <p>
+        Nó sẽ quay lại cùng một mô hình quy tắc múi giờ.
+        <a href="/vi/kiem-thu-mui-gio/">Múi giờ làm và không làm những gì &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dùng thử</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/vi/tai-xuong/">Tải về cho Windows</a>
+      <a class="btn btn-ghost" href="/vi/may-tinh-ngay/">Máy tính ngày</a>
+    </div>
+  </section>
+
+</div>

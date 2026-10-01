@@ -78,6 +78,12 @@
       "link_text": "Unduh",
       "title": "Unduh Chrono Mock untuk Windows - gratis, tanpa instalasi",
       "description": "Unduh versi Windows gratis: aplikasi desktop dan alat baris perintah. Tanpa installer, tanpa hak administrator, dan tidak ada yang ditulis ke registry."
+    },
+    "vi": {
+      "slug": "tai-xuong",
+      "link_text": "Tải về",
+      "title": "Tải Chrono Mock cho Windows - miễn phí, không cần cài đặt",
+      "description": "Tải bản Windows miễn phí: một ứng dụng máy tính để bàn và một công cụ dòng lệnh. Không có trình cài đặt, không cần quyền quản trị viên và không ghi gì vào registry."
     }
   }
 }
