@@ -67,6 +67,12 @@
       "link_text": "Neměňte hodiny",
       "title": "Změna systémového data kvůli testu: co se ve Windows rozbije",
       "description": "Přestavení hodin Windows kvůli testu data posune celý počítač: doména, certifikáty, synchronizace. Co se rozbije a jak posunout hodiny jen jedné aplikace."
+    },
+    "tr": {
+      "slug": "sistem-tarihini-degistirerek-test",
+      "link_text": "Saati değiştirmeyin",
+      "title": "Test için sistem tarihini değiştirmek: Windows’ta ne bozulur",
+      "description": "Bir tarihi test etmek için Windows saatini kaydırmak tüm makineyi kaydırır: etki alanı, sertifikalar, zaman eşitleme. Ne bozulur ve yalnızca bir uygulama nasıl kaydırılır."
     }
   }
 }

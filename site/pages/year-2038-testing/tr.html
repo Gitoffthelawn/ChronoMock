@@ -1,0 +1,126 @@
+<!-- Windows’ta 2038 yılı sorunu, Türkçe. Yapı, sınıflar ve belirteçler en.html ile aynı. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Windows’ta 2038 yılı sorununu test etmek</h1>
+    <p class="sub">
+      19 Ocak 2038’de 03:14:07 UTC’de, 1970’ten beri saniyeleri sayan 32 bitlik işaretli bir sayaç sona
+      erer. Windows saati bunun ötesinde çalışmaya devam eder - kendi 32 bitlik kopyasını tutan programlar,
+      dosya biçimleri ve kütüphaneler ise etmez. Bunları tüm makinenin tarihini 2038’e ayarlamadan tek bir
+      uygulamada nasıl bulacağınız burada.
+    </p>
+  </section>
+
+  <section>
+    <h2>Hata hâlâ nerede olabilir</h2>
+    <div class="prose">
+      <p>
+        Windows saati, 1601’den beri 100 nanosaniyelik adımları sayan 64 bitlik bir sayaçtır; yani 2038’i
+        bilmez. C çalışma zamanı kütüphanesinin <code>time_t</code> türü Visual Studio 2005’ten beri
+        varsayılan olarak 64 bittir. Geriye 32 bitlik bir zaman seçen ya da üst yarısını yolda kaybeden
+        kod kalır:
+      </p>
+      <ul>
+        <li><strong><code>_USE_32BIT_TIME_T</code> ile derlenmiş 32 bitlik sürümler</strong> ya da
+          doğrudan <code>_time32</code> ve <code>__time32_t</code> çağıranlar. Microsoft’un kendi
+          belgeleri böyle bir uygulamanın 18 Ocak 2038’den sonra bozulabileceği konusunda uyarır.</li>
+        <li><strong>Bir <code>int</code> ya da <code>long</code> içinde saklanan 64 bitlik zaman.</strong>
+          Windows’ta ikisi de 32 bittir; 64 bitlik bir programda bile.</li>
+        <li><strong>1970’ten beri geçen saniyeleri 32 bitte tutan kütüphaneler, dosya biçimleri, ağ
+          protokolleri ve veritabanı sütunları.</strong></li>
+        <li><strong>Yıl ekleyen kod.</strong> Yirmi yıllık bir lisans, otuz yıllık bir kredi planı ya da
+          2040’a kadar geçerli bir sertifika, 2038 gelmeden çok önce sınırı aşar.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sınırı tek bir uygulamada aşmak</h2>
+    <div class="prose">
+      <p>
+        Sınır UTC cinsinden tanımlıdır ve <code>--at</code> oturum diliminde okunur; bu yüzden anı kendiniz
+        yazıyorsanız dilimi UTC’ye sabitleyin. Hazır senaryo zaten mutlak bir UTC anı taşır ve dilime
+        ihtiyaç duymaz.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Senaryo: oturum doğrudan sınırda, 03:14:07 UTC’de başlar</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Sınırdan on yedi saniye önce başlayın ve uygulamanın onu canlı geçmesine izin verin</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Daha erken başlayıp x60 hızla çalıştırın - sınır yaklaşık 14 saniyede gelir</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Ya da bugünün tarihinde çalışıp uygulama açıkken sınırın üzerinden atlayın</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Sınırdan bir saniye sonra 32 bitlik işaretli bir sayaç -2.147.483.648 olur; bu da
+        <strong>13 Aralık 1901, 20:45:52 UTC</strong> olarak okunur. 1901’den bir tarih, negatif bir sayı,
+        birdenbire süresi dolan ya da sıralamada en başa geçen bir öğe, tarih kodundan fırlatılan bir
+        istisna - taşma dışarıdan böyle görünür.
+      </p>
+      <p>
+        Gerçek saati 2038’e ayarlamak buraya varmanın diğer yoludur ve en çok şeyi bozan yoldur.
+        <a href="/tr/sistem-tarihini-degistirerek-test/">Sistem tarihini değiştirince ne olur &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Programa ulaştığını doğrulamak</h2>
+    <div class="prose">
+      <p>
+        Programın 2038’i hiç görmediği için geçen bir test, hiç test olmamasından kötüdür. Her oturumun
+        sonundaki rapor, programın hangi saati ve kaç kez okuduğunu söyler:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        <strong>session</strong> satırı, uygulamanın saatinin sınırı aştığını doğrular. Çağrı sayılarıyla
+        birlikte <em>works</em> kararı, programın saati okuduğu ve 2038 tarihini aldığı anlamına gelir;
+        <em>works partially</em> ise başka bir yoldan okuduğu kanalları adlandırır.
+        <a href="/tr/zaman-kaynagi-denetimi/">Kararlar ne anlama gelir &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Geçen bir testin kanıtlamadığı şeyler</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Yalnızca programın kendi saati kaydı.</strong> Bir dosyadan ya da veritabanından
+          yüklediği tarih orada neyse odur; dolayısıyla verinin içindeki 2038 tarihi ayrı bir testtir.
+          Tarih hesaplayıcı bu tarihleri sizin için hesaplar:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Programın konuştuğu bir sunucu hâlâ gerçek tarihte çalışır.</strong> O taraftaki
+          32 bitlik bir sınır erişimin dışındadır ve oturum, programın bir ağ bağlantısı açtığını görünce
+          uyarır.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Deneyin</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/tr/indir/">Windows için indir</a>
+      <a class="btn btn-ghost" href="/tr/tarih-test-senaryolari/">Test edilecek diğer tarihler</a>
+    </div>
+  </section>
+
+</div>
