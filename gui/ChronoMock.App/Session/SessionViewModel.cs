@@ -83,6 +83,9 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     // the tester ticked the option that writes the machine registry for an application that does too.
     private readonly bool _canReachElevated;
     private bool _reachElevatedEmbedded;
+    // The key of the one warning that must not sit below the fold: a registry value the session could not
+    // remove (docs/09 section 12.19). A literal, because the wire carries it as a string.
+    private const string LeftBehindKey = "embedded.policy_value_left";
     private string _targetArgs = string.Empty;
     private string _workingFolder = string.Empty;
     private readonly ISessionHistoryStore _store;
@@ -1753,7 +1756,16 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
                 // Session-level warnings join the per-process ones (R2-S9). They are about the family,
                 // not about any one process, so the panel shows them in the same list - a warning the
                 // reader has to attribute to an event type is a warning they will not read.
-                Warnings = [.. _warnings, .. sv.WarningKeys.Where(w => !_warnings.Contains(w))];
+                // The one that says something is STILL SET on this machine leads, ahead of what the
+                // processes said: the list is shown through a window shorter than itself, and this line
+                // may not sit below the fold. Written with comparisons and no new branch (CA1502 stands at
+                // 18 of 18 on this method).
+                Warnings =
+                [
+                    .. sv.WarningKeys.Where(w => w == LeftBehindKey),
+                    .. _warnings,
+                    .. sv.WarningKeys.Where(w => w != LeftBehindKey).Except(_warnings),
+                ];
                 SetVerdict(VerdictKinds.Parse(sv.Verdict), sv.ReasonKey);
                 break;
             case CoverageEvent c when _isCdp:

@@ -131,6 +131,48 @@ public class ElevatedEmbeddedTests
         Assert.Contains("\"elevated_embedded\":false", withoutChannel.Start.ToNdjson(), StringComparison.Ordinal);
     }
 
+    /// <summary>The panel shows the warnings through a window shorter than the list, so the one that says
+    /// something is still set on this machine leads it - ahead of what the processes said first. Found by
+    /// the render: the core puts it first in the verdict, and the window used to append the verdict's
+    /// warnings AFTER the processes', which put it under the fold. Every other order is unchanged.</summary>
+    [Fact]
+    public void A_value_left_behind_leads_the_warnings_and_nothing_else_is_reordered()
+    {
+        static SessionViewModel WithWarnings(params string[] verdictKeys)
+        {
+            var vm = new SessionViewModel();
+            vm.Apply(new CoverageEvent
+            {
+                V = ProtocolJson.ProtocolVersion,
+                Pid = 4242,
+                Covered = [],
+                Uncovered = [],
+                Unobserved = [],
+                InstalledLate = [],
+                WarningKeys = ["wait.object_waits_not_scaled"],
+            });
+            vm.Apply(new SessionVerdictEvent
+            {
+                V = ProtocolJson.ProtocolVersion,
+                Verdict = "partial",
+                ReasonKey = "session.family_partial_children",
+                ProcessCount = 1,
+                WarningKeys = verdictKeys,
+            });
+            return vm;
+        }
+
+        var left = WithWarnings("embedded.debug_port_open", "embedded.policy_value_left");
+        Assert.Equal(
+            ["embedded.policy_value_left", "wait.object_waits_not_scaled", "embedded.debug_port_open"],
+            left.Warnings);
+
+        var plain = WithWarnings("embedded.debug_port_open", "embedded.policy_value_removed");
+        Assert.Equal(
+            ["wait.object_waits_not_scaled", "embedded.debug_port_open", "embedded.policy_value_removed"],
+            plain.Warnings);
+    }
+
     /// <summary>A record from before the field existed reads as off, which is what it did, and a record
     /// written now says what was asked of the core.</summary>
     [Fact]
