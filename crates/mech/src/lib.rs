@@ -367,6 +367,18 @@ impl SessionState {
 
 const STILL_ACTIVE_CODE: u32 = 259;
 
+/// The family is alive when the launched process is, or any other process on its clock - asked in that
+/// order (R4-N11). A child the hook follows signs in to the registry while its parent is still inside
+/// the call that creates it, so a launched process that has ended left every child it started in the
+/// registry already. Asked the other way round, a launched process that started a child and ended
+/// between the two looks was seen ended next to a registry read from before the child, and the session
+/// closed under a running application. Both looks always happen: the registry read also keeps the
+/// family's own list current.
+fn alive_in_order<S>(session: &mut S, launched: fn(&S) -> bool, others: fn(&mut S) -> bool) -> bool {
+    let launched = launched(session);
+    others(session) || launched
+}
+
 /// Window after resume within which a target exit is read as a single-instance vanish
 /// (ADR-4). Reuses the coverage sample window, so a healthy target pays no extra wait.
 const GUARD_MS: u32 = 300;
@@ -438,8 +450,14 @@ impl Session {
     /// followed into. A launcher that started the application and ended leaves the session running
     /// for the application (ADR-16).
     pub fn family_alive(&mut self) -> bool {
+        alive_in_order(self, Self::is_alive, Self::others_alive)
+    }
+
+    /// Whether a process besides the launched one is on the session clock, from the registry as it
+    /// stands now.
+    fn others_alive(&mut self) -> bool {
         self.refresh_family();
-        self.is_alive() || !self.family.living().is_empty()
+        !self.family.living().is_empty()
     }
 
     /// The processes besides the launched one that were running when the family was last refreshed.
@@ -447,16 +465,15 @@ impl Session {
         self.family.living()
     }
 
-    /// The target's exit code, once it has exited.
+    /// The target's exit code, once it has exited. Whether it has is the signalled process object's to
+    /// say, not the code's (R4-N19): 259 is also a code a program can end with, and read as "still
+    /// running" it took the launched application's real exit code off the report.
     pub fn exit_code(&self) -> Option<i32> {
-        let mut code: u32 = 0;
-        unsafe {
-            if GetExitCodeProcess(self.hprocess, &mut code).is_ok() && code != STILL_ACTIVE_CODE {
-                Some(code as i32)
-            } else {
-                None
-            }
+        if self.is_alive() {
+            return None;
         }
+        let mut code: u32 = 0;
+        unsafe { GetExitCodeProcess(self.hprocess, &mut code).is_ok().then_some(code as i32) }
     }
 
     fn ctl_mut(&self) -> *mut Ctl {
@@ -1773,6 +1790,38 @@ unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError>
 
 #[cfg(test)]
 mod tests {
+    /// A launcher that signs a child in and ends between the two looks: running and alone at the first
+    /// look, ended with the child in the registry from the second on. Each look counts itself.
+    struct LauncherWorld {
+        looks: std::cell::Cell<u32>,
+    }
+
+    fn launcher_runs(world: &LauncherWorld) -> bool {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        look == 0
+    }
+
+    fn child_signed_in(world: &mut LauncherWorld) -> bool {
+        let look = world.looks.get();
+        world.looks.set(look + 1);
+        look >= 1
+    }
+
+    /// The family is asked about in the order that cannot miss a child (R4-N11), and the registry is read
+    /// every time. The same world asked registry first reads as a family that has ended.
+    #[test]
+    fn a_child_signed_in_just_before_its_launcher_ended_keeps_the_family_alive() {
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0) };
+        assert!(super::alive_in_order(&mut world, launcher_runs, child_signed_in));
+        assert_eq!(world.looks.get(), 2, "the registry was not read while the launcher ran");
+
+        let mut world = LauncherWorld { looks: std::cell::Cell::new(0) };
+        let others = child_signed_in(&mut world);
+        let registry_first = others || launcher_runs(&world);
+        assert!(!registry_first, "this world does not reproduce the race the order is there for");
+    }
+
     /// A zero character anywhere in what `CreateProcessW` reads is refused before anything starts, for
     /// a program as for a script (R4-N16): the program used to get the line up to it and nothing after.
     /// Nothing is launched here - the refusal comes first, and the control proves the same target
