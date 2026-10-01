@@ -61,6 +61,12 @@
       "link_text": "Nu schimba ceasul",
       "title": "Schimbarea datei sistemului la teste: ce se strică în Windows",
       "description": "Schimbarea ceasului Windows pentru a testa o dată mută toată mașina: domeniu, certificate, sincronizare. Ce se strică și cum muți ceasul unei singure aplicații."
+    },
+    "cs": {
+      "slug": "zmena-systemoveho-data-pri-testovani",
+      "link_text": "Neměňte hodiny",
+      "title": "Změna systémového data kvůli testu: co se ve Windows rozbije",
+      "description": "Přestavení hodin Windows kvůli testu data posune celý počítač: doména, certifikáty, synchronizace. Co se rozbije a jak posunout hodiny jen jedné aplikace."
     }
   }
 }

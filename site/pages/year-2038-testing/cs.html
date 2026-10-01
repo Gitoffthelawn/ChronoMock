@@ -1,0 +1,124 @@
+<!-- Problém roku 2038 ve Windows, čeština. Struktura, třídy a tokeny jako v en.html. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Testování problému roku 2038 ve Windows</h1>
+    <p class="sub">
+      Dne 19. ledna 2038 ve 03:14:07 UTC dojde 32bitovému znaménkovému počítadlu sekund od roku 1970.
+      Hodiny Windows běží dál - programy, formáty souborů a knihovny, které si ponechaly vlastní 32bitovou
+      kopii, ne. Takto je najdete v jediné aplikaci, aniž byste nastavovali rok 2038 na celém počítači.
+    </p>
+  </section>
+
+  <section>
+    <h2>Kde se chyba může ještě skrývat</h2>
+    <div class="prose">
+      <p>
+        Hodiny Windows jsou 64bitové počítadlo kroků po 100 nanosekundách od roku 1601, takže rok 2038
+        neznají. Typ <code>time_t</code> v běhové knihovně jazyka C je od Visual Studia 2005 ve výchozím
+        nastavení 64bitový. Zůstává kód, který zvolil 32bitový čas nebo cestou ztratil horní polovinu:
+      </p>
+      <ul>
+        <li><strong>32bitové sestavení přeložené s <code>_USE_32BIT_TIME_T</code></strong> nebo přímo
+          volající <code>_time32</code> a <code>__time32_t</code>. Dokumentace Microsoftu varuje, že
+          taková aplikace může po 18. lednu 2038 selhat.</li>
+        <li><strong>64bitový čas uložený do <code>int</code> nebo <code>long</code>.</strong> Ve Windows
+          mají oba 32 bitů, i v 64bitovém programu.</li>
+        <li><strong>Knihovny, formáty souborů, síťové protokoly a sloupce databází</strong>, které drží
+          sekundy od roku 1970 v 32 bitech.</li>
+        <li><strong>Kód, který přičítá roky.</strong> Dvacetiletá licence, třicetiletý splátkový kalendář
+          nebo certifikát platný do roku 2040 překročí hranici dlouho předtím, než rok 2038 nastane.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Překročení hranice v jediné aplikaci</h2>
+    <div class="prose">
+      <p>
+        Hranice je definována v UTC a <code>--at</code> se čte v pásmu sezení, takže při ručním zápisu
+        okamžiku nastavte pásmo na UTC. Hotový scénář už nese absolutní okamžik v UTC a pásmo nepotřebuje.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Scénář: sezení začíná přímo na hranici, 03:14:07 UTC</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --preset year-2038 --report session.txt
+
+<span class="c"># Začít sedmnáct sekund před ní a nechat aplikaci hranici překročit za běhu</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:13:50 --zone +00:00 --report session.txt
+
+<span class="c"># Začít dříve a běžet rychlostí x60 - hranice nastane asi za 14 sekund</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --at 2038-01-19T03:00:00 --zone +00:00 --mode x60
+
+<span class="c"># Nebo běžet s dnešním datem a přeskočit ji, zatímco je aplikace otevřená</span>
+<span class="p">chrono</span> run "C:\apps\test.exe" --jump-after 5:2038-01-19T03:14:05 --zone +00:00</pre>
+
+    <div class="prose">
+      <p>
+        Sekundu za hranicí se 32bitové znaménkové počítadlo změní na -2 147 483 648, což se čte jako
+        <strong>13. prosince 1901, 20:45:52 UTC</strong>. Datum v roce 1901, záporné číslo, položka, která
+        najednou propadla nebo se zařadila na začátek, výjimka vyhozená z kódu pro práci s daty - tak
+        vypadá přetečení zvenčí.
+      </p>
+      <p>
+        Nastavení skutečných hodin na rok 2038 je druhá cesta, jak se sem dostat, a ta, která rozbije
+        nejvíc.
+        <a href="/cs/zmena-systemoveho-data-pri-testovani/">Co se stane, když změníte systémové datum &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ověření, že to program zasáhlo</h2>
+    <div class="prose">
+      <p>
+        Test, který projde jen proto, že program rok 2038 nikdy neviděl, je horší než žádný test. Zpráva na
+        konci každého sezení říká, jaké hodiny program četl a kolikrát:
+      </p>
+    </div>
+
+    <pre class="term">Chrono Mock - session report
+  target:   .\build\test.exe
+  verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
+            every process that read time saw the session clock
+  session:  fake clock reached 2038-01-19T03:14:08
+            real elapsed 1.3s, fake elapsed 1.3s
+  covered channels (substituted, with call counts):
+            - pid 21240: GetSystemTimeAsFileTime (5 calls)
+            - pid 21240: GetLocalTime (5 calls)</pre>
+
+    <div class="prose">
+      <p>
+        Řádek <strong>session</strong> potvrzuje, že hodiny aplikace přešly hranici. Verdikt
+        <em>works</em> s počty volání znamená, že program hodiny četl a dostal datum z roku 2038;
+        <em>works partially</em> jmenuje kanály, které četl jinou cestou.
+        <a href="/cs/audit-zdroju-casu/">Co verdikty znamenají &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Co úspěšný test nedokazuje</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Posunuly se jen vlastní hodiny programu.</strong> Datum, které načte ze souboru nebo
+          databáze, je takové, jaké je tam uloženo, takže datum z roku 2038 v datech je samostatný test.
+          Kalkulačka dat taková data vypočítá za vás:
+          <code>chrono calc --base 2038-01-19T03:14:07 --zone +00:00 --shift +1s</code></li>
+        <li><strong>Server, se kterým program komunikuje, stále běží na skutečném datu.</strong> 32bitový
+          limit na té straně je mimo dosah a sezení varuje, když uvidí, že program otevírá síťové
+          spojení.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Vyzkoušejte</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/cs/stazeni/">Stáhnout pro Windows</a>
+      <a class="btn btn-ghost" href="/cs/testovaci-scenare-dat/">Další data k testování</a>
+    </div>
+  </section>
+
+</div>

@@ -61,6 +61,12 @@
       "link_text": "Anul 2038",
       "title": "Problema anului 2038: testează o aplicație Windows (03:14:07 UTC)",
       "description": "Ceasul Windows trece de 2038; câmpurile de timp pe 32 de biți, nu. Cum treci o aplicație peste 19 ianuarie 2038 fără să atingi data sistemului."
+    },
+    "cs": {
+      "slug": "testovani-problemu-roku-2038",
+      "link_text": "Rok 2038",
+      "title": "Problém roku 2038: test aplikace pro Windows (03:14:07 UTC)",
+      "description": "Hodiny Windows rok 2038 přežijí, 32bitová pole času ne. Jak provést jednu aplikaci přes 19. ledna 2038, aniž byste měnili systémové datum."
     }
   }
 }
