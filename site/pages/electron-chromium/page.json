@@ -20,6 +20,12 @@
       "link_text": "Electron i Chromium",
       "title": "Podmiana daty w aplikacji Electron albo Chromium",
       "description": "Ich zegar mieszka w piaskowanym rendererze, do którego wstrzyknięcie nie sięga. Inny mechanizm przestawia własne API czasu aplikacji na zegar sesji, razem z workerami."
+    },
+    "de": {
+      "slug": "electron-chromium",
+      "link_text": "Electron und Chromium",
+      "title": "Datum in einer Electron- oder Chromium-App fälschen",
+      "description": "Ihre Uhr liegt in einem abgeschotteten Renderer, den keine Injektion erreicht. Ein anderer Mechanismus legt die JavaScript-Zeit-APIs der App auf die Sitzungsuhr, Worker eingeschlossen."
     }
   }
 }

@@ -18,6 +18,12 @@
       "link_text": "Kalkulator",
       "title": "Kalkulator dat dla QA - dni robocze i przypadki brzegowe",
       "description": "Ustal, którą datę testować: koniec miesiąca, koniec kwartału, N dni roboczych z prawdziwymi świętami, granica 2038. Wszystkie formaty naraz i co każda data testuje."
+    },
+    "de": {
+      "slug": "datumsrechner",
+      "link_text": "Rechner",
+      "title": "Datumsrechner für QA - Werktage und Sonderfälle",
+      "description": "Ermitteln Sie, welches Datum Sie testen sollten: Monatsende, Quartalsabschluss, N Werktage mit echten Feiertagen, die 2038-Grenze. Alle Formate auf einmal und was jedes Datum prüft."
     }
   }
 }

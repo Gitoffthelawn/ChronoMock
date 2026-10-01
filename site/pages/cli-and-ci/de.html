@@ -1,0 +1,136 @@
+<!-- CLI und CI, Deutsch. Aufbau, Klassen und Tokens wie in en.html. Die Exit-Code-Tabelle ist der Vertrag
+     und stimmt mit der Seite zur Zeitquellen-Prüfung überein. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Datumstests in der Pipeline</h1>
+    <p class="sub">
+      Das Fenster dient zum Ausprobieren. Dies ist die andere Hälfte: ein Kommandozeilen-Build von etwa
+      <strong>1,6 MB</strong> ohne Laufzeitumgebung, dessen Exit-Code das Abdeckungsurteil ist und nicht
+      der Code des Zielprogramms.
+    </p>
+  </section>
+
+  <section>
+    <h2>Der Exit-Code ist das Urteil</h2>
+    <div class="prose">
+      <p>
+        Diese Entwurfsentscheidung macht das Werkzeug skriptbar. Wenn eine Sitzung endet, beantwortet der
+        Exit-Code <em>„hat die Zeitersetzung gewirkt“</em> und nicht <em>„was hat die Anwendung
+        zurückgegeben“</em>. Eine Pipeline kann also an einer Ersetzung scheitern, die stillschweigend
+        nicht stattgefunden hat - und genau daran lohnt es sich zu scheitern, denn alles danach ist ein
+        Test, der nichts bewiesen hat.
+      </p>
+      <p>
+        Der eigene Exit-Code des Ziels wird weiterhin gemeldet, in den Sitzungsdaten.
+      </p>
+    </div>
+
+    <div class="wrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>Code</th><th>Bedeutung</th></tr></thead>
+        <tbody>
+          <tr><td class="y">0</td><td>funktioniert - jeder Prozess, der die Zeit las, sah die Sitzungsuhr</td></tr>
+          <tr><td>10</td><td>funktioniert teilweise - einige Kanäle abgedeckt, andere nicht</td></tr>
+          <tr><td class="n">11</td><td>funktioniert nicht - die Ersetzung hat die wichtigen Kanäle nicht erreicht</td></tr>
+          <tr><td>4</td><td>unbestimmt - die Abdeckung ließ sich nicht feststellen</td></tr>
+          <tr><td>1</td><td>Aufruffehler - eine falsche Option oder ein falscher Ausdruck</td></tr>
+          <tr><td>2</td><td>das Ziel konnte nicht gestartet oder injiziert werden</td></tr>
+          <tr><td>12</td><td>das Ziel ist verschwunden, was auf eine Einzelinstanz-Anwendung hindeutet</td></tr>
+          <tr><td>3</td><td>interner Fehler - die Engine konnte nicht starten, geriet in einen unerwarteten Zustand oder hielt an, bevor sie die Sitzung abschloss (gleich welchen Code sie selbst hatte). Ein solcher Lauf trägt kein Urteil</td></tr>
+          <tr><td>5</td><td>die Operation ist in diesem Release nicht enthalten</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="prose" style="margin-top:18px">
+      <p>
+        Alle Optionen beider Befehle und dieselbe Tabelle für den Rechner stehen in der
+        <a href="/de/cli-referenz/">Kommandozeilen-Referenz</a>.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Begrenzte Läufe</h2>
+    <div class="prose">
+      <p>
+        Eine Pipeline kann nicht darauf warten, dass ein Mensch eine Desktop-Anwendung schließt.
+        <code>--ticks N</code> beendet die Sitzung nach N Herzschlägen - je einer realen Sekunde - und
+        meldet, was bis dahin gefunden wurde. Die Abdeckung steht ohnehin in den ersten Momenten des
+        Prozesses fest, deshalb genügt meist eine kurze Grenze.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Zehn Sekunden, dann anhalten und berichten</span>
+<span class="p">chrono</span> run ".\build\test.exe" --preset year-rollover --ticks 10 --report evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Maschinenausgabe und Nachweise</h2>
+    <div class="prose">
+      <ul>
+        <li><code>--json</code> gibt die Sitzung als maschinenlesbare Datensätze aus statt als Bericht für
+          Menschen - dieselben Fakten, einschließlich der Abdeckung je Kanal.</li>
+        <li><code>--report &lt;path&gt;</code> schreibt den Bericht für Menschen in eine Datei, die sich
+          als Build-Artefakt eignet. Hat eine Sitzung ein anderes Urteil als <em>funktioniert</em>, steht
+          am Anfang dieser Datei ein Hinweis auf unzuverlässige Nachweise, statt dass die Einschränkung
+          unten untergeht.</li>
+        <li>Auch der Rechner versteht <code>--json</code>, sodass eine Pipeline das benötigte Datum
+          berechnen und zurückspeisen kann.</li>
+      </ul>
+    </div>
+
+    <pre class="term"><span class="c"># Das Datum berechnen, dann damit ausführen</span>
+<span class="p">chrono</span> calc --base today --snap eom --json
+<span class="p">chrono</span> run ".\build\test.exe" --preset month-end --ticks 10 --json</pre>
+  </section>
+
+  <section>
+    <h2>Ein Schritt, ungefähr so</h2>
+    <pre class="term">- name: Month-end behaviour
+  shell: pwsh
+  run: |
+    .\chrono.exe run ".\build\test.exe" --preset month-end --ticks 10 --report evidence.txt
+    <span class="c"># ein Exit-Code ungleich null heißt: die Ersetzung hat nicht gegriffen, der</span>
+    <span class="c"># Test danach hätte also nichts bewiesen</span>
+
+- name: Keep the evidence
+  uses: actions/upload-artifact@v7
+  with:
+    name: chrono-evidence
+    path: evidence.txt</pre>
+  </section>
+
+  <section>
+    <h2>Zwei ehrliche Einschränkungen zu Runnern</h2>
+    <div class="prose">
+      <ul>
+        <li><strong>Es braucht einen Windows-Runner.</strong> Es gibt keinen Linux- oder macOS-Build, und
+          es wird keinen geben - unter Linux deckt
+          <a href="https://github.com/wolfcw/libfaketime">libfaketime</a> das bereits ab.</li>
+        <li><strong>Virenschutz auf einem gehosteten Runner kann die Injektion blockieren.</strong> Die
+          Zeit zu verschieben bedeutet, eine Bibliothek in den Zielprozess einzuschleusen - eine
+          dokumentierte Windows-Technik, die auch Schadsoftware nutzt. Ein Runner, der sie blockiert,
+          liefert einen Exit-Code, der das sagt, statt eines falschen Bestehens - aber man sollte es
+          herausfinden, bevor man sich darauf verlässt.</li>
+      </ul>
+      <p>
+        Aus demselben Grund läuft die End-to-End-Suite dieses Projekts auf echten Rechnern und nicht auf
+        einem gehosteten Runner. Die Continuous Integration baut und testet alles per Unit-Tests, und die
+        Ersetzung selbst wird vor einem Release von Hand an echten Anwendungen geprüft, sowohl in 32-Bit-
+        als auch in 64-Bit-Builds.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/zeitquellen-pruefung/">Was die Urteile bedeuten</a>
+    </div>
+  </section>
+
+</div>

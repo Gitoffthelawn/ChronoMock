@@ -18,6 +18,12 @@
       "link_text": "CLI i CI",
       "title": "Testowanie dat w CI - kody wyjścia i wyjście JSON",
       "description": "Wersja konsolowa o rozmiarze 1,6 MB, bez środowiska do instalowania. Kod wyjścia to werdykt pokrycia, a nie kod celu, więc potok może paść na nieudanej podmianie."
+    },
+    "de": {
+      "slug": "cli-und-ci",
+      "link_text": "CLI und CI",
+      "title": "Datumstests in der CI - Exit-Codes und JSON-Ausgabe",
+      "description": "Ein 1,6 MB großer Kommandozeilen-Build ohne Laufzeitumgebung. Der Exit-Code ist das Abdeckungsurteil, nicht der des Zielprogramms - die Pipeline scheitert, wenn die Zeitersetzung nicht gegriffen hat."
     }
   }
 }

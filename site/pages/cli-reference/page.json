@@ -18,6 +18,12 @@
       "link_text": "Dokumentacja CLI",
       "title": "Dokumentacja CLI Chrono Mock - flagi i kody wyjścia",
       "description": "Pełna dokumentacja chrono run i chrono calc: wszystkie flagi wiersza poleceń, obie tabele kodów wyjścia i jak czytać raport sesji."
+    },
+    "de": {
+      "slug": "cli-referenz",
+      "link_text": "CLI-Referenz",
+      "title": "Chrono Mock CLI-Referenz - alle Optionen und Exit-Codes",
+      "description": "Vollständige Referenz zu chrono run und chrono calc: jede Kommandozeilenoption, beide Exit-Code-Tabellen und wie man den Sitzungsbericht liest."
     }
   }
 }

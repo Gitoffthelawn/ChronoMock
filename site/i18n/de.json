@@ -1,0 +1,26 @@
+{
+  "//": "Deutsche Texte der Website - Schlüssel identisch mit en.json (ein fehlender Schlüssel stoppt den Build).",
+
+  "html_lang": "de",
+  "dir": "ltr",
+  "og_locale": "de_DE",
+
+  "social_image_alt": "Chrono Mock - eine Windows-Anwendung mit beliebigem Datum und beliebiger Uhrzeit ausführen, ohne die Systemuhr zu verändern",
+
+  "skip_to_content": "Zum Inhalt springen",
+  "nav_label": "Hauptnavigation",
+
+  "language_name": "Deutsch",
+  "language_title": "Diese Seite auf Deutsch",
+  "language_menu_label": "Sprache",
+
+  "footer_nav_label": "Seitenübersicht",
+  "footer_group_start": "Hier beginnen",
+  "footer_group_tools": "Alternativen und Laufzeiten",
+  "footer_group_features": "Funktionen",
+
+  "footer_summary": "Chrono Mock - GPL-3.0. Kein Konto, keine Telemetrie, und es verbindet sich nie mit dem Internet.",
+  "footer_source": "Quellcode auf GitHub",
+  "footer_releases": "Releases",
+  "footer_license": "Lizenz"
+}

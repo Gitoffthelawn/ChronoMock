@@ -18,6 +18,12 @@
       "link_text": "Daty warte testowania",
       "title": "Daty warte testowania - koniec miesiąca, 29 lutego, 2038",
       "description": "Daty, na których psuje się oprogramowanie: granice okresów, dzień przestępny, zero epoki, limit 32-bit, krawędzie wersji próbnej i dryf zegara. {{preset_count}} gotowych scenariuszy."
+    },
+    "de": {
+      "slug": "datums-testszenarien",
+      "link_text": "Testenswerte Daten",
+      "title": "Datumstests: Monatsende, 29. Februar, 2038",
+      "description": "Die Daten, an denen Software scheitert: Periodengrenzen, Schalttag, Epoche null, die 32-Bit-Grenze, Testversionsränder und Uhrenabweichung. {{preset_count}} davon liegen als benannte Szenarien bei."
     }
   }
 }

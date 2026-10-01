@@ -18,6 +18,12 @@
       "link_text": "Przyspieszanie czasu",
       "title": "Przyspiesz czas jednej aplikacji, nie zegara systemu",
       "description": "Zegar jednej aplikacji nawet milion razy szybciej, więc 30-dniowa wersja próbna wygasa w pół godziny. Bez uprawnień administratora, reszta programów ma prawdziwy czas."
+    },
+    "de": {
+      "slug": "zeit-beschleunigen",
+      "link_text": "Zeit beschleunigen",
+      "title": "Zeit beschleunigen - für eine Windows-App, nicht für die Systemuhr",
+      "description": "Die Uhr einer einzelnen Anwendung bis zu einer Million Mal schneller laufen lassen: Eine 30-Tage-Testversion läuft in einer halben Stunde ab. Keine Adminrechte, alle anderen Programme behalten die echte Zeit."
     }
   }
 }

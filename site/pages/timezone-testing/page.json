@@ -18,6 +18,12 @@
       "link_text": "Strefy czasowe",
       "title": "Uruchom aplikację w innej strefie, bez zmiany systemu",
       "description": "Daj jednemu procesowi własny offset strefy, podczas gdy strefa systemu zostaje na miejscu. Jak odtworzyć błąd widoczny tylko u klienta pięć stref dalej."
+    },
+    "de": {
+      "slug": "zeitzonen-testen",
+      "link_text": "Zeitzonen",
+      "title": "App in anderer Zeitzone ausführen - Windows bleibt unberührt",
+      "description": "Geben Sie einem Prozess einen eigenen Zeitzonen-Offset, während die Systemzone bleibt. So reproduzieren Sie den Fehler, der nur beim Kunden fünf Zeitzonen entfernt auftritt."
     }
   }
 }

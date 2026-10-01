@@ -18,6 +18,12 @@
       "link_text": "Pobierz",
       "title": "Pobierz Chrono Mock na Windows - darmowe, bez instalatora",
       "description": "Pobierz darmową wersję na Windows: aplikację okienkową i narzędzie wiersza poleceń. Bez instalatora, bez uprawnień administratora, bez wpisów w rejestrze."
+    },
+    "de": {
+      "slug": "herunterladen",
+      "link_text": "Download",
+      "title": "Chrono Mock für Windows herunterladen - kostenlos, ohne Installer",
+      "description": "Die kostenlose Windows-Version: Desktop-App und Kommandozeilen-Tool. Kein Installer, keine Administratorrechte und keine Einträge in der Registry."
     }
   }
 }

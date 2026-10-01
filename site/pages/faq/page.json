@@ -20,6 +20,12 @@
       "link_text": "FAQ",
       "title": "Chrono Mock FAQ - pytania o podmianę daty w aplikacji",
       "description": "Czy zmienia zegar systemowy? Czy wymaga uprawnień administratora? Czy zadziała z moją aplikacją, z .NET, Javą albo Electronem? Krótkie odpowiedzi, razem z tym, czego nie robi."
+    },
+    "de": {
+      "slug": "faq",
+      "link_text": "FAQ",
+      "title": "Chrono Mock FAQ - Fragen zum Datum-Fälschen unter Windows",
+      "description": "Ändert es die Systemuhr? Braucht es Adminrechte? Funktioniert es mit meiner App, mit .NET, Java oder Electron? Kurze Antworten, auch dazu, was es nicht kann."
     }
   }
 }

@@ -20,6 +20,12 @@
       "link_text": "Audyt",
       "title": "Skąd wiadomo, że fałszywa data dotarła do aplikacji",
       "description": "Każda sesja kończy się werdyktem, listą kanałów czasu naprawdę czytanych przez aplikację z liczbą wywołań, listą pominiętych i ostrzeżeniami. Cicha porażka to jedyny odrzucany wynik."
+    },
+    "de": {
+      "slug": "zeitquellen-pruefung",
+      "link_text": "Die Prüfung",
+      "title": "So erkennen Sie, ob das gefälschte Datum Ihre App erreicht hat",
+      "description": "Jede Sitzung endet mit einem Urteil, den tatsächlich gelesenen Zeitkanälen samt Aufrufzahlen, den verfehlten Kanälen und Warnungen. Ein stiller Fehlschlag ist das einzige ausgeschlossene Ergebnis."
     }
   }
 }

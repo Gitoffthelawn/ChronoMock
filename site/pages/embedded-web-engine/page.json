@@ -20,6 +20,12 @@
       "link_text": "WebView2 i Qt WebEngine",
       "title": "Podmiana daty dla stron wewnątrz natywnej aplikacji",
       "description": "Natywna aplikacja z wbudowanym silnikiem web trzyma strony w procesie, do którego wstrzyknięcie nie wchodzi, więc zostają na prawdziwej dacie, gdy reszta aplikacji się przesuwa. Sesja sięga do nich portem diagnostycznym silnika."
+    },
+    "de": {
+      "slug": "webview2-qt-webengine",
+      "link_text": "WebView2 und Qt WebEngine",
+      "title": "Datum für die Webseiten in einer nativen App fälschen",
+      "description": "Eine native Anwendung mit eingebauter Web-Engine führt ihre Seiten in einem Prozess aus, den Injektion nicht betreten kann - sie behalten das echte Datum. Die Sitzung erreicht sie über den Debug-Port der Engine."
     }
   }
 }

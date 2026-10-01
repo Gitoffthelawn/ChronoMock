@@ -1,0 +1,162 @@
+<!-- Datumsrechner, Deutsch. Aufbau, Klassen und Tokens wie in en.html. Jeder Terminalblock ist echte
+     Ausgabe des ausgelieferten Programms und bleibt daher englisch. -->
+
+<div class="shell">
+
+  <section class="plain">
+    <h1>Welches Datum sollten Sie testen?</h1>
+    <p class="sub">
+      Die eine Hälfte des Datumstests ist, die Uhr zu verschieben. Die andere ist zu wissen, wohin. Ein
+      Online-Rechner sagt Ihnen, was in neunzig Tagen ist. Er sagt Ihnen nicht, dass es ein Feiertag der
+      Banken ist oder der letzte Tag des Quartals.
+    </p>
+
+    <figure class="shot filled">
+      <img src="/assets/calculator.png" width="1560" height="1200" loading="lazy"
+           alt="Der Rechner von Chrono Mock. Links läuft eine durchsuchbare Szenarioliste mit ihren Erläuterungen, in der Mitte steht der Datumsbaukasten, und die Ergebnisspalte rechts listet jedes Format mit einer Kopieren-Schaltfläche daneben, darunter Use this date. Unter dem Baukasten wird ein eingefügtes 04/08/2008 als mehrdeutig gemeldet, mit der amerikanischen und der polnischen Lesart.">
+      <figcaption>Unter dem Baukasten liegt die Gegenrichtung: <code>04/08/2008</code> eingefügt, und
+        beide Lesarten werden gezeigt, statt eine zu raten.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Werktage, mit echten Feiertagen</h2>
+    <div class="prose">
+      <p>
+        „Zehn Werktage später“ ist keine Arithmetik - es hängt davon ab, nach welchem Kalender welches
+        Landes Sie zählen. Gleiches Startdatum, gleiche zehn Tage, zwei verschiedene Antworten:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar us-banking
+  result:  <span class="v">2027-09-16T00:00:00</span>
+
+<span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-01T00:00:00 --shift +10bd --calendar pl
+  result:  <span class="v">2027-09-15T00:00:00</span></pre>
+
+    <div class="prose">
+      <p>
+        Ein Tag Unterschied, und der Rechner sagt Ihnen, warum, wenn Sie ihn nach dem Datum dazwischen
+        fragen:
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --base 2027-09-06T00:00:00 --calendar us-banking
+  metadata:
+    weekday       Monday
+    business day  <span class="v">no</span>  (us-banking)
+    holiday       <span class="v">Labor Day</span>
+  what this date lands on:
+    public holiday
+    <span class="c">(weekend and holiday marks follow the us-banking calendar)</span></pre>
+
+    <div class="prose">
+      <p>
+        Die Vereinigten Staaten und Polen werden als Referenzkalender mitgeliefert, weil sie zusammen
+        jeden Regeltyp abdecken, den es gibt: feste Daten, den n-ten Wochentag eines Monats, vom Osterdatum
+        berechnete Tage und die amerikanische Regel, nach der ein auf einen Samstag fallender Feiertag am
+        vorangehenden Freitag begangen wird. Ein Land hinzuzufügen ist eine Datendatei, keine
+        Codeänderung.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Alle Formate auf einmal</h2>
+    <div class="prose">
+      <p>
+        Die getestete Anwendung will das Datum in der Form, die sie erwartet. Statt Sie umrechnen zu
+        lassen, druckt der Rechner alle - und eine eigene Maske für die, die in keinen Standard passen.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --preset year-2038 --zone +00:00
+Chrono Mock - date calculator
+  preset:   year-2038 - 2038 boundary
+  explains: Does the app survive the 32-bit Unix time boundary (2038-01-19T03:14:07Z)?
+  result:  <span class="v">2038-01-19T03:14:07</span>
+  formats:
+    ISO date      2038-01-19
+    ISO datetime  2038-01-19T03:14:07+00:00
+    US            01/19/2038
+    PL            19.01.2038
+    epoch (s)     <span class="v">2147483647</span>
+    epoch (ms)    2147483647000
+    FILETIME      137919572470000000
+    RFC 1123      Tue, 19 Jan 2038 03:14:07 GMT
+<span class="c">  ...</span>
+  what this date lands on:
+    at or past the 2038-01-19T03:14:07Z 32-bit time_t limit (Y2038)</pre>
+
+    <div class="prose">
+      <p>
+        Dieser Epochenwert ist kein Zufall - <code>2147483647</code> ist genau die größte Zahl, die eine
+        vorzeichenbehaftete 32-Bit-Ganzzahl fasst, und das ist der ganze Grund, warum das Datum zählt.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ein Datum rückwärts lesen</h2>
+    <div class="prose">
+      <p>
+        Die andere Richtung ist genauso nützlich: ein Datum aus einem Log einfügen und herausfinden, was
+        es ist. Ist das Format mehrdeutig - und <code>04/08</code> ist in der halben Welt mehrdeutig -,
+        werden <strong>beide Lesarten gezeigt, statt eine zu raten</strong>, denn aus dem Raten stammte
+        der ursprüngliche Fehlerbericht.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c">$</span> <span class="p">chrono</span> calc --analyze 04/08/2027
+Chrono Mock - date analysis
+  input:   04/08/2027  (ambiguous - month/day order differs by locale)
+  US MM/DD/YYYY:  <span class="v">2027-04-08</span>  (Thursday)
+  PL DD/MM/YYYY:  <span class="v">2027-08-04</span>  (Wednesday)</pre>
+
+    <div class="prose">
+      <p>
+        Vier Monate auseinander, an verschiedenen Wochentagen. Ein ISO-Datum ist eindeutig und wird als
+        solches gelesen, und etwas, das überhaupt kein Datum ist, wird abgelehnt, statt erraten zu werden.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Aus Schritten gebaut, nicht aus einem Satz</h2>
+    <div class="prose">
+      <p>
+        Ein Zeitpunkt ist ein Ausgangspunkt plus Schritte, und nach jedem Schritt wird das Zwischenergebnis
+        gezeigt, sodass ein Ausdruck, der eine überraschende Antwort liefert, Ihnen zeigt, wo er abgebogen
+        ist. Fünf Arten von Schritten: um eine Einheit verschieben, die Uhrzeit setzen, auf eine
+        Periodengrenze springen, zum nächsten Werktag gehen und in einer anderen Zeitzone neu ausdrücken.
+      </p>
+    </div>
+
+    <pre class="term"><span class="c"># Die letzte Sekunde vor dem Jahreswechsel</span>
+<span class="p">chrono</span> calc --base today --snap eoy
+
+<span class="c"># Neunzig Werktage später, im amerikanischen Bankenkalender</span>
+<span class="p">chrono</span> calc --base today --shift +90bd --calendar us-banking
+
+<span class="c"># Achtzehn Jahre und einen Tag zurück, für eine Altersprüfung</span>
+<span class="p">chrono</span> calc --base today --shift -18y --shift -1d</pre>
+
+    <div class="prose">
+      <p>
+        Jedes berechnete Datum geht direkt in eine Ersetzungssitzung, und <code>--json</code> gibt
+        dasselbe Ergebnis in Maschinenform aus.
+        <a href="/de/datums-testszenarien/">Die testenswerten Daten &rarr;</a>
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ausprobieren</h2>
+    <div class="cta">
+      <a class="btn btn-primary" href="/de/herunterladen/">Für Windows herunterladen</a>
+      <a class="btn btn-ghost" href="/de/datums-testszenarien/">Die Szenarien ansehen</a>
+      <a class="btn btn-ghost" href="/de/cli-referenz/">Jede Rechner-Option</a>
+    </div>
+  </section>
+
+</div>
