@@ -28,7 +28,7 @@ pub(crate) const NAMED_MAX: usize = 256;
 /// What one look at the tree found.
 pub(crate) struct Found {
     /// Every process under the host now, known or not: the family a debugging port may belong to.
-    pub(crate) pids: Vec<u32>,
+    pub(crate) pids: HashSet<u32>,
     /// The ones nobody had named, named now.
     pub(crate) named: Vec<UncoveredChild>,
 }
@@ -92,7 +92,7 @@ impl UnhookedTree {
                 self.unnamed += 1;
             }
         }
-        Some(Found { pids: present.into_iter().collect(), named })
+        Some(Found { pids: present, named })
     }
 
     /// How many processes the tree has turned up that nobody else named, named or not.

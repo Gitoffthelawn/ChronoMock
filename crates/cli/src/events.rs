@@ -147,7 +147,9 @@ pub(crate) fn ended_clean() -> Event {
 /// (`shutdown()`) and then emitted a hard-coded `clean: true`. That is exactly the silence rules 4
 /// and 6 exist to prevent, and exactly what the success path a hundred lines below already avoids.
 /// `ended_clean` stays for the paths where nothing was ever launched - a missing hook DLL, a
-/// rejected start, an unparsable moment - and there it is the truth, not a shortcut.
+/// rejected start, an unparsable moment - and there it is the truth, not a shortcut. The native core
+/// uses this one for a start that did not become a running session once it had set a registry value,
+/// and the residue is that value when it could not be taken away.
 pub(crate) fn ended_after_launch(residue: Vec<String>) -> Event {
     Event::Ended {
         v: PROTOCOL_VERSION,

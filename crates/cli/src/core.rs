@@ -186,7 +186,7 @@ pub(crate) fn core_mode() -> i32 {
                     lived_ms,
                 });
                 prepared.session.end();
-                emit(&ended_clean());
+                emit(&policy.ended_before_running());
                 return 12;
             }
 
@@ -209,8 +209,8 @@ pub(crate) fn core_mode() -> i32 {
             let (left_running, family_search_incomplete) =
                 if refuse { end_refused_family(&prepared.session) } else { (Vec::new(), false) };
             if refuse {
-                // The session is over, so the value goes now. Nothing here carries a key for how that
-                // went - a value left behind is on stderr, and the next session says it is there.
+                // The session is over, so the value goes now. How that went is kept, and `ended` below says
+                // a value that could not be taken away: it is still on the machine.
                 let _ = policy.finish();
             }
             emit(&Event::Verdict {
@@ -224,7 +224,7 @@ pub(crate) fn core_mode() -> i32 {
             });
             if refuse {
                 prepared.session.end();
-                emit(&ended_clean());
+                emit(&policy.ended_before_running());
                 return verdict.exit_code();
             }
             // Enter the running session: heartbeat, answer queries, end on command,
@@ -242,12 +242,11 @@ pub(crate) fn core_mode() -> i32 {
             });
             // Human-side detail on stderr (never on the protocol stdout).
             diag!("chrono core: {detail}");
-            emit(&ended_clean());
+            emit(&policy.ended_before_running());
             code
         }
     }
 }
-
 /// The keys of the refusals that owe no `ended`, because no session was begun - the only answers a core
 /// gives without an `ended` after them. The driver reads a missing `ended` after any other error as a
 /// session the core left open (`run::collect`), so this list is what tells the two apart, and
@@ -350,7 +349,8 @@ pub(crate) struct SessionLedger {
     /// Processes both the hook's ring and the process tree under an elevated host reported. Each is in
     /// the list once and in both counts, so the total has to give one back.
     duplicated: u32,
-    /// The pids the process tree named, so a ring entry for the same process is recognised.
+    /// The pids the process tree named and still shows, so a ring entry for the same process is
+    /// recognised. A process that has left the tree is forgotten: the system hands its pid on.
     unhooked_pids: HashSet<u32>,
 }
 
@@ -382,8 +382,9 @@ impl SessionLedger {
 
     /// Take in the children the hook's ring named. The process tree under an elevated host may have named
     /// one first. Named twice would be counted twice, so the second naming is dropped and the count gives
-    /// the duplicate back. Only a process the TREE named is compared: two children of the ring may share a
-    /// pid, because the system hands a pid on once its process is gone.
+    /// the duplicate back. Only a process the TREE named, and still shows, is compared: two children of the
+    /// ring may share a pid, because the system hands a pid on once its process is gone, and so may a ring
+    /// child and a process the tree named earlier.
     fn take_ring_children(&mut self, children: Vec<UncoveredChild>) {
         for child in children {
             if self.unhooked_pids.contains(&child.pid) {
@@ -395,8 +396,10 @@ impl SessionLedger {
     }
 
     /// Take in the processes the process tree under an elevated host named: ones the hook never saw
-    /// start, listed with the children it saw and could not follow into.
-    pub(crate) fn adopt_unhooked(&mut self, named: Vec<UncoveredChild>) {
+    /// start, listed with the children it saw and could not follow into. `present` is every pid the tree
+    /// shows now, so a process that has left it stops being compared against the ring.
+    pub(crate) fn adopt_unhooked(&mut self, named: Vec<UncoveredChild>, present: &HashSet<u32>) {
+        self.unhooked_pids.retain(|pid| present.contains(pid));
         self.unhooked_pids.extend(named.iter().map(|c| c.pid));
         self.uncovered_children.extend(named);
     }
@@ -483,7 +486,8 @@ pub(crate) fn run_session(
             bridge.look_for_webview2(&ledger.hosts(session.pid));
             // The engine of an elevated host is started by a service, so the hook never sees it: the
             // process tree is where it shows (docs/09 section 12.19).
-            ledger.adopt_unhooked(bridge.follow_host_tree(&family));
+            let named = bridge.follow_host_tree(&family);
+            ledger.adopt_unhooked(named, bridge.tree_pids());
             child_deadline = now + child_poll;
         }
         // Every turn, from the host's clock as it stands now - a page shimmed this turn starts on
@@ -1364,7 +1368,7 @@ mod tests {
     fn a_process_named_by_both_the_tree_and_the_ring_is_listed_once() {
         let named = |pid| UncoveredChild { pid, parent_pid: 42, image: Some("engine.exe".into()), command_line: None };
         let mut ledger = SessionLedger::new(Verdict::Works);
-        ledger.adopt_unhooked(vec![named(77)]);
+        ledger.adopt_unhooked(vec![named(77)], &pids(&[77]));
 
         ledger.take_ring_children(vec![named(77), named(88)]);
 
@@ -1374,6 +1378,26 @@ mod tests {
         ledger.take_ring_children(vec![named(88), named(88)]);
         assert_eq!(ledger.uncovered_children.len(), 4);
         assert_eq!(ledger.duplicated, 1);
+    }
+
+    fn pids(of: &[u32]) -> HashSet<u32> {
+        of.iter().copied().collect()
+    }
+
+    /// The system hands a pid on once its process is gone. The tree named 77 and 77 left the tree, so a ring
+    /// child that has the same pid is another process: it is listed and nothing is given back, where
+    /// comparing against every pid the tree ever named would drop it as a duplicate.
+    #[test]
+    fn a_ring_child_that_has_the_pid_of_a_process_gone_from_the_tree_is_a_new_process() {
+        let named = |pid| UncoveredChild { pid, parent_pid: 42, image: Some("engine.exe".into()), command_line: None };
+        let mut ledger = SessionLedger::new(Verdict::Works);
+        ledger.adopt_unhooked(vec![named(77)], &pids(&[77]));
+        ledger.adopt_unhooked(Vec::new(), &pids(&[]));
+
+        ledger.take_ring_children(vec![named(77)]);
+
+        assert_eq!(ledger.duplicated, 0, "a different process is not a duplicate");
+        assert_eq!(ledger.uncovered_children.iter().map(|c| c.pid).collect::<Vec<_>>(), [77, 77]);
     }
 
     /// The total is the ring's count plus what the tree found, less what both named, and never less than
@@ -1393,7 +1417,7 @@ mod tests {
     fn processes_named_by_the_tree_join_the_family_and_the_uncovered_list() {
         let mut ledger = SessionLedger::new(Verdict::Works);
         let named = |pid| UncoveredChild { pid, parent_pid: 42, image: Some("engine.exe".into()), command_line: None };
-        ledger.adopt_unhooked(vec![named(77), named(78)]);
+        ledger.adopt_unhooked(vec![named(77), named(78)], &pids(&[77, 78]));
 
         assert_eq!(ledger.uncovered_children.len(), 2);
         let family = ledger.family(42);

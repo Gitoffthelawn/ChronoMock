@@ -12,8 +12,9 @@
 use std::path::Path;
 
 use chrono_mech::{PolicyRemoval, PolicySet, PolicyValue, Recovery};
-use chrono_proto::TargetSpec;
+use chrono_proto::{Event, TargetSpec};
 
+use crate::events::ended_after_launch;
 use crate::output::diag;
 
 /// This session set a WebView2 value for the application and took it away again. The whole account
@@ -214,6 +215,15 @@ impl PolicySession {
         self.end_keys = Some(keys.clone());
         keys
     }
+
+    /// `ended` for a start that never became a running session: refused, vanished, or not prepared. The
+    /// value this session wrote is taken away first, and one that could not be is said as residue, because
+    /// the machine still holds it and nothing else in these answers could tell the tester. The account of
+    /// a value that was removed is a plain fact and not residue.
+    pub(crate) fn ended_before_running(&mut self) -> Event {
+        let left = self.finish().into_iter().filter(|key| key == KEY_LEFT).collect();
+        ended_after_launch(left)
+    }
 }
 
 impl Drop for PolicySession {
@@ -373,6 +383,30 @@ mod tests {
         assert_eq!(session.finish(), [KEY_LEFT]);
         drop(session);
         assert_eq!(calls.get(), 1);
+    }
+
+    /// A start that never ran ends with the registry's account: a value that could not be removed makes it
+    /// unclean and is named in it, a value that was removed and a start that wrote nothing end clean.
+    #[test]
+    fn a_start_that_never_ran_ends_unclean_only_when_a_value_is_left() {
+        fn ended(of: Event) -> (bool, Vec<String>) {
+            match of {
+                Event::Ended { clean, residue_keys, .. } => (clean, residue_keys),
+                other => panic!("not an ended event: {other:?}"),
+            }
+        }
+        let target = target("C:/apps/app.exe", true, true);
+
+        let (left, _) = written(PolicyRemoval::Left("error 5".into()));
+        let mut session = PolicySession::start_with(&Fake::answering(left), &target, true);
+        assert_eq!(ended(session.ended_before_running()), (false, vec![KEY_LEFT.to_string()]));
+
+        let (gone, _) = written(PolicyRemoval::Removed);
+        let mut session = PolicySession::start_with(&Fake::answering(gone), &target, true);
+        assert_eq!(ended(session.ended_before_running()), (true, Vec::new()), "removed is not residue");
+
+        let mut nothing = PolicySession::none(false, None);
+        assert_eq!(ended(nothing.ended_before_running()), (true, Vec::new()));
     }
 
     /// Every way out that does not come through `finish` still takes the value away.

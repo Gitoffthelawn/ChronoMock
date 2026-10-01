@@ -347,6 +347,10 @@ pub(crate) struct EmbeddedBridge {
     engines: Vec<ReachedEngine>,
     warnings: Vec<String>,
     family: HashSet<u32>,
+    /// The pids the process tree under an elevated host showed at its last look. Kept apart from
+    /// `family`, which only grows: a pid that has left the tree may be handed to an unrelated process,
+    /// and a debugging port that process opens is not the host's.
+    tree_family: HashSet<u32>,
     /// The origin the pages hold, for the drift check - the last one broadcast, or the first one a
     /// page was shimmed from.
     pushed: Option<ShimOrigin>,
@@ -380,6 +384,7 @@ impl EmbeddedBridge {
             engines: Vec::new(),
             warnings: Vec::new(),
             family: family.iter().copied().collect(),
+            tree_family: HashSet::new(),
             pushed: None,
             rate_changed: false,
             reached: false,
@@ -422,10 +427,19 @@ impl EmbeddedBridge {
     pub(crate) fn family(&mut self, pids: impl IntoIterator<Item = u32>) {
         let before = self.family.len();
         self.family.extend(pids);
-        if self.family.len() > before
-            && let Some(d) = &self.discovery
-        {
-            d.update_family(self.family.iter().copied().collect());
+        if self.family.len() > before {
+            self.push_family();
+        }
+    }
+
+    /// The family discovery looks in: what the session knows of, and what the tree shows now.
+    fn looked_in(&self) -> Vec<u32> {
+        self.family.union(&self.tree_family).copied().collect()
+    }
+
+    fn push_family(&self) {
+        if let Some(d) = &self.discovery {
+            d.update_family(self.looked_in());
         }
     }
 
@@ -463,8 +477,9 @@ impl EmbeddedBridge {
     /// Follow the engine of an elevated host through the process tree, once the host is seen and only
     /// for a core that is itself elevated - an application under an ordinary token is followed by the
     /// hook, and nothing here is needed (docs/09 section 12.19). Returns the processes that nobody had
-    /// named, for the session's list of what ran on the real clock. The pids of the whole tree join the
-    /// family discovery looks in, which is how the debugging port of an engine a service started is found.
+    /// named, for the session's list of what ran on the real clock. The pids of the whole tree are in the
+    /// family discovery looks in while they are in the tree, which is how the debugging port of an engine
+    /// a service started is found.
     ///
     /// `known` is every pid the session already accounts for.
     pub(crate) fn follow_host_tree(&mut self, known: &[u32]) -> Vec<UncoveredChild> {
@@ -493,11 +508,21 @@ impl EmbeddedBridge {
         };
         match self.tree.follow_with(host, known, forced, now, tree, name) {
             Some(found) => {
-                self.family(found.pids);
+                // The latest look replaces the last one: a process that has left the tree is not looked in.
+                if found.pids != self.tree_family {
+                    self.tree_family = found.pids;
+                    self.push_family();
+                }
                 found.named
             }
             None => Vec::new(),
         }
+    }
+
+    /// The pids the tree showed at its last look, for the session to tell a process that is still in the
+    /// tree from one that has left it.
+    pub(crate) fn tree_pids(&self) -> &HashSet<u32> {
+        &self.tree_family
     }
 
     /// One turn: take what discovery found and start connecting to it, take what connected and
@@ -1033,7 +1058,7 @@ mod tests {
 
         let mut ordinary = bridge_with_host(false);
         assert!(ordinary.follow_tree_with(&[1], true, t0, under, named).is_empty());
-        assert!(!ordinary.family.contains(&50));
+        assert!(!ordinary.looked_in().contains(&50));
 
         let mut no_host = bridge_with_host(true);
         no_host.host = None;
@@ -1042,7 +1067,27 @@ mod tests {
         let mut elevated = bridge_with_host(true);
         let found = elevated.follow_tree_with(&[1], true, t0, under, named);
         assert_eq!(found.iter().map(|c| c.pid).collect::<Vec<_>>(), [50, 51]);
-        assert!(elevated.family.contains(&50) && elevated.family.contains(&51), "discovery looks at the tree now");
+        let looked_in = elevated.looked_in();
+        assert!(looked_in.contains(&50) && looked_in.contains(&51), "discovery looks at the tree now");
         assert_eq!(elevated.tree.total(), 2);
+    }
+
+    /// The tree's pids are in the family discovery looks in only while the tree shows them. A process that
+    /// has left it may have its pid handed to a stranger, and a debugging port the stranger opens is not
+    /// the host's - and a session that runs for hours must not carry every process that ever lived there.
+    #[test]
+    fn a_process_that_has_left_the_tree_is_no_longer_looked_in() {
+        let t0 = Instant::now();
+        let mut bridge = bridge_with_host(true);
+
+        bridge.follow_tree_with(&[1], true, t0, |_| Ok(vec![(50, 42), (51, 50)]), named);
+        assert!(bridge.looked_in().contains(&50), "in the tree, so looked in");
+
+        bridge.follow_tree_with(&[1], true, t0, |_| Ok(vec![(51, 42)]), named);
+        let mut looked_in = bridge.looked_in();
+        looked_in.sort_unstable();
+        assert_eq!(looked_in, [1, 51], "50 left the tree: the family is the known pid and what the tree shows");
+        assert_eq!(bridge.family.len(), 1, "the family that only grows was not given the tree's pids");
+        assert!(bridge.tree_pids().contains(&51) && !bridge.tree_pids().contains(&50));
     }
 }

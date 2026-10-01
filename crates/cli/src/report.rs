@@ -256,6 +256,11 @@ pub(crate) fn describe_error(key: &str) -> &'static str {
     }
 }
 
+/// What the report says of a registry value the session set and could not take away. The same words
+/// stand in `describe_warning` (a session that ran) and `describe_residue` (a start that never ran):
+/// either way the value is still on the machine.
+const POLICY_VALUE_LEFT: &str = "Chrono Mock could not remove the WebView2 option it set in the machine registry for this application - it is under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and it keeps a debugging port open for that application in every run until you delete it";
+
 /// English gloss for a warning key, with the key appended for traceability. An unknown key is
 /// shown verbatim (honest fallback).
 pub(crate) fn describe_warning(key: &str) -> String {
@@ -331,9 +336,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "embedded.policy_value_removed" => {
             "Chrono Mock set a WebView2 option for this application in the machine registry for the session, so the pages of an application running as administrator could be reached, and removed it when the session ended"
         }
-        "embedded.policy_value_left" => {
-            "Chrono Mock could not remove the WebView2 option it set in the machine registry for this application - it is under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and it keeps a debugging port open for that application in every run until you delete it"
-        }
+        "embedded.policy_value_left" => POLICY_VALUE_LEFT,
         "embedded.policy_value_recovered" => {
             "a WebView2 option set by an earlier Chrono Mock session that ended abruptly was still in the machine registry, and was removed before this session started"
         }
@@ -460,6 +463,7 @@ pub(crate) fn describe_residue(key: &str) -> String {
         "cleanup.chromium_profile_left" => {
             "the temporary Chromium profile could not be removed - delete it by hand if it lingers in your temp folder"
         }
+        "embedded.policy_value_left" => POLICY_VALUE_LEFT,
         _ => "",
     };
     if text.is_empty() {
@@ -1458,6 +1462,16 @@ mod tests {
         assert!(out.contains("cleanup.chromium_profile_left"), "got:\n{out}");
         // Same rule as warnings: a key we cannot name is still shown, never swallowed.
         assert!(out.contains("cleanup.something_new"), "got:\n{out}");
+    }
+
+    /// A registry value a start that never ran could not take away comes as residue, and the report says
+    /// what it is where it would otherwise print the bare key.
+    #[test]
+    fn a_registry_value_left_by_a_start_that_never_ran_is_explained_as_residue() {
+        let text = describe_residue("embedded.policy_value_left");
+        assert!(text.contains("could not remove the WebView2 option"), "got: {text}");
+        assert!(text.ends_with("(embedded.policy_value_left)"), "got: {text}");
+        assert_eq!(text, describe_warning("embedded.policy_value_left"), "one account of it, wherever it is said");
     }
 
     #[test]
