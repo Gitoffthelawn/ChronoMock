@@ -49,8 +49,10 @@
 //! only the CurrentTime field (the other fields stay real). It still calls no other channel's
 //! original, so the invariant holds.
 //!
-//! Child processes inherit the session via `CreateProcessW` / `CreateProcessA` detours
-//! (ADR-3). A DIRECT `NtCreateUserProcess` (bypassing CreateProcess*) is OBSERVED, not injected:
+//! Child processes inherit the session via `CreateProcessW` / `CreateProcessA` detours on kernel32 and
+//! the `CreateProcessInternalW` funnel in kernelbase under them (ADR-3, R4/11). A spawn that passes
+//! none of them - a user token (`CreateProcessAsUserW`), or `NtCreateUserProcess` called straight - is
+//! OBSERVED, not injected:
 //! counted and warned (its child may be uncovered), never self-injected - that would mean
 //! manipulating undocumented native structures for near-zero real value. A thread-local guard keeps
 //! the CreateProcess* funnel to NtCreateUserProcess from counting as a direct spawn.
@@ -245,6 +247,24 @@ type CpaFn = unsafe extern "system" fn(
     *const c_void,
     *mut PROCESS_INFORMATION,
 ) -> i32;
+// CreateProcessInternalW (kernelbase, undocumented): CreateProcessW with the user token in front and an
+// out token at the end. The layout every caller of the export uses, and the one the direct-spawn probe
+// has called on both bitnesses since 2026-08: (token, app, cmd, pa, ta, inherit, flags, env, cwd, si, pi,
+// new_token).
+type CpiwFn = unsafe extern "system" fn(
+    HANDLE,
+    *const u16,
+    *mut u16,
+    *const c_void,
+    *const c_void,
+    i32,
+    u32,
+    *const c_void,
+    *const u16,
+    *const c_void,
+    *mut PROCESS_INFORMATION,
+    *mut HANDLE,
+) -> i32;
 
 static CTL_PTR: OnceLock<usize> = OnceLock::new();
 static COV_PTR: OnceLock<usize> = OnceLock::new();
@@ -300,6 +320,7 @@ static O_NTDIOCF: OnceLock<NtDeviceIoControlFileFn> = OnceLock::new();
 static SELF_HMOD: OnceLock<usize> = OnceLock::new();
 static O_CPW: OnceLock<CpwFn> = OnceLock::new();
 static O_CPA: OnceLock<CpaFn> = OnceLock::new();
+static O_CPIW: OnceLock<CpiwFn> = OnceLock::new();
 
 // Self-detach: a SYNCHRONIZE handle to the core process, and the flag a watcher flips
 // when the core vanishes so every detour reverts to real time.
@@ -2235,8 +2256,9 @@ unsafe extern "system" fn h_set_tp_timer_ex(
 
 // --- Direct process creation (ADR-3, observed) ---------------------------------
 // NtCreateUserProcess is the funnel under CreateProcessInternalW, so a hooked CreateProcessW/A reaches
-// it. We count only a DIRECT NtCreateUserProcess (a child spawned bypassing CreateProcess*), because
-// the CreateProcess* detours already inherit the session into their child. SPAWNING is a thread-local
+// it. We count only one that no CreateProcess detour started - since R4/11 that is a spawn with a user
+// token (h_cpiw leaves those alone) or NtCreateUserProcess called straight - because the CreateProcess
+// detours already inherit the session into their child. SPAWNING is a thread-local
 // flag those detours raise around their original call (which funnels here on the same thread) - when it
 // is set, this detour just forwards, uncounted. A direct call finds it clear, counts, and warns - we
 // deliberately do NOT self-inject (that means manipulating undocumented native structures, a crash
@@ -2582,6 +2604,47 @@ unsafe extern "system" fn h_cpa(
     let r = {
         let _g = enter_spawning();
         o(app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi)
+    };
+    inherit_into_child(r, pi, want_suspended);
+    r
+}}
+
+// CreateProcessInternalW in kernelbase is where every CreateProcess path meets, and the detours above
+// stand on kernel32's exports only. Measured on both bitnesses (R4/11, `tools/probes/pspawnpaths`): a
+// child started through kernelbase's own CreateProcessW/A (code that imports through the api-set),
+// through WinExec, or through CreateProcessInternalW itself ran on the real clock - the session saw
+// it only as a direct NtCreateUserProcess. This detour catches those. A call that already went through
+// h_cpw or h_cpa finds SPAWNING raised and passes through, so a child is inherited once.
+//
+// A call with a user token (CreateProcessAsUserW and the like) is left as it was: observed, counted by
+// h_ntcup and named as uncovered. That is how a sandbox broker starts its restricted children, and
+// injecting into a process under a restricted token is its own question, not part of this change.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "system" fn h_cpiw(
+    token: HANDLE,
+    app: *const u16,
+    cmd: *mut u16,
+    pa: *const c_void,
+    ta: *const c_void,
+    inherit: i32,
+    flags: u32,
+    env: *const c_void,
+    cwd: *const u16,
+    si: *const c_void,
+    pi: *mut PROCESS_INFORMATION,
+    new_token: *mut HANDLE,
+) -> i32 { unsafe {
+    let o = match O_CPIW.get() {
+        Some(o) => o,
+        None => return 0,
+    };
+    if SPAWNING.get() || !token.0.is_null() || pi.is_null() || session_over() {
+        return o(token, app, cmd, pa, ta, inherit, flags, env, cwd, si, pi, new_token);
+    }
+    let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
+    let r = {
+        let _g = enter_spawning();
+        o(token, app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi, new_token)
     };
     inherit_into_child(r, pi, want_suspended);
     r
@@ -3276,8 +3339,8 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
 
     // Child inheritance (ADR-3): hook CreateProcessW and CreateProcessA so the whole
     // process tree joins the session whichever spawn API the parent uses. Not coverage
-    // channels - plumbing, not time sources. (CreateProcessA funnels through the internal
-    // CreateProcessInternalW, not the W export, so the two detours never re-enter.)
+    // channels - plumbing, not time sources. (CreateProcessA funnels through CreateProcessInternalW, not
+    // the W export, so the two never re-enter each other. Both reach h_cpiw below with SPAWNING raised.)
     if let Some(cpw) = GetProcAddress(k32, s!("CreateProcessW")) {
         match MinHook::create_hook(
             cpw as *const () as *mut c_void,
@@ -3299,6 +3362,19 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
             }
             Err(e) => log(&format!("[chrono_hook] create_hook CreateProcessA failed: {e:?}")),
         }
+    }
+    // The funnel under both, in kernelbase, for the paths that never meet kernel32's exports (h_cpiw).
+    if let Ok(kernelbase) = GetModuleHandleA(s!("kernelbase.dll"))
+        && let Some(cpiw) = GetProcAddress(kernelbase, s!("CreateProcessInternalW"))
+    {
+        match MinHook::create_hook(cpiw as *const () as *mut c_void, h_cpiw as *const () as *mut c_void) {
+            Ok(original) => {
+                let _ = O_CPIW.set(std::mem::transmute::<*mut c_void, CpiwFn>(original));
+            }
+            Err(e) => log(&format!("[chrono_hook] create_hook CreateProcessInternalW failed: {e:?}")),
+        }
+    } else {
+        log("[chrono_hook] kernelbase has no CreateProcessInternalW, children started past kernel32 stay uncovered");
     }
 
     // Enable every prepared detour, THEN publish what is actually live. Until this call returns Ok,

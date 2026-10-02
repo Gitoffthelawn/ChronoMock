@@ -375,8 +375,9 @@ pub enum ChannelCategory {
     /// timeGetTime), so it is left real. A separate category only so the audit can name the right
     /// reason (multimedia timer, not an object wait).
     TimerObserved,
-    /// Hooked and counted, but deliberately never injected into (ADR-3, observed): a DIRECT
-    /// NtCreateUserProcess (a child spawned bypassing CreateProcessW/A). Self-injecting there means
+    /// Hooked and counted, but deliberately never injected into (ADR-3, observed): an
+    /// NtCreateUserProcess that no CreateProcess detour started (a user token, or the call made
+    /// straight - since R4/11 kernelbase's own CreateProcess path is inherited). Self-injecting there means
     /// manipulating undocumented native structures, a crash risk for near-zero real value (real QA
     /// targets spawn through CreateProcess*). So we count the direct call and warn that the child may
     /// be uncovered, an honest audit (rule 4) without the risk. NOT opt-in (unlike the time observers):
@@ -524,8 +525,8 @@ pub fn indirect_jump_slot(code: &[u8; 12], entry: usize, rip_relative: bool) -> 
 // two game engines read it about 150 times a second, which is per-frame, and a clock a target reads
 // every frame is one this tool covers. The winmm cost ADR-2 avoided is real but belongs mostly to
 // timeSetEvent, the audio SCHEDULER, which stays observed and untouched - reading a clock schedules
-// nothing. The residual risk is named by clock.timegettime_scaled_audio_may_shift. A DIRECT NtCreateUserProcess (ntdll, ADR-3) - a child spawned bypassing
-// CreateProcessW/A - joins the observed bucket under inheritance.ntcreateuserprocess_child_maybe_uncovered:
+// nothing. The residual risk is named by clock.timegettime_scaled_audio_may_shift. An NtCreateUserProcess (ntdll, ADR-3) that no CreateProcess
+// detour started - a user token, or the call made straight - joins the observed bucket under inheritance.ntcreateuserprocess_child_maybe_uncovered:
 // self-injecting there means manipulating undocumented native structures, a crash risk for near-zero
 // value (real targets spawn through CreateProcess*, which we do inject), so we count the direct call
 // and warn that its child may be uncovered, an honest audit (rule 4) without the risk. A guard makes
