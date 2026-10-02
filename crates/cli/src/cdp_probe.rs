@@ -171,7 +171,7 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
                 let r = if cdp::is_worker(&ty) {
                     cdp::inject_worker(&mut client, &sid, &shim)
                 } else {
-                    cdp::inject_page(&mut client, &sid, &shim)
+                    cdp::inject_page(&mut client, &sid, &shim).map(|_| ())
                 };
                 match r {
                     Ok(()) => outln!("{}", probe_target_line("shimmed", &ty, &url)),

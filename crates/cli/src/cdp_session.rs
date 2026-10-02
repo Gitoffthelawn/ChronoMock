@@ -165,7 +165,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                     }
                     let now = now_epoch_ms();
                     let (fake0, real0, m) = clock.set_multiplier_at(multiplier, now);
-                    attacher.broadcast(&cdp_set_multiplier_expr(fake0, real0, m, m));
+                    attacher.move_clock(&cdp_set_multiplier_expr(fake0, real0, m, m), clock.shim_origin());
                     rate_changed_in_flight = true;
                     emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                     emit(&clock.state_event_at(now_epoch_ms()));
@@ -178,7 +178,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                     match cdp_resolve_jump(&clock, &to, now) {
                         Ok(new_fake) => {
                             let (fake0, real0) = clock.jump_to_at(new_fake, now);
-                            attacher.broadcast(&cdp_jump_expr(fake0, real0));
+                            attacher.move_clock(&cdp_jump_expr(fake0, real0), clock.shim_origin());
                             emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                             emit(&clock.state_event_at(now_epoch_ms()));
                         }

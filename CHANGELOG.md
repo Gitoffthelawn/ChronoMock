@@ -129,6 +129,14 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A page that reloads after a jump or a speed change keeps the session clock.** In a Chromium or
+  Electron session, and in the pages of an embedded web engine, every new document starts with a
+  script that carries the clock, and that script still carried the clock from the moment the session
+  first reached the page. Measured on an Electron page: after a jump to 2031 and a change to x1, a
+  reload brought the page back to 2038 at x60. Every jump and speed change now replaces that script
+  as well, so the reloaded page stays in 2031 at x1. The script is also taken away when the session
+  lets the pages of an application that outlives it go, so a page that loads a new document in the
+  session's last moments starts on the real clock.
 - **The duration clocks no longer step back when the speed changes or the core stops.** Under
   `--scale-duration` and `--scale-qpc`, a speed change could answer one read from the old speed and the
   next from the new one for an overlapping moment, and the later read came back lower. Measured over

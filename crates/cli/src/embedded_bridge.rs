@@ -641,7 +641,7 @@ impl EmbeddedBridge {
         if let Some(pushed) = self.pushed
             && drift_ms(pushed, fresh).abs() > DRIFT_MS
         {
-            self.broadcast(&cdp_jump_expr(fresh.fake0, fresh.real0));
+            self.move_clock(&cdp_jump_expr(fresh.fake0, fresh.real0), fresh);
             self.pushed = Some(fresh);
         }
     }
@@ -651,13 +651,13 @@ impl EmbeddedBridge {
         if !self.attachers.is_empty() {
             self.rate_changed = true;
         }
-        self.broadcast(&cdp_set_multiplier_expr(fresh.fake0, fresh.real0, fresh.mult, fresh.dur));
+        self.move_clock(&cdp_set_multiplier_expr(fresh.fake0, fresh.real0, fresh.mult, fresh.dur), fresh);
         self.pushed = Some(fresh);
     }
 
     /// The host jumped its wall: push the new origin, wall only.
     pub(crate) fn jump(&mut self, fresh: ShimOrigin) {
-        self.broadcast(&cdp_jump_expr(fresh.fake0, fresh.real0));
+        self.move_clock(&cdp_jump_expr(fresh.fake0, fresh.real0), fresh);
         self.pushed = Some(fresh);
     }
 
@@ -678,9 +678,10 @@ impl EmbeddedBridge {
         }
     }
 
-    fn broadcast(&mut self, expr: &str) {
+    /// Every page of every engine onto `origin`: new-document hooks renewed, live documents told.
+    fn move_clock(&mut self, expr: &str, origin: ShimOrigin) {
         for attacher in &mut self.attachers {
-            attacher.broadcast(expr);
+            attacher.move_clock(expr, origin);
         }
     }
 

@@ -30,6 +30,9 @@ pub(crate) struct CdpContext {
     pub(crate) ty: String,
     /// The CDP targetId, kept because `Target.targetDestroyed` names a target, not a session.
     pub(crate) target_id: String,
+    /// A page's new-document hook, replaced whenever the clock moves (R4-W5). `None` for a worker,
+    /// which has no hook - one started later is a new target and is shimmed from the clock of then.
+    pub(crate) script: Option<String>,
 }
 
 /// The clock origin a shim is built from: fake start and real start (both Unix-epoch ms), the wall
@@ -278,12 +281,12 @@ impl Attacher {
         }
         let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur, WALL_MAX_MS);
         let injected = if cdp::is_worker(&ty) {
-            cdp::inject_worker(&mut self.client, &sid, &shim)
+            cdp::inject_worker(&mut self.client, &sid, &shim).map(|()| None)
         } else {
             cdp::inject_page(&mut self.client, &sid, &shim)
         };
         match injected {
-            Ok(()) => {
+            Ok(script) => {
                 if !self.seen.contains(&index) {
                     self.seen.push(index);
                 }
@@ -295,6 +298,7 @@ impl Attacher {
                     // built.
                     ty: cdp::sanitise_target_text(&ty),
                     target_id: tid,
+                    script,
                 });
             }
             Err(_) => {
@@ -326,6 +330,20 @@ impl Attacher {
         let _ = self.client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(sid));
     }
 
+    /// The clock moved - a rate change, a jump, a resync: give every page a new-document hook built
+    /// on `origin`, then push `expr` to every live document. The hook first, so a page that loads a
+    /// new document meanwhile already gets the new clock (R4-W5).
+    pub(crate) fn move_clock(&mut self, expr: &str, origin: ShimOrigin) {
+        let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur, WALL_MAX_MS);
+        let client = &mut self.client;
+        for ctx in self.contexts.iter_mut().filter(|c| c.script.is_some()) {
+            if let Some(renewed) = cdp::renew_page_script(client, &ctx.session_id, ctx.script.as_deref(), &shim) {
+                ctx.script = Some(renewed);
+            }
+        }
+        self.broadcast(expr);
+    }
+
     /// Evaluate a JS expression in every live context (best-effort: a context that just closed
     /// errors and is skipped, so an in-flight update stays honest for the rest).
     pub(crate) fn broadcast(&mut self, expr: &str) {
@@ -343,6 +361,17 @@ impl Attacher {
     /// of. Anything else - an error, no answer - is a page that may still be on the session clock,
     /// which the caller has to say (rule 6).
     pub(crate) fn release(&mut self, expr: &str) -> u32 {
+        // The hooks go first. They die with the connection (measured: a page reloaded after the
+        // session comes up with no shim), but the connection outlives the release by the last look
+        // at the host's tree, and a page that navigated then loaded its next document on the session
+        // clock again and kept it after the session with no warning (R4-W5). A page that loads one
+        // meanwhile has no shim, and answers `no-shim` below.
+        let client = &mut self.client;
+        for ctx in self.contexts.iter_mut() {
+            if let Some(script) = ctx.script.take() {
+                cdp::remove_page_script(client, &ctx.session_id, &script);
+            }
+        }
         let mut unconfirmed = 0;
         for ctx in &self.contexts {
             let reply = self.client.call(

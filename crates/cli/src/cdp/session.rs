@@ -13,8 +13,9 @@ use serde_json::{json, Value};
 use std::io;
 
 /// The time shim, with `__MULT__`/`__DUR__`/`__FAKE_START__`/`__REAL_START__`/`__WALL_MAX__` filled
-/// in by [`build_shim`]. A guard (`__chronomock`) makes re-injection (a page reload re-runs the add-script
-/// hook) a no-op, so the originals are wrapped exactly once. `fakeNow` is
+/// in by [`build_shim`]. A guard (`__chronomock`) keeps the originals wrapped exactly once: a second run
+/// in the same document only sets the clock it carries, so of two new-document hooks the one added last
+/// decides (R4-W5). `fakeNow` is
 /// `fakeStart + (realNow - realStart) * M`, so M = 1 is a pure wall offset and M > 1 accelerates.
 ///
 /// The clock (`M`/`fakeStart`/`realStart` and the duration anchor) lives in the mutable `__chronomock`
@@ -31,7 +32,17 @@ use std::io;
 /// under `scale_duration` (docs/09 section 12.6) - one rule for one application, whichever half of
 /// it a timer runs in.
 const SHIM_TEMPLATE: &str = r#"(function(){
-  if (globalThis.__chronomock) { return 'already'; }
+  if (globalThis.__chronomock) {
+    /* Installed already: by an older new-document script that ran first while this newer one was
+       being registered (R4-W5), or by an earlier evaluate - this session's, or one that let the page go
+       before this one reached it, which must not keep it on the clock it left behind. Scripts run in
+       the order they were added, so the newest runs last and its clock stands - the duration axis
+       re-anchored at the old rate first, as a rate change does, so performance.now never steps back. */
+    var O = globalThis.__chronomock, p = O._realPerf ? O._realPerf() : 0;
+    O.perfBase = (O.perfBase || 0) + (p - O.perfAnchorReal) * (O.D || 1); O.perfAnchorReal = p;
+    O.M = __MULT__; O.D = __DUR__; O.fakeStart = __FAKE_START__; O.realStart = __REAL_START__; O.wallMax = __WALL_MAX__;
+    return 'already';
+  }
   var _OrigDate = Date;
   var _now = _OrigDate.now.bind(_OrigDate);
   var _perf = (typeof performance !== 'undefined' && performance.now) ? performance.now.bind(performance) : null;
@@ -114,14 +125,16 @@ pub fn is_worker(target_type: &str) -> bool {
 
 /// Install the shim into a page (or frame) session: as an add-script hook so every future document
 /// gets it before its own scripts run, plus an immediate evaluate for the document already loaded.
-/// Then cascade auto-attach so the page's Web Workers are attached and shimmed too.
-pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<()> {
+/// Then cascade auto-attach so the page's Web Workers are attached and shimmed too. Returns the
+/// add-script hook's identifier, which [`renew_page_script`] needs to replace it when the clock moves.
+pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<Option<String>> {
     client.call("Page.enable", json!({}), Some(session_id)).ok();
-    client.call(
+    let added = client.call(
         "Page.addScriptToEvaluateOnNewDocument",
         json!({ "source": shim }),
         Some(session_id),
     )?;
+    let script = script_identifier(&added);
     evaluate_shim(client, session_id, shim)?;
     client
         .call(
@@ -131,7 +144,42 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::
         )
         .ok();
     client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
-    Ok(())
+    Ok(script)
+}
+
+/// The identifier `Page.addScriptToEvaluateOnNewDocument` answered with, if it gave one.
+fn script_identifier(reply: &Value) -> Option<String> {
+    reply.get("identifier").and_then(Value::as_str).map(str::to_string)
+}
+
+/// Replace a page's new-document hook with one built on the clock as it is now, and return the new
+/// identifier. The hook carries its clock in its source, so one registered at attach handed every
+/// document loaded after a jump or a rate change the clock from the attach - a reload after a jump to
+/// 2031 came back in 2038 at the old rate (R4-W5, measured on an Electron page).
+///
+/// The new hook is added BEFORE the old one goes. A document starting in between runs both, in the
+/// order they were added, and the shim's own guard lets the second set the clock - so no document
+/// starts with no shim, nor with the old clock. A page that does not answer keeps its old hook, and
+/// `None` comes back.
+pub fn renew_page_script(client: &mut CdpClient, session_id: &str, old: Option<&str>, shim: &str) -> Option<String> {
+    let added = client
+        .call("Page.addScriptToEvaluateOnNewDocument", json!({ "source": shim }), Some(session_id))
+        .ok()?;
+    let new = script_identifier(&added)?;
+    if let Some(old) = old {
+        client
+            .call("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": old }), Some(session_id))
+            .ok();
+    }
+    Some(new)
+}
+
+/// Remove a page's new-document hook, so a document it loads after the session let it go starts on
+/// the real clock. Best effort: a page that is gone has nothing left to remove.
+pub fn remove_page_script(client: &mut CdpClient, session_id: &str, script: &str) {
+    client
+        .call("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": script }), Some(session_id))
+        .ok();
 }
 
 /// Install the shim into a worker session, before its script runs when the worker was paused on start
@@ -220,6 +268,20 @@ mod tests {
         let frozen = build_shim(0, 0, 0, 0, 0);
         assert!(frozen.contains("M: 0,"), "{frozen}");
         assert!(frozen.contains("D: 1,"), "a frozen wall keeps timers at real speed: {frozen}");
+    }
+
+    /// R4-W5: a second run of the shim in one document - the newer of two new-document hooks, which
+    /// runs last - sets the clock it carries instead of returning untouched, re-anchoring the duration
+    /// axis at the old rate first so performance.now does not step back. The behaviour is measured
+    /// in Node (tools/probes/r4-14/w5-test.mjs) and on a live page - this pins the source.
+    #[test]
+    fn a_second_run_sets_the_clock_it_carries() {
+        let s = build_shim(1_000, 2_000, 1, 1, 3_000);
+        let guard = &s[..s.find("return 'already';").expect("the guard returns early")];
+        assert!(guard.contains("O.M = 1; O.D = 1; O.fakeStart = 1000; O.realStart = 2000; O.wallMax = 3000;"), "{guard}");
+        assert!(guard.contains("O.perfBase = (O.perfBase || 0) + (p - O.perfAnchorReal) * (O.D || 1); O.perfAnchorReal = p;"));
+        // The re-anchor comes before the new rate, or it would integrate the past at the new one.
+        assert!(guard.find("O.perfAnchorReal = p").unwrap() < guard.find("O.D = 1").unwrap());
     }
 
     #[test]

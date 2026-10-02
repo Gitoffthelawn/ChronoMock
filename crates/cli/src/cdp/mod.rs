@@ -16,7 +16,9 @@ use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
 pub use launch::{is_chromium_target, launch_chromium};
-pub use session::{build_shim, inject_page, inject_worker, is_shimmable, is_worker, COUNTS_EXPR};
+pub use session::{
+    build_shim, inject_page, inject_worker, is_shimmable, is_worker, remove_page_script, renew_page_script, COUNTS_EXPR,
+};
 pub use ws::WsClient;
 
 /// One decoded CDP message: either a reply to a command we sent, or an event the browser pushed.
