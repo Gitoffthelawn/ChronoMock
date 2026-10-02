@@ -143,6 +143,14 @@ Notable changes to Chrono Mock, newest first. The format follows
   time API at all. A page or a worker that refuses to hand over the workers it starts no longer counts
   as fully covered: such a worker would run on the real clock unseen, so the verdict says some
   contexts could not be reached.
+- **A child started past kernel32 now runs on the session clock.** The session followed children
+  started through kernel32's `CreateProcessW` and `CreateProcessA`. A child started through
+  kernelbase's own `CreateProcessW` or `CreateProcessA` - which is what code importing through the
+  Windows API sets calls - through `WinExec` or through `CreateProcessInternalW` ran on the real clock,
+  and the session reported it as a child it did not cover. Measured on x64 and x86, all of them are
+  now followed, and the ways that already were (kernel32, the C runtime's `system`, `_wspawnv` and
+  `_popen`, `ShellExecuteEx`) still are, each child once. A child started under another user token
+  (`CreateProcessAsUserW`) is left as before: named in the report, not followed.
 - **A `Sleep` made inside an APC is scaled, and every wait made there is counted.** Windows runs an asynchronous procedure call -
   the completion routine of overlapped I/O or of a waitable timer, or one queued with `QueueUserAPC` -
   while the thread sits in an alertable wait such as `SleepEx(..., TRUE)`. A `Sleep` made inside one
