@@ -135,9 +135,10 @@ Notable changes to Chrono Mock, newest first. The format follows
   in the middle of an emoji, such as a window name - and a Chromium session then reported the
   application closed. Such a message is now repaired (the broken character becomes U+FFFD) or, failing
   that, skipped with a single notice, and the session reads on. The events that attach a new page or
-  worker are never dropped from the queue any more: dropping one, which could happen only to a target
-  that sent over ten thousand events while a command was waiting, left the page or worker paused
-  for good. Every message already received is now handled in the same turn, where one per turn was
+  worker are no longer dropped from the queue while anything else is in it: dropping one, which could
+  happen only to a target that sent over ten thousand events while a command was waiting, left the
+  page or worker paused for good. A queue of nothing but such events keeps twice as many, and if
+  even that fills up, the session says it is dropping them. Every message already received is now handled in the same turn, where one per turn was
   handled before, so a worker started during a busy page load is released sooner. A debug port that
   answers on IPv6 (`::1`) is reached as well - the request named the host in a form the browser and
   the resolver both rejected.

@@ -46,9 +46,13 @@ pub struct CdpClient {
     ws: WsClient,
     next_id: u64,
     queued: std::collections::VecDeque<Msg>,
-    /// Set once the queue has had to drop an event, so the notice is printed a single time rather
-    /// than on every subsequent drop.
+    /// Set once the queue has had to drop a spent message, so the notice is printed a single time
+    /// rather than on every subsequent drop.
     queue_overflow_warned: bool,
+    /// Set once the queue has had to drop a `Target.*` event - its own notice, because that is the
+    /// drop that can leave a context paused, and an earlier notice about spent messages must not
+    /// stand for it.
+    target_drop_warned: bool,
     /// Set once a message that was not JSON even after repair has been skipped, for the same reason.
     bad_json_warned: bool,
     /// How long `call` waits for its reply. [`CALL_DEADLINE_SECS`] unless the owner asked for less:
@@ -62,30 +66,36 @@ pub struct CdpClient {
 /// grow the deque without limit (the same defence-in-depth as `MAX_WS_BYTES`, one layer up).
 const MAX_QUEUED_EVENTS: usize = 10_000;
 
-/// Push onto a bounded queue, making room when it is already full. Returns whether something was
-/// dropped, so the caller can say so once. Split out from the client so the bound is testable
-/// without a socket.
+/// What [`push_bounded`] let go of to make room.
+#[derive(Debug, PartialEq, Eq)]
+enum Dropped {
+    Nothing,
+    /// A reply or an event the session does not read.
+    Spent,
+    /// A `Target.*` event, from a queue holding nothing else at twice the cap.
+    Target,
+}
+
+/// Push onto a bounded queue, making room when it is already full, and say what went, so the caller
+/// can report it - once for each kind. Split out from the client so the bound is testable without
+/// a socket.
 ///
-/// What goes first is chosen, not the plain oldest (R4-S14): a reply nobody waits for any more (its
-/// call already timed out), then the oldest ordinary event. A `Target.*` event is never the one
-/// dropped while anything else is there - an `attachedToTarget` is how a target auto-attach paused
-/// on start gets its shim and its release, and losing it left that target paused for good. A queue
-/// of nothing but target events may grow to twice the cap before the oldest of them goes.
-fn push_bounded(queue: &mut std::collections::VecDeque<Msg>, msg: Msg) -> bool {
-    let dropped = queue.len() >= MAX_QUEUED_EVENTS;
-    if dropped {
-        let victim = queue
-            .iter()
-            .position(|m| matches!(m, Msg::Response { .. }))
-            .or_else(|| queue.iter().position(|m| !is_target_event(m)));
-        match victim {
-            Some(i) => {
-                queue.remove(i);
-            }
-            None if queue.len() >= MAX_QUEUED_EVENTS * 2 => {
-                queue.pop_front();
-            }
-            None => {}
+/// What goes is chosen, not the plain oldest (R4-S14): the oldest message that is not a `Target.*`
+/// event. That is a reply nobody waits for any more (its call already timed out) or an event no part
+/// of the session reads - only `Target.*` events are read. A `Target.*` event goes only when nothing
+/// else is there: an `attachedToTarget` is how a target auto-attach paused on start gets its shim
+/// and its release, and losing it left that target paused for good. A queue of nothing but target
+/// events may grow to twice the cap before the oldest of them goes. The search stops at the first
+/// message that is not a target event, which in a queue of ordinary traffic is the front.
+fn push_bounded(queue: &mut std::collections::VecDeque<Msg>, msg: Msg) -> Dropped {
+    let mut dropped = Dropped::Nothing;
+    if queue.len() >= MAX_QUEUED_EVENTS {
+        if let Some(i) = queue.iter().position(|m| !is_target_event(m)) {
+            queue.remove(i);
+            dropped = Dropped::Spent;
+        } else if queue.len() >= MAX_QUEUED_EVENTS * 2 {
+            queue.pop_front();
+            dropped = Dropped::Target;
         }
     }
     queue.push_back(msg);
@@ -228,6 +238,7 @@ impl CdpClient {
             next_id: 1,
             queued: std::collections::VecDeque::new(),
             queue_overflow_warned: false,
+            target_drop_warned: false,
             bad_json_warned: false,
             call_deadline: Duration::from_secs(CALL_DEADLINE_SECS),
         })
@@ -241,6 +252,7 @@ impl CdpClient {
             next_id: 1,
             queued: std::collections::VecDeque::new(),
             queue_overflow_warned: false,
+            target_drop_warned: false,
             bad_json_warned: false,
             call_deadline: Duration::from_secs(CALL_DEADLINE_SECS),
         }
@@ -301,18 +313,29 @@ impl CdpClient {
 
     /// Park an event seen while waiting for a reply, bounded. The queue is drained by the session
     /// loop, but nothing guarantees it drains as fast as a chatty target fills it, so an unbounded
-    /// deque would grow with the target's event rate. Past the cap a stale reply or the oldest
-    /// ordinary event is dropped, never a `Target.*` one (see [`push_bounded`]) - and the drop says so
-    /// once, rather than silently.
+    /// deque would grow with the target's event rate. Past the cap the oldest message that is not a
+    /// `Target.*` event is dropped, and a `Target.*` one only from a queue of nothing else at twice
+    /// the cap (see [`push_bounded`]). Each kind of drop says so once, rather than silently.
     fn queue_event(&mut self, msg: Msg) {
-        if push_bounded(&mut self.queued, msg) && !self.queue_overflow_warned {
-            self.queue_overflow_warned = true;
-            // Written by hand rather than with `eprintln!`, which panics on a closed standard error
-            // (R4-S11). This module names nothing in the crate, so it does not reach for `diag!`.
-            let _ = writeln!(
-                io::stderr(),
-                "chrono core: CDP event queue hit {MAX_QUEUED_EVENTS} - dropping the oldest events"
-            );
+        // Written by hand rather than with `eprintln!`, which panics on a closed standard error
+        // (R4-S11). This module names nothing in the crate, so it does not reach for `diag!`.
+        match push_bounded(&mut self.queued, msg) {
+            Dropped::Spent if !self.queue_overflow_warned => {
+                self.queue_overflow_warned = true;
+                let _ = writeln!(
+                    io::stderr(),
+                    "chrono core: CDP event queue hit {MAX_QUEUED_EVENTS} - dropping the oldest replies and events the session does not read"
+                );
+            }
+            Dropped::Target if !self.target_drop_warned => {
+                self.target_drop_warned = true;
+                let _ = writeln!(
+                    io::stderr(),
+                    "chrono core: CDP event queue hit {} with target events alone - dropping the oldest, so a context it announced may stay paused",
+                    MAX_QUEUED_EVENTS * 2
+                );
+            }
+            _ => {}
         }
     }
 
@@ -635,8 +658,9 @@ mod tests {
         Msg::Event { method: "Target.attachedToTarget".into(), params: Value::from(n), session_id: None }
     }
 
-    /// R4-S14: a full queue never drops a `Target.*` event while anything else is there - a stale
-    /// reply goes first, then the oldest ordinary event - so a target paused on start keeps its way out.
+    /// R4-S14: a full queue never drops a `Target.*` event while anything else is there - the oldest
+    /// message that is not one goes, a stale reply or an event - so a target paused on start keeps
+    /// its way out.
     #[test]
     fn a_full_queue_keeps_its_target_events() {
         let mut q = std::collections::VecDeque::new();
@@ -645,21 +669,28 @@ mod tests {
         for n in 0..(MAX_QUEUED_EVENTS as u64 - 2) {
             q.push_back(event(n));
         }
-        assert!(push_bounded(&mut q, event(1_000_000)));
+        assert_eq!(push_bounded(&mut q, event(1_000_000)), Dropped::Spent);
         assert!(matches!(q.front(), Some(Msg::Event { method, .. }) if method == "Target.attachedToTarget"), "the target event went");
         assert!(!q.iter().any(|m| matches!(m, Msg::Response { .. })), "the stale reply is the one dropped");
-        assert!(push_bounded(&mut q, event(1_000_001)));
+        assert_eq!(push_bounded(&mut q, event(1_000_001)), Dropped::Spent);
         assert!(matches!(q.front(), Some(Msg::Event { method, .. }) if method == "Target.attachedToTarget"));
         assert_eq!(method_of(&q[1]), "E1", "then the oldest ordinary event");
+    }
 
-        // Nothing but target events: kept up to twice the cap, the oldest going only past that.
+    /// A queue of nothing but target events keeps them up to twice the cap and reports nothing
+    /// dropped while nothing is - it used to report a drop from the first push past the cap, which
+    /// spent the one notice before the drop that matters. Past twice the cap the oldest goes, and that
+    /// is reported as a target event dropped (CodeRabbit on #83).
+    #[test]
+    fn a_queue_of_target_events_reports_only_the_drop_that_happened() {
         let mut only = std::collections::VecDeque::new();
         for n in 0..(MAX_QUEUED_EVENTS as u64 * 2) {
-            push_bounded(&mut only, target_event(n));
+            assert_eq!(push_bounded(&mut only, target_event(n)), Dropped::Nothing, "push {n}");
         }
         assert_eq!(only.len(), MAX_QUEUED_EVENTS * 2);
-        push_bounded(&mut only, target_event(u64::MAX));
+        assert_eq!(push_bounded(&mut only, target_event(u64::MAX)), Dropped::Target);
         assert_eq!(only.len(), MAX_QUEUED_EVENTS * 2, "the bound still holds");
+        assert_eq!(only.front().map(|m| matches!(m, Msg::Event { params, .. } if params == &Value::from(1u64))), Some(true), "the oldest went");
     }
 
     /// R4-S15 end to end over a socket: a message that is not JSON is skipped, and the connection
@@ -713,12 +744,12 @@ mod tests {
     fn the_event_queue_is_bounded_and_drops_the_oldest() {
         let mut q = std::collections::VecDeque::new();
         for n in 0..MAX_QUEUED_EVENTS as u64 {
-            assert!(!push_bounded(&mut q, event(n)), "nothing is dropped below the cap");
+            assert_eq!(push_bounded(&mut q, event(n)), Dropped::Nothing, "nothing is dropped below the cap");
         }
         assert_eq!(q.len(), MAX_QUEUED_EVENTS);
         assert_eq!(method_of(q.front().unwrap()), "E0");
 
-        assert!(push_bounded(&mut q, event(9_999_999)), "past the cap a drop is reported");
+        assert_eq!(push_bounded(&mut q, event(9_999_999)), Dropped::Spent, "past the cap a drop is reported");
         assert_eq!(q.len(), MAX_QUEUED_EVENTS, "the queue does not grow past the cap");
         assert_eq!(method_of(q.front().unwrap()), "E1", "the oldest went, not the newest");
         assert_eq!(method_of(q.back().unwrap()), "E9999999");
