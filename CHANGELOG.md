@@ -129,6 +129,14 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A child started past kernel32 now runs on the session clock.** The session followed children
+  started through kernel32's `CreateProcessW` and `CreateProcessA`. A child started through
+  kernelbase's own `CreateProcessW` or `CreateProcessA` - which is what code importing through the
+  Windows API sets calls - through `WinExec` or through `CreateProcessInternalW` ran on the real clock,
+  and the session reported it as a child it did not cover. Measured on x64 and x86, all of them are
+  now followed, and the ways that already were (kernel32, the C runtime's `system`, `_wspawnv` and
+  `_popen`, `ShellExecuteEx`) still are, each child once. A child started under another user token
+  (`CreateProcessAsUserW`) is left as before: named in the report, not followed.
 - **The duration clocks no longer step back when the speed changes or the core stops.** Under
   `--scale-duration` and `--scale-qpc`, a speed change could answer one read from the old speed and the
   next from the new one for an overlapping moment, and the later read came back lower. Measured over
