@@ -27,17 +27,19 @@ use std::path::{Path, PathBuf};
 /// check that vanished cannot fail.
 const SHAPE_LINTS: &[&str] = &["too_many_lines", "cognitive_complexity", "excessive_nesting"];
 
-/// Escape hatches out of `clippy::too_many_arguments`, measured 2026-09-06, 2026-09-23 and 2026-10-01.
+/// Escape hatches out of `clippy::too_many_arguments`, measured 2026-09-06, 2026-09-23, 2026-10-01 and
+/// 2026-10-02.
 ///
-/// The four are detours in `chrono-hook` that mirror Win32 entry points (`chrono-ctl::write_anchor_full`
-/// was the fifth until R4/10a, when it started taking the anchor as one named structure):
+/// The five are detours in `chrono-hook` that mirror Win32 entry points (`chrono-ctl::write_anchor_full`
+/// was one more until R4/10a, when it started taking the anchor as one named structure):
 /// `h_ntcup` is NtCreateUserProcess, `h_cpw` and `h_cpa` are CreateProcessW and
-/// CreateProcessA, and `h_ntdiocf` is NtDeviceIoControlFile, where the connection observer moved from
+/// CreateProcessA, `h_cpiw` is CreateProcessInternalW (the funnel under them in kernelbase, R4/11),
+/// and `h_ntdiocf` is NtDeviceIoControlFile, where the connection observer moved from
 /// ws2_32's three-argument `connect` (2026-09-23). Their parameter lists are Microsoft's, not ours to
 /// split - on 32-bit the callee pops them, so the count has to match to the argument - which is why the
 /// width axis is not a ratchet in this project and this count is one instead. Pinned exactly rather
 /// than bounded: a count left standing above the truth grants a free allow nobody decided to grant.
-const ARGUMENT_ALLOWS: usize = 4;
+const ARGUMENT_ALLOWS: usize = 5;
 
 fn repo_root() -> PathBuf {
     // Duplicated from tests/hygiene.rs on purpose. Integration tests are separate binaries, and a
