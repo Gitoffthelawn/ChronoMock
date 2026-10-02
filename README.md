@@ -294,10 +294,11 @@ cover something is worse than one that says what it cannot do.
   after its offset (`GMT+05:30`), and so do Node.js and Deno for a whole hour (`Etc/GMT-5`). A target
   that insists on a registry name will not find one
 - **A child started under another user token is not followed.** Children started through
-  `CreateProcess` in any of its forms, `WinExec`, the C runtime's `system`, spawn and `_popen`
-  functions or `ShellExecuteEx` join the session. One started with `CreateProcessAsUserW` - by a
-  launcher that drops its rights, or a sandbox broker - runs on the real clock, and the report names
-  it among the processes the session did not cover. A program a Windows service starts on the
+  `CreateProcessW` or `CreateProcessA`, whichever system library the call goes through, `WinExec`,
+  the C runtime's `system`, spawn and `_popen` functions or `ShellExecuteEx` join the session. One
+  started under another user token, with `CreateProcessAsUserW` - by a launcher that drops its rights,
+  or a sandbox broker - runs on the real clock, and the report names it among the processes the
+  session did not cover. A program a Windows service starts on the
   application's behalf is outside its process tree altogether
 - **What runs while Windows loads the application reads the real clock.** The fake clock is attached
   once Windows has loaded the application, so the start-up code of the libraries it imports
