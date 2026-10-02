@@ -283,7 +283,13 @@ impl Attacher {
             cdp::inject_page(&mut self.client, &sid, &shim)
         };
         match injected {
-            Ok(()) => {
+            Ok(children) => {
+                if !children && cdp::starts_workers(&ty) {
+                    // The context is on the session clock, but it refused auto-attach, so a worker it
+                    // starts runs on the real clock unseen. Counted as one that could not be reached,
+                    // so the verdict says some were not rather than that all were (rule 4).
+                    self.failed += 1;
+                }
                 if !self.seen.contains(&index) {
                     self.seen.push(index);
                 }
@@ -387,7 +393,7 @@ impl Attacher {
                 && let Some(obj) = v.get("result").and_then(|x| x.get("value")).and_then(serde_json::Value::as_object)
             {
                 any = true;
-                for (api, key) in [("setInterval", "si"), ("setTimeout", "st"), ("Date.now", "now"), ("performance.now", "perf")] {
+                for (api, key) in cdp::COUNTED_APIS {
                     if let Some(n) = obj.get(key).and_then(serde_json::Value::as_u64) {
                         let entry = self.counts.entry((c.index, format!("{} {}", c.ty, api))).or_insert(0);
                         *entry = (*entry).max(n);
@@ -413,7 +419,8 @@ impl Attacher {
         self.counts
     }
 
-    /// How many contexts attached and could not be shimmed.
+    /// How many contexts attached and could not be shimmed, plus the ones shimmed that refused to
+    /// attach the workers they start - a worker of theirs would run on the real clock unseen.
     pub(crate) fn failed(&self) -> usize {
         self.failed
     }

@@ -129,6 +129,20 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A page's own `Date` behaves like the browser's, and its reads are counted.** In a Chromium or
+  Electron session, and in the pages inside an application, the replacement for `Date` broke a class
+  extending it: `new X()` came back as a plain `Date`, so a library built on such a class lost its
+  methods and its own `instanceof`. `Date()` without `new`, `new date.constructor()` and
+  `Intl.DateTimeFormat` formatting "now" still read the real clock, and `Date.name` read as something
+  else than `Date`. Measured on an Electron page, all of them now read the session clock, a subclass
+  stays itself, and the name and arity are the native ones. A worker started by another worker gets
+  the session clock too (it read the real one), and `performance.now` in a page that was already
+  running when the session reached it goes on from where it stood instead of starting again from 0.
+  The report counts the time read through `new Date` or `Date()` and through `Intl.DateTimeFormat` on
+  rows of their own: an application that read the time only that way was reported as having called no
+  time API at all. A page or a worker that refuses to hand over the workers it starts no longer counts
+  as fully covered: such a worker would run on the real clock unseen, so the verdict says some
+  contexts could not be reached.
 - **A child started past kernel32 now runs on the session clock.** The session followed children
   started through kernel32's `CreateProcessW` and `CreateProcessA`. A child started through
   kernelbase's own `CreateProcessW` or `CreateProcessA` - which is what code importing through the
