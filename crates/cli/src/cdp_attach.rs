@@ -387,7 +387,7 @@ impl Attacher {
                 && let Some(obj) = v.get("result").and_then(|x| x.get("value")).and_then(serde_json::Value::as_object)
             {
                 any = true;
-                for (api, key) in [("setInterval", "si"), ("setTimeout", "st"), ("Date.now", "now"), ("performance.now", "perf")] {
+                for (api, key) in cdp::COUNTED_APIS {
                     if let Some(n) = obj.get(key).and_then(serde_json::Value::as_u64) {
                         let entry = self.counts.entry((c.index, format!("{} {}", c.ty, api))).or_insert(0);
                         *entry = (*entry).max(n);
