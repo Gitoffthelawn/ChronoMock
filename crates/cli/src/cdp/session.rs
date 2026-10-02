@@ -34,6 +34,9 @@ const SHIM_TEMPLATE: &str = r#"(function(){
   if (globalThis.__chronomock) { return 'already'; }
   var _OrigDate = Date;
   var _now = _OrigDate.now.bind(_OrigDate);
+  /* Taken now, before the page's own scripts: a native Date() never calls the prototype's toString,
+     so one the page replaced must not reach Date() either. */
+  var _dateString = _OrigDate.prototype.toString;
   var _perf = (typeof performance !== 'undefined' && performance.now) ? performance.now.bind(performance) : null;
   var S = {
     M: __MULT__,                    /* wall rate: 0 = frozen, 1 = flow (wall offset only), N = accelerate */
@@ -54,7 +57,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
      form (parsing, explicit fields) is unchanged. Reflect.construct with new.target keeps a subclass
      (class X extends Date) an X - building a plain Date here dropped its prototype (R4-W6). */
   function CMDate() {
-    if (!new.target) { S.counts.date++; return new _OrigDate(fakeNow()).toString(); }
+    if (!new.target) { S.counts.date++; return _dateString.call(new _OrigDate(fakeNow())); }
     if (arguments.length === 0) { S.counts.date++; return Reflect.construct(_OrigDate, [fakeNow()], new.target); }
     return Reflect.construct(_OrigDate, arguments, new.target);
   }
@@ -156,10 +159,18 @@ pub fn is_worker(target_type: &str) -> bool {
     target_type.contains("worker")
 }
 
+/// Whether a context of this type can start workers of its own - the ones auto-attach set on it is
+/// there to reach. A service worker cannot (`Worker` is not in its scope), so one that refuses
+/// auto-attach leaves nothing on the real clock.
+pub fn starts_workers(target_type: &str) -> bool {
+    is_shimmable(target_type) && target_type != "service_worker"
+}
+
 /// Install the shim into a page (or frame) session: as an add-script hook so every future document
 /// gets it before its own scripts run, plus an immediate evaluate for the document already loaded.
-/// Then cascade auto-attach so the page's Web Workers are attached and shimmed too.
-pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<()> {
+/// Then cascade auto-attach so the page's Web Workers are attached and shimmed too. Returns whether
+/// the page took auto-attach (see [`auto_attach_children`]).
+pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<bool> {
     client.call("Page.enable", json!({}), Some(session_id)).ok();
     client.call(
         "Page.addScriptToEvaluateOnNewDocument",
@@ -167,35 +178,37 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::
         Some(session_id),
     )?;
     evaluate_shim(client, session_id, shim)?;
-    client
-        .call(
-            "Target.setAutoAttach",
-            json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
-            Some(session_id),
-        )
-        .ok();
+    let children = auto_attach_children(client, session_id);
     client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
-    Ok(())
+    Ok(children)
 }
 
 /// Install the shim into a worker session, before its script runs when the worker was paused on start
 /// (waitForDebuggerOnStart), or immediately for a worker that is already alive but has not yet armed a
-/// timer. Then release a paused worker so it proceeds with the overridden globals in place.
-pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<()> {
+/// timer. Then release a paused worker so it proceeds with the overridden globals in place. Returns
+/// whether the worker took auto-attach (see [`auto_attach_children`]).
+pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<bool> {
     evaluate_shim(client, session_id, shim)?;
     // A worker can start workers of its own, and auto-attach set on the page does not reach them: a
     // worker started by a worker read the real clock (R4-N25, measured on an Electron page). Set before
-    // the worker is released, so one it starts in its first script is paused for the shim too. A
-    // worker type that does not take auto-attach answers with an error, which is ignored.
+    // the worker is released, so one it starts in its first script is paused for the shim too.
+    let children = auto_attach_children(client, session_id);
+    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
+    Ok(children)
+}
+
+/// Ask a context to attach the workers it starts, paused for the shim. `false` when it answered with
+/// an error or not at all: the context itself is shimmed, but a worker it starts would run on the
+/// real clock unseen, and the caller has to count that (rule 4). Measured on Chromium 153: a page, a
+/// dedicated worker, a nested one, a shared worker and a service worker all take it.
+fn auto_attach_children(client: &mut CdpClient, session_id: &str) -> bool {
     client
         .call(
             "Target.setAutoAttach",
             json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
             Some(session_id),
         )
-        .ok();
-    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
-    Ok(())
+        .is_ok()
 }
 
 /// Evaluate the shim in a session's global context and surface a thrown exception as an error (the
@@ -300,10 +313,22 @@ mod tests {
     fn the_date_replacement_keeps_subclasses_and_the_clock_it_reports() {
         let s = build_shim(0, 0, 60, 60, 0);
         assert!(s.contains("Reflect.construct(_OrigDate, arguments, new.target)"), "a subclass keeps its prototype");
-        assert!(s.contains("if (!new.target) { S.counts.date++; return new _OrigDate(fakeNow()).toString(); }"));
+        assert!(s.contains("if (!new.target) { S.counts.date++; return _dateString.call(new _OrigDate(fakeNow())); }"));
         assert!(s.contains("Object.defineProperty(_OrigDate.prototype, 'constructor', { value: CMDate"));
         assert!(s.contains("if (d === undefined) { S.counts.intl++; d = fakeNow(); }"), "Intl formats the session's now");
         assert!(s.contains("perfBase: _perf ? _perf() : 0,"), "performance.now does not restart at 0");
+    }
+
+    /// A context that refused auto-attach is counted only when it can start workers of its own: a
+    /// page or a dedicated or shared worker can, a service worker cannot, and a type that is never
+    /// shimmed is never counted.
+    #[test]
+    fn only_a_context_that_can_start_workers_loses_them_by_refusing_auto_attach() {
+        for ty in ["page", "iframe", "webview", "worker", "dedicated_worker", "shared_worker"] {
+            assert!(starts_workers(ty), "{ty}");
+        }
+        assert!(!starts_workers("service_worker"));
+        assert!(!starts_workers("browser"));
     }
 
     #[test]

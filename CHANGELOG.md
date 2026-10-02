@@ -140,7 +140,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   running when the session reached it goes on from where it stood instead of starting again from 0.
   The report counts the time read through `new Date` or `Date()` and through `Intl.DateTimeFormat` on
   rows of their own: an application that read the time only that way was reported as having called no
-  time API at all.
+  time API at all. A page or a worker that refuses to hand over the workers it starts no longer counts
+  as fully covered: such a worker would run on the real clock unseen, so the verdict says some
+  contexts could not be reached.
 
 - **The duration clocks no longer step back when the speed changes or the core stops.** Under
   `--scale-duration` and `--scale-qpc`, a speed change could answer one read from the old speed and the

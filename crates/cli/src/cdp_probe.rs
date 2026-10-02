@@ -174,7 +174,7 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
                     cdp::inject_page(&mut client, &sid, &shim)
                 };
                 match r {
-                    Ok(()) => outln!("{}", probe_target_line("shimmed", &ty, &url)),
+                    Ok(_) => outln!("{}", probe_target_line("shimmed", &ty, &url)),
                     // `e` is already folded at its source (`evaluate_shim`) - `ty` is not.
                     Err(e) => outln!("  FAILED  {}: {e}", cdp::sanitise_target_text(&ty)),
                 }
