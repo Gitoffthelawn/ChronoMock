@@ -49,6 +49,8 @@ pub struct CdpClient {
     /// Set once the queue has had to drop an event, so the notice is printed a single time rather
     /// than on every subsequent drop.
     queue_overflow_warned: bool,
+    /// Set once a message that was not JSON even after repair has been skipped, for the same reason.
+    bad_json_warned: bool,
     /// How long `call` waits for its reply. [`CALL_DEADLINE_SECS`] unless the owner asked for less:
     /// a loop that has other work to do in the meantime - the native session's heartbeat and child
     /// poll - cannot afford ten seconds of standing on a renderer busy with its own JS.
@@ -60,16 +62,100 @@ pub struct CdpClient {
 /// grow the deque without limit (the same defence-in-depth as `MAX_WS_BYTES`, one layer up).
 const MAX_QUEUED_EVENTS: usize = 10_000;
 
-/// Push onto a bounded queue, dropping the oldest entry when it is already full. Returns whether a
-/// drop happened, so the caller can say so once. Split out from the client so the bound is testable
+/// Push onto a bounded queue, making room when it is already full. Returns whether something was
+/// dropped, so the caller can say so once. Split out from the client so the bound is testable
 /// without a socket.
+///
+/// What goes first is chosen, not the plain oldest (R4-S14): a reply nobody waits for any more (its
+/// call already timed out), then the oldest ordinary event. A `Target.*` event is never the one
+/// dropped while anything else is there - an `attachedToTarget` is how a target auto-attach paused
+/// on start gets its shim and its release, and losing it left that target paused for good. A queue
+/// of nothing but target events may grow to twice the cap before the oldest of them goes.
 fn push_bounded(queue: &mut std::collections::VecDeque<Msg>, msg: Msg) -> bool {
     let dropped = queue.len() >= MAX_QUEUED_EVENTS;
     if dropped {
-        queue.pop_front();
+        let victim = queue
+            .iter()
+            .position(|m| matches!(m, Msg::Response { .. }))
+            .or_else(|| queue.iter().position(|m| !is_target_event(m)));
+        match victim {
+            Some(i) => {
+                queue.remove(i);
+            }
+            None if queue.len() >= MAX_QUEUED_EVENTS * 2 => {
+                queue.pop_front();
+            }
+            None => {}
+        }
     }
     queue.push_back(msg);
     dropped
+}
+
+/// A `Target.*` event: what attaches, detaches and destroys the contexts the session drives.
+fn is_target_event(msg: &Msg) -> bool {
+    matches!(msg, Msg::Event { method, .. } if method.starts_with("Target."))
+}
+
+/// Replace every lone UTF-16 surrogate escape in JSON text (`\uD800`-`\uDFFF` without its pair) with
+/// the escape of U+FFFD, the replacement character, the way a decoder does. `None` when there was
+/// nothing to replace.
+///
+/// Chromium writes the JS strings it reports as JSON escapes, a lone surrogate included - a window
+/// name cut in the middle of an emoji, a page title - and serde_json refuses the whole message for one
+/// (R4-S15). Refusing it ended the CDP session: the core reported the app closed and ended it. The
+/// scan follows JSON's own escapes, so an escaped backslash before a literal `u` is not mistaken for one.
+fn repair_lone_surrogates(text: &str) -> Option<String> {
+    fn unit_at(b: &[u8], i: usize) -> Option<u16> {
+        if b.get(i) == Some(&b'\\') && b.get(i + 1) == Some(&b'u') {
+            let hex = std::str::from_utf8(b.get(i + 2..i + 6)?).ok()?;
+            return u16::from_str_radix(hex, 16).ok();
+        }
+        None
+    }
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut changed = false;
+    let mut copied = 0;
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        match unit_at(b, i) {
+            Some(0xD800..=0xDBFF) if matches!(unit_at(b, i + 6), Some(0xDC00..=0xDFFF)) => {
+                i += 12; // a proper pair stays as it is
+            }
+            Some(0xD800..=0xDFFF) => {
+                out.push_str(&text[copied..i]);
+                out.push_str("\\uFFFD");
+                i += 6;
+                copied = i;
+                changed = true;
+            }
+            Some(_) => i += 6,
+            None => i += 2, // any other escape, `\\` included, is two bytes
+        }
+    }
+    if !changed {
+        return None;
+    }
+    out.push_str(&text[copied..]);
+    Some(out)
+}
+
+/// A host the way `TcpStream::connect` takes it: `[::1]` written in a URL is the address `::1`.
+/// Connecting to the bracketed form asked the resolver for a name that does not exist (R4-N24).
+fn bare_host(host: &str) -> &str {
+    host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host)
+}
+
+/// A host the way an HTTP `Host` header writes it next to a port: an IPv6 address in brackets.
+/// `::1:9222` is not a host and a port, and the DevTools server answers it with an error.
+fn header_host(host: &str) -> String {
+    let bare = bare_host(host);
+    if bare.contains(':') { format!("[{bare}]") } else { bare.to_string() }
 }
 
 /// Fold text the TARGET supplied into something that cannot forge output.
@@ -142,8 +228,22 @@ impl CdpClient {
             next_id: 1,
             queued: std::collections::VecDeque::new(),
             queue_overflow_warned: false,
+            bad_json_warned: false,
             call_deadline: Duration::from_secs(CALL_DEADLINE_SECS),
         })
+    }
+
+    /// A client over a socket a test opened itself, without the HTTP discovery.
+    #[cfg(test)]
+    fn from_ws(ws: WsClient) -> CdpClient {
+        CdpClient {
+            ws,
+            next_id: 1,
+            queued: std::collections::VecDeque::new(),
+            queue_overflow_warned: false,
+            bad_json_warned: false,
+            call_deadline: Duration::from_secs(CALL_DEADLINE_SECS),
+        }
     }
 
     /// Shorten how long a quiet socket blocks a poll and how long a call waits for its reply. The
@@ -201,9 +301,9 @@ impl CdpClient {
 
     /// Park an event seen while waiting for a reply, bounded. The queue is drained by the session
     /// loop, but nothing guarantees it drains as fast as a chatty target fills it, so an unbounded
-    /// deque would grow with the target's event rate. Past the cap the OLDEST event is dropped:
-    /// events are diagnostics here (coverage comes from polled counters), so losing the stalest one
-    /// costs less than growing without limit - and the drop says so once, rather than silently.
+    /// deque would grow with the target's event rate. Past the cap a stale reply or the oldest
+    /// ordinary event is dropped, never a `Target.*` one (see [`push_bounded`]) - and the drop says so
+    /// once, rather than silently.
     fn queue_event(&mut self, msg: Msg) {
         if push_bounded(&mut self.queued, msg) && !self.queue_overflow_warned {
             self.queue_overflow_warned = true;
@@ -226,12 +326,41 @@ impl CdpClient {
         self.poll_msg()
     }
 
+    /// The next message that is already here, without waiting: a queued one, or one the socket holds
+    /// right now. `None` at once when there is none. For draining a burst within one turn (R4-S14).
+    pub fn poll_ready(&mut self) -> io::Result<Option<Msg>> {
+        if let Some(m) = self.queued.pop_front() {
+            return Ok(Some(m));
+        }
+        match self.ws.poll_text_ready()? {
+            Some(text) => Ok(self.decode(&text)),
+            None => Ok(None),
+        }
+    }
+
     fn poll_msg(&mut self) -> io::Result<Option<Msg>> {
         let Some(text) = self.ws.poll_text()? else {
             return Ok(None);
         };
-        let v: Value = serde_json::from_str(&text)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad CDP JSON: {e}")))?;
+        Ok(self.decode(&text))
+    }
+
+    /// One CDP message from its text. A message that is not JSON - a lone surrogate the browser
+    /// escaped, repaired first, or anything worse - is skipped with one notice for the session rather
+    /// than ending the connection (R4-S15): the WebSocket framing around it is intact, so the next
+    /// message reads as well as ever, and the one skipped is the only one lost.
+    fn decode(&mut self, text: &str) -> Option<Msg> {
+        let parsed = serde_json::from_str::<Value>(text)
+            .ok()
+            .or_else(|| repair_lone_surrogates(text).and_then(|t| serde_json::from_str::<Value>(&t).ok()));
+        let Some(v) = parsed else {
+            if !self.bad_json_warned {
+                self.bad_json_warned = true;
+                // By hand rather than `eprintln!`, which panics on a closed standard error (R4-S11).
+                let _ = writeln!(io::stderr(), "chrono core: skipped a CDP message that was not JSON");
+            }
+            return None;
+        };
         let msg = if let Some(id) = v.get("id").and_then(Value::as_u64) {
             Msg::Response {
                 id,
@@ -245,7 +374,7 @@ impl CdpClient {
                 session_id: v.get("sessionId").and_then(Value::as_str).map(str::to_string),
             }
         };
-        Ok(Some(msg))
+        Some(msg)
     }
 }
 
@@ -314,9 +443,10 @@ pub fn free_loopback_port() -> io::Result<u16> {
 /// the connection alive despite `Connection: close`, so reading to EOF would block forever. A read
 /// timeout guards against an unresponsive endpoint hanging the tool.
 pub fn http_get_json(host: &str, port: u16, path: &str) -> io::Result<Value> {
-    let stream = TcpStream::connect((host, port))?;
+    let stream = TcpStream::connect((bare_host(host), port))?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     let writer = stream.try_clone()?;
+    let host = header_host(host);
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
@@ -457,6 +587,112 @@ mod tests {
         for host in ["127.0.0.1", "localhost", "LocalHost", "::1", "[::1]"] {
             assert!(ws_endpoint_is_ours(host, 9333, 9333), "host {host} was refused");
         }
+    }
+
+    /// The premise of R4-S15, measured rather than assumed: serde_json refuses a lone surrogate escape,
+    /// which Chromium writes for a JS string cut inside an emoji.
+    #[test]
+    fn a_lone_surrogate_is_refused_by_the_parser_and_repaired_by_us() {
+        let raw = r#"{"method":"Target.attachedToTarget","params":{"targetInfo":{"title":"cut \uD83D here"}}}"#;
+        assert!(serde_json::from_str::<Value>(raw).is_err(), "serde_json took a lone surrogate");
+        let repaired = repair_lone_surrogates(raw).expect("something to repair");
+        let v: Value = serde_json::from_str(&repaired).expect("the repaired message parses");
+        assert_eq!(v["params"]["targetInfo"]["title"], "cut \u{fffd} here");
+        // A lone LOW surrogate is repaired the same way.
+        assert!(repair_lone_surrogates(r#"{"t":"\uDE00"}"#).is_some());
+    }
+
+    /// What must stay exactly as it is: a proper pair, other escapes, and an escaped backslash before
+    /// a literal `u` - that is the text `\uD800`, not an escape of it.
+    #[test]
+    fn a_proper_pair_and_an_escaped_backslash_are_left_alone() {
+        // Built at run time: an editor that writes a literal escape of four hex digits may turn it into
+        // the character itself, and a test of escapes would then test nothing.
+        let esc = |hex: &str| format!("\\u{hex}");
+        let json = |inner: String| format!("{{\"t\":\"{inner}\"}}");
+        let pair = format!("{}{}", esc("D83D"), esc("DE00"));
+        assert_eq!(repair_lone_surrogates(&json(pair.clone())), None);
+        assert_eq!(repair_lone_surrogates(&json(format!("a\\\"b\\\\c\\n{}", esc("0041")))), None);
+        assert_eq!(repair_lone_surrogates(&json(format!("\\\\{}", &esc("D800")[1..]))), None);
+        assert_eq!(repair_lone_surrogates("plain"), None);
+        // Mixed: a good pair kept, a lone one beside it replaced.
+        let mixed = repair_lone_surrogates(&json(format!("{pair}{}", esc("D83D")))).unwrap();
+        assert_eq!(mixed, json(format!("{pair}{}", esc("FFFD"))));
+    }
+
+    /// R4-N24: an IPv6 loopback is connected to bare and written into the `Host` header in brackets.
+    #[test]
+    fn an_ipv6_host_is_bare_to_connect_and_bracketed_in_the_header() {
+        assert_eq!(bare_host("[::1]"), "::1");
+        assert_eq!(bare_host("::1"), "::1");
+        assert_eq!(bare_host("127.0.0.1"), "127.0.0.1");
+        assert_eq!(header_host("::1"), "[::1]");
+        assert_eq!(header_host("[::1]"), "[::1]");
+        assert_eq!(header_host("localhost"), "localhost");
+    }
+
+    fn target_event(n: u64) -> Msg {
+        Msg::Event { method: "Target.attachedToTarget".into(), params: Value::from(n), session_id: None }
+    }
+
+    /// R4-S14: a full queue never drops a `Target.*` event while anything else is there - a stale
+    /// reply goes first, then the oldest ordinary event - so a target paused on start keeps its way out.
+    #[test]
+    fn a_full_queue_keeps_its_target_events() {
+        let mut q = std::collections::VecDeque::new();
+        q.push_back(target_event(0));
+        q.push_back(Msg::Response { id: 7, result: Value::Null, error: None });
+        for n in 0..(MAX_QUEUED_EVENTS as u64 - 2) {
+            q.push_back(event(n));
+        }
+        assert!(push_bounded(&mut q, event(1_000_000)));
+        assert!(matches!(q.front(), Some(Msg::Event { method, .. }) if method == "Target.attachedToTarget"), "the target event went");
+        assert!(!q.iter().any(|m| matches!(m, Msg::Response { .. })), "the stale reply is the one dropped");
+        assert!(push_bounded(&mut q, event(1_000_001)));
+        assert!(matches!(q.front(), Some(Msg::Event { method, .. }) if method == "Target.attachedToTarget"));
+        assert_eq!(method_of(&q[1]), "E1", "then the oldest ordinary event");
+
+        // Nothing but target events: kept up to twice the cap, the oldest going only past that.
+        let mut only = std::collections::VecDeque::new();
+        for n in 0..(MAX_QUEUED_EVENTS as u64 * 2) {
+            push_bounded(&mut only, target_event(n));
+        }
+        assert_eq!(only.len(), MAX_QUEUED_EVENTS * 2);
+        push_bounded(&mut only, target_event(u64::MAX));
+        assert_eq!(only.len(), MAX_QUEUED_EVENTS * 2, "the bound still holds");
+    }
+
+    /// R4-S15 end to end over a socket: a message that is not JSON is skipped, and the connection
+    /// carries on with the next one - it used to end the session.
+    #[test]
+    fn a_message_that_is_not_json_is_skipped_and_the_next_one_still_arrives() {
+        let frame = |text: &str| {
+            let mut f = vec![0x81u8, text.len() as u8];
+            f.extend_from_slice(text.as_bytes());
+            f
+        };
+        let frames = vec![
+            frame(r#"{"method":"Target.attachedTo"#),
+            frame(r#"{"method":"Target.attachedToTarget","params":{"t":"\uD83D"}}"#),
+        ];
+        let (port, server) = ws::tests::burst_server(frames, Duration::from_millis(1500));
+        let ws = WsClient::connect("127.0.0.1", port, "/").unwrap();
+        let mut client = CdpClient::from_ws(ws);
+        let mut got = Vec::new();
+        for _ in 0..4 {
+            match client.poll().expect("the connection holds") {
+                Some(Msg::Event { method, params, .. }) => got.push((method, params)),
+                Some(Msg::Response { .. }) => panic!("no reply was sent"),
+                None => {}
+            }
+            if !got.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(got.len(), 1, "the repaired message arrived after the broken one");
+        assert_eq!(got[0].0, "Target.attachedToTarget");
+        assert_eq!(got[0].1["t"], "\u{fffd}");
+        server.join().unwrap();
     }
 
     fn event(n: u64) -> Msg {
