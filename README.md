@@ -280,9 +280,14 @@ cover something is worse than one that says what it cannot do.
 
 **Other limits:**
 
-- **A jump changes what the application sees, not when it wakes up.** Timers already scheduled with
-  the kernel run on real time. Most applications poll the clock, so jumps work in practice - but not
-  all of them do
+- **A jump changes what the application sees, not when it wakes up.** Waits and timers already
+  scheduled with the kernel keep the length they were given when they started - divided by the speed
+  under `--scale-duration` for the sleeps and timers the session scales, real for the object waits and
+  multimedia timers it only counts. That includes a timer set for a date and time: its due time is
+  turned into a wait from the moment it is set, so a later jump or speed change does not move it. A
+  jump forward past it does not fire it early, and a jump back does not hold it back - Windows itself
+  would move such a timer when the system clock changes. Most applications poll the clock, so jumps
+  work in practice - but not all of them do
 - **The session time zone is a fixed offset with no daylight saving.** A session set to Poland stays
   at the offset you chose whether its clock is in March or in July, so a run that crosses a real DST
   boundary drifts an hour from what that zone would really show. Forcing an application through a DST
