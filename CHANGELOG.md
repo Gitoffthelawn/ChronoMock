@@ -137,6 +137,16 @@ Notable changes to Chrono Mock, newest first. The format follows
   now followed, and the ways that already were (kernel32, the C runtime's `system`, `_wspawnv` and
   `_popen`, `ShellExecuteEx`) still are, each child once. A child started under another user token
   (`CreateProcessAsUserW`) is left as before: named in the report, not followed.
+- **A `Sleep` made inside an APC is scaled, and every wait made there is counted.** Windows runs an asynchronous procedure call -
+  the completion routine of overlapped I/O or of a waitable timer, or one queued with `QueueUserAPC` -
+  while the thread sits in an alertable wait such as `SleepEx(..., TRUE)`. A `Sleep` made inside one
+  ran at its real length under `--scale-duration` and was left out of the audit, because the session
+  took it for Windows' own work inside the outer wait: measured at x60, a `Sleep(1200)` there took 1.2 s,
+  on x64 and x86 alike. An object wait made there, such as `WaitForSingleObject`, went uncounted too.
+  And an exception that left the APC for a handler outside the wait left every later `Sleep` of that
+  thread at its real length and uncounted, for good. All three now behave like any other call: the same
+  `Sleep` takes 20-35 ms at x60, each wait is counted once (an object wait keeps its real timeout, as
+  everywhere else), and a wait Windows makes inside another on its own is still not counted twice.
 - **The duration clocks no longer step back when the speed changes or the core stops.** Under
   `--scale-duration` and `--scale-qpc`, a speed change could answer one read from the old speed and the
   next from the new one for an overlapping moment, and the later read came back lower. Measured over
