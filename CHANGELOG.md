@@ -129,6 +129,19 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A CDP session survives a message it cannot read, and no page or worker is left paused.** A
+  Chromium or Electron session, and the bridge to the pages inside an application, ended the whole
+  connection on one message that was not valid JSON - which Chromium sends for a JavaScript string cut
+  in the middle of an emoji, such as a window name - and a Chromium session then reported the
+  application closed. Such a message is now repaired (the broken character becomes U+FFFD) or, failing
+  that, skipped with a single notice, and the session reads on. The events that attach a new page or
+  worker are no longer dropped from the queue while anything else is in it: dropping one, which could
+  happen only to a target that sent over ten thousand events while a command was waiting, left the
+  page or worker paused for good. A queue of nothing but such events keeps twice as many, and if
+  even that fills up, the session says it is dropping them. Every message already received is now handled in the same turn, where one per turn was
+  handled before, so a worker started during a busy page load is released sooner. A debug port that
+  answers on IPv6 (`::1`) is reached as well - the request named the host in a form the browser and
+  the resolver both rejected.
 - **A page's own `Date` behaves like the browser's, and its reads are counted.** In a Chromium or
   Electron session, and in the pages inside an application, the replacement for `Date` broke a class
   extending it: `new X()` came back as a plain `Date`, so a library built on such a class lost its
