@@ -80,15 +80,15 @@ impl Outbox for cdp::CdpClient {
     }
 }
 
-/// A request in flight, by what it was for. `step` numbers the clock moves of the session.
+/// A request in flight, by what it was for.
 #[derive(Debug)]
 enum Asked {
     Counts { session: String, index: u32, ty: String },
     /// A new hook for a move. The move's expression goes to the page when the hook comes back, so the
     /// page has the new hook before its live document moves (R4-W5) - however long it takes.
-    Hook { session: String, step: u64, expr: Arc<str> },
+    Hook { session: String, expr: Arc<str> },
     Unhook { session: String, script: String },
-    Move { session: String, step: u64 },
+    Move { session: String },
     Release { session: String },
 }
 
@@ -116,11 +116,11 @@ pub(crate) struct Requests {
     /// Per-context call counts, keyed by `(context index, "type api")`, merged by max so a peak
     /// survives a reload.
     counts: BTreeMap<(u32, String), u64>,
-    /// The pages that missed a clock move, with the move: one that did not take its new hook, one that
-    /// answered the move with anything but `ok` or `no-shim` (`late` from R4-S17), and one that had not
-    /// answered by the end.
-    missed: BTreeSet<(String, u64)>,
-    steps: u64,
+    /// The pages that missed a clock move: one that did not take its new hook, one that answered the
+    /// move with anything but `ok` or `no-shim` (`late` from R4-S17), and one that had not answered by
+    /// the end. A page once, however many moves it missed - the warning is about pages, and the set
+    /// stays as small as the list of contexts (CodeRabbit on #85).
+    missed: BTreeSet<String>,
 }
 
 impl Requests {
@@ -167,25 +167,23 @@ impl Requests {
     /// document - a page's once its new hook is back, a worker's at once. Returns the hook requests,
     /// for a caller that waits a bounded time for them before it acknowledges the move.
     pub(crate) fn start_move(&mut self, expr: &str, shim: &str, out: &mut impl Outbox) -> Vec<u64> {
-        self.steps += 1;
-        let step = self.steps;
         let expr: Arc<str> = Arc::from(expr);
         let mut hooks = Vec::new();
         for ctx in self.contexts.iter().filter(|c| !c.released) {
             let session = ctx.session_id.clone();
             if ctx.hooks.current.is_none() {
-                send_move(&mut self.asked, &mut self.missed, &session, step, &expr, out);
+                send_move(&mut self.asked, &mut self.missed, &session, &expr, out);
                 continue;
             }
             match out.ask(ADD_HOOK, json!({ "source": shim }), &session) {
                 Some(id) => {
-                    self.asked.insert(id, Asked::Hook { session, step, expr: Arc::clone(&expr) });
+                    self.asked.insert(id, Asked::Hook { session, expr: Arc::clone(&expr) });
                     hooks.push(id);
                 }
                 None => {
                     // Not sent: the page keeps the hook it has, and its live document still moves.
-                    self.missed.insert((session.clone(), step));
-                    send_move(&mut self.asked, &mut self.missed, &session, step, &expr, out);
+                    self.missed.insert(session.clone());
+                    send_move(&mut self.asked, &mut self.missed, &session, &expr, out);
                 }
             }
         }
@@ -245,16 +243,15 @@ impl Requests {
     /// At the end of the session: every move a live page has not answered is a move it missed.
     pub(crate) fn settle_moves(&mut self) {
         for asked in self.asked.values() {
-            if let Asked::Hook { session, step, .. } | Asked::Move { session, step } = asked {
-                self.missed.insert((session.clone(), *step));
+            if let Asked::Hook { session, .. } | Asked::Move { session } = asked {
+                self.missed.insert(session.clone());
             }
         }
     }
 
     /// How many pages missed at least one clock move.
     pub(crate) fn moves_missed(&self) -> usize {
-        let pages: BTreeSet<&str> = self.missed.iter().map(|(s, _)| s.as_str()).collect();
-        pages.len()
+        self.missed.len()
     }
 
     pub(crate) fn into_counts(self) -> BTreeMap<(u32, String), u64> {
@@ -278,12 +275,12 @@ impl Requests {
                     merge_counts(&mut self.counts, index, &ty, &reply);
                 }
             }
-            Asked::Hook { session, step, expr } => {
+            Asked::Hook { session, expr } => {
                 let new = reply.ok().as_ref().and_then(cdp::script_identifier);
                 if new.is_none() {
                     // The page did not take the new hook: it keeps the one it had, and a reload brings
                     // back that hook's clock.
-                    self.missed.insert((session.clone(), step));
+                    self.missed.insert(session.clone());
                 }
                 let Some(i) = at else {
                     return;
@@ -298,7 +295,7 @@ impl Requests {
                     unhook_all(ctx, &mut self.asked, out);
                 }
                 if !ctx.released {
-                    send_move(&mut self.asked, &mut self.missed, &session, step, &expr, out);
+                    send_move(&mut self.asked, &mut self.missed, &session, &expr, out);
                 }
             }
             Asked::Unhook { script, .. } => {
@@ -308,9 +305,9 @@ impl Requests {
                     self.contexts[i].hooks.unremoved.push(script);
                 }
             }
-            Asked::Move { session, step } => {
+            Asked::Move { session } => {
                 if !confirmed(&reply) {
-                    self.missed.insert((session, step));
+                    self.missed.insert(session);
                 }
             }
             Asked::Release { .. } => {
@@ -323,20 +320,13 @@ impl Requests {
 }
 
 /// Send a move's expression to one live document.
-fn send_move(
-    asked: &mut HashMap<u64, Asked>,
-    missed: &mut BTreeSet<(String, u64)>,
-    session: &str,
-    step: u64,
-    expr: &str,
-    out: &mut impl Outbox,
-) {
+fn send_move(asked: &mut HashMap<u64, Asked>, missed: &mut BTreeSet<String>, session: &str, expr: &str, out: &mut impl Outbox) {
     match out.ask(EVALUATE, json!({ "expression": expr, "returnByValue": true }), session) {
         Some(id) => {
-            asked.insert(id, Asked::Move { session: session.to_string(), step });
+            asked.insert(id, Asked::Move { session: session.to_string() });
         }
         None => {
-            missed.insert((session.to_string(), step));
+            missed.insert(session.to_string());
         }
     }
 }

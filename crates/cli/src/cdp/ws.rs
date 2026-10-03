@@ -516,6 +516,46 @@ pub(crate) mod tests {
         })
     }
 
+    /// A loopback browser: answers each CDP request `answer` has an answer for (and leaves the rest
+    /// unanswered, like a busy context), and hands back every request it read, in order, once the
+    /// client closes the connection.
+    pub(crate) fn fake_browser(
+        answer: impl Fn(&serde_json::Value) -> Option<serde_json::Value> + Send + 'static,
+    ) -> (u16, std::thread::JoinHandle<Vec<serde_json::Value>>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (port, server) = server(move |mut s| {
+            s.write_all(UPGRADED).unwrap();
+            let mut log = Vec::new();
+            let mut buf = Vec::new();
+            let mut b = [0u8; 8192];
+            'read: loop {
+                while let Ok(Some((_, opcode, payload))) = take_frame(&mut buf) {
+                    if opcode == 0x8 {
+                        break 'read;
+                    }
+                    let Ok(request) = serde_json::from_slice::<serde_json::Value>(&payload) else {
+                        continue;
+                    };
+                    if let Some(result) = answer(&request) {
+                        let reply = serde_json::json!({ "id": request["id"], "result": result }).to_string();
+                        s.write_all(&server_frame(reply.as_bytes(), true)).unwrap();
+                    }
+                    log.push(request);
+                }
+                match s.read(&mut b) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => buf.extend_from_slice(&b[..n]),
+                }
+            }
+            let _ = tx.send(log);
+        });
+        let log = std::thread::spawn(move || {
+            server.join().unwrap();
+            rx.recv().unwrap_or_default()
+        });
+        (port, log)
+    }
+
     /// R4-N27: once the upgrade is through, the socket has no read timeout. A read that times out
     /// leaves a connection indeterminate (Microsoft Learn), and a timeout used as the tick lost bytes
     /// on this machine (os error 997, `tools/probes/r4-15b`). The waiting is on the reader's channel.

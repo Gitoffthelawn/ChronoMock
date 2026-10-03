@@ -271,7 +271,7 @@ impl Attacher {
             if sid.is_empty() {
                 continue;
             }
-            self.shim(sid, ty, tid, origin, next_index);
+            self.shim(sid, ty, tid, origin, next_index, Some(deadline));
             attached += 1;
         }
         Ok(attached)
@@ -313,7 +313,7 @@ impl Attacher {
                     self.resume(&sid);
                     return Pumped::Idle;
                 }
-                self.shim(sid, ty, tid, origin, next_index);
+                self.shim(sid, ty, tid, origin, next_index, None);
                 Pumped::Attached
             }
             // A context that went away - a closed window, a recycled worker. Dropped from the live
@@ -349,7 +349,7 @@ impl Attacher {
     /// Give a newly attached context its index and its shim. The index is keyed by the CDP targetId,
     /// which Chromium keeps across re-attaches (R3-7). The shim is built from the clock's CURRENT
     /// origin, never the session's initial one.
-    fn shim(&mut self, sid: String, ty: String, tid: String, origin: ShimOrigin, next_index: &mut u32) {
+    fn shim(&mut self, sid: String, ty: String, tid: String, origin: ShimOrigin, next_index: &mut u32, cap: Option<Instant>) {
         // A target reached twice while it is live - auto-attach and the by-name attach can both
         // deliver the same page - stays one context: the shim itself is idempotent, but a second
         // session on the list would be polled and broadcast to twice. The second session is let go
@@ -360,7 +360,7 @@ impl Attacher {
         }
         // One deadline for everything this attach asks the context (R4-S10): each call used to have
         // its own, so one context in a busy renderer could hold the session for several of them.
-        let deadline = Instant::now() + self.client.call_budget();
+        let deadline = attach_deadline(Instant::now(), self.client.call_budget(), cap);
         let index = context_index_for(&tid, &mut self.index_by_target, next_index);
         if past_ceiling(&self.seen, index) {
             // Counted once per context, said by the caller (rule 4), and released: a context refused
@@ -519,6 +519,15 @@ impl Attacher {
     }
 }
 
+/// The deadline of one attach: its own budget from `now`, or the caller's deadline when that comes
+/// first. The pages that already exist are attached under the deadline of the session's start, and an
+/// attach made there that took a fresh budget of its own could double the silence before the first
+/// heartbeat - ten seconds to connect, ten more for one busy page (CodeRabbit on #85).
+fn attach_deadline(now: Instant, budget: Duration, cap: Option<Instant>) -> Instant {
+    let own = now + budget;
+    cap.map_or(own, |cap| cap.min(own))
+}
+
 /// Whether a context with this index is one too many: the ceiling is on contexts ever seen, so a
 /// re-attach of a known context (same index) always gets back in, and only a NEW one past the
 /// ceiling is refused.
@@ -573,6 +582,18 @@ mod tests {
         let mut endless = 0;
         assert_eq!(drain_turn(Pumped::Idle, || true, || { endless += 1; Some(Pumped::Idle) }), Pumped::Idle);
         assert_eq!(endless, PUMP_DRAIN_MAX);
+    }
+
+    /// An attach under the caller's deadline ends by it, and one with no deadline of the caller's -
+    /// or a later one - keeps its own budget.
+    #[test]
+    fn an_attach_ends_by_the_callers_deadline_when_that_comes_first() {
+        let now = Instant::now();
+        let budget = Duration::from_secs(10);
+        let soon = now + Duration::from_secs(1);
+        assert_eq!(attach_deadline(now, budget, Some(soon)), soon);
+        assert_eq!(attach_deadline(now, budget, None), now + budget);
+        assert_eq!(attach_deadline(now, budget, Some(now + Duration::from_secs(30))), now + budget);
     }
 
     /// R4-S10: a turn that has run out of its time stops taking messages, however many are here - a

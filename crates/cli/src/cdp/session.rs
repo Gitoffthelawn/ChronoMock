@@ -249,6 +249,21 @@ pub fn scheduled_js(scheduled: Option<ScheduledRate>) -> String {
     }
 }
 
+/// The expression that puts a live document on a whole clock at once through the shim's `set`: a
+/// jump, a resync, or - on the clock `(0, 0, 1, 1)`, the real wall with the duration axis on at rate
+/// 1 - the release. `no-shim` from a document the shim is not in. The one place this call is written,
+/// for the session's clock moves and for taking back an injection that failed.
+pub fn set_expr(fake0: i64, real0: i64, mult: i64, dur: i64, scheduled: Option<ScheduledRate>) -> String {
+    format!(
+        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';return S.set({},{},{},{},{});}})()",
+        fake0,
+        real0,
+        mult,
+        dur.max(1),
+        scheduled_js(scheduled)
+    )
+}
+
 /// True for a CDP target type that runs the target's own JS (and so is worth shimming). GPU, browser,
 /// and other infrastructure targets have no app timer to cover.
 pub fn is_shimmable(target_type: &str) -> bool {
@@ -298,10 +313,27 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, deadlin
         deadline,
     )?;
     let script = script_identifier(&added);
-    evaluate_shim(client, session_id, shim, deadline)?;
+    if let Err(e) = evaluate_shim(client, session_id, shim, deadline) {
+        take_back(client, session_id, script.as_deref());
+        return Err(e);
+    }
     let children = auto_attach_children(client, session_id, deadline);
     let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
     Ok(Injected { script, children })
+}
+
+/// Take back an injection that failed after its first steps went in (CodeRabbit on #85). The caller
+/// counts the context as uncovered and lets it go, and nothing moves or releases it after that - but
+/// the new-document hook is registered, and a shim evaluate that ran out of time is still queued in
+/// the context and runs once it is free. So the hook is removed, and the release is queued after that
+/// evaluate, in the same session, so the document ends on the real clock whichever runs. Not waited
+/// for: the context may be busy for as long as it likes.
+fn take_back(client: &mut CdpClient, session_id: &str, script: Option<&str>) {
+    if let Some(script) = script {
+        let _ = client.send("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": script }), Some(session_id));
+    }
+    let release = set_expr(0, 0, 1, 1, None);
+    let _ = client.send("Runtime.evaluate", json!({ "expression": release, "returnByValue": true }), Some(session_id));
 }
 
 /// Install the shim into a worker session, before its script runs when the worker was paused on start
@@ -310,7 +342,10 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, deadlin
 /// has no new-document hook - one started later is a new target, shimmed from the clock of then. One
 /// deadline for the sequence, as for a page.
 pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<Injected> {
-    evaluate_shim(client, session_id, shim, deadline)?;
+    if let Err(e) = evaluate_shim(client, session_id, shim, deadline) {
+        take_back(client, session_id, None);
+        return Err(e);
+    }
     // A worker can start workers of its own, and auto-attach set on the page does not reach them: a
     // worker started by a worker read the real clock (R4-N25, measured on an Electron page). Set before
     // the worker is released, so one it starts in its first script is paused for the shim too.
@@ -526,5 +561,48 @@ mod tests {
         assert!(!is_shimmable("other"));
         assert!(is_worker("dedicated_worker"));
         assert!(!is_worker("page"));
+    }
+
+    /// CodeRabbit on #85: an injection whose shim evaluate runs out of time takes itself back before
+    /// the context is let go. The hook it added is removed, and the release is queued behind the
+    /// evaluate that may still run late, in the same session - otherwise the page went on to the
+    /// session clock with nothing left to move or release it. A worker has no hook, only the release.
+    #[test]
+    fn an_injection_that_runs_out_of_time_takes_its_hook_back_and_queues_the_release() {
+        use std::time::Duration;
+        let (port, browser) = super::super::ws::tests::fake_browser(|request| match request["method"].as_str()? {
+            "Page.addScriptToEvaluateOnNewDocument" => Some(json!({ "identifier": "h1" })),
+            // A busy context: no evaluate is ever answered.
+            "Runtime.evaluate" => None,
+            _ => Some(json!({})),
+        });
+        let ws = super::super::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut client = CdpClient::from_ws(ws);
+        let soon = || Instant::now() + Duration::from_millis(300);
+        assert!(inject_page(&mut client, "P", "SHIM", soon()).is_err());
+        assert!(inject_worker(&mut client, "W", "SHIM", soon()).is_err());
+        drop(client);
+        let log = browser.join().unwrap();
+        let steps = |session: &str| -> Vec<String> {
+            log.iter()
+                .filter(|r| r["sessionId"] == session)
+                .map(|r| {
+                    let what = r["params"]["identifier"].as_str().or(r["params"]["expression"].as_str()).unwrap_or("");
+                    let what = if what.contains("S.set(0,0,1,1,null)") { "release" } else { what };
+                    format!("{} {what}", r["method"].as_str().unwrap_or(""))
+                })
+                .collect()
+        };
+        assert_eq!(
+            steps("P"),
+            [
+                "Page.enable ",
+                "Page.addScriptToEvaluateOnNewDocument ",
+                "Runtime.evaluate SHIM",
+                "Page.removeScriptToEvaluateOnNewDocument h1",
+                "Runtime.evaluate release",
+            ]
+        );
+        assert_eq!(steps("W"), ["Runtime.evaluate SHIM", "Runtime.evaluate release"]);
     }
 }

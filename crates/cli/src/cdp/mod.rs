@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 pub use launch::{is_chromium_target, launch_chromium};
 pub use session::{
-    build_shim, inject_page, inject_worker, is_shimmable, is_worker, scheduled_js, script_identifier, starts_workers,
+    build_shim, inject_page, inject_worker, is_shimmable, is_worker, script_identifier, set_expr, starts_workers,
     Injected, ScheduledRate, COUNTED_APIS, COUNTS_EXPR,
 };
 pub use ws::WsClient;
@@ -198,7 +198,7 @@ fn loopback_addrs(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
 fn remaining(deadline: Instant) -> io::Result<Duration> {
     let left = deadline.saturating_duration_since(Instant::now());
     if left.is_zero() {
-        return Err(io::Error::new(io::ErrorKind::TimedOut, "the CDP endpoint did not answer in time"));
+        return Err(io::Error::new(io::ErrorKind::TimedOut, "the browser's debugging port did not answer in time"));
     }
     Ok(left)
 }
@@ -229,7 +229,7 @@ fn read_some_by(stream: &mut TcpStream, buf: &mut Vec<u8>, deadline: Instant) ->
             Ok(n)
         }
         Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {
-            Err(io::Error::new(io::ErrorKind::TimedOut, "the CDP endpoint did not answer in time"))
+            Err(io::Error::new(io::ErrorKind::TimedOut, "the browser's debugging port did not answer in time"))
         }
         Err(e) => Err(e),
     }

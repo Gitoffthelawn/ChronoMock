@@ -77,6 +77,28 @@ public class RustTimeoutMirrorTests
     }
 
     /// <summary>
+    /// The start of a Chromium session: connecting to the browser and attaching to the pages it already
+    /// has run under one deadline, with no heartbeat in between - the last one beat during the wait for
+    /// the debug port. That deadline and one heartbeat must stay under the watchdog. An attach used to
+    /// take a fresh budget of its own inside it, which could double the silence (CodeRabbit on #85).
+    /// </summary>
+    [Fact]
+    public void The_start_of_a_chromium_session_is_shorter_than_the_client_watchdog()
+    {
+        var mod = ReadRustSource("crates", "cli", "src", "cdp", "mod.rs");
+        var connect = CaptureSeconds(
+            mod,
+            @"pub const CONNECT_DEADLINE: Duration = Duration::from_secs\((\d+)\);",
+            "CONNECT_DEADLINE");
+        const double Heartbeat = 1.0;
+
+        Assert.True(
+            connect + Heartbeat < SessionViewModel.IdleTimeout.TotalSeconds,
+            $"the start of a session ({connect}s) and a heartbeat ({Heartbeat}s) outlast the client's watchdog "
+                + $"({SessionViewModel.IdleTimeout.TotalSeconds}s)");
+    }
+
+    /// <summary>
     /// Preparing a native session: injecting the hook, then the guard window before the first
     /// coverage event. Nothing reaches the client during either.
     /// </summary>
