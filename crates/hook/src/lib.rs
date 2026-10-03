@@ -49,8 +49,10 @@
 //! only the CurrentTime field (the other fields stay real). It still calls no other channel's
 //! original, so the invariant holds.
 //!
-//! Child processes inherit the session via `CreateProcessW` / `CreateProcessA` detours
-//! (ADR-3). A DIRECT `NtCreateUserProcess` (bypassing CreateProcess*) is OBSERVED, not injected:
+//! Child processes inherit the session via `CreateProcessW` / `CreateProcessA` detours on kernel32 and
+//! the `CreateProcessInternalW` funnel in kernelbase under them (ADR-3, R4/11). A spawn that passes
+//! none of them - a user token (`CreateProcessAsUserW`), or `NtCreateUserProcess` called straight - is
+//! OBSERVED, not injected:
 //! counted and warned (its child may be uncovered), never self-injected - that would mean
 //! manipulating undocumented native structures for near-zero real value. A thread-local guard keeps
 //! the CreateProcess* funnel to NtCreateUserProcess from counting as a direct spawn.
@@ -59,6 +61,7 @@
 
 use std::cell::Cell;
 use std::ffi::{c_void, CString};
+use std::thread::LocalKey;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
@@ -245,6 +248,24 @@ type CpaFn = unsafe extern "system" fn(
     *const c_void,
     *mut PROCESS_INFORMATION,
 ) -> i32;
+// CreateProcessInternalW (kernelbase, undocumented): CreateProcessW with the user token in front and an
+// out token at the end. The layout every caller of the export uses, and the one the direct-spawn probe
+// has called on both bitnesses since 2026-08: (token, app, cmd, pa, ta, inherit, flags, env, cwd, si, pi,
+// new_token).
+type CpiwFn = unsafe extern "system" fn(
+    HANDLE,
+    *const u16,
+    *mut u16,
+    *const c_void,
+    *const c_void,
+    i32,
+    u32,
+    *const c_void,
+    *const u16,
+    *const c_void,
+    *mut PROCESS_INFORMATION,
+    *mut HANDLE,
+) -> i32;
 
 static CTL_PTR: OnceLock<usize> = OnceLock::new();
 static COV_PTR: OnceLock<usize> = OnceLock::new();
@@ -300,6 +321,7 @@ static O_NTDIOCF: OnceLock<NtDeviceIoControlFileFn> = OnceLock::new();
 static SELF_HMOD: OnceLock<usize> = OnceLock::new();
 static O_CPW: OnceLock<CpwFn> = OnceLock::new();
 static O_CPA: OnceLock<CpaFn> = OnceLock::new();
+static O_CPIW: OnceLock<CpiwFn> = OnceLock::new();
 
 // Self-detach: a SYNCHRONIZE handle to the core process, and the flag a watcher flips
 // when the core vanishes so every detour reverts to real time.
@@ -1644,29 +1666,64 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
 // and be counted against the export the app actually called, never an internal cascade. Both
 // Sleep and SleepEx bottom out on NtDelayExecution, so with that funnel hooked the guard is
 // load-bearing: Sleep scales at h_sleep, then re-enters h_ntdelay, which the flag makes pass
-// through unscaled. Since the two stand in kernelbase (2026-09-23) a 64-bit Sleep crosses THREE
-// detours, because kernelbase's Sleep is `xor edx, edx` and a jump to the exported SleepEx (32-bit
-// calls an internal copy instead). Before the move, a Sleep through the api-set never met h_sleep:
-// it was scaled at h_ntdelay and counted under that name - measured, scaled x57, NtDelayExecution +3.
+// through unscaled. Since the two stand in kernelbase (2026-09-23) a Sleep crosses THREE detours:
+// kernelbase's Sleep reaches the exported SleepEx, and SleepEx reaches NtDelayExecution. Measured on
+// both bitnesses with every guard off (R4/10b, `tools/probes/pcascade`), Sleep(0) and SleepEx(0)
+// included. Before the move, a Sleep through the api-set never met h_sleep: it was scaled at
+// h_ntdelay and counted under that name - measured, scaled x57, NtDelayExecution +3.
+//
+// The flag is up only while the thread runs Windows' own code between two of these detours. An
+// alertable wait is where Windows runs the application's APCs, and an APC is the application's code:
+// a Sleep in it is an application call, to be scaled and counted. So the flag goes down for the
+// kernel wait itself (`wait_runs_application`) and comes back up when the wait returns into Windows'
+// code. Until R4/10b it stood through the whole call, and a Sleep(1200) inside an APC ran 1.2 s real
+// at x60 and went uncounted (R4-N7, measured on x64 and x86). The same placement settles an exception
+// that leaves an APC: it unwinds past every frame between the APC and its handler, and whether or
+// not those frames put their flags back, the flag it leaves behind is the lowered one - the state of
+// a thread outside any wait. Before, the flag stayed up and every later Sleep of that thread ran real.
 
 thread_local! {
     static SCALING_WAIT: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Clears the re-entrancy flag when the top-level wait detour returns.
-struct WaitGuard;
-impl Drop for WaitGuard {
+/// Puts a thread-local flag of the wait and timer detours back to what it was when it was set.
+///
+/// Back to what it was, not down: a guard taken inside another's span leaves the outer one standing.
+struct FlagRestore {
+    flag: &'static LocalKey<Cell<bool>>,
+    was: bool,
+}
+
+impl Drop for FlagRestore {
     fn drop(&mut self) {
-        SCALING_WAIT.set(false);
+        self.flag.set(self.was);
     }
 }
 
-/// Decide whether this wait call is the top-level app call we should scale. Returns the
-/// duration multiplier and a guard (held across the original call, so an inner cascade sees the
-/// flag set and passes through) when it is - None when this is an internal cascade (pass the
-/// original through, uncounted) or the core has detached (fall through to real time). Bumps
-/// coverage only for a top-level app call, so the audit counts what the app called, not what
-/// Windows re-entered.
+/// Set `flag` to `up` until the returned guard drops.
+fn set_flag(flag: &'static LocalKey<Cell<bool>>, up: bool) -> FlagRestore {
+    FlagRestore { flag, was: flag.replace(up) }
+}
+
+/// The call that starts a cascade raises the flag and gets its guard, a call inside one gets None.
+fn enter_once(flag: &'static LocalKey<Cell<bool>>) -> Option<FlagRestore> {
+    if flag.get() {
+        return None;
+    }
+    Some(set_flag(flag, true))
+}
+
+/// Run the original of a wait with `flag` down when the wait is alertable, so an APC that Windows runs
+/// inside it enters the detours as the application call it is (R4-N7).
+///
+/// Only the innermost hooked wait on a path does this, the one whose original makes the kernel wait:
+/// a detour above it lowering the flag would count the cascade below it a second time. Which detours
+/// those are is measured, not assumed (`tools/probes/pcascade`, both bitnesses).
+fn wait_runs_application<R>(flag: &'static LocalKey<Cell<bool>>, alertable: bool, wait: impl FnOnce() -> R) -> R {
+    let _back = alertable.then(|| set_flag(flag, false));
+    wait()
+}
+
 /// Record that one wait could not be divided by the full multiplier, so the audit can say so.
 ///
 /// Silent partial coverage is what rule 27 calls a breach rather than a compromise, and this is
@@ -1686,20 +1743,23 @@ fn scaled_wait_ms(ms: u32, m: i64) -> u32 {
     scale_wait(ms, m)
 }
 
-fn try_enter_wait(idx: usize) -> Option<(i64, WaitGuard)> {
-    if SCALING_WAIT.get() {
-        return None; // internal cascade: pass through, do not bump
-    }
+/// Decide whether this wait call is the top-level app call we should scale. Returns the
+/// duration multiplier and a guard (held across the original call, so an inner cascade sees the
+/// flag set and passes through) when it is - None when this is an internal cascade (pass the
+/// original through, uncounted). A detached core gives multiplier 1 (real time). Bumps coverage
+/// only for a top-level app call, so the audit counts what the app called, not what Windows
+/// re-entered.
+fn try_enter_wait(idx: usize) -> Option<(i64, FlagRestore)> {
+    // None is an internal cascade: pass through, do not bump.
+    let guard = enter_once(&SCALING_WAIT)?;
     bump(idx);
     if detached() {
         // The core is gone, so this wait runs real - but it still cascades internally (Sleep funnels
         // into NtDelayExecution), and without the guard the inner call counted as a second top-level
         // call. The guard is held here too, so one application wait is one tally either way (rule 4).
-        SCALING_WAIT.set(true);
-        return Some((1, WaitGuard)); // multiplier 1 = real time, unchanged
+        return Some((1, guard)); // multiplier 1 = real time, unchanged
     }
-    SCALING_WAIT.set(true);
-    Some((dur_multiplier(), WaitGuard))
+    Some((dur_multiplier(), guard))
 }
 
 unsafe extern "system" fn h_sleep(ms: u32) { unsafe {
@@ -1727,26 +1787,29 @@ unsafe extern "system" fn h_sleepex(ms: u32, alertable: i32) -> u32 { unsafe {
 // NtDelayExecution is the shared funnel Sleep and SleepEx bottom out on, so hooking it makes the
 // re-entrancy guard load-bearing (a scaled Sleep re-enters here and must pass through). It also
 // catches callers that reach ntdll directly. The interval is signed 100 ns: only a negative
-// (relative) delay is scaled - a positive (absolute deadline) or null passes through.
+// (relative) delay is scaled - a positive (absolute deadline) or null passes through. Its original is
+// the kernel wait of every scaled wait, so this is where the flag goes down for an alertable one,
+// whether the call came from the application or down a cascade (R4-N7).
 unsafe extern "system" fn h_ntdelay(alertable: u8, interval: *const i64) -> i32 { unsafe {
     let o = match O_NTDELAY.get() {
         Some(o) => o,
         None => return STATUS_UNSUCCESSFUL, // no trampoline: no delay happened, so do not report success
     };
+    let kernel_wait = |interval: *const i64| wait_runs_application(&SCALING_WAIT, alertable != 0, || o(alertable, interval));
     match try_enter_wait(IDX_NTDELAY) {
         Some((m, _guard)) => {
             if interval.is_null() {
-                o(alertable, interval)
+                kernel_wait(interval)
             } else {
                 let requested = core::ptr::read_unaligned(interval);
                 if delay_hit_floor(requested, m) {
                     note_wait_at_floor();
                 }
                 let scaled = scale_delay_interval(requested, m);
-                o(alertable, &scaled as *const i64)
+                kernel_wait(&scaled as *const i64)
             }
         }
-        None => o(alertable, interval),
+        None => kernel_wait(interval),
     }
 }}
 
@@ -1764,40 +1827,35 @@ unsafe extern "system" fn h_ntdelay(alertable: u8, interval: *const i64) -> i32 
 // WaitForSingleObjectEx, and 29 other places in kernelbase call that export directly, among them
 // GetOverlappedResult and OutputDebugStringA. The hook's own waits go through `unobserved`.
 // Detached state is irrelevant: we never modify the wait either way.
+//
+// The cascades, measured with every guard off on both bitnesses (R4/10b, `tools/probes/pcascade`):
+// WaitForSingleObject -> ...Ex, WaitForMultipleObjects -> ...Ex, WSAWaitForMultipleEvents ->
+// WaitForMultipleObjectsEx, and on 32-bit only MsgWaitForMultipleObjects -> ...Ex. Nothing else
+// reaches a hooked partner, the condition-variable waits included. So the alertable forms of
+// ...Ex, SignalObjectAndWait and MsgWaitForMultipleObjectsEx make the kernel wait themselves, and
+// they lower the flag for it the way h_ntdelay does for class A: a wait inside an APC is counted
+// as the application's, and an exception leaving the APC leaves the flag down (R4-N7). The outer
+// forms never lower it, or the cascade below them would count twice.
 
 thread_local! {
     static OBSERVING_WAIT: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Clears the class-B counting-reentrancy flag when the top-level object-wait detour returns.
-struct ObservedWaitGuard;
-impl Drop for ObservedWaitGuard {
-    fn drop(&mut self) {
-        OBSERVING_WAIT.set(false);
-    }
-}
-
 /// Count an app-level object wait once, unless this is an internal cascade from another hooked
 /// object-wait export (then the outer call already counted it). When this is the top-level call it
 /// returns a guard, held across the forwarded original so the cascade sees the flag set.
-fn enter_observed_wait(idx: usize) -> Option<ObservedWaitGuard> {
-    if OBSERVING_WAIT.get() {
-        return None; // internal cascade: counted at the top level already
-    }
+fn enter_observed_wait(idx: usize) -> Option<FlagRestore> {
+    // None is an internal cascade: counted at the top level already.
+    let guard = enter_once(&OBSERVING_WAIT)?;
     bump(idx);
-    OBSERVING_WAIT.set(true);
-    Some(ObservedWaitGuard)
+    Some(guard)
 }
 
 /// Run a call of the hook's OWN that may end in an observed wait, with the flag raised and nothing
-/// counted, so the wait it reaches passes through as a cascade would. The flag is restored only by
-/// the call that raised it, so a nested use leaves an outer wait's flag alone.
+/// counted, so the wait it reaches passes through as a cascade would. The flag goes back to what it
+/// was, so a nested use leaves an outer wait's flag alone.
 fn unobserved<R>(f: impl FnOnce() -> R) -> R {
-    if OBSERVING_WAIT.get() {
-        return f();
-    }
-    OBSERVING_WAIT.set(true);
-    let _guard = ObservedWaitGuard;
+    let _guard = set_flag(&OBSERVING_WAIT, true);
     f()
 }
 
@@ -1816,7 +1874,7 @@ unsafe extern "system" fn h_wfsoex(handle: HANDLE, ms: u32, alertable: i32) -> u
         None => return WAIT_FAILED.0, // no trampoline: fail the wait, never claim it was signalled
     };
     let _g = enter_observed_wait(IDX_WFSOEX);
-    o(handle, ms, alertable)
+    wait_runs_application(&OBSERVING_WAIT, alertable != 0, || o(handle, ms, alertable))
 }}
 
 unsafe extern "system" fn h_wfmo(count: u32, handles: *const HANDLE, wait_all: i32, ms: u32) -> u32 { unsafe {
@@ -1840,7 +1898,7 @@ unsafe extern "system" fn h_wfmoex(
         None => return WAIT_FAILED.0, // no trampoline: fail the wait, never claim it was signalled
     };
     let _g = enter_observed_wait(IDX_WFMOEX);
-    o(count, handles, wait_all, ms, alertable)
+    wait_runs_application(&OBSERVING_WAIT, alertable != 0, || o(count, handles, wait_all, ms, alertable))
 }}
 
 unsafe extern "system" fn h_soaw(signal: HANDLE, wait: HANDLE, ms: u32, alertable: i32) -> u32 { unsafe {
@@ -1849,12 +1907,16 @@ unsafe extern "system" fn h_soaw(signal: HANDLE, wait: HANDLE, ms: u32, alertabl
         None => return WAIT_FAILED.0, // no trampoline: fail the wait, never claim it was signalled
     };
     let _g = enter_observed_wait(IDX_SOAW);
-    o(signal, wait, ms, alertable)
+    wait_runs_application(&OBSERVING_WAIT, alertable != 0, || o(signal, wait, ms, alertable))
 }}
 
 // The message waits live in user32. Same class-B story (count, never scale, forward untouched), and
-// the same counting guard - MsgWaitForMultipleObjects may internally reach ...Ex. The Ex form drops
-// fWaitAll and reorders its args (see the fn types).
+// the same counting guard - MsgWaitForMultipleObjects reaches ...Ex on 32-bit (measured, R4/10b), not
+// on 64-bit. The Ex form drops fWaitAll and reorders its args (see the fn types), and takes its
+// alertable switch as the MWMO_ALERTABLE bit of its flags.
+
+/// MWMO_ALERTABLE in MsgWaitForMultipleObjectsEx's flags (winuser.h).
+const MWMO_ALERTABLE_FLAG: u32 = 0x0002;
 unsafe extern "system" fn h_mwfmo(
     count: u32,
     handles: *const HANDLE,
@@ -1882,7 +1944,8 @@ unsafe extern "system" fn h_mwfmoex(
         None => return WAIT_FAILED.0, // no trampoline: fail the wait, never claim it was signalled
     };
     let _g = enter_observed_wait(IDX_MWFMOEX);
-    o(count, handles, ms, wake_mask, flags)
+    let alertable = flags & MWMO_ALERTABLE_FLAG != 0;
+    wait_runs_application(&OBSERVING_WAIT, alertable, || o(count, handles, ms, wake_mask, flags))
 }}
 
 // The four waits added on 2026-09-08. Same shape as the family above and for the same reason: a
@@ -1890,10 +1953,11 @@ unsafe extern "system" fn h_mwfmoex(
 // forwarded untouched and only the fact of the call is recorded. What changes is that a target which
 // blocks on one of these is no longer invisible to the audit.
 //
-// `enter_observed_wait` matters more here than anywhere else in this family, because these DO cascade
-// into it: the documentation says WSAWaitForMultipleEvents is implemented on WaitForMultipleObjectsEx,
-// and the condition-variable waits reach the address wait underneath. Without the thread-local guard
-// one blocked thread would be counted two or three times over.
+// `enter_observed_wait` matters for WSAWaitForMultipleEvents, which reaches WaitForMultipleObjectsEx
+// (the documentation says so and R4/10b measured it on both bitnesses) - without the guard one blocked
+// thread would be counted twice. This comment used to say the condition-variable waits reach the
+// address wait underneath as well. Measured with every guard off, they reach no hooked wait at all:
+// WaitOnAddress is a kernelbase export and they wait below it.
 
 unsafe extern "system" fn h_scvsrw(cv: *mut c_void, lock: *mut c_void, ms: u32, flags: u32) -> i32 { unsafe {
     let o = match O_SCVSRW.get() {
@@ -1956,20 +2020,15 @@ unsafe extern "system" fn h_wsawfme(
 // guard is separate from class A's (Sleep) and class B's (object waits) - the three families never
 // cross-nest. Measured on Win11 26200 (psleep, x64+x86): SetWaitableTimer's coverage counts exactly
 // the app's calls (2 via SetWaitableTimer, 1 via SetWaitableTimerEx) and the real wait scales once
-// (~M, not ~M^2), so the internal path does NOT reach the exported ...Ex partner here (like Sleep ->
-// SleepEx in class A) - the guard is correct policy, not yet load-bearing, protecting other Windows
-// versions and direct ...Ex callers (zasady/03 section 4: measured, not assumed).
+// (~M, not ~M^2), so the internal path does NOT reach the exported ...Ex partner here - the guard is
+// correct policy, not yet load-bearing, protecting other Windows versions and direct ...Ex callers
+// (zasady/03 section 4: measured, not assumed). R4/10b measured it again with every guard off, on both
+// bitnesses: still no cascade. (This comment used to add "like Sleep -> SleepEx in class A" - that
+// one does cascade since the move to kernelbase.) Setting a timer runs no application code, so this
+// flag has nothing to lower: a completion routine runs later, in an alertable wait of its own.
 
 thread_local! {
     static SCALING_TIMER: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Clears the class-C re-entrancy flag when the top-level timer detour returns.
-struct TimerGuard;
-impl Drop for TimerGuard {
-    fn drop(&mut self) {
-        SCALING_TIMER.set(false);
-    }
 }
 
 /// Decide whether this settable-timer call is the top-level app call we should scale. Returns the
@@ -1977,10 +2036,9 @@ impl Drop for TimerGuard {
 /// partner sees the flag set and passes through) when it is - None on an internal cascade (pass
 /// through, uncounted) or when the core has detached (real time). Mirrors try_enter_wait on its own
 /// flag. Bumps coverage only for a top-level app call (rule 4).
-fn try_enter_timer(idx: usize) -> Option<TimerGuard> {
-    if SCALING_TIMER.get() {
-        return None; // internal cascade: pass through, do not bump
-    }
+fn try_enter_timer(idx: usize) -> Option<FlagRestore> {
+    // None is an internal cascade: pass through, do not bump.
+    let guard = enter_once(&SCALING_TIMER)?;
     bump(idx);
     // The guard is raised whether or not the core is still there. Symmetric to try_enter_wait
     // (R2-S4): with the core gone an internal cascade (SetWaitableTimer -> SetWaitableTimerEx, should
@@ -1989,8 +2047,7 @@ fn try_enter_timer(idx: usize) -> Option<TimerGuard> {
     // the rate together, and a detached session answers None there, so the arguments are forwarded
     // untouched. This used to return a multiplier of its own, read from a second snapshot of the
     // control block that nothing tied to the one the due date was measured against.
-    SCALING_TIMER.set(true);
-    Some(TimerGuard)
+    Some(guard)
 }
 
 unsafe extern "system" fn h_swt(
@@ -2235,8 +2292,9 @@ unsafe extern "system" fn h_set_tp_timer_ex(
 
 // --- Direct process creation (ADR-3, observed) ---------------------------------
 // NtCreateUserProcess is the funnel under CreateProcessInternalW, so a hooked CreateProcessW/A reaches
-// it. We count only a DIRECT NtCreateUserProcess (a child spawned bypassing CreateProcess*), because
-// the CreateProcess* detours already inherit the session into their child. SPAWNING is a thread-local
+// it. We count only one that no CreateProcess detour started - since R4/11 that is a spawn with a user
+// token (h_cpiw leaves those alone) or NtCreateUserProcess called straight - because the CreateProcess
+// detours already inherit the session into their child. SPAWNING is a thread-local
 // flag those detours raise around their original call (which funnels here on the same thread) - when it
 // is set, this detour just forwards, uncounted. A direct call finds it clear, counts, and warns - we
 // deliberately do NOT self-inject (that means manipulating undocumented native structures, a crash
@@ -2582,6 +2640,47 @@ unsafe extern "system" fn h_cpa(
     let r = {
         let _g = enter_spawning();
         o(app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi)
+    };
+    inherit_into_child(r, pi, want_suspended);
+    r
+}}
+
+// CreateProcessInternalW in kernelbase is where every CreateProcess path meets, and the detours above
+// stand on kernel32's exports only. Measured on both bitnesses (R4/11, `tools/probes/pspawnpaths`): a
+// child started through kernelbase's own CreateProcessW/A (code that imports through the api-set),
+// through WinExec, or through CreateProcessInternalW itself ran on the real clock - the session saw
+// it only as a direct NtCreateUserProcess. This detour catches those. A call that already went through
+// h_cpw or h_cpa finds SPAWNING raised and passes through, so a child is inherited once.
+//
+// A call with a user token (CreateProcessAsUserW and the like) is left as it was: observed, counted by
+// h_ntcup and named as uncovered. That is how a sandbox broker starts its restricted children, and
+// injecting into a process under a restricted token is its own question, not part of this change.
+#[allow(clippy::too_many_arguments)]
+unsafe extern "system" fn h_cpiw(
+    token: HANDLE,
+    app: *const u16,
+    cmd: *mut u16,
+    pa: *const c_void,
+    ta: *const c_void,
+    inherit: i32,
+    flags: u32,
+    env: *const c_void,
+    cwd: *const u16,
+    si: *const c_void,
+    pi: *mut PROCESS_INFORMATION,
+    new_token: *mut HANDLE,
+) -> i32 { unsafe {
+    let o = match O_CPIW.get() {
+        Some(o) => o,
+        None => return 0,
+    };
+    if SPAWNING.get() || !token.0.is_null() || pi.is_null() || session_over() {
+        return o(token, app, cmd, pa, ta, inherit, flags, env, cwd, si, pi, new_token);
+    }
+    let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
+    let r = {
+        let _g = enter_spawning();
+        o(token, app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi, new_token)
     };
     inherit_into_child(r, pi, want_suspended);
     r
@@ -3276,8 +3375,8 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
 
     // Child inheritance (ADR-3): hook CreateProcessW and CreateProcessA so the whole
     // process tree joins the session whichever spawn API the parent uses. Not coverage
-    // channels - plumbing, not time sources. (CreateProcessA funnels through the internal
-    // CreateProcessInternalW, not the W export, so the two detours never re-enter.)
+    // channels - plumbing, not time sources. (CreateProcessA funnels through CreateProcessInternalW, not
+    // the W export, so the two never re-enter each other. Both reach h_cpiw below with SPAWNING raised.)
     if let Some(cpw) = GetProcAddress(k32, s!("CreateProcessW")) {
         match MinHook::create_hook(
             cpw as *const () as *mut c_void,
@@ -3299,6 +3398,19 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
             }
             Err(e) => log(&format!("[chrono_hook] create_hook CreateProcessA failed: {e:?}")),
         }
+    }
+    // The funnel under both, in kernelbase, for the paths that never meet kernel32's exports (h_cpiw).
+    if let Ok(kernelbase) = GetModuleHandleA(s!("kernelbase.dll"))
+        && let Some(cpiw) = GetProcAddress(kernelbase, s!("CreateProcessInternalW"))
+    {
+        match MinHook::create_hook(cpiw as *const () as *mut c_void, h_cpiw as *const () as *mut c_void) {
+            Ok(original) => {
+                let _ = O_CPIW.set(std::mem::transmute::<*mut c_void, CpiwFn>(original));
+            }
+            Err(e) => log(&format!("[chrono_hook] create_hook CreateProcessInternalW failed: {e:?}")),
+        }
+    } else {
+        log("[chrono_hook] kernelbase has no CreateProcessInternalW, children started past kernel32 stay uncovered");
     }
 
     // Enable every prepared detour, THEN publish what is actually live. Until this call returns Ok,
@@ -3564,5 +3676,69 @@ mod tests {
         for other in [0x12003, 0x12023, 0x12024, 0x12047, 0x120BF, 0x120007] {
             assert!(!is_connection_attempt(other), "0x{other:x} is not a connection attempt");
         }
+    }
+
+    thread_local! {
+        static CASCADE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// The path a Sleep takes, measured on both bitnesses (R4/10b): Sleep -> SleepEx -> NtDelayExecution,
+    /// whose original is the kernel wait. An APC Windows runs inside an alertable one is the
+    /// application's code, so a Sleep in it is entered as a call of its own, and its own cascade still
+    /// passes through. Until R4/10b the flag stood through the kernel wait and the APC's Sleep was taken
+    /// for a cascade: unscaled and uncounted (R4-N7).
+    #[test]
+    fn a_wait_inside_an_alertable_kernel_wait_is_the_applications_own() {
+        let sleep = enter_once(&CASCADE);
+        assert!(sleep.is_some(), "the application's Sleep is not a cascade");
+        assert!(enter_once(&CASCADE).is_none(), "SleepEx reached from Sleep is a cascade");
+        assert!(enter_once(&CASCADE).is_none(), "NtDelayExecution reached from SleepEx is a cascade");
+        let mut apc_ran = false;
+        wait_runs_application(&CASCADE, true, || {
+            let apc_sleep = enter_once(&CASCADE);
+            assert!(apc_sleep.is_some(), "a Sleep inside an APC was taken for a cascade");
+            assert!(enter_once(&CASCADE).is_none(), "the APC's own cascade counted twice");
+            drop(apc_sleep);
+            assert!(!CASCADE.get(), "the APC's Sleep left the flag up inside the kernel wait");
+            apc_ran = true;
+        });
+        assert!(apc_ran);
+        assert!(CASCADE.get(), "back in Windows' code after the kernel wait, the cascade flag is up again");
+        drop(sleep);
+        assert!(!CASCADE.get(), "the application's Sleep returned with the flag up");
+    }
+
+    /// A wait that is not alertable runs no application code, so its cascade keeps the flag: a hooked
+    /// wait reached under it is still the same application call.
+    #[test]
+    fn a_wait_that_is_not_alertable_keeps_its_cascade() {
+        let wait = enter_once(&CASCADE);
+        wait_runs_application(&CASCADE, false, || {
+            assert!(enter_once(&CASCADE).is_none(), "a non-alertable kernel wait lowered the cascade flag");
+        });
+        drop(wait);
+        assert!(!CASCADE.get());
+    }
+
+    /// An exception out of an APC unwinds past every frame between the APC and its handler. Whether
+    /// those frames put their flags back (they do under unwinding with cleanups) or not (the injected
+    /// detours have none, measured: the APC's exception left the old flag up for good), the thread ends
+    /// with the flag down, so its next Sleep is scaled and counted (R4-N7).
+    #[test]
+    fn an_exception_out_of_an_apc_leaves_the_thread_outside_any_wait() {
+        // Cleanups skipped: no frame puts anything back, so the flag stays what the APC saw.
+        let sleep = enter_once(&CASCADE).expect("top level");
+        assert!(enter_once(&CASCADE).is_none());
+        let seen_by_the_apc = wait_runs_application(&CASCADE, true, || CASCADE.get());
+        assert!(!seen_by_the_apc, "an exception out of the APC would leave the cascade flag up for good");
+        drop(sleep);
+
+        // Cleanups run: a real unwind through the same helpers.
+        let unwound = std::panic::catch_unwind(|| {
+            let _sleep = enter_once(&CASCADE);
+            wait_runs_application(&CASCADE, true, || panic!("an exception out of an APC"));
+        });
+        assert!(unwound.is_err());
+        assert!(!CASCADE.get(), "an unwind with cleanups left the cascade flag up");
     }
 }

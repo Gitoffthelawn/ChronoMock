@@ -100,6 +100,44 @@ pub(crate) enum Pumped {
     Closed,
 }
 
+impl Pumped {
+    /// The outcome a turn of several messages reports: a closed connection over anything, an attach
+    /// over a detach, anything over nothing.
+    fn stronger(self, other: Pumped) -> Pumped {
+        let rank = |p: &Pumped| match p {
+            Pumped::Idle => 0,
+            Pumped::Detached => 1,
+            Pumped::Attached => 2,
+            Pumped::Closed => 3,
+        };
+        if rank(&other) > rank(&self) { other } else { self }
+    }
+}
+
+/// How many messages one turn of the pump handles after the first - all of them already here, so
+/// none is waited for (R4-S14). One message a turn handled about ten a second on an engine inside a
+/// natively hooked session, so a page load's seventy-odd events kept a worker auto-attach paused on
+/// start waiting about seven seconds for its shim and its release. Bounded so a target that never
+/// stops talking cannot keep the turn from ending.
+const PUMP_DRAIN_MAX: usize = 256;
+
+/// The rest of a pump turn after its first message: `next_ready` handles the next message that is
+/// already here and says what it found, or `None` when nothing is. Stops at a closed connection, at
+/// the end of what is here, or at [`PUMP_DRAIN_MAX`], and reports the strongest outcome of the turn.
+fn drain_turn(first: Pumped, mut next_ready: impl FnMut() -> Option<Pumped>) -> Pumped {
+    let mut turn = first;
+    for _ in 0..PUMP_DRAIN_MAX {
+        if turn == Pumped::Closed {
+            break;
+        }
+        match next_ready() {
+            Some(found) => turn = turn.stronger(found),
+            None => break,
+        }
+    }
+    turn
+}
+
 /// What one attacher covered, handed over when it is done - because it was closed by the engine, or
 /// because the session ended. The counts and the seen list are the audit's evidence, and an attacher
 /// dropped without this hand-over takes them with it (docs/09 section 12.17).
@@ -210,9 +248,20 @@ impl Attacher {
         Ok(attached)
     }
 
-    /// One turn: poll the connection (bounded by the client's poll interval) and act on what came.
+    /// One turn: poll the connection (bounded by the client's poll interval), act on what came, then
+    /// on everything else that is already here, without waiting for more (R4-S14).
     pub(crate) fn pump(&mut self, origin: ShimOrigin, next_index: &mut u32) -> Pumped {
-        match self.client.poll() {
+        let polled = self.client.poll();
+        let first = self.handle(polled, origin, next_index);
+        drain_turn(first, || match self.client.poll_ready() {
+            Ok(None) => None,
+            ready => Some(self.handle(ready, origin, next_index)),
+        })
+    }
+
+    /// Act on one polled message.
+    fn handle(&mut self, polled: io::Result<Option<cdp::Msg>>, origin: ShimOrigin, next_index: &mut u32) -> Pumped {
+        match polled {
             Ok(Some(cdp::Msg::Event { method, params, .. })) if method == "Target.attachedToTarget" => {
                 let sid = params["sessionId"].as_str().unwrap_or("").to_string();
                 let ty = params["targetInfo"]["type"].as_str().unwrap_or("").to_string();
@@ -281,12 +330,18 @@ impl Attacher {
         }
         let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur, WALL_MAX_MS);
         let injected = if cdp::is_worker(&ty) {
-            cdp::inject_worker(&mut self.client, &sid, &shim).map(|()| None)
+            cdp::inject_worker(&mut self.client, &sid, &shim)
         } else {
             cdp::inject_page(&mut self.client, &sid, &shim)
         };
         match injected {
-            Ok(script) => {
+            Ok(cdp::Injected { script, children }) => {
+                if !children && cdp::starts_workers(&ty) {
+                    // The context is on the session clock, but it refused auto-attach, so a worker it
+                    // starts runs on the real clock unseen. Counted as one that could not be reached,
+                    // so the verdict says some were not rather than that all were (rule 4).
+                    self.failed += 1;
+                }
                 if !self.seen.contains(&index) {
                     self.seen.push(index);
                 }
@@ -416,7 +471,7 @@ impl Attacher {
                 && let Some(obj) = v.get("result").and_then(|x| x.get("value")).and_then(serde_json::Value::as_object)
             {
                 any = true;
-                for (api, key) in [("setInterval", "si"), ("setTimeout", "st"), ("Date.now", "now"), ("performance.now", "perf")] {
+                for (api, key) in cdp::COUNTED_APIS {
                     if let Some(n) = obj.get(key).and_then(serde_json::Value::as_u64) {
                         let entry = self.counts.entry((c.index, format!("{} {}", c.ty, api))).or_insert(0);
                         *entry = (*entry).max(n);
@@ -442,7 +497,8 @@ impl Attacher {
         self.counts
     }
 
-    /// How many contexts attached and could not be shimmed.
+    /// How many contexts attached and could not be shimmed, plus the ones shimmed that refused to
+    /// attach the workers they start - a worker of theirs would run on the real clock unseen.
     pub(crate) fn failed(&self) -> usize {
         self.failed
     }
@@ -483,6 +539,31 @@ fn new_targets(reply: &serde_json::Value, known: &HashMap<String, u32>) -> Vec<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R4-S14: a turn takes everything that is already here, not one message - and reports what
+    /// mattered most in it, so an attach in the middle of a burst of other events is not lost.
+    #[test]
+    fn a_pump_turn_takes_the_whole_burst_and_reports_its_strongest_outcome() {
+        let mut burst = vec![Pumped::Idle, Pumped::Attached, Pumped::Detached, Pumped::Idle].into_iter();
+        let mut taken = 0;
+        let turn = drain_turn(Pumped::Idle, || {
+            let next = burst.next();
+            taken += usize::from(next.is_some());
+            next
+        });
+        assert_eq!(turn, Pumped::Attached);
+        assert_eq!(taken, 4, "every message already here was handled in the turn");
+
+        // A closed connection ends the turn at once and is what the turn reports.
+        let mut after_close = 0;
+        assert_eq!(drain_turn(Pumped::Closed, || { after_close += 1; Some(Pumped::Attached) }), Pumped::Closed);
+        assert_eq!(after_close, 0, "nothing is read after the connection closed");
+
+        // A target that never stops talking cannot keep the turn going.
+        let mut endless = 0;
+        assert_eq!(drain_turn(Pumped::Idle, || { endless += 1; Some(Pumped::Idle) }), Pumped::Idle);
+        assert_eq!(endless, PUMP_DRAIN_MAX);
+    }
 
     /// The probe decides whether a page inside a natively hooked application gets the shim. Our own
     /// marker means a page that reloaded - it is ours, and it is tracked again. A reading nearer the

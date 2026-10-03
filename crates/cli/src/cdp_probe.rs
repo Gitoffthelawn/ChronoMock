@@ -171,10 +171,10 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
                 let r = if cdp::is_worker(&ty) {
                     cdp::inject_worker(&mut client, &sid, &shim)
                 } else {
-                    cdp::inject_page(&mut client, &sid, &shim).map(|_| ())
+                    cdp::inject_page(&mut client, &sid, &shim)
                 };
                 match r {
-                    Ok(()) => outln!("{}", probe_target_line("shimmed", &ty, &url)),
+                    Ok(_) => outln!("{}", probe_target_line("shimmed", &ty, &url)),
                     // `e` is already folded at its source (`evaluate_shim`) - `ty` is not.
                     Err(e) => outln!("  FAILED  {}: {e}", cdp::sanitise_target_text(&ty)),
                 }

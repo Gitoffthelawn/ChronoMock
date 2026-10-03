@@ -280,9 +280,14 @@ cover something is worse than one that says what it cannot do.
 
 **Other limits:**
 
-- **A jump changes what the application sees, not when it wakes up.** Timers already scheduled with
-  the kernel run on real time. Most applications poll the clock, so jumps work in practice - but not
-  all of them do
+- **A jump changes what the application sees, not when it wakes up.** Waits and timers already
+  scheduled with the kernel keep the length they were given when they started - divided by the speed
+  under `--scale-duration` for the sleeps and timers the session scales, real for the object waits and
+  multimedia timers it only counts. That includes a timer set for a date and time: its due time is
+  turned into a wait from the moment it is set, so a later jump or speed change does not move it. A
+  jump forward past it does not fire it early, and a jump back does not hold it back - Windows itself
+  would move such a timer when the system clock changes. Most applications poll the clock, so jumps
+  work in practice - but not all of them do
 - **The session time zone is a fixed offset with no daylight saving.** A session set to Poland stays
   at the offset you chose whether its clock is in March or in July, so a run that crosses a real DST
   boundary drifts an hour from what that zone would really show. Forcing an application through a DST
@@ -293,6 +298,13 @@ cover something is worse than one that says what it cannot do.
   instead, which is the right answer: .NET's `TimeZoneInfo.Local` keeps the name, Java names the zone
   after its offset (`GMT+05:30`), and so do Node.js and Deno for a whole hour (`Etc/GMT-5`). A target
   that insists on a registry name will not find one
+- **A child started under another user token is not followed.** Children started through
+  `CreateProcessW` or `CreateProcessA`, whichever system library the call goes through, `WinExec`,
+  the C runtime's `system`, spawn and `_popen` functions or `ShellExecuteEx` join the session. One
+  started under another user token, with `CreateProcessAsUserW` - by a launcher that drops its rights,
+  or a sandbox broker - runs on the real clock, and the report names it among the processes the
+  session did not cover. A program a Windows service starts on the
+  application's behalf is outside its process tree altogether
 - **What runs while Windows loads the application reads the real clock.** The fake clock is attached
   once Windows has loaded the application, so the start-up code of the libraries it imports
   (`DllMain`) and its TLS callbacks run before it. Everything from the application's entry point on,

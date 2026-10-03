@@ -3,10 +3,10 @@
 //! target's own timers run on the session clock. Injection uses auto-attach so it reaches the page
 //! AND its Web Workers, where an Electron app's timer often turns out to live.
 //!
-//! Scope of the shim in this slice: `setInterval`/`setTimeout` scaling (the acceleration) and
-//! `Date.now`/`performance.now` on the session clock, with the fake start defaulting to real "now"
-//! (pure acceleration). The absolute fake wall moment, the `new Date()` constructor, zone, and frozen
-//! mode are the time-model fidelity of slice C5.
+//! What the shim covers: `setInterval`/`setTimeout` scaling (the acceleration), `Date.now`,
+//! `performance.now`, the `Date` constructor and its function form (`new Date()`, `Date()`, and a
+//! subclass of `Date`, which stays an instance of itself), and `Intl.DateTimeFormat` formatting "now".
+//! The zone is the host's - the instant is faked, not the local-time getters.
 
 use super::CdpClient;
 use serde_json::{json, Value};
@@ -45,6 +45,9 @@ const SHIM_TEMPLATE: &str = r#"(function(){
   }
   var _OrigDate = Date;
   var _now = _OrigDate.now.bind(_OrigDate);
+  /* Taken now, before the page's own scripts: a native Date() never calls the prototype's toString,
+     so one the page replaced must not reach Date() either. */
+  var _dateString = _OrigDate.prototype.toString;
   var _perf = (typeof performance !== 'undefined' && performance.now) ? performance.now.bind(performance) : null;
   var S = {
     M: __MULT__,                    /* wall rate: 0 = frozen, 1 = flow (wall offset only), N = accelerate */
@@ -52,27 +55,58 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     fakeStart: __FAKE_START__,
     realStart: __REAL_START__,
     wallMax: __WALL_MAX__,          /* the last instant the session clock can hold - it stands there */
-    perfBase: 0,                    /* accumulated scaled duration up to the last rate change */
+    perfBase: _perf ? _perf() : 0,  /* where performance.now stood when the shim arrived (R4-S16) */
     perfAnchorReal: _perf ? _perf() : 0,
     _realNow: _now,
     _realPerf: _perf,
-    counts: { si: 0, st: 0, now: 0, perf: 0 }
+    counts: { si: 0, st: 0, now: 0, date: 0, intl: 0, perf: 0 }
   };
   globalThis.__chronomock = S;
   function fakeNow(){ return Math.round(Math.min(S.fakeStart + (_now() - S.realStart) * S.M, S.wallMax)); }
 
-  /* Replace Date so new Date() (no args) and Date.now() read the session clock; every other form
-     (parsing, explicit fields) is unchanged, and instanceof / the prototype are preserved. */
+  /* Replace Date so new Date() (no args), Date() and Date.now() read the session clock; every other
+     form (parsing, explicit fields) is unchanged. Reflect.construct with new.target keeps a subclass
+     (class X extends Date) an X - building a plain Date here dropped its prototype (R4-W6). */
   function CMDate() {
-    if (!(this instanceof CMDate)) { return _OrigDate.apply(null, arguments); }
-    if (arguments.length === 0) { return new _OrigDate(fakeNow()); }
-    return new (Function.prototype.bind.apply(_OrigDate, [null].concat([].slice.call(arguments))))();
+    if (!new.target) { S.counts.date++; return _dateString.call(new _OrigDate(fakeNow())); }
+    if (arguments.length === 0) { S.counts.date++; return Reflect.construct(_OrigDate, [fakeNow()], new.target); }
+    return Reflect.construct(_OrigDate, arguments, new.target);
   }
   CMDate.prototype = _OrigDate.prototype;
   CMDate.now = function(){ S.counts.now++; return fakeNow(); };
   CMDate.parse = _OrigDate.parse;
   CMDate.UTC = _OrigDate.UTC;
+  /* The prototype is the original's, so its constructor has to point here, or new d.constructor()
+     reads the real clock - and the name and arity are the native ones. */
+  try { Object.defineProperty(_OrigDate.prototype, 'constructor', { value: CMDate, writable: true, configurable: true }); } catch (e) {}
+  try { Object.defineProperty(CMDate, 'name', { value: 'Date' }); Object.defineProperty(CMDate, 'length', { value: 7 }); } catch (e) {}
   try { globalThis.Date = CMDate; } catch (e) { try { Date.now = CMDate.now; } catch (e2) {} }
+
+  /* Intl.DateTimeFormat formats "now" when it is given no date, and reads that now itself - the real
+     clock. format is a getter that hands out one bound function per formatter, so the wrapper is kept
+     per formatter the same way. */
+  var _DTF = globalThis.Intl && globalThis.Intl.DateTimeFormat;
+  if (_DTF && _DTF.prototype) {
+    var _fmtGet = (Object.getOwnPropertyDescriptor(_DTF.prototype, 'format') || {}).get;
+    var _fmtOf = typeof WeakMap === 'function' ? new WeakMap() : null;
+    if (_fmtGet && _fmtOf) {
+      try {
+        Object.defineProperty(_DTF.prototype, 'format', { configurable: true, get: function(){
+          var f = _fmtOf.get(this);
+          if (!f) {
+            var real = _fmtGet.call(this);
+            f = function(d){ if (d === undefined) { S.counts.intl++; d = fakeNow(); } return real(d); };
+            _fmtOf.set(this, f);
+          }
+          return f;
+        } });
+      } catch (e) {}
+    }
+    var _ftp = _DTF.prototype.formatToParts;
+    if (_ftp) {
+      _DTF.prototype.formatToParts = function(d){ if (d === undefined) { S.counts.intl++; d = fakeNow(); } return _ftp.call(this, d); };
+    }
+  }
 
   /* setInterval/setTimeout read the duration rate (D || 1) live, so a NEW timer picks up the current
      rate; one already scheduled keeps its old cadence (the kernel already queued it). */
@@ -89,6 +123,19 @@ const SHIM_TEMPLATE: &str = r#"(function(){
 /// make an honest "covered means the app actually called it" report, the same way the native audit
 /// counts channel queries - an override that was installed but never exercised is not "covered".
 pub const COUNTS_EXPR: &str = "(globalThis.__chronomock && globalThis.__chronomock.counts) || null";
+
+/// The APIs the shim counts, as (the name the report gives them, the key in the shim's `counts`).
+/// `new Date` counts every read of the clock through the constructor, `new Date()` and `Date()` alike -
+/// an app that reads the time only that way was reported as having called no time API at all (R4-S19).
+/// `Intl.DateTimeFormat` counts a format of "now" (`format()` or `formatToParts()` with no date).
+pub const COUNTED_APIS: [(&str, &str); 6] = [
+    ("setInterval", "si"),
+    ("setTimeout", "st"),
+    ("Date.now", "now"),
+    ("new Date", "date"),
+    ("Intl.DateTimeFormat", "intl"),
+    ("performance.now", "perf"),
+];
 
 /// Build the shim source for a session clock: `fake_start_ms`/`real_start_ms` are Unix-epoch ms, `mult`
 /// the wall rate (0 freezes it) and `dur` the duration rate for timers and `performance.now` (never
@@ -123,11 +170,26 @@ pub fn is_worker(target_type: &str) -> bool {
     target_type.contains("worker")
 }
 
+/// Whether a context of this type can start workers of its own - the ones auto-attach set on it is
+/// there to reach. A service worker cannot (`Worker` is not in its scope), so one that refuses
+/// auto-attach leaves nothing on the real clock.
+pub fn starts_workers(target_type: &str) -> bool {
+    is_shimmable(target_type) && target_type != "service_worker"
+}
+
+/// What installing the shim into one context left behind.
+pub struct Injected {
+    /// A page's new-document hook, which [`renew_page_script`] needs to replace it when the clock
+    /// moves. `None` for a worker, and for a page that answered without an identifier.
+    pub script: Option<String>,
+    /// Whether the context took auto-attach (see [`auto_attach_children`]).
+    pub children: bool,
+}
+
 /// Install the shim into a page (or frame) session: as an add-script hook so every future document
 /// gets it before its own scripts run, plus an immediate evaluate for the document already loaded.
-/// Then cascade auto-attach so the page's Web Workers are attached and shimmed too. Returns the
-/// add-script hook's identifier, which [`renew_page_script`] needs to replace it when the clock moves.
-pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<Option<String>> {
+/// Then cascade auto-attach so the page's Web Workers are attached and shimmed too.
+pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<Injected> {
     client.call("Page.enable", json!({}), Some(session_id)).ok();
     let added = client.call(
         "Page.addScriptToEvaluateOnNewDocument",
@@ -136,15 +198,37 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::
     )?;
     let script = script_identifier(&added);
     evaluate_shim(client, session_id, shim)?;
+    let children = auto_attach_children(client, session_id);
+    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
+    Ok(Injected { script, children })
+}
+
+/// Install the shim into a worker session, before its script runs when the worker was paused on start
+/// (waitForDebuggerOnStart), or immediately for a worker that is already alive but has not yet armed a
+/// timer. Then release a paused worker so it proceeds with the overridden globals in place. A worker
+/// has no new-document hook - one started later is a new target, shimmed from the clock of then.
+pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<Injected> {
+    evaluate_shim(client, session_id, shim)?;
+    // A worker can start workers of its own, and auto-attach set on the page does not reach them: a
+    // worker started by a worker read the real clock (R4-N25, measured on an Electron page). Set before
+    // the worker is released, so one it starts in its first script is paused for the shim too.
+    let children = auto_attach_children(client, session_id);
+    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
+    Ok(Injected { script: None, children })
+}
+
+/// Ask a context to attach the workers it starts, paused for the shim. `false` when it answered with
+/// an error or not at all: the context itself is shimmed, but a worker it starts would run on the
+/// real clock unseen, and the caller has to count that (rule 4). Measured on Chromium 153: a page, a
+/// dedicated worker, a nested one, a shared worker and a service worker all take it.
+fn auto_attach_children(client: &mut CdpClient, session_id: &str) -> bool {
     client
         .call(
             "Target.setAutoAttach",
             json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
             Some(session_id),
         )
-        .ok();
-    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
-    Ok(script)
+        .is_ok()
 }
 
 /// The identifier `Page.addScriptToEvaluateOnNewDocument` answered with, if it gave one.
@@ -180,15 +264,6 @@ pub fn remove_page_script(client: &mut CdpClient, session_id: &str, script: &str
     client
         .call("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": script }), Some(session_id))
         .ok();
-}
-
-/// Install the shim into a worker session, before its script runs when the worker was paused on start
-/// (waitForDebuggerOnStart), or immediately for a worker that is already alive but has not yet armed a
-/// timer. Then release a paused worker so it proceeds with the overridden globals in place.
-pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<()> {
-    evaluate_shim(client, session_id, shim)?;
-    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
-    Ok(())
 }
 
 /// Evaluate the shim in a session's global context and surface a thrown exception as an error (the
@@ -282,6 +357,47 @@ mod tests {
         assert!(guard.contains("O.perfBase = (O.perfBase || 0) + (p - O.perfAnchorReal) * (O.D || 1); O.perfAnchorReal = p;"));
         // The re-anchor comes before the new rate, or it would integrate the past at the new one.
         assert!(guard.find("O.perfAnchorReal = p").unwrap() < guard.find("O.D = 1").unwrap());
+    }
+
+    /// Every API the report names has its counter in the shim, and the shim counts nothing the report
+    /// would drop - a key on one side only is a count that is never read or a row that is always zero.
+    #[test]
+    fn every_counted_api_has_its_counter_in_the_shim() {
+        let start = SHIM_TEMPLATE.find("counts: {").expect("the shim declares its counters");
+        let end = start + SHIM_TEMPLATE[start..].find('}').expect("the counters close");
+        let declared: Vec<&str> = SHIM_TEMPLATE[start + "counts: {".len()..end]
+            .split(',')
+            .filter_map(|kv| kv.split(':').next().map(str::trim))
+            .filter(|k| !k.is_empty())
+            .collect();
+        let reported: Vec<&str> = COUNTED_APIS.iter().map(|(_, key)| *key).collect();
+        assert_eq!(declared, reported, "the shim's counters and the report's rows must match, in order");
+    }
+
+    /// R4-W6 and R4-S16 in the source the pages get. A subclass of Date is built with its own
+    /// constructor, `Date()` reads the session clock, the prototype points back at the replacement,
+    /// "now" formatted by Intl is the session's, and performance.now starts where it stood. The
+    /// behaviour is measured in Node and on a live page (tools/probes/r4-14) - this pins the source.
+    #[test]
+    fn the_date_replacement_keeps_subclasses_and_the_clock_it_reports() {
+        let s = build_shim(0, 0, 60, 60, 0);
+        assert!(s.contains("Reflect.construct(_OrigDate, arguments, new.target)"), "a subclass keeps its prototype");
+        assert!(s.contains("if (!new.target) { S.counts.date++; return _dateString.call(new _OrigDate(fakeNow())); }"));
+        assert!(s.contains("Object.defineProperty(_OrigDate.prototype, 'constructor', { value: CMDate"));
+        assert!(s.contains("if (d === undefined) { S.counts.intl++; d = fakeNow(); }"), "Intl formats the session's now");
+        assert!(s.contains("perfBase: _perf ? _perf() : 0,"), "performance.now does not restart at 0");
+    }
+
+    /// A context that refused auto-attach is counted only when it can start workers of its own: a
+    /// page or a dedicated or shared worker can, a service worker cannot, and a type that is never
+    /// shimmed is never counted.
+    #[test]
+    fn only_a_context_that_can_start_workers_loses_them_by_refusing_auto_attach() {
+        for ty in ["page", "iframe", "webview", "worker", "dedicated_worker", "shared_worker"] {
+            assert!(starts_workers(ty), "{ty}");
+        }
+        assert!(!starts_workers("service_worker"));
+        assert!(!starts_workers("browser"));
     }
 
     #[test]

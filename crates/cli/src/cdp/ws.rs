@@ -44,13 +44,14 @@ impl WsClient {
     /// `webSocketDebuggerUrl` path from `/json/version`). Fails loudly if the server does not answer
     /// `101 Switching Protocols`.
     pub fn connect(host: &str, port: u16, path: &str) -> io::Result<WsClient> {
-        let stream = TcpStream::connect((host, port))?;
+        let stream = TcpStream::connect((super::bare_host(host), port))?;
         stream.set_nodelay(true).ok();
         // Generous timeout for the handshake, then the fine-grained poll timeout for operation.
         stream.set_read_timeout(Some(Duration::from_secs(10)))?;
         let writer = stream.try_clone()?;
         let mut client = WsClient { stream, writer, mask_counter: 0x9e37_79b9, rbuf: Vec::new(), msg: Vec::new() };
 
+        let host = super::header_host(host);
         let request = format!(
             "GET {path} HTTP/1.1\r\n\
              Host: {host}:{port}\r\n\
@@ -142,6 +143,27 @@ impl WsClient {
                     return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "websocket closed"))
                 }
             }
+        }
+    }
+
+    /// The next complete text message that is already here - assembled from bytes read earlier, or
+    /// from what the socket holds right now - without waiting for more. `None` at once when there is
+    /// none. One non-blocking read: a message longer than it completes on the next [`poll_text`].
+    ///
+    /// For a loop that has just handled one message and wants the rest of a burst in the same turn
+    /// (R4-S14) without adding a poll interval of waiting to every turn that has traffic.
+    pub fn poll_text_ready(&mut self) -> io::Result<Option<String>> {
+        if let Some(text) = self.take_message()? {
+            return Ok(Some(text));
+        }
+        self.stream.set_nonblocking(true)?;
+        let filled = self.fill();
+        // Back to blocking whatever the read did, so the next `poll_text` waits its interval again.
+        self.stream.set_nonblocking(false)?;
+        match filled? {
+            Fill::Data => self.take_message(),
+            Fill::Timeout => Ok(None),
+            Fill::Closed => Err(io::Error::new(io::ErrorKind::ConnectionAborted, "websocket closed")),
         }
     }
 
@@ -303,7 +325,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Build a server-style (unmasked) text frame the way a browser sends one.
@@ -378,6 +400,49 @@ mod tests {
         let (_, _, second) = take_frame(&mut buf).unwrap().unwrap();
         assert_eq!(second, b"CD");
         assert!(take_frame(&mut buf).unwrap().is_none());
+    }
+
+    /// A loopback server that answers the upgrade and then sends `frames` in one write, the way a burst
+    /// of CDP events arrives. Kept open until `hold` passes so the client sees a live, quiet socket.
+    pub(crate) fn burst_server(frames: Vec<Vec<u8>>, hold: Duration) -> (u16, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut seen = Vec::new();
+            let mut b = [0u8; 1024];
+            while find_subslice(&seen, b"\r\n\r\n").is_none() {
+                let n = s.read(&mut b).unwrap();
+                seen.extend_from_slice(&b[..n]);
+            }
+            s.write_all(b"HTTP/1.1 101 Switching Protocols\r\n\r\n").unwrap();
+            let all: Vec<u8> = frames.concat();
+            s.write_all(&all).unwrap();
+            std::thread::sleep(hold);
+        });
+        (port, handle)
+    }
+
+    /// R4-S14: after one message, the rest of a burst is taken in the same turn and nothing is waited
+    /// for once it is gone - the drain must not add a poll interval to every busy turn.
+    #[test]
+    fn a_burst_is_taken_without_waiting_and_the_end_of_it_is_seen_at_once() {
+        let frames: Vec<Vec<u8>> = (0..5).map(|n| server_frame(format!("{{\"n\":{n}}}").as_bytes(), true)).collect();
+        let (port, server) = burst_server(frames, Duration::from_millis(1500));
+        let mut ws = WsClient::connect("127.0.0.1", port, "/").unwrap();
+        ws.set_poll_interval(Duration::from_millis(800)).unwrap();
+        assert_eq!(ws.poll_text().unwrap().as_deref(), Some("{\"n\":0}"));
+        for n in 1..5 {
+            assert_eq!(ws.poll_text_ready().unwrap(), Some(format!("{{\"n\":{n}}}")), "message {n} of the burst");
+        }
+        let started = std::time::Instant::now();
+        assert_eq!(ws.poll_text_ready().unwrap(), None, "nothing more is here");
+        assert!(started.elapsed() < Duration::from_millis(200), "the end of the burst was waited for: {:?}", started.elapsed());
+        // And the socket still waits its interval when asked to.
+        let started = std::time::Instant::now();
+        assert_eq!(ws.poll_text().unwrap(), None);
+        assert!(started.elapsed() >= Duration::from_millis(500), "a plain poll stopped waiting: {:?}", started.elapsed());
+        server.join().unwrap();
     }
 
     #[test]

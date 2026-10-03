@@ -137,6 +137,51 @@ Notable changes to Chrono Mock, newest first. The format follows
   as well, so the reloaded page stays in 2031 at x1. The script is also taken away when the session
   lets the pages of an application that outlives it go, so a page that loads a new document in the
   session's last moments starts on the real clock.
+- **A CDP session survives a message it cannot read, and no page or worker is left paused.** A
+  Chromium or Electron session, and the bridge to the pages inside an application, ended the whole
+  connection on one message that was not valid JSON - which Chromium sends for a JavaScript string cut
+  in the middle of an emoji, such as a window name - and a Chromium session then reported the
+  application closed. Such a message is now repaired (the broken character becomes U+FFFD) or, failing
+  that, skipped with a single notice, and the session reads on. The events that attach a new page or
+  worker are no longer dropped from the queue while anything else is in it: dropping one, which could
+  happen only to a target that sent over ten thousand events while a command was waiting, left the
+  page or worker paused for good. A queue of nothing but such events keeps twice as many, and if
+  even that fills up, the session says it is dropping them. Every message already received is now handled in the same turn, where one per turn was
+  handled before, so a worker started during a busy page load is released sooner. A debug port that
+  answers on IPv6 (`::1`) is reached as well - the request named the host in a form the browser and
+  the resolver both rejected.
+- **A page's own `Date` behaves like the browser's, and its reads are counted.** In a Chromium or
+  Electron session, and in the pages inside an application, the replacement for `Date` broke a class
+  extending it: `new X()` came back as a plain `Date`, so a library built on such a class lost its
+  methods and its own `instanceof`. `Date()` without `new`, `new date.constructor()` and
+  `Intl.DateTimeFormat` formatting "now" still read the real clock, and `Date.name` read as something
+  else than `Date`. Measured on an Electron page, all of them now read the session clock, a subclass
+  stays itself, and the name and arity are the native ones. A worker started by another worker gets
+  the session clock too (it read the real one), and `performance.now` in a page that was already
+  running when the session reached it goes on from where it stood instead of starting again from 0.
+  The report counts the time read through `new Date` or `Date()` and through `Intl.DateTimeFormat` on
+  rows of their own: an application that read the time only that way was reported as having called no
+  time API at all. A page or a worker that refuses to hand over the workers it starts no longer counts
+  as fully covered: such a worker would run on the real clock unseen, so the verdict says some
+  contexts could not be reached.
+- **A child started past kernel32 now runs on the session clock.** The session followed children
+  started through kernel32's `CreateProcessW` and `CreateProcessA`. A child started through
+  kernelbase's own `CreateProcessW` or `CreateProcessA` - which is what code importing through the
+  Windows API sets calls - through `WinExec` or through `CreateProcessInternalW` ran on the real clock,
+  and the session reported it as a child it did not cover. Measured on x64 and x86, all of them are
+  now followed, and the ways that already were (kernel32, the C runtime's `system`, `_wspawnv` and
+  `_popen`, `ShellExecuteEx`) still are, each child once. A child started under another user token
+  (`CreateProcessAsUserW`) is left as before: named in the report, not followed.
+- **A `Sleep` made inside an APC is scaled, and every wait made there is counted.** Windows runs an asynchronous procedure call -
+  the completion routine of overlapped I/O or of a waitable timer, or one queued with `QueueUserAPC` -
+  while the thread sits in an alertable wait such as `SleepEx(..., TRUE)`. A `Sleep` made inside one
+  ran at its real length under `--scale-duration` and was left out of the audit, because the session
+  took it for Windows' own work inside the outer wait: measured at x60, a `Sleep(1200)` there took 1.2 s,
+  on x64 and x86 alike. An object wait made there, such as `WaitForSingleObject`, went uncounted too.
+  And an exception that left the APC for a handler outside the wait left every later `Sleep` of that
+  thread at its real length and uncounted, for good. All three now behave like any other call: the same
+  `Sleep` takes 20-35 ms at x60, each wait is counted once (an object wait keeps its real timeout, as
+  everywhere else), and a wait Windows makes inside another on its own is still not counted twice.
 - **The duration clocks no longer step back when the speed changes or the core stops.** Under
   `--scale-duration` and `--scale-qpc`, a speed change could answer one read from the old speed and the
   next from the new one for an overlapping moment, and the later read came back lower. Measured over
