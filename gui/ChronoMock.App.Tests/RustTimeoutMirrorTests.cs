@@ -54,6 +54,29 @@ public class RustTimeoutMirrorTests
     }
 
     /// <summary>
+    /// The longest silence a Chromium session can have since its waits were bounded (R4-S10, ADR-20):
+    /// a clock move waits for the pages' new hooks, and a context that attaches during that wait is
+    /// shimmed by its own deadline before the wait looks at the clock again. One of each, plus the
+    /// heartbeat that comes next, must stay under the watchdog - or a busy page makes a healthy core
+    /// look hung again, which is what the measurement before the change showed (the driver stopped
+    /// the core after fifteen silent seconds with a page and two workers busy).
+    /// </summary>
+    [Fact]
+    public void A_clock_move_with_an_attach_inside_it_is_shorter_than_the_client_watchdog()
+    {
+        var attach = ReadRustSource("crates", "cli", "src", "cdp_attach.rs");
+        var move = CaptureSeconds(attach, @"pub\(crate\) const MOVE_WAIT_MS: u64 = ([\d_]+);", "MOVE_WAIT_MS", 1000);
+        var mod = ReadRustSource("crates", "cli", "src", "cdp", "mod.rs");
+        var call = CaptureSeconds(mod, @"pub const CALL_DEADLINE_SECS: u64 = (\d+);", "CALL_DEADLINE_SECS");
+        const double Heartbeat = 1.0;
+
+        Assert.True(
+            move + call + Heartbeat < SessionViewModel.IdleTimeout.TotalSeconds,
+            $"a clock move ({move}s) with an attach inside it ({call}s) and the next heartbeat ({Heartbeat}s) "
+                + $"outlast the client's watchdog ({SessionViewModel.IdleTimeout.TotalSeconds}s)");
+    }
+
+    /// <summary>
     /// Preparing a native session: injecting the hook, then the guard window before the first
     /// coverage event. Nothing reaches the client during either.
     /// </summary>

@@ -11,6 +11,7 @@
 use super::CdpClient;
 use serde_json::{json, Value};
 use std::io;
+use std::time::Instant;
 
 /// The time shim, with `__MULT__`/`__DUR__`/`__FAKE_START__`/`__REAL_START__`/`__SCHEDULED__`/
 /// `__WALL_MAX__` filled in by [`build_shim`]. A guard (`__chronomock`) keeps the originals wrapped
@@ -272,8 +273,8 @@ pub fn starts_workers(target_type: &str) -> bool {
 
 /// What installing the shim into one context left behind.
 pub struct Injected {
-    /// A page's new-document hook, which the caller replaces through [`add_page_script`] and
-    /// [`remove_page_script`] when the clock moves. `None` for a worker, and for a page that answered without an identifier.
+    /// A page's new-document hook, which the caller replaces when the clock moves (R4-W5). `None` for
+    /// a worker, and for a page that answered without an identifier.
     pub script: Option<String>,
     /// Whether the context took auto-attach (see [`auto_attach_children`]).
     pub children: bool,
@@ -282,31 +283,39 @@ pub struct Injected {
 /// Install the shim into a page (or frame) session: as an add-script hook so every future document
 /// gets it before its own scripts run, plus an immediate evaluate for the document already loaded.
 /// Then cascade auto-attach so the page's Web Workers are attached and shimmed too.
-pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<Injected> {
-    client.call("Page.enable", json!({}), Some(session_id)).ok();
-    let added = client.call(
+///
+/// One `deadline` for the whole sequence (R4-S10): each call used to have a deadline of its own, so a
+/// page in a busy renderer could hold the session for five of them. The calls stay one after another,
+/// each waiting for its reply, because the order is what keeps the page's first script off the real
+/// clock - the shim and the auto-attach are in before the page is let go. The release itself is not
+/// waited for: nothing follows it here, and its answer changes nothing.
+pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<Injected> {
+    client.call_until("Page.enable", json!({}), Some(session_id), deadline).ok();
+    let added = client.call_until(
         "Page.addScriptToEvaluateOnNewDocument",
         json!({ "source": shim }),
         Some(session_id),
+        deadline,
     )?;
     let script = script_identifier(&added);
-    evaluate_shim(client, session_id, shim)?;
-    let children = auto_attach_children(client, session_id);
-    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
+    evaluate_shim(client, session_id, shim, deadline)?;
+    let children = auto_attach_children(client, session_id, deadline);
+    let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
     Ok(Injected { script, children })
 }
 
 /// Install the shim into a worker session, before its script runs when the worker was paused on start
 /// (waitForDebuggerOnStart), or immediately for a worker that is already alive but has not yet armed a
 /// timer. Then release a paused worker so it proceeds with the overridden globals in place. A worker
-/// has no new-document hook - one started later is a new target, shimmed from the clock of then.
-pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<Injected> {
-    evaluate_shim(client, session_id, shim)?;
+/// has no new-document hook - one started later is a new target, shimmed from the clock of then. One
+/// deadline for the sequence, as for a page.
+pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<Injected> {
+    evaluate_shim(client, session_id, shim, deadline)?;
     // A worker can start workers of its own, and auto-attach set on the page does not reach them: a
     // worker started by a worker read the real clock (R4-N25, measured on an Electron page). Set before
     // the worker is released, so one it starts in its first script is paused for the shim too.
-    let children = auto_attach_children(client, session_id);
-    client.call("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id)).ok();
+    let children = auto_attach_children(client, session_id, deadline);
+    let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
     Ok(Injected { script: None, children })
 }
 
@@ -314,52 +323,31 @@ pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str) -> io
 /// an error or not at all: the context itself is shimmed, but a worker it starts would run on the
 /// real clock unseen, and the caller has to count that (rule 4). Measured on Chromium 153: a page, a
 /// dedicated worker, a nested one, a shared worker and a service worker all take it.
-fn auto_attach_children(client: &mut CdpClient, session_id: &str) -> bool {
+fn auto_attach_children(client: &mut CdpClient, session_id: &str, deadline: Instant) -> bool {
     client
-        .call(
+        .call_until(
             "Target.setAutoAttach",
             json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
             Some(session_id),
+            deadline,
         )
         .is_ok()
 }
 
-/// The identifier `Page.addScriptToEvaluateOnNewDocument` answered with, if it gave one.
-fn script_identifier(reply: &Value) -> Option<String> {
+/// The identifier `Page.addScriptToEvaluateOnNewDocument` answered with, if it gave one. The caller
+/// keeps it, because a hook can only be removed by it.
+pub fn script_identifier(reply: &Value) -> Option<String> {
     reply.get("identifier").and_then(Value::as_str).map(str::to_string)
-}
-
-/// Add a new-document hook built on the clock as it is now, and return its identifier, or `None` when
-/// the page did not take it or gave no identifier. The hook carries its clock in its source, so one
-/// registered at attach handed every document loaded after a jump or a rate change the clock from the
-/// attach - a reload after a jump to 2031 came back in 2038 at the old rate (R4-W5, measured on an
-/// Electron page). The caller adds the new hook BEFORE it removes the old one: a document starting in
-/// between runs both, in the order they were added, and the shim's own guard lets the second set the
-/// clock - so no document starts with no shim, nor with the old clock.
-pub fn add_page_script(client: &mut CdpClient, session_id: &str, shim: &str) -> Option<String> {
-    let added = client
-        .call("Page.addScriptToEvaluateOnNewDocument", json!({ "source": shim }), Some(session_id))
-        .ok()?;
-    script_identifier(&added)
-}
-
-/// Remove a page's new-document hook, and say whether the page confirmed it. A hook whose removal
-/// was not confirmed is still there as far as anyone knows, and the caller keeps its identifier to try
-/// again - forgotten, it would put a document loaded after the session let the page go back on a
-/// session clock.
-pub fn remove_page_script(client: &mut CdpClient, session_id: &str, script: &str) -> bool {
-    client
-        .call("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": script }), Some(session_id))
-        .is_ok()
 }
 
 /// Evaluate the shim in a session's global context and surface a thrown exception as an error (the
 /// shim must never fail silently - an uncovered context is an honest non-effect, not a hidden one).
-fn evaluate_shim(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<()> {
-    let r = client.call(
+fn evaluate_shim(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<()> {
+    let r = client.call_until(
         "Runtime.evaluate",
         json!({ "expression": shim, "returnByValue": true }),
         Some(session_id),
+        deadline,
     )?;
     if let Some(exc) = r.get("exceptionDetails") {
         return Err(shim_error(exc));
