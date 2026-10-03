@@ -143,7 +143,7 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
 
     // Pure acceleration for the proof: fake start = real start (the absolute wall moment is C5).
     let now = now_epoch_ms();
-    let shim = cdp::build_shim(now, now, mult, mult, WALL_MAX_MS);
+    let shim = cdp::build_shim(now, now, mult, mult, None, WALL_MAX_MS);
     outln!("multiplier: x{mult}, injecting shim into all contexts...");
 
     if let Err(e) = client.call(
@@ -255,7 +255,7 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
         diag!("chrono: not a moment a session can run at: {iso}");
         return 1;
     };
-    let shim = cdp::build_shim(fake, real, 1, 1, WALL_MAX_MS); // flow: a wall offset, no acceleration
+    let shim = cdp::build_shim(fake, real, 1, 1, None, WALL_MAX_MS); // flow: a wall offset, no acceleration
 
     let launched = match cdp::launch_chromium(target, &[], None, || {}) {
         Ok(l) => l,

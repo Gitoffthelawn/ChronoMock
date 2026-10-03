@@ -26,7 +26,8 @@ use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, Pumped, ShimOrigin};
-use crate::cdp_clock::{cdp_jump_expr, cdp_release_expr, cdp_set_multiplier_expr, drift_ms};
+use crate::cdp_audit::KEY_CLOCK_MOVE_MISSED;
+use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::engine_env;
 use crate::output::diag;
@@ -641,23 +642,27 @@ impl EmbeddedBridge {
         if let Some(pushed) = self.pushed
             && drift_ms(pushed, fresh).abs() > DRIFT_MS
         {
-            self.broadcast(&cdp_jump_expr(fresh.fake0, fresh.real0));
+            self.move_clock(&cdp_set_expr(fresh), fresh);
             self.pushed = Some(fresh);
         }
     }
 
-    /// The host changed its rate: push the host's new origin and both rates to every page.
+    /// The host changed its rate: push the host's new origin and both rates to every page. Pushed as
+    /// it is rather than scheduled, as a Chromium session schedules its own (ADR-9 R4/14b): the host
+    /// changed at the moment of the command, and a page agrees with it only on the host's own
+    /// segment, so it takes the change when the change reaches it, and its wall steps by that delay
+    /// times the change in rate, as the host's moment says it should.
     pub(crate) fn set_multiplier(&mut self, fresh: ShimOrigin) {
         if !self.attachers.is_empty() {
             self.rate_changed = true;
         }
-        self.broadcast(&cdp_set_multiplier_expr(fresh.fake0, fresh.real0, fresh.mult, fresh.dur));
+        self.move_clock(&cdp_set_expr(fresh), fresh);
         self.pushed = Some(fresh);
     }
 
-    /// The host jumped its wall: push the new origin, wall only.
+    /// The host jumped its wall: push the new origin. The rates in it are the host's, unchanged.
     pub(crate) fn jump(&mut self, fresh: ShimOrigin) {
-        self.broadcast(&cdp_jump_expr(fresh.fake0, fresh.real0));
+        self.move_clock(&cdp_set_expr(fresh), fresh);
         self.pushed = Some(fresh);
     }
 
@@ -678,9 +683,13 @@ impl EmbeddedBridge {
         }
     }
 
-    fn broadcast(&mut self, expr: &str) {
-        for attacher in &mut self.attachers {
-            attacher.broadcast(expr);
+    /// Every page of every engine onto `origin`: new-document hooks renewed, live documents told. A
+    /// page that did not take the move stands apart from the host until the next jump - the resync
+    /// does not see it, because it measures the drift of what was pushed - so it is said (rule 6).
+    fn move_clock(&mut self, expr: &str, origin: ShimOrigin) {
+        let missed: usize = self.attachers.iter_mut().map(|attacher| attacher.move_clock(expr, origin)).sum();
+        if missed > 0 {
+            self.warn(KEY_CLOCK_MOVE_MISSED);
         }
     }
 
