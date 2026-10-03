@@ -24,7 +24,7 @@ use crate::events::{
 };
 use crate::wire::spawn_command_reader;
 use crate::cdp_attach::{Attacher, Pumped};
-use crate::cdp_clock::{cdp_jump_expr, cdp_resolve_jump, cdp_set_multiplier_expr, CdpClock};
+use crate::cdp_clock::{cdp_resolve_jump, cdp_schedule_expr, cdp_set_expr, CdpClock};
 use crate::cdp_audit::{
     covered_channels, coverage_events, cdp_verdict, session_warnings,
     verdict_keys,
@@ -149,10 +149,12 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                     emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                 }
                 Ok(Command::SetMultiplier { id, multiplier, .. }) => {
-                    // Re-anchor the clock (wall and duration both continue from now at the new rate) and
-                    // push the new origin + rate to every context. New timers pick up the rate at once -
-                    // Date.now/new Date/performance.now reflect it immediately - only an already-queued
-                    // setInterval keeps its old cadence, which the end report warns about (rule 4).
+                    // Schedule the new rate for one instant shortly ahead, on the panel and in every
+                    // context alike, so a page takes it over from its own segment at the panel's moment
+                    // and its wall never steps at the change (R4-S17). From that instant
+                    // Date.now/new Date/performance.now and new timers run at the new rate - only an
+                    // already-queued setInterval keeps its old cadence, which the end report warns about
+                    // (rule 4).
                     if !chrono_core::multiplier_in_range(multiplier) {
                         emit(&Event::Error {
                             v: PROTOCOL_VERSION,
@@ -164,8 +166,8 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                         continue;
                     }
                     let now = now_epoch_ms();
-                    let (fake0, real0, m) = clock.set_multiplier_at(multiplier, now);
-                    attacher.move_clock(&cdp_set_multiplier_expr(fake0, real0, m, m), clock.shim_origin());
+                    let next = clock.set_multiplier_at(multiplier, now);
+                    attacher.move_clock(&cdp_schedule_expr(next), clock.shim_origin());
                     rate_changed_in_flight = true;
                     emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                     emit(&clock.state_event_at(now_epoch_ms()));
@@ -177,8 +179,8 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                     let now = now_epoch_ms();
                     match cdp_resolve_jump(&clock, &to, now) {
                         Ok(new_fake) => {
-                            let (fake0, real0) = clock.jump_to_at(new_fake, now);
-                            attacher.move_clock(&cdp_jump_expr(fake0, real0), clock.shim_origin());
+                            clock.jump_to_at(new_fake, now);
+                            attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin());
                             emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                             emit(&clock.state_event_at(now_epoch_ms()));
                         }

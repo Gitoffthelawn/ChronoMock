@@ -39,12 +39,23 @@ pub(crate) struct CdpContext {
 /// rate and the duration rate. A Chromium session runs both rates at the multiplier. A page inside a
 /// natively hooked application follows that application's duration axis, which scales only under
 /// `scale_duration` (docs/09 section 12.6).
+///
+/// `scheduled` is a rate change of a Chromium session still waiting for its instant (R4-S17). The
+/// pages of an embedded engine follow the host's clock as it is, so theirs is always `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ShimOrigin {
     pub(crate) fake0: i64,
     pub(crate) real0: i64,
     pub(crate) mult: i64,
     pub(crate) dur: i64,
+    pub(crate) scheduled: Option<cdp::ScheduledRate>,
+}
+
+impl ShimOrigin {
+    /// The shim source that puts a context on this clock.
+    fn shim(&self) -> String {
+        cdp::build_shim(self.fake0, self.real0, self.mult, self.dur, self.scheduled, WALL_MAX_MS)
+    }
 }
 
 /// What a context answered when asked which clock it already reads (docs/09 section 12.17 point 3).
@@ -328,7 +339,7 @@ impl Attacher {
             self.resume(&sid);
             return;
         }
-        let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur, WALL_MAX_MS);
+        let shim = origin.shim();
         let injected = if cdp::is_worker(&ty) {
             cdp::inject_worker(&mut self.client, &sid, &shim)
         } else {
@@ -387,9 +398,10 @@ impl Attacher {
 
     /// The clock moved - a rate change, a jump, a resync: give every page a new-document hook built
     /// on `origin`, then push `expr` to every live document. The hook first, so a page that loads a
-    /// new document meanwhile already gets the new clock (R4-W5).
+    /// new document meanwhile already gets the new clock (R4-W5), a scheduled change included - which
+    /// is why a Chromium session schedules its rate changes far enough ahead to cover both (R4-S17).
     pub(crate) fn move_clock(&mut self, expr: &str, origin: ShimOrigin) {
-        let shim = cdp::build_shim(origin.fake0, origin.real0, origin.mult, origin.dur, WALL_MAX_MS);
+        let shim = origin.shim();
         let client = &mut self.client;
         for ctx in self.contexts.iter_mut().filter(|c| c.script.is_some()) {
             if let Some(renewed) = cdp::renew_page_script(client, &ctx.session_id, ctx.script.as_deref(), &shim) {

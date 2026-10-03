@@ -129,6 +129,18 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A speed change no longer moves a page's clock backwards.** In a Chromium or Electron session, a
+  speed change took effect in the window's clock at once and in each page only when the change
+  reached it, so the page's clock jumped at that moment by the delay times the change in speed -
+  backwards when slowing down. Measured on an Electron page busy in 5 ms slices, x1440 to x1 put the
+  page's clock back by 18.7 seconds. A speed change now takes effect a quarter of a second after it is
+  asked for, at the same instant in the window and in every page, and each page takes it over from
+  where its own clock stands, so neither the date nor `performance.now` steps. The same page now gets
+  the change with about 0.24 seconds to spare. A page too busy to get the change within that quarter
+  of a second takes it when it gets it: its clock stays continuous, but runs that delay times the
+  change in speed away from the window's until the next jump. The speed a `state` event reports is the
+  one asked for, from the moment it is asked for. The pages inside an application follow the
+  application's clock as before, which changes at the moment of the command.
 - **A page that reloads after a jump or a speed change keeps the session clock.** In a Chromium or
   Electron session, and in the pages of an embedded web engine, every new document starts with a
   script that carries the clock, and that script still carried the clock from the moment the session

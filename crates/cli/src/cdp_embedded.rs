@@ -94,7 +94,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
         diag!("chrono: --at is not a moment a session can run at: {}", args.at);
         return 1;
     };
-    let origin = ShimOrigin { fake0: fake, real0: real, mult: args.multiplier, dur: args.multiplier };
+    let origin = ShimOrigin { fake0: fake, real0: real, mult: args.multiplier, dur: args.multiplier, scheduled: None };
 
     // The host: launched with the engine variables (the session's future behaviour), or given.
     let launched;

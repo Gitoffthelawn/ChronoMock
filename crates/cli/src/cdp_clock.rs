@@ -10,47 +10,36 @@ use chrono_core::calc::{Base, EvalContext, MomentExpr};
 use chrono_core::TimeMode;
 use chrono_proto::{Clock, Event, MomentSpec, TimeSpec, PROTOCOL_VERSION};
 
+use crate::cdp::{scheduled_js, ScheduledRate};
 use crate::cdp_attach::ShimOrigin;
 use crate::events::{jump_error_key, moment_error_key, start_time_mode};
 use crate::grammar::parse_shift;
 use crate::zone::{epoch_ms_to_wall, moment_epoch_ms, FT_UNIX_EPOCH, WALL_MAX_MS, WALL_MIN_MS};
 
-/// The live clock of a CDP session, computed entirely Rust-side so the panel matches the app's own
-/// `Date.now()` with no browser round-trip. The wall origin (`wall_fake0` at `wall_real0`, rate `mult`)
-/// is re-anchored on a rate change or a jump and pushed identically to every JS context, so all
-/// contexts and the panel share one absolute origin. A separate duration accumulator keeps
-/// `elapsed_fake` an honest integral of the rate over time - a jump moves the wall but adds no elapsed
-/// duration - mirroring the native split between elapsed time and the fake wall reached.
-pub(crate) struct CdpClock {
+/// How long after it is asked for a rate change takes effect - on the panel and in every page at one
+/// instant (R4-S17, ADR-9 R4/14b). Taking effect at the moment of the command, the panel changed at
+/// once and each page only when the change reached it, and the page's wall stepped at that moment by
+/// the delay times the change in rate - backwards when slowing down: about seven seconds from x1440
+/// to x1 at a delivery of five milliseconds. This covers renewing the new-document scripts and
+/// telling a dozen or so pages, about three CDP calls each, so a page gets the change before its
+/// instant and takes it over from its own segment, at the panel's moment to the millisecond.
+pub(crate) const RATE_CHANGE_DELAY_MS: i64 = 250;
+
+/// One stretch of the clock: the wall from `wall_fake0` at `wall_real0`, the duration from
+/// `dur_fake_accum` at `dur_real0`, both at `mult`. A jump starts a new wall anchor and leaves the
+/// duration one alone, so the two anchors are kept apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Segment {
     wall_fake0: i64,
     wall_real0: i64,
     mult: i64,
-    bias: i32,
-    session_real0: i64,
     dur_fake_accum: i64,
     dur_real0: i64,
-    /// Whether the wall has been seen standing at [`WALL_MAX_MS`]. Set where the wall is read, so a
-    /// heartbeat, a query or a rate change that found it there is remembered after a jump back.
-    reached_end: Cell<bool>,
 }
 
-impl CdpClock {
-    fn new(fake0_ms: i64, real0_ms: i64, mult: i64, bias: i32) -> Self {
-        CdpClock {
-            wall_fake0: fake0_ms,
-            wall_real0: real0_ms,
-            mult,
-            bias,
-            session_real0: real0_ms,
-            dur_fake_accum: 0,
-            dur_real0: real0_ms,
-            reached_end: Cell::new(false),
-        }
-    }
-
-    /// The fake wall instant (epoch ms) at `now`: the current segment's origin plus scaled real time.
-    /// Frozen (mult 0) holds it at the origin - xN accelerates.
-    pub(crate) fn fake_wall_ms(&self, now: i64) -> i64 {
+impl Segment {
+    /// The wall at `now`: the origin plus scaled real time, frozen at mult 0.
+    fn wall_at(&self, now: i64) -> i64 {
         // Saturating on BOTH operations, not just the product. `chrono-cli` keeps the workspace's
         // release `overflow-checks`, so an unsaturated add here panics the core mid-session (R2-W2) -
         // and a panicking CDP core never runs its shutdown, leaving a launched Chromium with an open
@@ -60,10 +49,85 @@ impl CdpClock {
         // 30828 into instants no `state` event could name, while the hook, holding a host at the same
         // moment, stopped - and the report said nothing, where the native session says
         // `time.fake_clock_clamped`.
-        let wall = self
-            .wall_fake0
-            .saturating_add((now - self.wall_real0).saturating_mul(self.mult))
-            .clamp(WALL_MIN_MS, WALL_MAX_MS);
+        self.wall_fake0
+            .saturating_add(now.saturating_sub(self.wall_real0).saturating_mul(self.mult))
+            .clamp(WALL_MIN_MS, WALL_MAX_MS)
+    }
+
+    /// The fake duration at `now`: the accumulator plus this segment's integral of the rate.
+    fn elapsed_at(&self, now: i64) -> i64 {
+        self.dur_fake_accum.saturating_add(now.saturating_sub(self.dur_real0).saturating_mul(self.mult))
+    }
+
+    /// The segment a rate change at `at` starts: the wall and the duration go on from where this one
+    /// puts them then, so neither steps at the change (rule 3).
+    fn continued_at(&self, at: i64, mult: i64) -> Segment {
+        Segment {
+            wall_fake0: self.wall_at(at),
+            wall_real0: at,
+            mult,
+            dur_fake_accum: self.elapsed_at(at),
+            dur_real0: at,
+        }
+    }
+}
+
+/// The live clock of a CDP session, computed entirely Rust-side so the panel matches the app's own
+/// `Date.now()` with no browser round-trip. The current segment is pushed identically to every JS
+/// context, so all contexts and the panel share one absolute origin. A rate change does not move the
+/// segment: it is scheduled for an instant shortly ahead, and every read on either side takes it
+/// at that instant (R4-S17). A separate duration accumulator keeps `elapsed_fake` an honest integral
+/// of the rate over time - a jump moves the wall but adds no elapsed duration - mirroring the native
+/// split between elapsed time and the fake wall reached.
+pub(crate) struct CdpClock {
+    segment: Segment,
+    /// The rate change waiting for its instant, at most one. Every read takes it at that instant,
+    /// and the next change or jump folds it into `segment`.
+    scheduled: Option<ScheduledRate>,
+    bias: i32,
+    session_real0: i64,
+    /// Whether the wall has been seen standing at [`WALL_MAX_MS`]. Set where the wall is read, so a
+    /// heartbeat, a query or a rate change that found it there is remembered after a jump back.
+    reached_end: Cell<bool>,
+}
+
+impl CdpClock {
+    fn new(fake0_ms: i64, real0_ms: i64, mult: i64, bias: i32) -> Self {
+        CdpClock {
+            segment: Segment {
+                wall_fake0: fake0_ms,
+                wall_real0: real0_ms,
+                mult,
+                dur_fake_accum: 0,
+                dur_real0: real0_ms,
+            },
+            scheduled: None,
+            bias,
+            session_real0: real0_ms,
+            reached_end: Cell::new(false),
+        }
+    }
+
+    /// The segment the clock runs on at `now`: the scheduled change taken once its instant has come.
+    fn segment_at(&self, now: i64) -> Segment {
+        match self.scheduled {
+            Some(next) if now >= next.at_ms => self.segment.continued_at(next.at_ms, next.mult),
+            _ => self.segment,
+        }
+    }
+
+    /// Fold a scheduled change whose instant has come into the segment - what the shim's `settle` does.
+    fn settle(&mut self, now: i64) {
+        if self.scheduled.is_some_and(|next| now >= next.at_ms) {
+            self.segment = self.segment_at(now);
+            self.scheduled = None;
+        }
+    }
+
+    /// The fake wall instant (epoch ms) at `now`, segment by segment. Frozen (mult 0) holds it at the
+    /// origin - xN accelerates.
+    pub(crate) fn fake_wall_ms(&self, now: i64) -> i64 {
+        let wall = self.segment_at(now).wall_at(now);
         if wall == WALL_MAX_MS {
             self.reached_end.set(true);
         }
@@ -76,10 +140,17 @@ impl CdpClock {
         self.fake_wall_ms(now) == WALL_MAX_MS || self.reached_end.get()
     }
 
-    /// Fake duration elapsed (the integral of the rate): the accumulator plus the current segment. A
-    /// jump does not touch this, so a wall discontinuity is never counted as elapsed time.
+    /// Fake duration elapsed (the integral of the rate), segment by segment. A jump does not touch
+    /// this, so a wall discontinuity is never counted as elapsed time.
     pub(crate) fn elapsed_fake_ms(&self, now: i64) -> i64 {
-        self.dur_fake_accum.saturating_add((now - self.dur_real0).saturating_mul(self.mult))
+        self.segment_at(now).elapsed_at(now)
+    }
+
+    /// The rate the clock is set to: a scheduled one as soon as it is asked for. The window sets its
+    /// list of rates from every event, and the rate still running for the next quarter of a second
+    /// would set it back for a moment, right after the change was confirmed.
+    fn target_mult(&self) -> i64 {
+        self.scheduled.map_or(self.segment.mult, |next| next.mult)
     }
 
     /// A `state` event at `now` (passed in so the mapping is pure and unit-testable).
@@ -91,33 +162,44 @@ impl CdpClock {
                 zone_bias_min: self.bias,
             },
             real: Clock { wall: epoch_ms_to_wall(now, self.bias), zone_bias_min: self.bias },
-            multiplier: self.mult,
+            multiplier: self.target_mult(),
             elapsed_fake_ms: self.elapsed_fake_ms(now),
             elapsed_real_ms: self.elapsed_real_ms(now),
         }
     }
 
-    /// Re-anchor for a new multiplier at `now`: the wall and the duration both continue from where they
-    /// are, so neither jumps (rule 3) - only the future rate changes. A negative rate would run the wall
-    /// backward, which is never valid, so it clamps to 0 (freeze). Returns (fake0, real0, mult) to push
-    /// to the shim.
-    pub(crate) fn set_multiplier_at(&mut self, m: i64, now: i64) -> (i64, i64, i64) {
-        self.dur_fake_accum =
-            self.dur_fake_accum.saturating_add((now - self.dur_real0).saturating_mul(self.mult));
-        self.dur_real0 = now;
-        self.wall_fake0 = self.fake_wall_ms(now);
-        self.wall_real0 = now;
-        self.mult = m.max(0);
-        (self.wall_fake0, self.wall_real0, self.mult)
+    /// Schedule a new multiplier asked for at `now`, for [`RATE_CHANGE_DELAY_MS`] later: until then the
+    /// clock runs on at its rate, from then on at the new one, with the wall and the duration going
+    /// on from where they stand at that instant, so neither steps (rule 3). A negative rate would run
+    /// the wall backward, which is never valid, so it clamps to 0 (freeze). Returns the change to
+    /// push to the shim.
+    ///
+    /// A change still waiting is replaced and never takes effect, and the new one takes its instant
+    /// rather than a later one. A page that has not reached that instant replaces it the same way,
+    /// and one that has is late for the new change and says so - at a later instant it would have run
+    /// the replaced rate meanwhile, away from the panel with no word.
+    pub(crate) fn set_multiplier_at(&mut self, m: i64, now: i64) -> ScheduledRate {
+        let at = match self.scheduled {
+            Some(waiting) if now < waiting.at_ms => waiting.at_ms,
+            _ => {
+                self.settle(now);
+                now.saturating_add(RATE_CHANGE_DELAY_MS)
+            }
+        };
+        let mult = m.max(0);
+        let next = ScheduledRate { at_ms: at, mult, dur: mult };
+        self.scheduled = Some(next);
+        next
     }
 
-    /// Re-anchor for a jump to a new fake wall at `now`: the wall moves and continues at the same rate -
-    /// the duration axis is untouched, so a backward jump never rewinds elapsed time (rule 3). Returns
-    /// (fake0, real0) to push to the shim.
-    pub(crate) fn jump_to_at(&mut self, new_fake_ms: i64, now: i64) -> (i64, i64) {
-        self.wall_fake0 = new_fake_ms;
-        self.wall_real0 = now;
-        (self.wall_fake0, self.wall_real0)
+    /// Re-anchor for a jump to a new fake wall at `now`: the wall moves and continues at the rate it
+    /// runs at - the duration axis is untouched, so a backward jump never rewinds elapsed time (rule
+    /// 3). A rate change still waiting stays scheduled and takes effect at its instant from the new
+    /// wall. Push [`Self::shim_origin`] to the shim with [`cdp_set_expr`].
+    pub(crate) fn jump_to_at(&mut self, new_fake_ms: i64, now: i64) {
+        self.settle(now);
+        self.segment.wall_fake0 = new_fake_ms;
+        self.segment.wall_real0 = now;
     }
 
     /// The session clock a `start` asks for, resolved ONCE in Unix-epoch ms.
@@ -159,12 +241,18 @@ impl CdpClock {
         now - self.session_real0
     }
 
-    /// The origin a newly attached context must be shimmed from: the CURRENT wall origin and rate,
-    /// not the session's initial values, so a context attaching after an in-flight change starts on
-    /// the same clock as every other one (rule 3). A Chromium session runs the duration axis at the
-    /// wall rate - the acceleration is the point of driving it.
+    /// The origin a newly attached context must be shimmed from: the CURRENT segment and the change
+    /// still waiting, not the session's initial values, so a context attaching after an in-flight
+    /// change starts on the same clock as every other one (rule 3). A Chromium session runs the
+    /// duration axis at the wall rate - the acceleration is the point of driving it.
     pub(crate) fn shim_origin(&self) -> ShimOrigin {
-        ShimOrigin { fake0: self.wall_fake0, real0: self.wall_real0, mult: self.mult, dur: self.mult }
+        ShimOrigin {
+            fake0: self.segment.wall_fake0,
+            real0: self.segment.wall_real0,
+            mult: self.segment.mult,
+            dur: self.segment.mult,
+            scheduled: self.scheduled,
+        }
     }
 }
 
@@ -185,6 +273,7 @@ pub(crate) fn shim_origin_from_state(state: &chrono_mech::SessionState, scale_du
         real0: filetime_to_epoch_ms(state.real_ft),
         mult: state.multiplier,
         dur: if scale_duration { state.multiplier.max(1) } else { 1 },
+        scheduled: None,
     }
 }
 
@@ -201,36 +290,42 @@ pub(crate) fn drift_ms(pushed: ShimOrigin, fresh: ShimOrigin) -> i64 {
     page_reads.saturating_sub(fresh.fake0)
 }
 
-/// The JS to push a new wall origin AND both rates into a context's `__chronomock`, re-anchoring its
-/// local duration axis first (at the OLD duration rate) so `performance.now` stays continuous across
-/// the change (rule 3). The wall origin (fake0, real0, mult) is the driver's, identical for every
-/// context, so all contexts stay in step. `dur` is the duration rate for timers and `performance.now`,
-/// floored at 1 like the shim itself.
-pub(crate) fn cdp_set_multiplier_expr(fake0: i64, real0: i64, mult: i64, dur: i64) -> String {
-    let dur = dur.max(1);
+/// The JS that puts a context on `origin` at once, the change still waiting included, through the
+/// shim's own `set`: a jump, the release, and every move of the pages of an embedded engine, which
+/// follow the host's clock as it is (ADR-9 R4/14b). The shim re-anchors its duration axis at the rate
+/// it ran at first, so `performance.now` stays continuous (rule 3). The segment is the driver's,
+/// identical for every context, so all contexts stay in step. The duration rate is floored at 1 like
+/// the shim itself.
+pub(crate) fn cdp_set_expr(origin: ShimOrigin) -> String {
     format!(
-        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';\
-         var p=S._realPerf?S._realPerf():0;S.perfBase=(S.perfBase||0)+(p-S.perfAnchorReal)*(S.D||1);\
-         S.perfAnchorReal=p;S.fakeStart={fake0};S.realStart={real0};S.M={mult};S.D={dur};return 'ok';}})()"
+        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';return S.set({},{},{},{},{});}})()",
+        origin.fake0,
+        origin.real0,
+        origin.mult,
+        origin.dur.max(1),
+        scheduled_js(origin.scheduled)
+    )
+}
+
+/// The JS that schedules a rate change in a context, through the shim's own `schedule` (R4-S17). Only
+/// the instant and the rates travel: the context takes the change over from its own segment, so its
+/// wall is continuous whenever the message arrives, and the same as the panel's when it arrives
+/// before the instant. One that arrives after answers `late`.
+pub(crate) fn cdp_schedule_expr(next: ScheduledRate) -> String {
+    format!(
+        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';return S.schedule({},{},{});}})()",
+        next.at_ms,
+        next.mult,
+        next.dur.max(1)
     )
 }
 
 /// The JS that lets a page go when the session ends and the application lives on: the wall back on the
 /// real clock and the duration axis on from where it stands at rate 1, the same thing the hook does for
-/// the host once its core is gone. It is a rate change like any other, so `performance.now` is
-/// re-anchored at the old rate first and never steps back (rule 3). The origin is `0` on both sides on
+/// the host once its core is gone. Nothing stays scheduled. The origin is `0` on both sides on
 /// purpose: with the rate at 1, any instant where fake equals real puts the wall on the real clock.
 pub(crate) fn cdp_release_expr() -> String {
-    cdp_set_multiplier_expr(0, 0, 1, 1)
-}
-
-/// The JS to push a new wall origin into a context's `__chronomock` for a jump - wall only - the rate
-/// and the duration axis are untouched, so a backward jump never rewinds elapsed time (rule 3).
-pub(crate) fn cdp_jump_expr(fake0: i64, real0: i64) -> String {
-    format!(
-        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';\
-         S.fakeStart={fake0};S.realStart={real0};return 'ok';}})()"
-    )
+    cdp_set_expr(ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None })
 }
 
 /// Resolve a CDP jump target to a fake epoch-ms instant: an absolute moment in the zone it names (the
@@ -266,7 +361,7 @@ mod tests {
     use super::*;
 
     fn origin(fake0: i64, real0: i64, mult: i64) -> ShimOrigin {
-        ShimOrigin { fake0, real0, mult, dur: mult }
+        ShimOrigin { fake0, real0, mult, dur: mult, scheduled: None }
     }
 
     /// A FILETIME to epoch milliseconds, and the end of the range does not come out as a date before
@@ -309,9 +404,13 @@ mod tests {
         assert_eq!(c.elapsed_fake_ms(i64::MAX), i64::MAX);
 
         let mut m = CdpClock::new(i64::MAX - 1, 0, chrono_core::MULTIPLIER_MAX, 0);
-        let (fake0, _, mult) = m.set_multiplier_at(1, i64::MAX);
-        assert_eq!(fake0, WALL_MAX_MS);
-        assert_eq!(mult, 1);
+        let next = m.set_multiplier_at(1, i64::MAX);
+        assert_eq!((next.at_ms, next.mult), (i64::MAX, 1), "the instant saturates rather than wrapping");
+        assert_eq!(m.fake_wall_ms(i64::MAX), WALL_MAX_MS);
+        assert_eq!(m.elapsed_fake_ms(i64::MAX), i64::MAX);
+        // A second change at the instant folds the first into the segment, through the same saturation.
+        m.set_multiplier_at(2, i64::MAX);
+        assert_eq!((m.shim_origin().fake0, m.shim_origin().mult), (WALL_MAX_MS, 1));
     }
 
     /// R4-S8: the wall stops where the native clock stops and the clock remembers it did, so the end
@@ -344,19 +443,100 @@ mod tests {
         assert_eq!(f.elapsed_fake_ms(505_000), 0);
     }
 
+    /// R4-S17: a rate change takes effect [`RATE_CHANGE_DELAY_MS`] after it is asked for. Until then
+    /// the clock runs at the old rate, from then at the new one, the wall and the duration both going
+    /// on from where they stand at that instant.
     #[test]
-    fn cdp_clock_rate_change_is_continuous_and_accumulates() {
+    fn a_rate_change_takes_effect_at_its_instant_and_accumulates() {
         let mut c = CdpClock::new(1_000_000, 500_000, 60, 0);
-        // Run 1000 ms at x60, then switch to x120 at now = 501_000.
-        let (fake0, real0, m) = c.set_multiplier_at(120, 501_000);
-        assert_eq!(m, 120);
-        // The wall is continuous across the change: the fake instant at the switch is unchanged.
-        assert_eq!(fake0, 1_060_000);
-        assert_eq!(real0, 501_000);
-        assert_eq!(c.fake_wall_ms(501_000), 1_060_000);
-        // 500 ms more at x120: wall += 60000, elapsed_fake = 60000 (seg 1) + 60000 (seg 2).
-        assert_eq!(c.fake_wall_ms(501_500), 1_120_000);
-        assert_eq!(c.elapsed_fake_ms(501_500), 120_000);
+        // 1000 ms at x60, then x120 asked for at 501_000: it takes effect at 501_250.
+        let next = c.set_multiplier_at(120, 501_000);
+        assert_eq!(next, ScheduledRate { at_ms: 501_000 + RATE_CHANGE_DELAY_MS, mult: 120, dur: 120 });
+        assert_eq!(c.fake_wall_ms(501_249), 1_060_000 + 249 * 60, "still x60 just before the instant");
+        assert_eq!(c.fake_wall_ms(501_250), 1_075_000);
+        // 500 ms more at x120: wall += 60000, elapsed = 60000 + 15000 (x60) + 60000 (x120).
+        assert_eq!(c.fake_wall_ms(501_750), 1_135_000);
+        assert_eq!(c.elapsed_fake_ms(501_750), 135_000);
+        // A context attached meanwhile gets the segment as it was and the change to come.
+        let expected = ShimOrigin { fake0: 1_000_000, real0: 500_000, mult: 60, dur: 60, scheduled: Some(next) };
+        assert_eq!(c.shim_origin(), expected);
+    }
+
+    /// R4-S17, the case of the report: x1440 to x1. Read every millisecond across the instant,
+    /// neither the wall nor the duration ever steps back, and after it both run at x1.
+    #[test]
+    fn slowing_down_steps_back_neither_the_wall_nor_the_duration() {
+        let mut c = CdpClock::new(1_000_000, 0, 1_440, 0);
+        let next = c.set_multiplier_at(1, 10_000);
+        let (mut wall, mut elapsed) = (c.fake_wall_ms(9_999), c.elapsed_fake_ms(9_999));
+        for now in 10_000..=next.at_ms + 1_000 {
+            let (w, e) = (c.fake_wall_ms(now), c.elapsed_fake_ms(now));
+            let step = if now > next.at_ms { 1 } else { 1_440 };
+            assert_eq!((w - wall, e - elapsed), (step, step), "at {now}");
+            (wall, elapsed) = (w, e);
+        }
+    }
+
+    /// A second change inside the window replaces the first, which never takes effect, and keeps its
+    /// instant. One asked for after the instant folds the first into the segment and is scheduled
+    /// from its own moment.
+    #[test]
+    fn a_second_change_replaces_one_still_waiting_and_keeps_its_instant() {
+        let mut c = CdpClock::new(0, 0, 60, 0);
+        let first = c.set_multiplier_at(1_440, 1_000);
+        let second = c.set_multiplier_at(1, 1_100);
+        assert_eq!(second, ScheduledRate { at_ms: first.at_ms, mult: 1, dur: 1 });
+        assert_eq!(c.fake_wall_ms(first.at_ms + 100), first.at_ms * 60 + 100, "x1440 never ran");
+        let third = c.set_multiplier_at(60, first.at_ms + 100);
+        assert_eq!(third.at_ms, first.at_ms + 100 + RATE_CHANGE_DELAY_MS);
+        let folded = ShimOrigin { fake0: first.at_ms * 60, real0: first.at_ms, mult: 1, dur: 1, scheduled: Some(third) };
+        assert_eq!(c.shim_origin(), folded);
+    }
+
+    /// A jump inside the window moves the wall and keeps the change scheduled, so the change takes
+    /// effect at its instant from the new wall - which is also what a page that took the change before
+    /// the jump reached it works out, from the whole clock the jump carries. A jump after the instant
+    /// folds the change in first and runs at the new rate.
+    #[test]
+    fn a_jump_inside_the_window_keeps_the_change_and_takes_it_from_the_new_wall() {
+        let mut c = CdpClock::new(0, 0, 60, 0);
+        let next = c.set_multiplier_at(1, 1_000);
+        c.jump_to_at(5_000_000, 1_100);
+        let carried = ShimOrigin { fake0: 5_000_000, real0: 1_100, mult: 60, dur: 60, scheduled: Some(next) };
+        assert_eq!(c.shim_origin(), carried);
+        let at_instant = 5_000_000 + (next.at_ms - 1_100) * 60;
+        assert_eq!(c.fake_wall_ms(next.at_ms), at_instant);
+        assert_eq!(c.fake_wall_ms(next.at_ms + 10), at_instant + 10, "x1 from the instant");
+        assert_eq!(c.elapsed_fake_ms(next.at_ms + 10), next.at_ms * 60 + 10, "the duration did not jump");
+        c.jump_to_at(0, next.at_ms + 100);
+        let after = ShimOrigin { fake0: 0, real0: next.at_ms + 100, mult: 1, dur: 1, scheduled: None };
+        assert_eq!(c.shim_origin(), after);
+    }
+
+    /// The rate a `state` event carries is the one asked for, from the moment it is asked for: the
+    /// window sets its list of rates from it, and the old rate in the event right after the `ack`
+    /// would set the list back for a moment. The wall and the duration it carries run at the old rate
+    /// until the instant.
+    #[test]
+    fn a_state_event_carries_the_rate_asked_for_and_the_clock_segment_by_segment() {
+        let mut c = CdpClock::new(0, 0, 60, 0);
+        c.set_multiplier_at(1, 1_000);
+        let Event::State { multiplier, elapsed_fake_ms, .. } = c.state_event_at(1_100) else {
+            panic!("a state event");
+        };
+        assert_eq!(multiplier, 1);
+        assert_eq!(elapsed_fake_ms, 1_100 * 60, "still x60 before the instant");
+    }
+
+    /// The expressions only call the shim's own methods, so the clock logic lives in one place
+    /// (ADR-9 R4/14b). The release puts the wall on the real clock at rate 1 with nothing scheduled.
+    #[test]
+    fn the_expressions_call_the_shims_own_methods() {
+        let next = ScheduledRate { at_ms: 9, mult: 0, dur: 0 };
+        assert!(cdp_schedule_expr(next).contains("if(!S)return 'no-shim';return S.schedule(9,0,1);"));
+        let o = ShimOrigin { fake0: 1, real0: 2, mult: 3, dur: 0, scheduled: Some(next) };
+        assert!(cdp_set_expr(o).contains("return S.set(1,2,3,1,{ at: 9, M: 0, D: 1 });"), "{}", cdp_set_expr(o));
+        assert!(cdp_release_expr().contains("if(!S)return 'no-shim';return S.set(0,0,1,1,null);"));
     }
 
     #[test]
@@ -376,9 +556,9 @@ mod tests {
     #[test]
     fn cdp_clock_negative_rate_clamps_to_freeze() {
         let mut c = CdpClock::new(1_000_000, 500_000, 60, 0);
-        let (_, _, m) = c.set_multiplier_at(-5, 501_000);
-        assert_eq!(m, 0); // never runs the wall backward
-        assert_eq!(c.fake_wall_ms(502_000), c.fake_wall_ms(509_000)); // frozen after
+        let next = c.set_multiplier_at(-5, 501_000);
+        assert_eq!(next.mult, 0); // never runs the wall backward
+        assert_eq!(c.fake_wall_ms(next.at_ms + 1_000), c.fake_wall_ms(next.at_ms + 9_000)); // frozen after
     }
 
     fn spec(local: Option<&str>, bias: Option<i32>, mode: &str, multiplier: Option<i64>) -> TimeSpec {
