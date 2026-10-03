@@ -12,6 +12,12 @@ use std::collections::{BTreeMap, HashMap};
 use chrono_core::Verdict;
 use chrono_proto::{CoveredChannel, Event, PROTOCOL_VERSION, UNIT_CONTEXT};
 
+/// A page took a rate change or a jump late or not at all, or did not take the new-document hook
+/// that carries the clock: its clock stands apart from the session's until the next jump, and a
+/// reload may bring back an older one. Said by the Chromium session and by the bridge to the pages
+/// of an embedded engine alike - the same fact on both paths.
+pub(crate) const KEY_CLOCK_MOVE_MISSED: &str = "chromium.clock_move_missed";
+
 /// The channels the session can honestly call covered, in a stable order.
 pub(crate) fn covered_channels(counts: BTreeMap<(u32, String), u64>) -> Vec<(u32, String, u64)> {
     // Coverage = APIs the app actually called (count > 0), per context - honest "covered", like native.
@@ -82,6 +88,7 @@ pub(crate) fn session_warnings(
     app_closed: bool,
     audited: bool,
     rate_changed_in_flight: bool,
+    clock_moves_missed: bool,
     context_ceiling_reached: bool,
     clock_clamped: bool,
 ) -> Vec<String> {
@@ -94,6 +101,12 @@ pub(crate) fn session_warnings(
         // once, but a setInterval already scheduled at the old rate keeps its old cadence - the JS engine
         // had already queued it (rule 4). The native hook has no equivalent gap (it divides Ctl live).
         warnings.push("chromium.rate_change_affects_running_timers".to_string());
+    }
+    if clock_moves_missed {
+        // A context took a rate change or a jump late, or not at all, or did not take the new
+        // new-document hook: it runs apart from the panel until the next jump, and a reload may bring
+        // back an older clock (R4-S17, R4-W5).
+        warnings.push(KEY_CLOCK_MOVE_MISSED.to_string());
     }
     if context_ceiling_reached {
         // The attacher shims at most MAX_CONTEXTS contexts in one session. The ones past that ran on
@@ -326,25 +339,35 @@ mod tests {
     /// The three caveats are conditional and the invasive-launch note is not. An app that closed before
     /// anything could be audited says so, a rate changed in flight says so, because a running
     /// setInterval keeps its old cadence, and a session that refused contexts past its ceiling says
-    /// so, because those ran on the real clock with no row in the audit (rule 4).
+    /// so, because those ran on the real clock with no row in the audit (rule 4). A page that took a
+    /// clock move late or not at all says so too, because its clock stands apart from the panel's.
     #[test]
     fn the_session_warnings_say_only_what_happened() {
-        assert_eq!(session_warnings(false, true, false, false, false), vec!["chromium.launched_with_debug_port"]);
+        assert_eq!(session_warnings(false, true, false, false, false, false), vec!["chromium.launched_with_debug_port"]);
         assert_eq!(
-            session_warnings(true, false, false, false, false),
+            session_warnings(true, false, false, false, false, false),
             vec!["chromium.launched_with_debug_port", "chromium.app_closed_before_audit"]
         );
         assert_eq!(
-            session_warnings(false, true, false, true, false),
+            session_warnings(false, true, false, false, true, false),
             vec!["chromium.launched_with_debug_port", "chromium.context_ceiling_reached"]
         );
         assert_eq!(
-            session_warnings(true, true, true, false, false),
+            session_warnings(true, true, true, false, false, false),
             vec!["chromium.launched_with_debug_port", "chromium.rate_change_affects_running_timers"],
             "an app that closed AFTER being audited has nothing to apologise for"
         );
         assert_eq!(
-            session_warnings(false, true, false, false, true),
+            session_warnings(false, true, true, true, false, false),
+            vec![
+                "chromium.launched_with_debug_port",
+                "chromium.rate_change_affects_running_timers",
+                "chromium.clock_move_missed"
+            ],
+            "a page that took a clock move late or not at all says so (R4-S17)"
+        );
+        assert_eq!(
+            session_warnings(false, true, false, false, false, true),
             vec!["chromium.launched_with_debug_port", "time.fake_clock_clamped"],
             "a clock that stood at the end of its range says so, as it does natively (R4-S8)"
         );

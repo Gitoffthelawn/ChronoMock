@@ -30,9 +30,74 @@ pub(crate) struct CdpContext {
     pub(crate) ty: String,
     /// The CDP targetId, kept because `Target.targetDestroyed` names a target, not a session.
     pub(crate) target_id: String,
-    /// A page's new-document hook, replaced whenever the clock moves (R4-W5). `None` for a worker,
+    /// A page's new-document hooks, replaced whenever the clock moves (R4-W5). None for a worker,
     /// which has no hook - one started later is a new target and is shimmed from the clock of then.
-    pub(crate) script: Option<String>,
+    pub(crate) hooks: PageHooks,
+}
+
+/// The new-document hooks of one page: the one that carries the clock now, and earlier ones whose
+/// removal the page did not confirm. Those are still there as far as anyone knows, so every later
+/// move and the release try again - forgotten, one would put a document loaded after the release
+/// back on a session clock.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PageHooks {
+    current: Option<String>,
+    unremoved: Vec<String>,
+}
+
+/// The two CDP calls a page's hooks take. A trait so the bookkeeping in [`PageHooks`] is tested
+/// without a browser.
+trait HookCalls {
+    /// Add a hook with this shim source and return its identifier, `None` when the page did not.
+    fn add(&mut self, shim: &str) -> Option<String>;
+    /// Remove a hook, and say whether the page confirmed it.
+    fn remove(&mut self, script: &str) -> bool;
+}
+
+/// [`HookCalls`] on one page of a live connection.
+struct PageCalls<'a> {
+    client: &'a mut cdp::CdpClient,
+    session_id: &'a str,
+}
+
+impl HookCalls for PageCalls<'_> {
+    fn add(&mut self, shim: &str) -> Option<String> {
+        cdp::add_page_script(self.client, self.session_id, shim)
+    }
+
+    fn remove(&mut self, script: &str) -> bool {
+        cdp::remove_page_script(self.client, self.session_id, script)
+    }
+}
+
+impl PageHooks {
+    fn new(current: Option<String>) -> PageHooks {
+        PageHooks { current, unremoved: Vec::new() }
+    }
+
+    /// Replace the current hook with one built on `shim`: the new one is added BEFORE any old one
+    /// goes (R4-W5), then every old one is removed, and the ones the page did not confirm are kept.
+    /// `false` when the page did not take the new hook: it keeps the one it had, which a later move
+    /// replaces. A page with no hook - a worker - has nothing to renew.
+    fn renew(&mut self, calls: &mut impl HookCalls, shim: &str) -> bool {
+        if self.current.is_none() {
+            return true;
+        }
+        let Some(new) = calls.add(shim) else {
+            return false;
+        };
+        self.unremoved.extend(self.current.replace(new));
+        self.unremoved.retain(|script| !calls.remove(script));
+        true
+    }
+
+    /// Remove every hook the page may still have, keeping the ones it did not confirm. `true` when
+    /// none is left.
+    fn remove_all(&mut self, calls: &mut impl HookCalls) -> bool {
+        self.unremoved.extend(self.current.take());
+        self.unremoved.retain(|script| !calls.remove(script));
+        self.unremoved.is_empty()
+    }
 }
 
 /// The clock origin a shim is built from: fake start and real start (both Unix-epoch ms), the wall
@@ -364,7 +429,7 @@ impl Attacher {
                     // built.
                     ty: cdp::sanitise_target_text(&ty),
                     target_id: tid,
-                    script,
+                    hooks: PageHooks::new(script),
                 });
             }
             Err(_) => {
@@ -400,61 +465,59 @@ impl Attacher {
     /// on `origin`, then push `expr` to every live document. The hook first, so a page that loads a
     /// new document meanwhile already gets the new clock (R4-W5), a scheduled change included - which
     /// is why a Chromium session schedules its rate changes far enough ahead to cover both (R4-S17).
-    pub(crate) fn move_clock(&mut self, expr: &str, origin: ShimOrigin) {
+    ///
+    /// Returns how many pages did not take the move in time, each counted once: one that did not take
+    /// the new hook, so a reload brings back the clock of the hook it kept, or one that answered
+    /// anything but `ok` - `late` from a page that got a scheduled change after its instant, an error
+    /// or nothing from one that did not get the move at all. The caller says so (rule 6).
+    pub(crate) fn move_clock(&mut self, expr: &str, origin: ShimOrigin) -> usize {
         let shim = origin.shim();
         let client = &mut self.client;
-        for ctx in self.contexts.iter_mut().filter(|c| c.script.is_some()) {
-            if let Some(renewed) = cdp::renew_page_script(client, &ctx.session_id, ctx.script.as_deref(), &shim) {
-                ctx.script = Some(renewed);
-            }
-        }
-        self.broadcast(expr);
+        let hooked: Vec<bool> = self
+            .contexts
+            .iter_mut()
+            .map(|ctx| ctx.hooks.renew(&mut PageCalls { client: &mut *client, session_id: &ctx.session_id }, &shim))
+            .collect();
+        let answered = self.broadcast(expr);
+        failed_either(&hooked, &answered)
     }
 
-    /// Evaluate a JS expression in every live context (best-effort: a context that just closed
-    /// errors and is skipped, so an in-flight update stays honest for the rest).
-    pub(crate) fn broadcast(&mut self, expr: &str) {
-        for ctx in &self.contexts {
-            let _ = self.client.call(
-                "Runtime.evaluate",
-                json!({ "expression": expr, "returnByValue": true }),
-                Some(&ctx.session_id),
-            );
-        }
+    /// Evaluate a JS expression in every live context and say, for each in list order, whether it
+    /// confirmed (see [`confirmed`]). A context that just closed errors and is skipped, so an
+    /// in-flight update stays honest for the rest.
+    fn broadcast(&mut self, expr: &str) -> Vec<bool> {
+        let client = &mut self.client;
+        self.contexts
+            .iter()
+            .map(|ctx| {
+                confirmed(client.call(
+                    "Runtime.evaluate",
+                    json!({ "expression": expr, "returnByValue": true }),
+                    Some(&ctx.session_id),
+                ))
+            })
+            .collect()
     }
 
     /// Evaluate the release expression in every live context and count the ones that did not confirm
-    /// it. `ok` is a context let go, `no-shim` one that was never on the shim and has nothing to let go
-    /// of. Anything else - an error, no answer - is a page that may still be on the session clock,
-    /// which the caller has to say (rule 6).
+    /// it (see [`confirmed`]), each once: a page that answered anything else, or one that still has a
+    /// hook whose removal it did not confirm, may still be on the session clock, which the caller has
+    /// to say (rule 6).
     pub(crate) fn release(&mut self, expr: &str) -> u32 {
-        // The hooks go first. They die with the connection (measured: a page reloaded after the
-        // session comes up with no shim), but the connection outlives the release by the last look
-        // at the host's tree, and a page that navigated then loaded its next document on the session
-        // clock again and kept it after the session with no warning (R4-W5). A page that loads one
-        // meanwhile has no shim, and answers `no-shim` below.
+        // The hooks go first, every one the page may still have. They die with the connection
+        // (measured: a page reloaded after the session comes up with no shim), but the connection
+        // outlives the release by the last look at the host's tree, and a page that navigated then
+        // loaded its next document on the session clock again and kept it after the session with no
+        // warning (R4-W5). A page that loads one meanwhile has no shim, and answers `no-shim` below.
         let client = &mut self.client;
-        for ctx in self.contexts.iter_mut() {
-            if let Some(script) = ctx.script.take() {
-                cdp::remove_page_script(client, &ctx.session_id, &script);
-            }
-        }
-        let mut unconfirmed = 0;
-        for ctx in &self.contexts {
-            let reply = self.client.call(
-                "Runtime.evaluate",
-                json!({ "expression": expr, "returnByValue": true }),
-                Some(&ctx.session_id),
-            );
-            let confirmed = reply
-                .ok()
-                .and_then(|r| r["result"]["value"].as_str().map(|v| v == "ok" || v == "no-shim"))
-                .unwrap_or(false);
-            if !confirmed {
-                unconfirmed += 1;
-            }
-        }
-        unconfirmed
+        let unhooked: Vec<bool> = self
+            .contexts
+            .iter_mut()
+            .map(|ctx| ctx.hooks.remove_all(&mut PageCalls { client: &mut *client, session_id: &ctx.session_id }))
+            .collect();
+        let let_go = self.broadcast(expr);
+        let unconfirmed = failed_either(&unhooked, &let_go);
+        u32::try_from(unconfirmed).unwrap_or(u32::MAX)
     }
 
     /// Evaluate a JS expression in one live context and return the string it produced, if any.
@@ -528,6 +591,19 @@ fn past_ceiling(seen: &[u32], index: u32) -> bool {
     !seen.contains(&index) && seen.len() >= MAX_CONTEXTS
 }
 
+/// How many contexts failed either of two steps, each counted once. Both lists are in context order:
+/// the hooks, then the answer to the evaluate that followed.
+fn failed_either(first: &[bool], second: &[bool]) -> usize {
+    first.iter().zip(second).filter(|&(&a, &b)| !a || !b).count()
+}
+
+/// Whether a context confirmed an evaluate that moves or lets go of its clock: `ok`, or `no-shim`
+/// from one with no shim to move. Anything else did not take it - `late` from a page that got a
+/// scheduled rate change after its instant (R4-S17), an error, or no answer at all.
+fn confirmed(reply: io::Result<serde_json::Value>) -> bool {
+    reply.ok().is_some_and(|r| matches!(r["result"]["value"].as_str(), Some("ok" | "no-shim")))
+}
+
 /// The targets in a `Target.getTargets` reply worth attaching to: shimmable, named, and not yet
 /// known to this attacher. Pure over the reply, so the filter is tested on a made-up browser.
 fn new_targets(reply: &serde_json::Value, known: &HashMap<String, u32>) -> Vec<(String, String)> {
@@ -551,6 +627,101 @@ fn new_targets(reply: &serde_json::Value, known: &HashMap<String, u32>) -> Vec<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page that answers the hook calls as told: the identifiers `add` hands out in order (`None`
+    /// = the page did not take it), and the hooks whose removal it does not confirm.
+    struct Page {
+        adds: Vec<Option<&'static str>>,
+        refuses: Vec<&'static str>,
+        calls: Vec<String>,
+    }
+
+    impl HookCalls for Page {
+        fn add(&mut self, _shim: &str) -> Option<String> {
+            self.calls.push("add".to_string());
+            self.adds.remove(0).map(str::to_string)
+        }
+
+        fn remove(&mut self, script: &str) -> bool {
+            self.calls.push(format!("remove {script}"));
+            !self.refuses.contains(&script)
+        }
+    }
+
+    fn page(adds: Vec<Option<&'static str>>, refuses: Vec<&'static str>) -> Page {
+        Page { adds, refuses, calls: Vec::new() }
+    }
+
+    fn hooks(current: Option<&str>, unremoved: &[&str]) -> PageHooks {
+        PageHooks { current: current.map(str::to_string), unremoved: unremoved.iter().map(|s| s.to_string()).collect() }
+    }
+
+    /// R4-W5 under the review of #84: the new hook is added before the old one goes, a hook whose
+    /// removal the page did not confirm is kept and tried again at the next move, and one ADD per
+    /// move however many old hooks are waiting.
+    #[test]
+    fn a_renewed_hook_keeps_every_old_one_the_page_did_not_confirm_gone() {
+        let mut h = hooks(Some("a"), &[]);
+        let mut p = page(vec![Some("b"), Some("c")], vec!["a"]);
+        assert!(h.renew(&mut p, "shim"));
+        assert_eq!(h, hooks(Some("b"), &["a"]), "a is still on the page as far as anyone knows");
+        p.refuses.clear();
+        assert!(h.renew(&mut p, "shim"));
+        assert_eq!(h, hooks(Some("c"), &[]));
+        assert_eq!(p.calls, ["add", "remove a", "add", "remove a", "remove b"]);
+    }
+
+    /// A page that did not take the new hook keeps the one it had, nothing is removed, and the move
+    /// is reported as missed. A worker has no hook and nothing to renew.
+    #[test]
+    fn a_hook_the_page_did_not_take_leaves_the_old_one_and_is_reported() {
+        let mut h = hooks(Some("a"), &[]);
+        let mut p = page(vec![None], vec![]);
+        assert!(!h.renew(&mut p, "shim"));
+        assert_eq!(h, hooks(Some("a"), &[]));
+        assert_eq!(p.calls, ["add"], "the old hook is not removed when there is no new one");
+
+        let mut worker = hooks(None, &[]);
+        let mut p = page(vec![], vec![]);
+        assert!(worker.renew(&mut p, "shim"));
+        assert!(p.calls.is_empty());
+    }
+
+    /// The release removes every hook the page may still have, the current one and the old ones, and
+    /// says when one stays.
+    #[test]
+    fn the_release_removes_every_hook_and_says_when_one_stays() {
+        let mut h = hooks(Some("c"), &["a", "b"]);
+        let mut p = page(vec![], vec!["b"]);
+        assert!(!h.remove_all(&mut p));
+        assert_eq!(h, hooks(None, &["b"]));
+        assert_eq!(p.calls, ["remove a", "remove b", "remove c"]);
+        let mut p = page(vec![], vec![]);
+        assert!(h.remove_all(&mut p));
+        assert_eq!(h, hooks(None, &[]));
+    }
+
+    /// A page that failed the hook or the answer counts once, and one that failed both counts once
+    /// too - the count is of pages, which the warning and `embedded.pages_not_released` are about.
+    #[test]
+    fn a_page_that_missed_a_step_counts_once() {
+        assert_eq!(failed_either(&[true, false, true, true], &[true, true, false, true]), 2);
+        assert_eq!(failed_either(&[false], &[false]), 1);
+        assert_eq!(failed_either(&[true, true], &[true, true]), 0);
+    }
+
+    /// Only `ok`, and `no-shim` from a context with no shim to move, confirm a clock move or a
+    /// release. `late` from a page that got a scheduled change after its instant does not (R4-S17),
+    /// nor an error or a reply with no value.
+    #[test]
+    fn only_ok_and_no_shim_confirm_a_clock_move() {
+        let reply = |v: &str| Ok(json!({ "result": { "type": "string", "value": v } }));
+        assert!(confirmed(reply("ok")));
+        assert!(confirmed(reply("no-shim")));
+        assert!(!confirmed(reply("late")));
+        assert!(!confirmed(Ok(json!({ "result": {} }))));
+        assert!(!confirmed(Err(io::Error::other("timed out"))));
+    }
 
     /// R4-S14: a turn takes everything that is already here, not one message - and reports what
     /// mattered most in it, so an attach in the middle of a burst of other events is not lost.

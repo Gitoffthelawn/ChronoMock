@@ -138,7 +138,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   where its own clock stands, so neither the date nor `performance.now` steps. The same page now gets
   the change with about 0.24 seconds to spare. A page too busy to get the change within that quarter
   of a second takes it when it gets it: its clock stays continuous, but runs that delay times the
-  change in speed away from the window's until the next jump. The speed a `state` event reports is the
+  change in speed away from the window's until the next jump. The report says so with a new warning,
+  `chromium.clock_move_missed`, which also names a page that did not take a speed change or a jump
+  at all, or did not take the clock its next document starts from. The speed a `state` event reports is the
   one asked for, from the moment it is asked for. The pages inside an application follow the
   application's clock as before, which changes at the moment of the command.
 - **A page that reloads after a jump or a speed change keeps the session clock.** In a Chromium or
@@ -148,7 +150,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   reload brought the page back to 2038 at x60. Every jump and speed change now replaces that script
   as well, so the reloaded page stays in 2031 at x1. The script is also taken away when the session
   lets the pages of an application that outlives it go, so a page that loads a new document in the
-  session's last moments starts on the real clock.
+  session's last moments starts on the real clock. A script the page did not confirm removed is tried
+  again at every later move and at the end, and a page that still has one when the session lets it
+  go is named among the pages that did not confirm they were let go.
 - **A CDP session survives a message it cannot read, and no page or worker is left paused.** A
   Chromium or Electron session, and the bridge to the pages inside an application, ended the whole
   connection on one message that was not valid JSON - which Chromium sends for a JavaScript string cut

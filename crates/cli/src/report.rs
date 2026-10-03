@@ -440,6 +440,9 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "chromium.rate_change_affects_running_timers" => {
             "the speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence"
         }
+        "chromium.clock_move_missed" => {
+            "a web page took a speed change or a jump late or not at all - usually because it was busy - so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one"
+        }
         "chromium.context_ceiling_reached" => {
             "the app opened more web pages and workers than one session can put under the fake clock (256) - the ones past that read the real clock and are missing from the audit"
         }

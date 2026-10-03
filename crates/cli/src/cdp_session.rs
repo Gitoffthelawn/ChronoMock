@@ -66,6 +66,8 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
         }
     };
     let mut rate_changed_in_flight = false;
+    // Pages that took a clock move late or not at all (`chromium.clock_move_missed`, rule 6).
+    let mut moves_missed = 0;
 
     // Launch under our own isolated profile + debug port, then attach. Any failure is an honest error
     // event plus exit 2 (could not launch/attach), never a faked verdict.
@@ -165,9 +167,8 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                         });
                         continue;
                     }
-                    let now = now_epoch_ms();
-                    let next = clock.set_multiplier_at(multiplier, now);
-                    attacher.move_clock(&cdp_schedule_expr(next), clock.shim_origin());
+                    let next = clock.set_multiplier_at(multiplier, now_epoch_ms());
+                    moves_missed += attacher.move_clock(&cdp_schedule_expr(next), clock.shim_origin());
                     rate_changed_in_flight = true;
                     emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                     emit(&clock.state_event_at(now_epoch_ms()));
@@ -180,7 +181,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                     match cdp_resolve_jump(&clock, &to, now) {
                         Ok(new_fake) => {
                             clock.jump_to_at(new_fake, now);
-                            attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin());
+                            moves_missed += attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin());
                             emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                             emit(&clock.state_event_at(now_epoch_ms()));
                         }
@@ -236,7 +237,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     for event in coverage_events(
         &seen,
         &covered,
-        session_warnings(app_closed, audited, rate_changed_in_flight, past_ceiling > 0, clock.reached_range_end(now_epoch_ms())),
+        session_warnings(app_closed, audited, rate_changed_in_flight, moves_missed > 0, past_ceiling > 0, clock.reached_range_end(now_epoch_ms())),
     ) {
         emit(&event);
     }

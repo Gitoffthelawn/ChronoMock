@@ -26,6 +26,7 @@ use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, Pumped, ShimOrigin};
+use crate::cdp_audit::KEY_CLOCK_MOVE_MISSED;
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::engine_env;
@@ -682,10 +683,13 @@ impl EmbeddedBridge {
         }
     }
 
-    /// Every page of every engine onto `origin`: new-document hooks renewed, live documents told.
+    /// Every page of every engine onto `origin`: new-document hooks renewed, live documents told. A
+    /// page that did not take the move stands apart from the host until the next jump - the resync
+    /// does not see it, because it measures the drift of what was pushed - so it is said (rule 6).
     fn move_clock(&mut self, expr: &str, origin: ShimOrigin) {
-        for attacher in &mut self.attachers {
-            attacher.move_clock(expr, origin);
+        let missed: usize = self.attachers.iter_mut().map(|attacher| attacher.move_clock(expr, origin)).sum();
+        if missed > 0 {
+            self.warn(KEY_CLOCK_MOVE_MISSED);
         }
     }
 

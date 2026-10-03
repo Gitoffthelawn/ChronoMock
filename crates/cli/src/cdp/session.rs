@@ -272,8 +272,8 @@ pub fn starts_workers(target_type: &str) -> bool {
 
 /// What installing the shim into one context left behind.
 pub struct Injected {
-    /// A page's new-document hook, which [`renew_page_script`] needs to replace it when the clock
-    /// moves. `None` for a worker, and for a page that answered without an identifier.
+    /// A page's new-document hook, which the caller replaces through [`add_page_script`] and
+    /// [`remove_page_script`] when the clock moves. `None` for a worker, and for a page that answered without an identifier.
     pub script: Option<String>,
     /// Whether the context took auto-attach (see [`auto_attach_children`]).
     pub children: bool,
@@ -329,34 +329,28 @@ fn script_identifier(reply: &Value) -> Option<String> {
     reply.get("identifier").and_then(Value::as_str).map(str::to_string)
 }
 
-/// Replace a page's new-document hook with one built on the clock as it is now, and return the new
-/// identifier. The hook carries its clock in its source, so one registered at attach handed every
-/// document loaded after a jump or a rate change the clock from the attach - a reload after a jump to
-/// 2031 came back in 2038 at the old rate (R4-W5, measured on an Electron page).
-///
-/// The new hook is added BEFORE the old one goes. A document starting in between runs both, in the
-/// order they were added, and the shim's own guard lets the second set the clock - so no document
-/// starts with no shim, nor with the old clock. A page that does not answer keeps its old hook, and
-/// `None` comes back.
-pub fn renew_page_script(client: &mut CdpClient, session_id: &str, old: Option<&str>, shim: &str) -> Option<String> {
+/// Add a new-document hook built on the clock as it is now, and return its identifier, or `None` when
+/// the page did not take it or gave no identifier. The hook carries its clock in its source, so one
+/// registered at attach handed every document loaded after a jump or a rate change the clock from the
+/// attach - a reload after a jump to 2031 came back in 2038 at the old rate (R4-W5, measured on an
+/// Electron page). The caller adds the new hook BEFORE it removes the old one: a document starting in
+/// between runs both, in the order they were added, and the shim's own guard lets the second set the
+/// clock - so no document starts with no shim, nor with the old clock.
+pub fn add_page_script(client: &mut CdpClient, session_id: &str, shim: &str) -> Option<String> {
     let added = client
         .call("Page.addScriptToEvaluateOnNewDocument", json!({ "source": shim }), Some(session_id))
         .ok()?;
-    let new = script_identifier(&added)?;
-    if let Some(old) = old {
-        client
-            .call("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": old }), Some(session_id))
-            .ok();
-    }
-    Some(new)
+    script_identifier(&added)
 }
 
-/// Remove a page's new-document hook, so a document it loads after the session let it go starts on
-/// the real clock. Best effort: a page that is gone has nothing left to remove.
-pub fn remove_page_script(client: &mut CdpClient, session_id: &str, script: &str) {
+/// Remove a page's new-document hook, and say whether the page confirmed it. A hook whose removal
+/// was not confirmed is still there as far as anyone knows, and the caller keeps its identifier to try
+/// again - forgotten, it would put a document loaded after the session let the page go back on a
+/// session clock.
+pub fn remove_page_script(client: &mut CdpClient, session_id: &str, script: &str) -> bool {
     client
         .call("Page.removeScriptToEvaluateOnNewDocument", json!({ "identifier": script }), Some(session_id))
-        .ok();
+        .is_ok()
 }
 
 /// Evaluate the shim in a session's global context and surface a thrown exception as an error (the
