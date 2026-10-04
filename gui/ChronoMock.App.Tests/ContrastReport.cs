@@ -53,8 +53,13 @@ internal static class ContrastReport
         /// <summary>What this size has to reach, given how large it is.</summary>
         public double Required => FontSize >= LargeTextSize ? LargeTextRatio : NormalTextRatio;
 
+        /// <summary>Whether the text belongs to a control that is switched off. Its ratio is still measured
+        /// and reported as drawn, but it is not held to the floor: WCAG 2.1 (1.4.3) exempts an inactive
+        /// control, and the shared templates fade a disabled one on purpose.</summary>
+        public bool Inactive { get; init; }
+
         /// <summary>Too faint to read at this size, on the surface it was actually painted on.</summary>
-        public bool TooFaint => BackgroundKnown && Ratio < Required;
+        public bool TooFaint => BackgroundKnown && !Inactive && Ratio < Required;
 
         /// <summary>
         /// An icon glyph rather than words: one character from the Unicode private use area, which is
@@ -88,16 +93,29 @@ internal static class ContrastReport
         var readings = new List<Reading>();
         foreach (var element in elements)
         {
-            if (!element.IsVisible || element.Text.Length == 0 || element.Foreground is not { } ink)
+            // Fully transparent draws nothing, so there is no line to read: a template hides a glyph this way
+            // (measured: an 11 px glyph in the scenario list, read 1 to 1 the moment opacity was counted).
+            if (!element.IsVisible || element.Opacity <= 0 || element.Text.Length == 0 || element.Foreground is not { } ink)
             {
                 continue;
             }
 
             var paper = PaperBehind(pixels, stride, width, height, element.Bounds, ink);
-            readings.Add(Describe(element, ink, paper));
+
+            // 🔴 The colour as DRAWN: the brush over the surface, as far as the element's opacity lets it
+            // through. The brush alone read a faded line at its full-strength ratio (LayoutProbe.EffectiveOpacity).
+            var drawn = paper is { } under && element.Opacity < 1 ? Over(ink, under, element.Opacity) : ink;
+            readings.Add(Describe(element, drawn, paper));
         }
 
         return readings;
+    }
+
+    /// <summary>The ink composited over the paper at the given opacity, channel by channel.</summary>
+    private static Color Over(Color ink, Color paper, double opacity)
+    {
+        byte Mix(byte top, byte bottom) => (byte)Math.Round(bottom + ((top - bottom) * opacity));
+        return Color.FromRgb(Mix(ink.R, paper.R), Mix(ink.G, paper.G), Mix(ink.B, paper.B));
     }
 
     private static Reading Describe(LaidOutElement element, Color ink, Color? paper) => new()
@@ -109,6 +127,7 @@ internal static class ContrastReport
         // Unknown only when the line has no pixels on the canvas to sample. Everything else is judged,
         // including a line whose surface turned out to be its own ink - see PaperBehind.
         BackgroundKnown = paper is not null,
+        Inactive = !element.IsEnabled,
         Ink = Hex(ink),
         Paper = paper is { } shown ? Hex(shown) : "?",
     };
@@ -226,7 +245,7 @@ internal static class ContrastReport
             .OrderBy(r => r.Ratio)
             .Select(r => string.Create(
                 CultureInfo.InvariantCulture,
-                $"{r.Ratio,6:N2} (needs {r.Required,4:N1})  {r.FontSize,4:N0}px  {r.Ink} on {r.Paper}  {r.Label}  {r.Text}"));
+                $"{r.Ratio,6:N2} (needs {(r.Inactive ? "none, off" : r.Required.ToString("N1", CultureInfo.InvariantCulture)),9})  {r.FontSize,4:N0}px  {r.Ink} on {r.Paper}  {r.Label}  {r.Text}"));
 
         // An off-scale size disappears among the contrast lines, so it gets a section of its own.
         var offScale = readings.Where(r => r.OffScale).Select(r => string.Create(

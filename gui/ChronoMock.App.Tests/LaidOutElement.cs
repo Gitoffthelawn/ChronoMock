@@ -57,6 +57,10 @@ internal sealed record LaidOutElement
     /// <summary>Ink colour for a text element, null when the brush is not a plain colour.</summary>
     public required Color? Foreground { get; init; }
 
+    /// <summary>The opacity the element is drawn with - its own times every ancestor's. The ink above is
+    /// the brush, so the colour a reader sees is that ink this far over the surface behind it.</summary>
+    public double Opacity { get; init; } = 1;
+
     /// <summary>Index of this element's parent in the same walk, or -1 for a child of the root.</summary>
     public required int ParentIndex { get; init; }
 
