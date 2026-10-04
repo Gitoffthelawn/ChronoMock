@@ -51,6 +51,14 @@
     <ProjectReference Include="..\ChronoMock.Protocol\ChronoMock.Protocol.csproj" />
   </ItemGroup>
 
+  <!-- The shipped layout is stated by the BUILD, not guessed from the files beside the exe (R4-S26):
+       packaging/build-dist.ps1 publishes with ChronoMockLayout=portable, and AppPaths.IsPortable reads
+       the metadata this writes. Guessing from the x64 core's presence turned a package whose core had
+       been quarantined into a dev build that would not start. Guarded by a test in crates/cli/tests. -->
+  <ItemGroup Condition="'$(ChronoMockLayout)' != ''">
+    <AssemblyMetadata Include="ChronoMock.Layout" Value="$(ChronoMockLayout)" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Language files are loose Content, so anyone can add a language by dropping a
          Strings.<culture>.json next to the app - no recompile (untouchable rule 15). They are JSON

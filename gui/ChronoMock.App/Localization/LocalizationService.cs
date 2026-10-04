@@ -25,7 +25,7 @@ public static class LocalizationService
     private const string FolderName = "Localization";
     private const string FilePrefix = "Strings.";
     private const string FileSuffix = ".json";
-    private const string MarkerKey = "__chrono_strings_culture";
+    internal const string MarkerKey = "__chrono_strings_culture";
 
     /// <summary>The window title, which is a format string until the version is filled into it.</summary>
     private const string TitleKey = "app.title";
@@ -56,23 +56,71 @@ public static class LocalizationService
 
     /// <summary>
     /// <see cref="CurrentCulture"/> as a format provider, for text the interface FORMATS rather than looks
-    /// up - a weekday or month name has no key, it comes from the culture. Falls back to the invariant
-    /// culture if the tag names no culture this machine knows, so an unusual or damaged marker degrades
-    /// to English month names instead of throwing inside a property a binding is reading.
+    /// up - a weekday or month name has no key, it comes from the culture. Made once per culture tag, since
+    /// every row of the history formats two moments through it.
     /// </summary>
     public static CultureInfo CurrentFormatCulture
     {
         get
         {
-            try
+            var tag = CurrentCulture;
+            var made = _formatCulture;
+            if (made is null || !string.Equals(made.Tag, tag, StringComparison.Ordinal))
             {
-                return CultureInfo.GetCultureInfo(CurrentCulture);
+                made = new FormatCultureEntry(tag, FormatCultureFor(tag));
+                _formatCulture = made;
             }
-            catch (CultureNotFoundException)
-            {
-                return CultureInfo.InvariantCulture;
-            }
+
+            return made.Culture;
         }
+    }
+
+    private static FormatCultureEntry? _formatCulture;
+
+    private sealed record FormatCultureEntry(string Tag, CultureInfo Culture);
+
+    /// <summary>
+    /// The culture a tag formats moments in: its own names for days and months, always in the Gregorian
+    /// calendar.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 A culture brings its DEFAULT calendar with it, and for some that is not the Gregorian one: measured,
+    /// 2026-10-04 formats as the year 2569 under <c>th</c>, 1448 under <c>ar-SA</c> and 1405 under
+    /// <c>fa-IR</c> (R4-N51). A language is added by dropping a strings file beside the exe, so any of them
+    /// can become the interface language - and every moment the window states, the session's own above
+    /// all, is a Gregorian date the core works in. Each of those cultures offers the Gregorian calendar as
+    /// an optional one, preferably in its localized form. A tag no culture on this machine knows, or one
+    /// with no Gregorian calendar at all, falls back to the invariant culture, so a damaged marker degrades
+    /// to English month names instead of throwing inside a property a binding is reading.
+    /// </remarks>
+    internal static CultureInfo FormatCultureFor(string tag)
+    {
+        CultureInfo culture;
+        try
+        {
+            culture = CultureInfo.GetCultureInfo(tag);
+        }
+        catch (CultureNotFoundException)
+        {
+            return CultureInfo.InvariantCulture;
+        }
+
+        if (culture.DateTimeFormat.Calendar is GregorianCalendar)
+        {
+            return culture;
+        }
+
+        var gregorian = culture.OptionalCalendars.OfType<GregorianCalendar>()
+            .OrderBy(c => c.CalendarType == GregorianCalendarTypes.Localized ? 0 : 1)
+            .FirstOrDefault();
+        if (gregorian is null)
+        {
+            return CultureInfo.InvariantCulture;
+        }
+
+        var clone = (CultureInfo)culture.Clone();
+        clone.DateTimeFormat.Calendar = gregorian;
+        return CultureInfo.ReadOnly(clone);
     }
 
     /// <summary>Whether a string is shaped like a culture tag (<c>en</c>, <c>pl</c>, <c>pt-BR</c>) -

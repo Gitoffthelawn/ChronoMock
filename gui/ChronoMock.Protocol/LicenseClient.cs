@@ -118,32 +118,25 @@ public sealed class LicenseClient
         // past the buffer - which is to say, on somebody else's machine, later.
         var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
 
+        // The same holds for stderr, and it was redirected without being read: a core that wrote more than
+        // a buffer there stopped on the write until the limit below killed it, and the window then said the
+        // core could not be asked (R4-N50). Nothing shows it, so it is read only to keep the pipe moving.
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
         attempt.CancelAfter(QueryTimeout);
         try
         {
             var stdout = await stdoutTask.WaitAsync(attempt.Token).ConfigureAwait(false);
             await process.WaitForExitAsync(attempt.Token).ConfigureAwait(false);
+            await stderrTask.WaitAsync(attempt.Token).ConfigureAwait(false);
             return process.ExitCode == 0 && stdout.Trim().Length > 0 ? stdout : null;
         }
         catch (Exception failure) when (failure is OperationCanceledException or IOException)
         {
-            KillQuietly(process);
+            ChildProcesses.KillQuietly(process);
+            await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
             return null;
-        }
-    }
-
-    /// <summary>Kill the child and its tree, ignoring the races that make it moot.</summary>
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        catch (Exception failure) when (failure is InvalidOperationException or NotSupportedException
-            or System.ComponentModel.Win32Exception)
-        {
-            // Already gone, or the OS refused - either way there is nothing left to do about it.
         }
     }
 }

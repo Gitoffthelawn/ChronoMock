@@ -1,3 +1,4 @@
+using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.App;
 using ChronoMock.Protocol;
 
@@ -75,5 +76,35 @@ public class AboutTests
         // the one answer it must never give by accident (untouchable rule 4).
         const string unexpected = "the core said something else entirely";
         Assert.Equal(unexpected, LicenseClient.RegisterOnly(unexpected));
+    }
+
+    [Fact]
+    public async Task A_core_that_writes_a_lot_to_stderr_is_still_heard()
+    {
+        // R4-N50: stderr was redirected and never read, so a core that wrote more than a pipe buffer there
+        // stopped on the write until the query's limit killed it, and the window said the core could not be
+        // asked. The stand-in writes ~66 KB to stderr BEFORE its listing - the order that blocks.
+        var dir = Directory.CreateTempSubdirectory("chrono-licence-");
+        try
+        {
+            var core = Path.Combine(dir.FullName, "core.cmd");
+            File.WriteAllText(core, string.Join("\r\n",
+                "@echo off",
+                "for /L %%i in (1,1,1000) do echo 0123456789012345678901234567890123456789012345678901234567890123 1>&2",
+                "echo " + LicenseClient.FirstGroupHeading,
+                "echo   itoa 1.0.18",
+                "exit /b 0",
+                string.Empty));
+
+            var listing = await new LicenseClient(() => core)
+                .TryReadComponentsAsync(TestContext.Current.CancellationToken);
+
+            Assert.NotNull(listing);
+            Assert.Contains("itoa 1.0.18", listing, StringComparison.Ordinal);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
     }
 }

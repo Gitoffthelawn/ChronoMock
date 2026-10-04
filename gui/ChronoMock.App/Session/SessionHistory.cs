@@ -37,6 +37,42 @@ public interface ISessionHistoryStore
 
     /// <summary>Remove every recorded session. Same write-failure contract as Append.</summary>
     void Clear();
+
+    /// <summary>
+    /// <see cref="Append"/> off the calling thread, answering with the empty string when it was written and
+    /// the reason when it was not - the panel shows that reason rather than a dialog (rule 6).
+    /// <para>
+    /// 🔴 The three changes go to the pool, not only the append. Removing a row and clearing the log wrote the
+    /// file on the UI thread, where the replace sleeps between retries while another instance holds the file,
+    /// and where the gate between instances (R4-N49) would wait (R4/13). The panel's own list is still changed
+    /// by the caller, on its thread - WPF refuses a bound collection changed from anywhere else.
+    /// </para>
+    /// </summary>
+    Task<string> AppendAsync(SessionRecord record) => InBackground(() => Append(record));
+
+    /// <summary><see cref="Remove"/> off the calling thread, answered like <see cref="AppendAsync"/>.</summary>
+    Task<string> RemoveAsync(SessionRecord record) => InBackground(() => Remove(record));
+
+    /// <summary><see cref="Clear"/> off the calling thread, answered like <see cref="AppendAsync"/>.</summary>
+    Task<string> ClearAsync() => InBackground(Clear);
+
+    /// <summary>
+    /// The exception is carried back as a value rather than rethrown: the message belongs on the panel, and
+    /// awaiting a faulted Task.Run would wrap it in an AggregateException-shaped rethrow whose type filter is
+    /// easy to get subtly wrong.
+    /// </summary>
+    private static Task<string> InBackground(Action change) => Task.Run(() =>
+    {
+        try
+        {
+            change();
+            return string.Empty;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return ex.Message;
+        }
+    });
 }
 
 /// <summary>In-memory store: the default for a bare view-model and for unit tests, so they touch no files.</summary>
@@ -88,7 +124,7 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         var exeHistory = Path.Combine(AppContext.BaseDirectory, "history");
         var perUser = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", "history");
-        return new FileSessionHistoryStore(ChooseWritableDir(exeHistory, perUser, IsWritable));
+        return new FileSessionHistoryStore(ChooseWritableDir(exeHistory, perUser, WritableFolder.IsWritable));
     }
 
     /// <summary>Pick <paramref name="preferred"/> when it is writable, else <paramref name="fallback"/>. The
@@ -96,31 +132,32 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
     internal static string ChooseWritableDir(string preferred, string fallback, Func<string, bool> isWritable)
         => isWritable(preferred) ? preferred : fallback;
 
-    /// <summary>Whether a directory can be created and written to, by actually probing it (a directory's
-    /// read-only attribute does not stop file creation on Windows, so a real write is the only honest test).</summary>
-    private static bool IsWritable(string dir)
-    {
-        try
-        {
-            Directory.CreateDirectory(dir);
-            var probe = Path.Combine(dir, ".write-probe");
-            File.WriteAllText(probe, string.Empty);
-            File.Delete(probe);
-            return true;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
     private string FilePath => Path.Combine(_directory, FileName);
 
     /// <summary>Distinguishes concurrent writes from within one process, as the process id does between
     /// instances - together they make every scratch file name unique.</summary>
     private static int _tempCounter;
 
-    public IReadOnlyList<SessionRecord> Load() => ReadFile(out _);
+    /// <summary>How many times a read is tried while the file is held by somebody else - the same short
+    /// budget the replace below gives the destination (20 + 40 + 60 + 80 + 100 ms between tries).</summary>
+    private const int ReadAttempts = 6;
+
+    /// <summary>
+    /// The records on disk, or none. A file that cannot be opened even after retrying reads as empty and is
+    /// left exactly where it is - unlike an unreadable one, nothing here sets it aside, so the next append
+    /// simply tries again.
+    /// </summary>
+    public IReadOnlyList<SessionRecord> Load()
+    {
+        try
+        {
+            return ReadFile(out _);
+        }
+        catch (IOException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>
     /// The records on disk, plus whether there IS a file here that this build could not read.
@@ -130,22 +167,56 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
     /// happens. That is precisely what used to occur - Load returned empty, Append built its new list from
     /// that empty, and the first session after a downgrade wiped the whole log the newer build had written.
     /// The schema gate stopped this build from MISREADING the file and did nothing to stop it destroying it.
+    /// <para>
+    /// 🔴 A file that is there and cannot be OPENED right now is neither, and throws once the retries are
+    /// spent. It used to count as unreadable, so a scanner or a second instance holding it for a moment made
+    /// the next append set the whole history aside and start a new one with a single row (R4-N49).
+    /// </para>
     /// </summary>
     private IReadOnlyList<SessionRecord> ReadFile(out bool unreadable)
     {
-        unreadable = false;
-        if (!File.Exists(FilePath))
+        for (var attempt = 1; ; attempt++)
         {
+            try
+            {
+                return ReadOnce(out unreadable);
+            }
+            catch (IOException) when (attempt < ReadAttempts)
+            {
+                Thread.Sleep(20 * attempt);
+            }
+        }
+    }
+
+    private IReadOnlyList<SessionRecord> ReadOnce(out bool unreadable)
+    {
+        unreadable = false;
+        string text;
+        try
+        {
+            text = File.ReadAllText(FilePath);
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // No history yet - asked directly rather than checked first, so a file deleted between a check
+            // and the read is not mistaken for one that cannot be read.
+            return [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // A read-denied file is somebody's history this account will never read - unreadable, and so
+            // set aside by a writer rather than written over.
+            unreadable = true;
             return [];
         }
 
         try
         {
-            var file = JsonSerializer.Deserialize<HistoryFile>(File.ReadAllText(FilePath), Options);
+            var file = JsonSerializer.Deserialize<HistoryFile>(text, Options);
             // The schema gates the file, like the calendar and preset readers (R2-N10). The shape is marked
             // unstable, so a file written by a later build is not a history this one can read - starting
             // empty and leaving the file alone beats showing rows misread through an older shape.
-            if (file is { Schema: Schema })
+            if (file is { Schema: Schema } && file.IsWhole)
             {
                 return file.Sessions;
             }
@@ -153,11 +224,10 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
             unreadable = true; // a real file, in a shape this build does not speak
             return [];
         }
-        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        catch (JsonException)
         {
-            // A corrupt OR unreadable history must not crash the app or be deleted - start empty and leave
-            // the file be (the interface contract, rule 6). IOException covers a file locked by a second
-            // portable instance - UnauthorizedAccessException a read-denied location.
+            // A corrupt history must not crash the app or be deleted - start empty and leave the file be
+            // (the interface contract, rule 6).
             unreadable = true;
             return [];
         }
@@ -184,7 +254,17 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
     /// record to be tidy would be the very failure this guards against.</summary>
     private static readonly TimeSpan WriteMutexWait = TimeSpan.FromSeconds(5);
 
-    public void Append(SessionRecord record)
+    public void Append(SessionRecord record) => UnderGate(() => AppendUnderGate(record));
+
+    /// <summary>
+    /// Run one read-modify-write of the file with the other instances kept out.
+    /// <para>
+    /// 🔴 Removing a row and clearing the log are read-modify-writes too, and they ran outside the gate: a
+    /// removal read the list, another instance appended its session, and the removal wrote its list back
+    /// over that session (R4-N49). Every change to the file goes through here now.
+    /// </para>
+    /// </summary>
+    private static void UnderGate(Action change)
     {
         using var gate = new Mutex(initiallyOwned: false, WriteMutexName);
         var held = false;
@@ -201,7 +281,7 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
                 held = true;
             }
 
-            AppendUnderGate(record);
+            change();
         }
         finally
         {
@@ -251,22 +331,24 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         File.Move(FilePath, target);
     }
 
-    public void Remove(SessionRecord record)
+    public void Remove(SessionRecord record) => UnderGate(() =>
     {
-        var sessions = new List<SessionRecord>(Load());
-        if (sessions.Remove(record))
+        // A history this build cannot read has nothing in it this build could have shown, so there is
+        // nothing to remove - and writing the remainder would write over it.
+        var sessions = new List<SessionRecord>(ReadFile(out var unreadable));
+        if (!unreadable && sessions.Remove(record))
         {
             Write(sessions);
         }
-    }
+    });
 
-    public void Clear()
+    public void Clear() => UnderGate(() =>
     {
         if (File.Exists(FilePath))
         {
             File.Delete(FilePath);
         }
-    }
+    });
 
     private void Write(IReadOnlyList<SessionRecord> sessions)
     {
@@ -331,5 +413,13 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         [JsonPropertyName("stability")] public string Stability { get; init; } = "unstable";
 
         [JsonPropertyName("sessions")] public IReadOnlyList<SessionRecord> Sessions { get; init; } = [];
+
+        /// <summary>
+        /// Whether the list and every row in it are actually there. JSON can say <c>null</c> where the type
+        /// says a value always is, and the reader takes it: <c>"sessions": null</c> stopped the application
+        /// at start, and <c>[null]</c> or a row with a null text failed later, where that row was drawn or
+        /// repeated (R4-N47). Such a file is treated like any other this build cannot read.
+        /// </summary>
+        [JsonIgnore] public bool IsWhole => Sessions is not null && Sessions.All(row => row is { IsWhole: true });
     }
 }

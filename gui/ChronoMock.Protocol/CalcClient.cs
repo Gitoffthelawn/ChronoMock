@@ -97,7 +97,14 @@ public sealed class CalcClient : ICalcEngine
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            throw new CalcException($"cannot launch '{exe}': {e.Message}", -1);
+            // Keyed like the timeout below, so a missing or quarantined engine reads in the interface's
+            // language - with the path, which is the part somebody fixing the install needs (R4-S26). The
+            // system's own reason only: the process message repeats the path and adds a working directory,
+            // which on the rendered panel made one sentence of four lines.
+            var reason = e is System.ComponentModel.Win32Exception native
+                ? new System.ComponentModel.Win32Exception(native.NativeErrorCode).Message
+                : e.Message;
+            throw new CalcException($"cannot launch '{exe}': {reason} (calc.launch_failed)", -1);
         }
 
         // Drain both pipes concurrently before awaiting exit, so a full pipe buffer cannot deadlock.
@@ -115,8 +122,8 @@ public sealed class CalcClient : ICalcEngine
         }
         catch (OperationCanceledException)
         {
-            KillQuietly(process);
-            await ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
+            ChildProcesses.KillQuietly(process);
+            await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
             if (ct.IsCancellationRequested)
             {
                 throw; // the caller superseded this call - its own concern, not an error
@@ -151,34 +158,5 @@ public sealed class CalcClient : ICalcEngine
         }
 
         return result ?? throw new CalcException("calc produced no JSON output", 0);
-    }
-
-    /// <summary>Kill the child and its tree, ignoring the races that make it moot (it exited on its own
-    /// between the timeout and here, or was never started).</summary>
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        catch (Exception e) when (e is InvalidOperationException or NotSupportedException
-                                      or System.ComponentModel.Win32Exception)
-        {
-            // Already gone, or the OS refused - either way there is nothing left to do about it.
-        }
-    }
-
-    /// <summary>Await the two pipe readers so neither becomes an unobserved faulted task. Their outcome
-    /// is worthless here (the call already failed), so every result and fault is discarded.</summary>
-    private static async Task ObserveQuietly(Task<string> stdout, Task<string> stderr)
-    {
-        try
-        {
-            await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Cancelled or faulted with the killed process - immaterial, but must not go unobserved.
-        }
     }
 }

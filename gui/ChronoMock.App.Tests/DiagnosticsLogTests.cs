@@ -68,4 +68,42 @@ public sealed class DiagnosticsLogTests : IDisposable
     [Fact]
     public void The_no_op_log_saves_nothing()
         => Assert.Null(new NoOpDiagnosticsLog().Save("anything"));
+
+    /// <summary>
+    /// Two instances failing in the same millisecond produced one name, and the second write went over the
+    /// first instance's block. A name already taken now gets a suffix and the block already there stays.
+    /// </summary>
+    [Fact]
+    public void A_save_on_a_stamp_another_instance_already_used_keeps_both_blocks()
+    {
+        Directory.CreateDirectory(_dir);
+        var at = new DateTime(2026, 10, 4, 18, 0, 0, 123, DateTimeKind.Utc);
+        var theirs = Path.Combine(_dir, "diagnostics-20261004T180000123Z.log");
+        File.WriteAllText(theirs, "the other instance");
+
+        var ours = new FileDiagnosticsLog(_dir).Save("this instance", at);
+
+        Assert.NotNull(ours);
+        Assert.NotEqual(theirs, ours);
+        Assert.Equal("the other instance", File.ReadAllText(theirs));
+        Assert.Equal("this instance", File.ReadAllText(ours));
+    }
+
+    /// <summary>
+    /// R4-N49: the writability probe had one fixed name, so an instance starting while another held it open
+    /// decided the folder was read-only and took the per-user one - two instances, two histories. Measured
+    /// here as the folder answering writable while the old name is held, and the probe leaving nothing.
+    /// </summary>
+    [Fact]
+    public void A_folder_answers_writable_while_another_instance_holds_the_old_probe_name()
+    {
+        Directory.CreateDirectory(_dir);
+        var oldName = Path.Combine(_dir, ".write-probe");
+        using (new FileStream(oldName, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            Assert.True(WritableFolder.IsWritable(_dir));
+        }
+
+        Assert.Equal([oldName], Directory.GetFiles(_dir, ".write-probe*"));
+    }
 }

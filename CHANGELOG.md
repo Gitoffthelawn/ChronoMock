@@ -129,6 +129,39 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **Closing the window during a session no longer freezes it for three seconds, and the session is
+  recorded.** The window waited for the session to end on the same thread the end needed, so every
+  close during a session took three seconds and the application quit before the session reached the
+  history or its diagnostics were saved. Closing now ends the session the way Stop does - the panel
+  says "Stopping" - and the window closes as soon as the session is over, after ten seconds at most.
+  A session still starting when the window closes ends before the application is launched. A close
+  with no session running is not delayed. A session cut short by Windows logging off or shutting down
+  is still not recorded, because the window is not told before it goes.
+- **A portable package whose x64 core is missing starts and says what is wrong.** The window decided
+  it ran from the package by finding its own core, so a core removed by an antivirus or missing from
+  a partial extraction made it look for a source checkout and stop at start with "could not find the
+  repo root". The package now knows its layout from the build. A missing core makes Start say that the
+  installation may be incomplete, with the path, and the calculator says the same instead of a raw
+  error. Start no longer blames the application when the core disappears while the window is open.
+- **Dragging an application over the window no longer freezes it when the file is on a network
+  drive that has gone away.** The window checked that the file existed on every mouse move of the
+  drag, and Start read the application's header on the window's own thread, so each check waited for
+  the drive to time out - about 20 seconds per check here. Both now happen in the background, and the
+  file is checked once, when it is dropped.
+- **The session history survives a file held by another program, and a damaged entry no longer stops
+  the window from starting.** A virus scanner or a second Chrono Mock holding the history file when a
+  session ended made the window move the whole history aside and start a new one with a single
+  session. It now waits briefly and, if the file stays locked, says the session was not recorded. A
+  history file with an empty entry (`"sessions": null`, a `null` row, a row with a text set to
+  `null`) made the window fail at start or later, and is now treated like a history this version
+  cannot read: an empty list, and the file moved aside rather than written over. Removing a row or
+  clearing the history no longer runs on the window's thread, and no longer drops a session another
+  instance recorded at the same moment. Two instances started together no longer keep their history
+  in two different folders, and their diagnostics files no longer overwrite each other.
+- **One preset file the current user may not read no longer hides the presets listed after it.**
+- **The About window lists the components even when the core writes a lot of diagnostics.** A core
+  that wrote more than a few kilobytes of diagnostics stalled until the window gave up and said the
+  core could not be asked.
 - **"Use this date" and Copy in the calculator act on the result for what the builder shows, not
   the one from before the last edit.** Pressing a button takes focus from the field being edited,
   which commits the edit and only schedules its result, so a press straight after typing sent or

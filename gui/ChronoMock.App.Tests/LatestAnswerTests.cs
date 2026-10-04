@@ -42,6 +42,32 @@ public class LatestAnswerTests
         Assert.True(await wait);
     }
 
+    /// <summary>
+    /// R4/13 (from the review of #86): a window that closes cancels what is being computed, so the engine
+    /// process is stopped rather than left to finish for nobody. The run then releases as a superseded one
+    /// does - it finds its source gone from the slot and leaves it - and a new question still works.
+    /// </summary>
+    [Fact]
+    public void Abandoning_cancels_the_run_in_flight_and_refuses_its_answer()
+    {
+        var answer = new LatestAnswer();
+        answer.Ask();
+        var ticket = answer.Begin()!;
+
+        answer.Abandon();
+
+        Assert.True(ticket.Token.IsCancellationRequested);
+        Assert.False(answer.Accept(ticket));
+        answer.Release(ticket); // must not touch the source Abandon already put down
+        Assert.False(answer.IsCurrent);
+
+        answer.Ask();
+        var next = answer.Begin()!;
+        Assert.True(answer.Accept(next));
+        answer.Release(next);
+        Assert.True(answer.IsCurrent);
+    }
+
     [Fact]
     public void An_answer_to_an_input_that_has_moved_on_is_refused_and_its_run_cancelled()
     {

@@ -741,6 +741,9 @@
   "calc.err.no_readings": "The analyser returned no readings for this input.",
   "calc.err.incomplete_result": "The engine returned an incomplete result, so there is nothing reliable to show.",
   "calc.err.timeout": "The calculation did not finish in time and was stopped. A calendar file with a very large number of holidays can do this.",
+  // The engine could not be started at all - missing, quarantined, or not allowed to run (R4-S26). The
+  // detail line beneath keeps the path, which is what somebody repairing the install needs.
+  "calc.err.launch_failed": "The calculation engine could not be started - the installation may be incomplete.",
 
   // Snap-step targets (G3c-1): the period boundary the step jumps to. Tokens mirror the snap flag.
   "calc.snap.som": "Start of month",

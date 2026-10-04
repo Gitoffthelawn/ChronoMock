@@ -156,12 +156,14 @@ public static class PresetCatalog
                 appliesTo, market, parameters, moment);
             return true;
         }
-        catch (Exception e) when (e is JsonException or IOException or InvalidOperationException
-                                      or FormatException or OverflowException)
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException
+                                      or InvalidOperationException or FormatException or OverflowException)
         {
             // Skip one malformed file rather than take down the whole list (rule 6). FormatException /
             // OverflowException are defensive: a numeric accessor on an unexpected node could throw them, so
             // a hostile preset in a shared catalogue cannot crash the calculator's preset list (RELEASE-011).
+            // A file this user may not read is skipped the same way: unnamed here, its exception reached the
+            // loop's own catch in Load and ended the enumeration, so every file after it was gone (R4-N45).
             return false;
         }
     }

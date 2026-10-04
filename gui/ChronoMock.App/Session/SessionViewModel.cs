@@ -22,7 +22,7 @@ namespace ChronoMock.App;
 /// only renders what the heartbeat reports and never derives time itself.
 /// </para>
 /// </summary>
-public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
+public sealed class SessionViewModel : ObservableObject
 {
     private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(10);
 
@@ -839,6 +839,44 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Choose the target executable to run (from the picker, the recent list, or the dev default).</summary>
     public void SetTarget(string path) => TargetPath = path;
+
+    /// <summary>Counts drops, so only the newest one decides the target - see <see cref="DropTargetAsync"/>.</summary>
+    private int _drops;
+
+    /// <summary>
+    /// Take an application dropped on the window, once it is known to exist. True when it was taken, or when
+    /// a later drop has made this one moot - false only when the newest drop named a file that is not there,
+    /// which the window then says out loud.
+    /// <para>
+    /// 🔴 The check runs OFF the UI thread (R4-N48): asking whether a file exists on a share that has gone
+    /// blocks for as long as the share takes to fail - measured 21 s on an unreachable address - and the
+    /// window used to ask it on every mouse move of the drag. The drag itself now looks only at the name.
+    /// Two drops in that time are answered in the order they were MADE, not in the order their checks
+    /// return, the rule R4/17 gave every answer that arrives late.
+    /// </para>
+    /// </summary>
+    public async Task<bool> DropTargetAsync(string path)
+    {
+        var mine = ++_drops;
+        var exists = await Task.Run(() => File.Exists(path)).ConfigureAwait(true);
+        if (mine != _drops)
+        {
+            return true;
+        }
+
+        if (!exists)
+        {
+            return false;
+        }
+
+        // A session started while the check ran keeps the target it started with - the target is start-only.
+        if (_idle)
+        {
+            SetTarget(path);
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Take a moment built elsewhere (the calculator's "Use this date"), with its zone (rule 2 - a moment
@@ -1926,11 +1964,27 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             return;
         }
 
-        if (!CanStart)
+        // A window closing while this waited starts nothing (R4/13): it would launch the application after
+        // the window that was to show it had gone.
+        if (!CanStart || _closing)
         {
             return;
         }
 
+        _run = RunSessionAsync();
+        await _run;
+    }
+
+    /// <summary>The session itself, from the moment Start is committed until the window is usable again -
+    /// its task is what a closing window waits for (<see cref="FinishForCloseAsync"/>).</summary>
+    private Task? _run;
+
+    /// <summary>Set once the window has begun to close. Checked before each step that would take the session
+    /// further, because a launch after that point would be an application nobody asked for any more.</summary>
+    private bool _closing;
+
+    private async Task RunSessionAsync()
+    {
         Idle = false;
         _launched = false;
         _stopRequested = false;
@@ -1962,17 +2016,23 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             // so it is not reported as a broken core install: a non-PE file yields InvalidOperationException
             // ("cannot determine the bitness"), while a missing or unreadable file propagates from PeReader
             // as an IO/access error (it does not swallow those - only a malformed PE becomes Unknown).
+            //
+            // Built OFF the UI thread (R4-N48): it reads the target's header twice and asks three times whether
+            // a file beside it exists, and on a share that has gone each of those blocks for as long as the
+            // share takes to fail - measured 21 s for one. The inputs are read here, on this thread, first.
             SessionPlan plan;
+            var targetPath = TargetPath!;
+            var time = BuildTime();
+            var force = _forceStart;
+            var args = TargetArguments.Split(_targetArgs);
+            var workingFolder = _workingFolder;
+            var embedded = _reachEmbedded;
+            var elevated = _startReachElevated;
             try
             {
-                plan = SessionPlan.Build(
-                    TargetPath!,
-                    BuildTime(),
-                    _forceStart,
-                    TargetArguments.Split(_targetArgs),
-                    _workingFolder,
-                    _reachEmbedded,
-                    _startReachElevated);
+                plan = await Task.Run(
+                    () => SessionPlan.Build(targetPath, time, force, args, workingFolder, embedded, elevated))
+                    .ConfigureAwait(true);
             }
             catch (InvalidOperationException ex)
             {
@@ -1999,6 +2059,16 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             if (open.RefusalKey is not null)
             {
                 SetStatus(open.RefusalKey, SessionStatusKind.Error);
+                return;
+            }
+
+            // 🔴 The last point before the application starts, and the one a window closed while the plan was
+            // built or the core was shaking hands reaches (R4/13): without this the core would launch the
+            // target after the window was gone. One check here rather than one per await, because this is
+            // the step that matters - the finally below lets the core go, and nothing ran, so nothing is
+            // recorded.
+            if (_closing)
+            {
                 return;
             }
 
@@ -2131,14 +2201,34 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         _ = session.DisposeAsync().AsTask();
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>
+    /// The window is closing: end the session the way Stop does and wait for it to be over - recorded in the
+    /// history, its diagnostics captured, the core let go - but never longer than <paramref name="limit"/>,
+    /// because a window must always close. True when there was nothing to wait for or it ended in time.
+    /// <para>
+    /// 🔴 This replaced a dispose the window BLOCKED on, three seconds on the UI thread (R4-S24). The end of a
+    /// session runs on that very thread, so the wait always ran out, and the application then exited before
+    /// the session was recorded: measured, every close during a session took 3.05 s and recorded nothing.
+    /// Nothing blocks here, so the end runs while the window waits - showing "Stopping" as a Stop does.
+    /// </para>
+    /// <para>
+    /// A session still connecting is not stopped, it is not started: <see cref="RunSessionAsync"/> checks
+    /// <see cref="_closing"/> before it launches anything. A Start still waiting for its date never commits
+    /// at all, so it has no run to wait for.
+    /// </para>
+    /// </summary>
+    public async Task<bool> FinishForCloseAsync(TimeSpan limit)
     {
-        var session = _session;
-        _session = null;
-        if (session is not null)
+        _closing = true;
+        _moments.Abandon();
+        var run = _run;
+        if (run is null || run.IsCompleted)
         {
-            await session.DisposeAsync();
+            return true;
         }
+
+        RequestStop(); // a no-op unless the session is running - one still connecting stops itself above
+        return await Task.WhenAny(run, Task.Delay(limit)).ConfigureAwait(true) == run;
     }
 
     private void ResetSession()
@@ -2656,56 +2746,25 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             History.RemoveAt(History.Count - 1); // keep the panel in step with the store's cap
         }
 
-        // The exception is carried back as a value rather than rethrown: the message belongs on the panel,
-        // and awaiting a faulted Task.Run would wrap it in an AggregateException-shaped rethrow whose type
-        // filter is easy to get subtly wrong.
-        var error = await Task.Run(() =>
-        {
-            try
-            {
-                _store.Append(record);
-                return null;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return ex.Message;
-            }
-        }).ConfigureAwait(true);
-
-        HistoryError = error ?? string.Empty;
+        HistoryError = await _store.AppendAsync(record).ConfigureAwait(true);
     }
 
     /// <summary>Remove one past session from the panel and the store. Mild and left un-confirmed (zasady/13
-    /// section 11) - it is a log entry, and a re-run re-creates one.</summary>
-    public void RemoveFromHistory(SessionRecord record)
+    /// section 11) - it is a log entry, and a re-run re-creates one. The row leaves the panel at once, and
+    /// the store follows in the background (R4/13).</summary>
+    public async Task RemoveFromHistoryAsync(SessionRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
         History.Remove(record);
-        try
-        {
-            _store.Remove(record);
-            HistoryError = string.Empty;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            HistoryError = ex.Message;
-        }
+        HistoryError = await _store.RemoveAsync(record).ConfigureAwait(true);
     }
 
     /// <summary>Remove every past session from the panel and the store. The view confirms first (zasady/13
     /// section 11) - this method just performs it.</summary>
-    public void ClearHistory()
+    public async Task ClearHistoryAsync()
     {
         History.Clear();
-        try
-        {
-            _store.Clear();
-            HistoryError = string.Empty;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            HistoryError = ex.Message;
-        }
+        HistoryError = await _store.ClearAsync().ConfigureAwait(true);
     }
 
     /// <summary>Repeat a past session by filling the setup form with its parameters. It never starts a

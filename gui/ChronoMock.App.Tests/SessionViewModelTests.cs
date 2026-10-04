@@ -1788,30 +1788,67 @@ public class SessionViewModelTests
         Assert.Single(store.Load());
     }
 
-    /// <summary>History store whose Append blocks until the test releases it, so a test can look at the
-    /// panel while the write is still in flight.</summary>
-    private sealed class GatedHistoryStore : ISessionHistoryStore
+    /// <summary>History store whose writes block until the test releases them, so a test can look at the
+    /// panel while a write is still in flight. Bounded, so a write made on the caller's thread by mistake
+    /// costs the test five seconds and a red assertion rather than a hang.</summary>
+    private sealed class GatedHistoryStore(params SessionRecord[] seeded) : ISessionHistoryStore
     {
         private readonly System.Threading.ManualResetEventSlim _gate = new(false);
-        private readonly List<SessionRecord> _records = [];
+        private readonly List<SessionRecord> _records = [.. seeded];
 
         public void Release() => _gate.Set();
 
-        public IReadOnlyList<SessionRecord> Load() => [.. _records];
-
-        public void Append(SessionRecord record)
+        public IReadOnlyList<SessionRecord> Load()
         {
-            _gate.Wait();
-            _records.Add(record);
+            lock (_records)
+            {
+                return [.. _records];
+            }
         }
 
-        public void Remove(SessionRecord record) => _records.Remove(record);
+        public void Append(SessionRecord record) => Write(() => _records.Add(record));
 
-        public void Clear() => _records.Clear();
+        public void Remove(SessionRecord record) => Write(() => _records.Remove(record));
+
+        public void Clear() => Write(_records.Clear);
+
+        private void Write(Action change)
+        {
+            _gate.Wait(TimeSpan.FromSeconds(5));
+            lock (_records)
+            {
+                change();
+            }
+        }
+    }
+
+    /// <summary>
+    /// R4/13: removing a row and clearing the log wrote the file on the caller's thread - the UI thread, where
+    /// the replace sleeps between retries while another instance holds the file, and where the instance gate
+    /// added for R4-N49 would wait. Both now change the panel at once and leave only the write to the pool,
+    /// exactly like recording a session.
+    /// </summary>
+    [Fact]
+    public async Task Removing_and_clearing_history_change_the_panel_without_waiting_for_the_write()
+    {
+        var store = new GatedHistoryStore(HistoryRecord("Alpha"), HistoryRecord("Beta"));
+        var vm = new SessionViewModel(store);
+
+        var removal = vm.RemoveFromHistoryAsync(vm.History.First(r => r.TargetName == "Alpha.exe"));
+        Assert.False(removal.IsCompleted, "the caller must not wait for the store");
+        Assert.Equal("Beta.exe", Assert.Single(vm.History).TargetName);
+
+        var clearing = vm.ClearHistoryAsync();
+        Assert.False(clearing.IsCompleted, "the caller must not wait for the store");
+        Assert.Empty(vm.History);
+
+        store.Release();
+        await Task.WhenAll(removal, clearing);
+        Assert.Empty(store.Load());
     }
 
     [Fact]
-    public void Remove_from_history_drops_it_from_the_panel_and_the_store()
+    public async Task Remove_from_history_drops_it_from_the_panel_and_the_store()
     {
         var store = new InMemorySessionHistoryStore();
         store.Append(HistoryRecord("Alpha"));
@@ -1819,21 +1856,21 @@ public class SessionViewModelTests
         var vm = new SessionViewModel(store);
         Assert.Equal(2, vm.History.Count);
 
-        vm.RemoveFromHistory(vm.History.First(r => r.TargetName == "Alpha.exe"));
+        await vm.RemoveFromHistoryAsync(vm.History.First(r => r.TargetName == "Alpha.exe"));
 
         Assert.Equal("Beta.exe", Assert.Single(vm.History).TargetName);
         Assert.Single(store.Load());
     }
 
     [Fact]
-    public void Clear_history_empties_the_panel_and_the_store()
+    public async Task Clear_history_empties_the_panel_and_the_store()
     {
         var store = new InMemorySessionHistoryStore();
         store.Append(HistoryRecord("Alpha"));
         var vm = new SessionViewModel(store);
         Assert.True(vm.HasHistory);
 
-        vm.ClearHistory();
+        await vm.ClearHistoryAsync();
 
         Assert.Empty(vm.History);
         Assert.Empty(store.Load());
@@ -1960,14 +1997,14 @@ public class SessionViewModelTests
     }
 
     [Fact]
-    public void Clearing_the_history_leaves_the_recent_targets_alone()
+    public async Task Clearing_the_history_leaves_the_recent_targets_alone()
     {
         var store = new InMemorySessionHistoryStore();
         store.Append(HistoryRecord("Alpha"));
         var vm = new SessionViewModel(store);
         vm.SetTarget(@"C:\apps\Alpha.exe");
 
-        vm.ClearHistory();
+        await vm.ClearHistoryAsync();
 
         // Dropping the entry would blank the box while TargetPath still holds that very target.
         Assert.Equal(@"C:\apps\Alpha.exe", Assert.Single(vm.RecentTargets).FullPath);

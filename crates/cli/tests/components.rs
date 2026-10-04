@@ -352,22 +352,14 @@ fn the_register_is_well_formed() {
     assert_eq!(names.len(), all.len(), "two components share a name");
 }
 
-/// Publishing the window package self-contained pulls the runtime packs, which changes the
-/// dependency graph, so a locked restore needs that runtime identifier to be IN the lock file.
-/// Locked mode is switched on by `CI` being set, which a runner does and a developer box does not,
-/// so a lock file without it restores happily here and fails every runner with NU1004. That is
-/// what killed the second attempt at tagging 0.2.0, one failure after the first.
-///
-/// The identifier is read out of the packaging script rather than written here twice. A guard that
-/// keeps its own copy of the value it is guarding agrees with itself and with nothing else.
-#[test]
-fn the_gui_lock_files_carry_the_identifier_the_packaging_script_publishes_for() {
+/// The packaging script's `dotnet publish` of the window package, as one line.
+fn gui_publish_command() -> String {
     let script_path = repo_root().join("packaging").join("build-dist.ps1");
     let script = std::fs::read_to_string(&script_path)
         .unwrap_or_else(|e| panic!("the packaging script must be readable: {e}"));
 
-    // PowerShell wraps the publish onto a second line with a backtick, so the identifier is not on
-    // the line that names the command. Join the continuation before looking for it.
+    // PowerShell wraps the publish onto further lines with a backtick, so a flag is not on the line
+    // that names the command. Join the continuation before looking for it.
     let lines: Vec<&str> = script.lines().collect();
     let Some(start) = lines
         .iter()
@@ -385,7 +377,62 @@ fn the_gui_lock_files_carry_the_identifier_the_packaging_script_publishes_for() 
         command.push(' ');
         command.push_str(lines[index]);
     }
+    command
+}
 
+/// The window knows it runs from the shipped layout because the BUILD says so (R4-S26): the
+/// packaging script publishes with `ChronoMockLayout=portable`, the project turns that property
+/// into assembly metadata, and `AppPaths.IsPortable` reads that key for that value. It used to
+/// guess from the x64 core's presence, so a package whose core had been quarantined did not start.
+///
+/// Three files have to agree, and none of them can see the others: a renamed property, key or
+/// value in any one of them turns every package back into a dev build that looks for a repo root.
+#[test]
+fn the_packaging_script_publishes_the_window_as_the_portable_layout() {
+    let command = gui_publish_command();
+    assert!(
+        command
+            .split_whitespace()
+            .any(|token| token == "-p:ChronoMockLayout=portable"),
+        "the packaging script must publish the window with -p:ChronoMockLayout=portable, or the \
+         packaged window does not know it is portable. Publish command: {command}"
+    );
+
+    let project_path = repo_root().join("gui/ChronoMock.App/ChronoMock.App.csproj");
+    let project = std::fs::read_to_string(&project_path)
+        .unwrap_or_else(|e| panic!("the window project must be readable: {e}"));
+    assert!(
+        project.contains(
+            "<AssemblyMetadata Include=\"ChronoMock.Layout\" Value=\"$(ChronoMockLayout)\" />"
+        ),
+        "the window project must turn ChronoMockLayout into the ChronoMock.Layout assembly metadata"
+    );
+
+    let paths_path = repo_root().join("gui/ChronoMock.App/Session/AppPaths.cs");
+    let paths = std::fs::read_to_string(&paths_path)
+        .unwrap_or_else(|e| panic!("AppPaths.cs must be readable: {e}"));
+    for constant in [
+        "LayoutKey = \"ChronoMock.Layout\"",
+        "PortableLayout = \"portable\"",
+    ] {
+        assert!(
+            paths.contains(constant),
+            "AppPaths.cs must read the metadata the build writes ({constant})"
+        );
+    }
+}
+
+/// Publishing the window package self-contained pulls the runtime packs, which changes the
+/// dependency graph, so a locked restore needs that runtime identifier to be IN the lock file.
+/// Locked mode is switched on by `CI` being set, which a runner does and a developer box does not,
+/// so a lock file without it restores happily here and fails every runner with NU1004. That is
+/// what killed the second attempt at tagging 0.2.0, one failure after the first.
+///
+/// The identifier is read out of the packaging script rather than written here twice. A guard that
+/// keeps its own copy of the value it is guarding agrees with itself and with nothing else.
+#[test]
+fn the_gui_lock_files_carry_the_identifier_the_packaging_script_publishes_for() {
+    let command = gui_publish_command();
     let mut tokens = command.split_whitespace();
     let mut rid = None;
     while let Some(token) = tokens.next() {

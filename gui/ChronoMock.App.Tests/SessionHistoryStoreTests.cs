@@ -252,4 +252,117 @@ public sealed class SessionHistoryStoreTests : IDisposable
         Assert.Equal("App3.exe", loaded[0].TargetName); // App0..App2 dropped as oldest
         Assert.Equal($"App{SessionHistoryLimits.Max + 2}.exe", loaded[^1].TargetName); // newest kept
     }
+
+    /// <summary>
+    /// R4-N47: JSON can say null where the shape says a value always is, and the reader took it. A null list
+    /// stopped the application at start ("startup failed"), a null row or a null text failed later, where the
+    /// row was drawn or repeated. Each is now a file this build cannot read: empty on load, kept on disk, and
+    /// set aside rather than written over by the next session.
+    /// </summary>
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[null]")]
+    [InlineData("[{\"target_path\":null,\"moment_local\":\"2038-01-19T03:14:07\",\"tz_bias_min\":0,"
+                + "\"mode\":\"flow\",\"verdict\":\"works\",\"ended_at_utc\":\"2026-09-03T10:00:00Z\"}]")]
+    [InlineData("[{\"target_path\":\"a.exe\",\"moment_local\":\"2038-01-19T03:14:07\",\"tz_bias_min\":0,"
+                + "\"mode\":\"flow\",\"verdict\":\"works\",\"ended_at_utc\":\"2026-09-03T10:00:00Z\","
+                + "\"target_args\":null}]")]
+    public void A_history_with_a_null_where_a_value_belongs_is_unreadable_not_fatal(string sessions)
+    {
+        Directory.CreateDirectory(_dir);
+        var path = Path.Combine(_dir, "sessions.json");
+        var content = "{\"schema\":1,\"stability\":\"unstable\",\"sessions\":" + sessions + "}";
+        File.WriteAllText(path, content);
+        var store = new FileSessionHistoryStore(_dir);
+
+        Assert.Empty(store.Load());
+        Assert.Equal(content, File.ReadAllText(path));
+
+        store.Append(Record("After"));
+
+        Assert.Equal("After.exe", Assert.Single(store.Load()).TargetName);
+        var setAside = Assert.Single(Directory.GetFiles(_dir, "sessions.json.unreadable-*"));
+        Assert.Equal(content, File.ReadAllText(setAside));
+    }
+
+    /// <summary>
+    /// R4-N49: a file held for a moment by somebody else - a scanner, the other instance's replace - read as
+    /// unreadable, so the next session set the WHOLE history aside and started a new one with a single row.
+    /// It is waited for now, briefly, like the replace already was.
+    /// </summary>
+    [Fact]
+    public async Task A_history_held_for_a_moment_is_waited_for_not_set_aside()
+    {
+        var store = new FileSessionHistoryStore(_dir);
+        store.Append(Record("First"));
+        // Shared for delete and nothing else: a read fails while a rename goes through, which is exactly the
+        // combination that let the old code set a perfectly good history aside.
+        var held = new FileStream(Path.Combine(_dir, "sessions.json"), FileMode.Open, FileAccess.Read, FileShare.Delete);
+        var release = Task.Run(
+            async () =>
+            {
+                await Task.Delay(100, TestContext.Current.CancellationToken);
+                await held.DisposeAsync();
+            },
+            TestContext.Current.CancellationToken);
+
+        store.Append(Record("Second"));
+        await release;
+
+        Assert.Equal(["First.exe", "Second.exe"], store.Load().Select(r => r.TargetName));
+        Assert.Empty(Directory.GetFiles(_dir, "sessions.json.unreadable-*"));
+    }
+
+    /// <summary>The other side of the same wait: held for longer than it lasts, the append fails out loud (the
+    /// panel says the session was not recorded) and the history stays exactly where it was.</summary>
+    [Fact]
+    public void A_history_held_past_the_wait_is_reported_and_left_where_it_is()
+    {
+        var store = new FileSessionHistoryStore(_dir);
+        store.Append(Record("First"));
+        var path = Path.Combine(_dir, "sessions.json");
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Delete))
+        {
+            Assert.ThrowsAny<IOException>(() => store.Append(Record("Second")));
+        }
+
+        Assert.Equal("First.exe", Assert.Single(store.Load()).TargetName);
+        Assert.Empty(Directory.GetFiles(_dir, "sessions.json.unreadable-*"));
+    }
+
+    /// <summary>
+    /// R4-N49: removing a row is a read-modify-write, and it ran outside the gate that keeps instances apart -
+    /// so it could write its list back over a session another instance had just appended. It waits for the
+    /// gate now, like an append.
+    /// </summary>
+    [Fact]
+    public async Task Removing_a_row_waits_for_another_instance_that_is_writing()
+    {
+        var store = new FileSessionHistoryStore(_dir);
+        store.Append(Record("Kept"));
+        store.Append(Record("Gone"));
+        using var taken = new ManualResetEventSlim();
+        using var letGo = new ManualResetEventSlim();
+        var other = new Thread(() =>
+        {
+            using var gate = new Mutex(initiallyOwned: false, @"Local\ChronoMock.History");
+            gate.WaitOne();
+            taken.Set();
+            letGo.Wait();
+            gate.ReleaseMutex();
+        });
+        other.Start();
+        taken.Wait(TestContext.Current.CancellationToken);
+
+        var removal = Task.Run(() => store.Remove(Record("Gone")), TestContext.Current.CancellationToken);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+        var waited = !removal.IsCompleted;
+        letGo.Set();
+        await removal;
+        other.Join();
+
+        Assert.True(waited, "the removal must wait for the instance that holds the history");
+        Assert.Equal("Kept.exe", Assert.Single(store.Load()).TargetName);
+    }
 }

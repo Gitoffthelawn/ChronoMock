@@ -161,8 +161,11 @@ Assert-Exists $x86hook 'build the x86 core: cargo build --release --target i686-
 if (-not $SkipPublish) {
     Write-Host '== dotnet publish GUI (Release, self-contained win-x64) =='
     if (Test-Path -LiteralPath $publish) { Remove-Item -LiteralPath $publish -Recurse -Force }
+    # ChronoMockLayout=portable is what tells the window it runs from this layout (R4-S26) - without it the
+    # packaged GUI looks for a repo root and does not start.
     dotnet publish (Join-Path $root 'gui/ChronoMock.App/ChronoMock.App.csproj') `
-        -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $publish --nologo
+        -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ChronoMockLayout=portable `
+        -o $publish --nologo
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit $LASTEXITCODE" }
 }
 
