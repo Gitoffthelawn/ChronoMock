@@ -75,9 +75,43 @@ public sealed record CalendarOption(string? Id, string LabelKey)
     public string DisplayText => TranslationKeyConverter.Resolve(LabelKey);
 }
 
-/// <summary>One output-format row: a technical format label (not translated, like the coverage channel
-/// names) and the value the engine produced (or the out-of-range marker).</summary>
-public sealed record FormatRow(string Label, string Value);
+/// <summary>
+/// One output-format row: its translated label and the value the engine produced, or the out-of-range
+/// marker when the moment falls outside what that format can hold.
+/// <para>
+/// Updated in place when a new result lands, not rebuilt (R4-Z4). A rebuilt row is a new control, so a
+/// refresh took keyboard focus off the Copy button it was on, and a press that waited for the fresh result
+/// had no button left to answer on. <see cref="HasValue"/> is false while the row shows the marker, which
+/// is a sentence about the value rather than the value, so it is not something to copy (R4-Z3).
+/// </para>
+/// </summary>
+public sealed class FormatRow : ObservableObject
+{
+    private string _value;
+    private bool _hasValue;
+
+    public FormatRow(string label, string value, bool hasValue)
+    {
+        Label = label;
+        _value = value;
+        _hasValue = hasValue;
+    }
+
+    public string Label { get; }
+
+    public string Value { get => _value; private set => Set(ref _value, value); }
+
+    /// <summary>Whether <see cref="Value"/> is a value of this format, as opposed to the marker saying there
+    /// is none. Gates the row's Copy.</summary>
+    public bool HasValue { get => _hasValue; private set => Set(ref _hasValue, value); }
+
+    /// <summary>Show a new value in this row, or the marker when there is none.</summary>
+    internal void Show(string value, bool hasValue)
+    {
+        Value = value;
+        HasValue = hasValue;
+    }
+}
 
 /// <summary>
 /// One step in the builder. A step carries a kind (shift / snap / ...) and the fields that kind needs -
@@ -384,7 +418,7 @@ public sealed class ReadingRow
 /// </summary>
 public sealed class CalculatorViewModel : ObservableObject
 {
-    private readonly CalcClient _client;
+    private readonly ICalcEngine _client;
     private readonly string? _presetsDir;
     private IReadOnlyList<PresetItemViewModel> _allPresets = [];
     private PresetItemViewModel? _selectedPreset;
@@ -414,7 +448,6 @@ public sealed class CalculatorViewModel : ObservableObject
     private string _significanceCalendar = string.Empty;
     private bool _canUseInSubstitution;
     private string _customFormatMask = string.Empty;
-    private string _customFormatResult = string.Empty;
     private bool _hasCustomFormat;
     private string _customFormatWarning = string.Empty;
     private bool _hasCustomFormatWarning;
@@ -423,14 +456,26 @@ public sealed class CalculatorViewModel : ObservableObject
     private string _resultMomentLocal = string.Empty;
     private int _resultZoneBias;
     private bool _computedOnce;
-    private CancellationTokenSource? _cts;
 
     private string _analyzeText = "04/08/2008";
     private bool _hasAnalysis;
     private bool _analyzeAmbiguous;
     private bool _analyzeHasError;
     private string _analyzeError = string.Empty;
-    private CancellationTokenSource? _analyzeCts;
+    private string _analyzeErrorDetail = string.Empty;
+
+    /// <summary>Which edit of the builder the result on screen answers (R4-W4). Every edit asks, and a
+    /// result is applied only while it answers the newest edit. It also owns the in-flight run's
+    /// cancellation, which two hand-kept fields used to do (see LatestAnswer for the ownership rule).</summary>
+    private readonly LatestAnswer _result = new();
+
+    /// <summary>The same for the reverse-analysis strip and the text pasted into it (R4-N44).</summary>
+    private readonly LatestAnswer _analysis = new();
+
+    /// <summary>How long an action pressed during a recompute waits for the answer to the current input
+    /// before giving up. Above the engine's own 10 s limit, so an honest run always answers inside it.
+    /// </summary>
+    private static readonly TimeSpan ActionWait = TimeSpan.FromSeconds(15);
 
     /// <summary>How long the builder stays quiet before a keystroke turns into a calc process. Every edit
     /// used to spawn one immediately - typing a date meant about ten process launches, and unpacking a
@@ -441,10 +486,12 @@ public sealed class CalculatorViewModel : ObservableObject
     private readonly Debounce _recomputeDebounce = new(EditDebounce);
     private readonly Debounce _analyzeDebounce = new(EditDebounce);
 
-    public CalculatorViewModel(CalcClient client, string? presetsDir = null)
+    public CalculatorViewModel(ICalcEngine client, string? presetsDir = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _presetsDir = presetsDir;
+        _result.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsResultStale));
+        _analysis.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsAnalysisStale));
 
         // 🔴 Three kinds on screen, not four. "Specific instant (UTC)" was a fourth entry that meant
         // "Specific date, read in UTC" - a zone folded into the base kind, from before the zone picker
@@ -592,6 +639,22 @@ public sealed class CalculatorViewModel : ObservableObject
     public bool AnalyzeAmbiguous { get => _analyzeAmbiguous; private set => Set(ref _analyzeAmbiguous, value); }
     public bool AnalyzeHasError { get => _analyzeHasError; private set => Set(ref _analyzeHasError, value); }
     public string AnalyzeError { get => _analyzeError; private set => Set(ref _analyzeError, value); }
+
+    /// <summary>The engine's own sentence under the analysis failure, the way the result column shows one
+    /// under its own (R4-N44): it names what the engine could not read, which the translated line alone
+    /// does not. Empty when it would only repeat that line.</summary>
+    public string AnalyzeErrorDetail
+    {
+        get => _analyzeErrorDetail;
+        private set { if (Set(ref _analyzeErrorDetail, value)) { RaisePropertyChanged(nameof(HasAnalyzeErrorDetail)); } }
+    }
+
+    public bool HasAnalyzeErrorDetail => _analyzeErrorDetail.Length > 0;
+
+    /// <summary>Whether the readings on screen are for an earlier text than the one in the box - from an
+    /// edit until the analysis of it lands. The strip shows that rather than pass old readings off as
+    /// the new text's.</summary>
+    public bool IsAnalysisStale => !_analysis.IsCurrent;
 
     public BaseKindOption SelectedBase
     {
@@ -749,14 +812,19 @@ public sealed class CalculatorViewModel : ObservableObject
                 // five days and was simply not moved onto it, so typing a ten-character mask cost ten
                 // process launches - measured, not supposed. It does NOT go through TriggerRecompute,
                 // because that also drops the active preset and reformatting the same moment must not.
+                // It does ask, though: the custom-format row on screen answers the OLD mask until the run
+                // lands, and a Copy pressed in between must wait for the new one (R4-W4).
+                _result.Ask();
                 _ = _recomputeDebounce.RunAsync(RecomputeAsync);
             }
         }
     }
 
-    /// <summary>The result rendered through <see cref="CustomFormatMask"/> (the engine's <c>custom_format</c>).
-    /// Built from the civil date, so it renders even when epoch/FILETIME are out of range.</summary>
-    public string CustomFormatResult { get => _customFormatResult; private set => Set(ref _customFormatResult, value); }
+    /// <summary>The result rendered through <see cref="CustomFormatMask"/> (the engine's <c>custom_format</c>),
+    /// as a format row of its own so its Copy is the same press as every other row's. Built from the civil
+    /// date, so it renders even when epoch/FILETIME are out of range. Its label is never shown - the mask
+    /// box above it is the label.</summary>
+    public FormatRow CustomFormatRow { get; } = new(string.Empty, string.Empty, hasValue: false);
 
     /// <summary>Whether a custom-format result is present (a non-empty mask produced a value), gating its row.</summary>
     public bool HasCustomFormat { get => _hasCustomFormat; private set => Set(ref _hasCustomFormat, value); }
@@ -780,8 +848,18 @@ public sealed class CalculatorViewModel : ObservableObject
     public bool HasClampNotice { get => _hasClampNotice; private set => Set(ref _hasClampNotice, value); }
 
     /// <summary>Whether the current result can go to the substitution panel: a valid moment whose zone the
-    /// substitution offers, so it transfers with its zone and never as a bare local date (rule 2).</summary>
+    /// substitution offers, so it transfers with its zone and never as a bare local date (rule 2).
+    /// <para>
+    /// It describes the LAST answer, and stays as it was while a newer one is computed, so the button does
+    /// not blink off at every edit. The press itself never acts on that answer if a newer one is coming -
+    /// see <see cref="RequestUseInSubstitutionAsync"/>.
+    /// </para></summary>
     public bool CanUseInSubstitution { get => _canUseInSubstitution; private set => Set(ref _canUseInSubstitution, value); }
+
+    /// <summary>Whether the result on screen answers an earlier state of the builder than the one shown -
+    /// from an edit until the result of it lands (R4-W4). The result column shows that rather than pass the
+    /// old date off as the answer to the new input.</summary>
+    public bool IsResultStale => !_result.IsCurrent;
 
     /// <summary>Raised when the user sends the result to substitution: the local moment and its zone bias.
     /// The host window (which knows both modules) fills the substitution panel and switches to it.</summary>
@@ -791,13 +869,34 @@ public sealed class CalculatorViewModel : ObservableObject
     public static bool CanTransferZone(int biasMinutes)
         => ChronoMock.App.TimeInputs.Zones.Any(zone => zone.BiasMinutes == biasMinutes);
 
-    /// <summary>Send the current result to the substitution panel (7.3, 6.3): the moment with its zone.</summary>
-    public void RequestUseInSubstitution()
+    /// <summary>
+    /// Send the result to the substitution panel (7.3, 6.3): the moment with its zone.
+    /// <para>
+    /// 🔴 The result for the builder AS IT STANDS, never the one on screen while a newer one is coming
+    /// (R4-W4). Pressing the button takes focus from the field being edited, which commits the edit and
+    /// only schedules its result, so the press used to send the date from before the edit - deterministic
+    /// for every field that commits on leaving it. The press now waits for the answer to the current input
+    /// (a recompute, well under a second) and sends that, or nothing when that answer is an error.
+    /// </para>
+    /// </summary>
+    public async Task RequestUseInSubstitutionAsync()
     {
-        if (CanUseInSubstitution)
+        if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)
         {
             UseInSubstitutionRequested?.Invoke(_resultMomentLocal, _resultZoneBias);
         }
+    }
+
+    /// <summary>
+    /// The value a Copy press on <paramref name="row"/> should put on the clipboard: the row's value in the
+    /// result for the builder as it stands (R4-W4), or null when there is none to copy - the answer is an
+    /// error, or the moment falls outside that format (R4-Z3). Waits for a result being computed, like
+    /// <see cref="RequestUseInSubstitutionAsync"/>, because the row on screen still shows the old one.
+    /// </summary>
+    public async Task<string?> CopyValueAsync(FormatRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return await _result.WhenCurrentAsync(ActionWait) && row.HasValue ? row.Value : null;
     }
 
     /// <summary>Add a step (defaults to shift) and wire its edits to a recompute.</summary>
@@ -828,7 +927,9 @@ public sealed class CalculatorViewModel : ObservableObject
 
         _computedOnce = true;
         LoadPresets();
+        _analysis.Ask();
         _ = AnalyzeAsync(); // the reverse-analysis strip is live from the start (its default example)
+        _result.Ask();
         return RecomputeAsync();
     }
 
@@ -839,38 +940,36 @@ public sealed class CalculatorViewModel : ObservableObject
     {
         if (_computedOnce)
         {
+            _analysis.Ask();
             _ = _analyzeDebounce.RunAsync(AnalyzeAsync);
         }
     }
 
     private async Task AnalyzeAsync()
     {
-        _analyzeCts?.Cancel();
-        var cts = new CancellationTokenSource();
-        var previousAnalyze = Interlocked.Exchange(ref _analyzeCts, cts);
-        previousAnalyze?.Dispose();
+        // Null when the text in the box already has its analysis on screen - nothing to compute.
+        if (_analysis.Begin() is not { } ticket)
+        {
+            return;
+        }
 
         try
         {
-            var result = await _client.EvaluateAsync(BuildAnalyzeArgs(_analyzeText), cts.Token);
-            if (!cts.IsCancellationRequested)
+            var result = await _client.EvaluateAsync(BuildAnalyzeArgs(_analyzeText), ticket.Token);
+            if (_analysis.Accept(ticket))
             {
                 ApplyAnalysis(result);
             }
         }
         catch (OperationCanceledException)
         {
-            // A newer analysis superseded this one - drop it.
+            // A newer text superseded this one - its own analysis answers it.
         }
         catch (CalcException e)
         {
-            if (!cts.IsCancellationRequested)
+            if (_analysis.Accept(ticket))
             {
-                AnalyzeError = DescribeCalcError(e.Message);
-                AnalyzeHasError = true;
-                HasAnalysis = false;
-                AnalyzeAmbiguous = false;
-                Readings.Clear();
+                ShowAnalysisError(DescribeCalcError(e.Message), DetailForCalcError(e.Message));
             }
         }
         catch (Exception e)
@@ -878,29 +977,40 @@ public sealed class CalculatorViewModel : ObservableObject
             // Any other failure (an incomplete reading dereferenced in ApplyAnalysis / ReadingRow) is
             // surfaced honestly rather than swallowed by this fire-and-forget task (M-11, rule 6). Not a
             // translated key: this is a .NET fault with no key to map, and the message is all there is.
-            if (!cts.IsCancellationRequested)
+            if (_analysis.Accept(ticket))
             {
-                AnalyzeError = e.Message;
-                AnalyzeHasError = true;
-                HasAnalysis = false;
-                AnalyzeAmbiguous = false;
-                Readings.Clear();
+                ShowAnalysisError(e.Message, string.Empty);
             }
         }
+        finally
+        {
+            _analysis.Release(ticket);
+        }
+    }
+
+    /// <summary>An analysis that failed shows the failure and nothing else (R4-N44): the readings of the
+    /// text before it stayed on screen under the error, read as this text's.</summary>
+    private void ShowAnalysisError(string message, string detail)
+    {
+        AnalyzeError = message;
+        AnalyzeErrorDetail = detail;
+        AnalyzeHasError = true;
+        HasAnalysis = false;
+        AnalyzeAmbiguous = false;
+        Readings.Clear();
     }
 
     private void ApplyAnalysis(CalcResult result)
     {
         if (result.Analysis is not { } analysis)
         {
-            AnalyzeError = Tr("calc.err.no_readings");
-            AnalyzeHasError = true;
-            HasAnalysis = false;
+            ShowAnalysisError(Tr("calc.err.no_readings"), string.Empty);
             return;
         }
 
         AnalyzeHasError = false;
         AnalyzeError = string.Empty;
+        AnalyzeErrorDetail = string.Empty;
         AnalyzeAmbiguous = analysis.Ambiguous;
         Readings.Clear();
         foreach (var reading in analysis.Readings)
@@ -973,6 +1083,10 @@ public sealed class CalculatorViewModel : ObservableObject
         }
 
         ClearActivePreset();
+
+        // Asked HERE, at the edit, not when the run starts a quarter of a second later: in between, the
+        // result on screen answers the builder as it was, and an action pressed then must know (R4-W4).
+        _result.Ask();
         _ = _recomputeDebounce.RunAsync(RecomputeAsync);
     }
 
@@ -1013,13 +1127,16 @@ public sealed class CalculatorViewModel : ObservableObject
             return;
         }
 
+        // The result on screen answers whatever the builder held before this preset, from here on.
+        _result.Ask();
+
         var culture = LocalizationService.CurrentCulture;
         var values = new Dictionary<string, ParamValue>();
         foreach (var input in ParamInputs)
         {
             if (input.ToValue() is not { } value)
             {
-                ShowActivePreset(preset, culture, needsParameters: true);
+                ShowWithoutResult(preset, culture);
                 return;
             }
 
@@ -1074,7 +1191,7 @@ public sealed class CalculatorViewModel : ObservableObject
             // throws NotSupportedException for all of those now (R2-S8) - the other three stay as defence for
             // the builder-filling half. Be honest with the "needs parameters" note rather than crash the
             // dispatcher (M-8, rule 6).
-            ShowActivePreset(preset, culture, needsParameters: true);
+            ShowWithoutResult(preset, culture);
             return;
         }
 
@@ -1135,6 +1252,24 @@ public sealed class CalculatorViewModel : ObservableObject
         }
 
         Steps.Add(step);
+    }
+
+    /// <summary>
+    /// A preset that cannot fill the builder yet - a parameter missing, or a shape the builder cannot hold -
+    /// shows its name and the "needs parameters" note over NO result (R4-S21). It used to leave the
+    /// previous result standing under the new preset's name, with "Use this date" live on it. The builder
+    /// is left as it was: nothing claims it is the preset's any more once the result is gone.
+    /// <para>
+    /// Settled, not asked: there is nothing to compute until a parameter arrives, and a run scheduled by an
+    /// edit made just before choosing the preset must find nothing to do rather than land the old builder's
+    /// result under this preset.
+    /// </para>
+    /// </summary>
+    private void ShowWithoutResult(PresetInfo preset, string culture)
+    {
+        ShowActivePreset(preset, culture, needsParameters: true);
+        _result.Settle();
+        ClearResult();
     }
 
     private void ShowActivePreset(PresetInfo preset, string culture, bool needsParameters)
@@ -1223,58 +1358,77 @@ public sealed class CalculatorViewModel : ObservableObject
 
     private async Task RecomputeAsync()
     {
-        _cts?.Cancel();
-
-        // A Specific base that is not a well-formed moment yet must not spawn a broken --base: the MomentInput
-        // shows the precise inline reason, and the result is cleared rather than left stale (rule 6). Today
-        // and Now carry no base text, so they always compute.
-        if (IsSpecificBase && !Base.IsValid)
+        // Null when the builder as it stands already has its result on screen - a run scheduled before a
+        // preset settled the result has nothing left to answer (R4-S21).
+        if (_result.Begin() is not { } ticket)
         {
-            ClearResult();
             return;
         }
 
-        var cts = new CancellationTokenSource();
-        var previous = Interlocked.Exchange(ref _cts, cts);
-        previous?.Dispose();
-
-        var args = BuildCurrentArgs();
+        // 🔴 EVERY path below answers the ticket, the argument building included: a throw outside this
+        // block would leave the newest edit with no answer ever, and an action waiting for one would sit
+        // out its whole limit before giving up.
         try
         {
-            var result = await _client.EvaluateAsync(args, cts.Token);
-            if (!cts.IsCancellationRequested)
+            // A Specific base that is not a well-formed moment yet must not spawn a broken --base: the
+            // MomentInput shows the precise inline reason, and the result is cleared rather than left stale
+            // (rule 6). Today and Now carry no base text, so they always compute.
+            if (IsSpecificBase && !Base.IsValid)
+            {
+                if (_result.Accept(ticket))
+                {
+                    ClearResult();
+                }
+
+                return;
+            }
+
+            var result = await _client.EvaluateAsync(BuildCurrentArgs(), ticket.Token);
+            if (_result.Accept(ticket))
             {
                 ApplyResult(result);
             }
         }
         catch (OperationCanceledException)
         {
-            // A newer recompute superseded this one - drop it silently.
+            // A newer edit superseded this one - its own run answers it.
         }
         catch (CalcException e)
         {
-            if (!cts.IsCancellationRequested)
+            if (_result.Accept(ticket))
             {
-                Error = DescribeCalcError(e.Message);
-                ErrorDetail = DetailForCalcError(e.Message);
-                HasError = true;
-                CalendarMissing = IsNeedsCalendar(e.Message);
-                CanUseInSubstitution = false;
+                ShowError(DescribeCalcError(e.Message), DetailForCalcError(e.Message), IsNeedsCalendar(e.Message));
             }
         }
         catch (Exception e)
         {
             // Any other failure (a malformed/incomplete calc result dereferenced in ApplyResult) is
-            // surfaced as an honest error, never silently swallowed by this fire-and-forget task (M-11, rule 6).
-            if (!cts.IsCancellationRequested)
+            // surfaced as an honest error, never silently swallowed by this fire-and-forget task (M-11,
+            // rule 6). A .NET fault, not an engine refusal, so there is no second line to add.
+            if (_result.Accept(ticket))
             {
-                Error = e.Message;
-                ErrorDetail = string.Empty; // a .NET fault, not an engine refusal: no second line to add
-                HasError = true;
-                CalendarMissing = false;
-                CanUseInSubstitution = false;
+                ShowError(e.Message, string.Empty, calendarMissing: false);
             }
         }
+        finally
+        {
+            _result.Release(ticket);
+        }
+    }
+
+    /// <summary>
+    /// A failed evaluation shows the failure and NOTHING of the result before it (R4-S21). The old date,
+    /// formats and metadata used to stay on screen under the error, and Copy copied them, so the screen
+    /// answered a question the engine had just refused - the same honest empty state an unreadable base
+    /// already got.
+    /// </summary>
+    private void ShowError(string message, string detail, bool calendarMissing)
+    {
+        ClearResult();
+        Error = message;
+        ErrorDetail = detail;
+        HasError = true;
+        CalendarMissing = calendarMissing;
     }
 
     /// <summary>The engine's stable key for "this step counts business days and you gave me no calendar".
@@ -1331,11 +1485,7 @@ public sealed class CalculatorViewModel : ObservableObject
         // Metadata null and NRE below (moment.Formats.IsoDate, moment.Metadata.Weekday). Honest error instead.
         if (result.Moment is not { } moment || moment.Formats is null || moment.Metadata is null)
         {
-            Error = Tr("calc.err.incomplete_result");
-            ErrorDetail = string.Empty;
-            HasError = true;
-            CalendarMissing = false;
-            CanUseInSubstitution = false;
+            ShowError(Tr("calc.err.incomplete_result"), string.Empty, calendarMissing: false);
             return;
         }
 
@@ -1361,48 +1511,18 @@ public sealed class CalculatorViewModel : ObservableObject
         HasSignificance = Significance.Count > 0;
         SignificanceCalendar = HasSignificance ? CalendarNote(moment.Metadata.Calendar) : string.Empty;
 
-        Formats.Clear();
-        var f = moment.Formats;
-        // Format labels are translated (rule 15) - the values are data. Format NAMES (US, PL, FILETIME,
-        // RFC 1123) are proper nouns, so their PL text keeps them as-is.
-        Formats.Add(new FormatRow(Tr("calc.fmt.iso_date"), f.IsoDate));
-        Formats.Add(new FormatRow(Tr("calc.fmt.iso_datetime"), f.IsoDatetime));
-        Formats.Add(new FormatRow(Tr("calc.fmt.us"), f.Us));
-        Formats.Add(new FormatRow(Tr("calc.fmt.pl"), f.Pl));
-        Formats.Add(new FormatRow(Tr("calc.fmt.epoch_s"), OutOfRange(f.EpochSeconds)));
-        Formats.Add(new FormatRow(Tr("calc.fmt.epoch_ms"), OutOfRange(f.EpochMillis)));
-        Formats.Add(new FormatRow(Tr("calc.fmt.filetime"), OutOfRange(f.Filetime)));
-        Formats.Add(new FormatRow(Tr("calc.fmt.rfc1123"), f.Rfc1123 ?? Tr("calc.out_of_range")));
+        ShowFormats(moment.Formats);
+        ShowCustomFormat(moment.CustomFormat, moment.CustomFormatUnknown);
 
-        // The custom format is present only when a mask was passed (--format). It comes from the civil date,
-        // so unlike epoch/FILETIME it never falls out of range.
-        var custom = moment.CustomFormat ?? string.Empty;
-        CustomFormatResult = custom;
-        HasCustomFormat = custom.Length > 0;
-
-        // The engine names the letter runs it did not recognise. They ARE in the line above, verbatim,
-        // so the row without this warning reads as a rendered date that happens to contain letters.
-        var unknown = moment.CustomFormatUnknown;
-        HasCustomFormatWarning = HasCustomFormat && unknown is { Count: > 0 };
-        CustomFormatWarning = HasCustomFormatWarning
-            ? string.Format(
-                System.Globalization.CultureInfo.InvariantCulture,
-                Tr("calc.fmt.unknown_tokens"),
-                string.Join(", ", unknown!))
-            : string.Empty;
-
-        // One line per clamped step, so a two-clamp expression does not hide the second one.
+        // One line per clamped step, so a two-clamp expression does not hide the second one. Through
+        // TextFormat, like every translated template: a broken translation file used to throw here,
+        // halfway through applying a result (R4-N46).
         var clamps = moment.ClampedSteps;
         HasClampNotice = clamps is { Count: > 0 };
         ClampNotice = HasClampNotice
             ? string.Join(
                 Environment.NewLine,
-                clamps!.Select(c => string.Format(
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    Tr("calc.clamped_step"),
-                    c.Step,
-                    c.RequestedDay,
-                    c.ClampedTo)))
+                clamps!.Select(c => TextFormat.Fill(Tr("calc.clamped_step"), c.Step, c.RequestedDay, c.ClampedTo)))
             : string.Empty;
 
         MetadataLine = BuildMetadataLine(moment.Metadata);
@@ -1414,8 +1534,69 @@ public sealed class CalculatorViewModel : ObservableObject
         CanUseInSubstitution = CanTransferZone(moment.ZoneBiasMin);
     }
 
-    /// <summary>Clear the result column to an honest empty state, used when a Specific base is not a valid
-    /// moment yet: the MomentInput already shows why, so the result must not keep a stale value (rule 6).</summary>
+    /// <summary>
+    /// Every output format of the moment, in the order the column lists them. Labels are translated
+    /// (rule 15), the values are data, and format NAMES (US, PL, FILETIME, RFC 1123) are proper nouns that
+    /// the Polish text keeps as they are. A null value is a moment outside what that format can hold.
+    /// <para>
+    /// The rows are updated in place when the same labels come back, which is every result but the first
+    /// after a clear or a language switch (R4-Z4).
+    /// </para>
+    /// </summary>
+    private void ShowFormats(CalcFormats f)
+    {
+        (string Key, string? Value)[] fresh =
+        [
+            ("calc.fmt.iso_date", f.IsoDate),
+            ("calc.fmt.iso_datetime", f.IsoDatetime),
+            ("calc.fmt.us", f.Us),
+            ("calc.fmt.pl", f.Pl),
+            ("calc.fmt.epoch_s", Number(f.EpochSeconds)),
+            ("calc.fmt.epoch_ms", Number(f.EpochMillis)),
+            ("calc.fmt.filetime", Number(f.Filetime)),
+            ("calc.fmt.rfc1123", f.Rfc1123),
+        ];
+
+        var labels = fresh.Select(row => Tr(row.Key)).ToArray();
+        if (!Formats.Select(row => row.Label).SequenceEqual(labels, StringComparer.Ordinal))
+        {
+            ClearFormats();
+            for (var i = 0; i < fresh.Length; i++)
+            {
+                Formats.Add(new FormatRow(labels[i], fresh[i].Value ?? Tr("calc.out_of_range"), fresh[i].Value is not null));
+            }
+
+            return;
+        }
+
+        for (var i = 0; i < fresh.Length; i++)
+        {
+            Formats[i].Show(fresh[i].Value ?? Tr("calc.out_of_range"), fresh[i].Value is not null);
+        }
+    }
+
+    /// <summary>The custom-format row, present only when a mask was passed (--format). It comes from the
+    /// civil date, so unlike epoch/FILETIME it never falls out of range.</summary>
+    private void ShowCustomFormat(string? rendered, IReadOnlyList<string>? unknown)
+    {
+        var custom = rendered ?? string.Empty;
+        CustomFormatRow.Show(custom, custom.Length > 0);
+        HasCustomFormat = custom.Length > 0;
+
+        // The engine names the letter runs it did not recognise. They ARE in the line above, verbatim,
+        // so the row without this warning reads as a rendered date that happens to contain letters.
+        HasCustomFormatWarning = HasCustomFormat && unknown is { Count: > 0 };
+        CustomFormatWarning = HasCustomFormatWarning
+            ? TextFormat.Fill(Tr("calc.fmt.unknown_tokens"), string.Join(", ", unknown!))
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// Clear the result column to an honest empty state: an unreadable base (the MomentInput already says
+    /// why), an engine refusal, or a preset still waiting for a parameter. Nothing of the result before it
+    /// may stay, so every line the result writes is cleared here - the clamp note and the custom-format
+    /// warning were not, and stood under a result that was no longer there (R4-N43).
+    /// </summary>
     private void ClearResult()
     {
         HasError = false;
@@ -1424,6 +1605,8 @@ public sealed class CalculatorViewModel : ObservableObject
         CalendarMissing = false;
         HasResult = false;
         CanUseInSubstitution = false;
+        _resultMomentLocal = string.Empty;
+        _resultZoneBias = 0;
         ResultWeekday = string.Empty;
         ResultDate = "-";
         ResultTime = string.Empty;
@@ -1432,9 +1615,26 @@ public sealed class CalculatorViewModel : ObservableObject
         Significance.Clear();
         HasSignificance = false;
         SignificanceCalendar = string.Empty;
-        Formats.Clear();
-        CustomFormatResult = string.Empty;
+        ClearFormats();
+        CustomFormatRow.Show(string.Empty, hasValue: false);
         HasCustomFormat = false;
+        CustomFormatWarning = string.Empty;
+        HasCustomFormatWarning = false;
+        ClampNotice = string.Empty;
+        HasClampNotice = false;
+    }
+
+    /// <summary>Take the format rows off the screen. A press that is still waiting holds its row, so the
+    /// row is told it has no value first - the press then copies nothing rather than a value from a result
+    /// that is gone.</summary>
+    private void ClearFormats()
+    {
+        foreach (var row in Formats)
+        {
+            row.Show(row.Value, hasValue: false);
+        }
+
+        Formats.Clear();
     }
 
     /// <summary>The sentence naming the calendar that judged the weekend and holiday marks, or empty when
@@ -1452,7 +1652,7 @@ public sealed class CalculatorViewModel : ObservableObject
         var label = Calendars.FirstOrDefault(c => c.Id == calendarId) is { } known
             ? Tr(known.LabelKey)
             : calendarId;
-        return string.Format(System.Globalization.CultureInfo.CurrentCulture, Tr("calc.sig_calendar"), label);
+        return TextFormat.Fill(Tr("calc.sig_calendar"), label);
     }
 
     private static string BuildMetadataLine(CalcMetadata m)
@@ -1490,8 +1690,8 @@ public sealed class CalculatorViewModel : ObservableObject
     /// (metadata line, weekday, format labels) that the view binds as text rather than as a key.</summary>
     private static string Tr(string key) => TranslationKeyConverter.Resolve(key);
 
-    private static string OutOfRange(long? value)
-        => value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? Tr("calc.out_of_range");
+    private static string? Number(long? value)
+        => value?.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>A "+HH:MM" / "-HH:MM" offset for a session bias (UTC = local + bias, so the offset is -bias).</summary>
     private static string OffsetLabel(int biasMin)

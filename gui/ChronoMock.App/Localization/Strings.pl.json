@@ -67,6 +67,7 @@
   // These point at the field rather than repeating its message: the field says WHAT is wrong, this says
   // where to go and that it is what is holding Start.
   "setup.needs_moment": "Popraw datę i godzinę powyżej, zanim wystartujesz.",
+  "setup.scenario_failed": "Wybrany scenariusz nie dał daty - wybierz inny albo wpisz datę powyżej, zanim wystartujesz.",
   // 🔴 The session phase's own keys, in its own namespace, for the same reason the setup phase has its:
   // every key shared with the shipped panel moves that panel's pixels, and these go with the old screen
   // when the product adopts the parts library.

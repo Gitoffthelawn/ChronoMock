@@ -49,6 +49,13 @@ internal static class WpfTestHost
     public static T Invoke<T>(Func<T> func) => Dispatcher.Value.Invoke(func);
 
     /// <summary>
+    /// Run an asynchronous flow ON the UI thread, the way the application runs a view model: every await
+    /// in it resumes on the dispatcher, and translation keys resolve against the real resources. For a flow
+    /// whose outcome depends on either - a view model that translates an engine refusal, for one.
+    /// </summary>
+    public static Task<T> RunAsync<T>(Func<Task<T>> flow) => Dispatcher.Value.InvokeAsync(flow).Task.Unwrap();
+
+    /// <summary>
     /// Run work on the UI thread, then drain the queue to ContextIdle so bindings are evaluated before the
     /// caller asserts. Without this last drain an assertion can read state from before the change,
     /// non-deterministically.

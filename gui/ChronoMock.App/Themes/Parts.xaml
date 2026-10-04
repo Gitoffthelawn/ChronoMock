@@ -170,6 +170,24 @@
     <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
   </Style>
 
+  <!--
+    A block of ANSWERS that can fall behind the input they answer (R4-W4): the calculator's result, the
+    readings of a pasted date. From an edit until the answer to it lands, what the block shows answers the
+    input before, and at full strength it passed for the answer to the new one - which is the moment a
+    tester copies it or sends it on. So it fades while PartState.IsStale says so, and only fades: opacity
+    moves nothing, so the block never jumps when the new answer arrives.
+
+    The fields that MAKE the input never sit inside one. A box that faded while it was being typed in
+    would be answering a question nobody asked.
+  -->
+  <Style x:Key="PartAnswerBlock" TargetType="StackPanel">
+    <Style.Triggers>
+      <Trigger Property="app:PartState.IsStale" Value="True">
+        <Setter Property="Opacity" Value="{StaticResource OpacityStale}" />
+      </Trigger>
+    </Style.Triggers>
+  </Style>
+
   <Style x:Key="PartNote" TargetType="TextBlock">
     <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
     <Setter Property="Foreground" Value="{DynamicResource BrushTextSecondary}" />

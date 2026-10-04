@@ -72,6 +72,110 @@ public class CalculatorViewBindingTests
     }
 
     [Fact]
+    public void A_date_pasted_into_the_analysis_box_reaches_the_view_model_without_leaving_it()
+    {
+        // The same fault the mask had, in the analysis strip (R4-N44): the box is the last field in its
+        // column, and on LostFocus a pasted date was analysed only once focus happened to move.
+        var pasted = WpfTestHost.InvokeSettled(() =>
+        {
+            var (view, vm) = NewCalculatorView();
+            var box = (TextBox)view.FindName("AnalyzeBox");
+            Assert.Same(vm, box.DataContext);
+
+            box.Text = "12/31/1999";
+            return vm.AnalyzeText;
+        });
+
+        Assert.Equal("12/31/1999", pasted);
+    }
+
+    [Fact]
+    public void The_result_fades_while_a_newer_result_is_computed_and_only_then()
+    {
+        // Measured on the laid-out view, not read off the markup (GUI rule 10): the block holding the
+        // formats takes the stale opacity from the shared style when the view model says the result is
+        // behind its input, and full opacity otherwise.
+        var (stale, current, token) = WpfTestHost.InvokeSettled(() =>
+        {
+            var view = new CalculatorView { DataContext = new StaleStub { IsResultStale = true } };
+            Layout(view);
+            var staleOpacity = ResultBlock(view).Opacity;
+
+            view.DataContext = new StaleStub { IsResultStale = false };
+            Layout(view);
+            return (staleOpacity, ResultBlock(view).Opacity, (double)view.FindResource("OpacityStale"));
+        });
+
+        Assert.Equal(token, stale);
+        Assert.True(token < 1);
+        Assert.Equal(1, current);
+    }
+
+    [Fact]
+    public void A_format_row_with_no_value_has_its_Copy_off()
+    {
+        // R4-Z3: the row shows the out-of-range marker, a sentence about the value rather than the value.
+        var (withValue, withoutValue) = WpfTestHost.InvokeSettled(() =>
+        {
+            var view = new CalculatorView
+            {
+                DataContext = new FormatsStub
+                {
+                    Formats = [new FormatRow("Epoch (s)", "0", hasValue: true), new FormatRow("FILETIME", "out of range", hasValue: false)],
+                },
+            };
+            Layout(view);
+            return (CopyButton(view, 0).IsEnabled, CopyButton(view, 1).IsEnabled);
+        });
+
+        Assert.True(withValue);
+        Assert.False(withoutValue);
+    }
+
+    /// <summary>The Copy button of the format row at <paramref name="index"/>, found on the laid-out list.</summary>
+    private static Button CopyButton(CalculatorView view, int index)
+    {
+        var list = (ItemsControl)view.FindName("FormatList");
+        var container = (DependencyObject)list.ItemContainerGenerator.ContainerFromIndex(index);
+        return Descendants(container).OfType<Button>().Single();
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            yield return child;
+            foreach (var deeper in Descendants(child))
+            {
+                yield return deeper;
+            }
+        }
+    }
+
+    /// <summary>Stands in for the view model's format rows.</summary>
+    private sealed class FormatsStub
+    {
+        public IReadOnlyList<FormatRow> Formats { get; init; } = [];
+    }
+
+    /// <summary>The block of answers the format list sits in - the container the stale state fades.</summary>
+    private static StackPanel ResultBlock(CalculatorView view)
+        => (StackPanel)LogicalTreeHelper.GetParent((DependencyObject)view.FindName("FormatList"));
+
+    /// <summary>Stands in for the view model's stale flag, tied to the real name below.</summary>
+    private sealed class StaleStub
+    {
+        public bool IsResultStale { get; init; }
+    }
+
+    [Fact]
+    public void The_fade_is_driven_by_the_view_models_own_property_name()
+    {
+        Assert.Equal(nameof(CalculatorViewModel.IsResultStale), nameof(StaleStub.IsResultStale));
+    }
+
+    [Fact]
     public void The_calendar_picker_is_marked_when_the_engine_refuses_for_want_of_a_calendar()
     {
         // The other half of the missing-calendar fix. CalculatorErrorTests proves the sentence, this

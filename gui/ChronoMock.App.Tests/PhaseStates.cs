@@ -70,6 +70,19 @@ internal static class PhaseStates
         => new(new InMemorySessionHistoryStore(), presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"), canReachElevated: true);
 
     /// <summary>An application chosen and a date that does not exist.</summary>
+    /// <summary>A chosen scenario that gave no date (R4-Z2): its sentence under the list, and the footer
+    /// refusing Start with the reason rather than starting with the date from before the choice. The engine
+    /// refuses at once, so the state is reached the way a click reaches it, with nothing left pending.</summary>
+    public static SessionViewModel SetupWithFailedScenario()
+    {
+        var engine = new FakeCalcEngine(_ => throw new CalcException(
+            "chrono calc: step 1 overflows the representable range (calc.overflow)", 1));
+        var model = WithTarget(new SessionViewModel(
+            new InMemorySessionHistoryStore(), calcClient: engine, presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets")));
+        model.SelectedScenario = model.ScenarioPicker.Visible[0];
+        return model;
+    }
+
     public static SessionViewModel SetupWithBadDate()
     {
         var model = WithTarget(SetupStartup());

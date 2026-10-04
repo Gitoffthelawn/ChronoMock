@@ -34,6 +34,14 @@
        not an axis: a second one would start a competition between levels rather than name them. -->
   <FontWeight x:Key="FontWeightHeading">SemiBold</FontWeight>
 
+  <!-- How far an answer that is being replaced fades while the new one is computed (PartAnswerBlock,
+       R4-W4). Above the 0.5 a disabled control takes, because the block is not disabled: its values are
+       still readable and still the last answer, only no longer the answer to what the input says.
+       🔴 Measured, not chosen by eye: at 0.6 the secondary 12 px labels fell to 3.75 to 1 against the
+       result card, under the 4.5 the rest of the screen holds. 0.75 keeps them above it (the faded
+       render's contrast report, tools/gui/renders/calculator-result-stale.contrast.txt). -->
+  <sys:Double x:Key="OpacityStale">0.75</sys:Double>
+
   <!-- Radii and stroke. Three radii with three jobs, not a free axis: control, card, pill. The pill
        radius is half the control height, which is what makes a pill a pill at any height. -->
   <CornerRadius x:Key="RadiusSm">4</CornerRadius>

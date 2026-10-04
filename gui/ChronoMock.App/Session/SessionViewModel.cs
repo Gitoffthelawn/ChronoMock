@@ -48,13 +48,12 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     private bool _idle = true;
     private string? _targetPath;
     private RecentTarget? _selectedTarget;
-    private readonly CalcClient? _calcClient;
     private readonly string? _presetsDir;
+    private readonly MomentRequests _moments;
     private readonly ScenarioPicker _scenarios = new();
     private ScenarioItem? _selectedScenario;
     private string _scenarioExplains = string.Empty;
     private string _scenarioErrorKey = string.Empty;
-    private bool _applyingScenario; // guard: filling the moment from a scenario must not clear the selection
     private bool _momentIsDefault = true;
     /// <summary>The editable moment (a date and optional time in the session zone, rule 2). The shared
     /// MomentInput control binds to it, and MomentParse composes it culture-invariantly (locale-safe).</summary>
@@ -139,13 +138,12 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     public SessionViewModel(
         ISessionHistoryStore history,
         IDiagnosticsLog? diagnosticsLog = null,
-        CalcClient? calcClient = null,
+        ICalcEngine? calcClient = null,
         string? presetsDir = null,
         bool canReachElevated = false)
     {
         _store = history;
         _diagnosticsLog = diagnosticsLog ?? new NoOpDiagnosticsLog();
-        _calcClient = calcClient;
         _presetsDir = presetsDir;
         _canReachElevated = canReachElevated;
 
@@ -166,9 +164,12 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         // a first run is a cost paid by everyone once.
         _selectedMode = TimeInputs.Modes.First(m => m.Mode == "flow");
 
-        // The relative line fills the same field the At row edits, and reads the zone at the moment of use,
-        // so changing the zone changes what "now plus one day" means without any wiring between the two.
-        Relative = new RelativeMomentViewModel(Moment, calcClient, () => SelectedZone.BiasMinutes);
+        // The scenario list and the relative line fill the same field the At row edits, through ONE set of
+        // requests, so a late answer from either can never overwrite whichever was asked later or a date
+        // typed since (R4-S25). Both read the zone at the moment of use, so changing the zone changes what
+        // "now plus one day" means without any wiring between the two.
+        _moments = new MomentRequests(Moment, calcClient, () => SelectedZone.BiasMinutes);
+        Relative = new RelativeMomentViewModel(_moments);
 
         // Ship with the same default moment the panel had before these inputs existed.
         Moment.LoadCanonical("2038-01-19T03:14:07");
@@ -190,7 +191,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             // A hand-edited moment is no longer the scenario's moment, so the selection stops claiming it
             // is (the calculator's active-preset banner clears the same way). Guarded, because filling the
             // field FROM a scenario raises this too.
-            if (!_applyingScenario)
+            if (!_moments.FillingFromScenario)
             {
                 ClearScenarioSelection();
             }
@@ -588,7 +589,33 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         get => _selectedZone;
         // The preview names the zone, so changing the zone rewrites the line - the same moment in a
         // different zone is a different thing for the target to see (rule 2).
-        set { if (Set(ref _selectedZone, value)) { RaiseMomentPreviewChanged(); } }
+        set
+        {
+            if (Set(ref _selectedZone, value))
+            {
+                RaiseMomentPreviewChanged();
+                AskAgainInZone();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 🔴 The zone is part of every question that fills the moment, so a new zone asks again (R4-Z1). A
+    /// chosen scenario is a wall clock computed IN the zone, and kept as it was it named another instant in
+    /// the new one: the 2038 boundary chosen in UTC and then read at UTC+01:00 is an hour short of it, under
+    /// a selection that still claims the boundary. A "now, shifted" still being computed is asked again for
+    /// the same reason. A date the user typed is theirs and stays as typed.
+    /// </summary>
+    private void AskAgainInZone()
+    {
+        if (_selectedScenario is { } scenario)
+        {
+            _ = ApplyScenarioAsync(scenario);
+        }
+        else if (_moments.IsRelativePending)
+        {
+            _ = Relative.ApplyAsync();
+        }
     }
 
     public ModeOption SelectedMode
@@ -740,8 +767,11 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// in the folded header rather than the path itself - a path is even longer than an argument list.</summary>
     public bool HasWorkingFolder => _workingFolder.Length > 0;
 
-    /// <summary>True when a session may be started: nothing is running, a target is chosen, moment is valid.</summary>
-    public bool CanStart => _idle && HasTarget && Moment.IsValid;
+    /// <summary>True when a session may be started: nothing is running, a target is chosen, the moment is
+    /// valid, and it is not standing in for a chosen scenario that gave no date (R4-Z2) - the field then
+    /// still holds the date from before the choice, and starting with it would start a session the tester
+    /// did not choose.</summary>
+    public bool CanStart => _idle && HasTarget && Moment.IsValid && !HasScenarioError;
 
     /// <summary>
     /// Why Start is refusing, as a translation key, or empty when it is not refusing.
@@ -763,6 +793,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         !_idle ? "setup.already_running"
         : !HasTarget ? "setup.needs_target"
         : !Moment.IsValid ? "setup.needs_moment"
+        : HasScenarioError ? "setup.scenario_failed"
         : string.Empty;
 
     /// <summary>Whether <see cref="StartRefusalKey"/> has something to say. Exactly the negation of
@@ -987,7 +1018,15 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     public string ScenarioErrorKey
     {
         get => _scenarioErrorKey;
-        private set { if (Set(ref _scenarioErrorKey, value)) { RaisePropertyChanged(nameof(HasScenarioError)); } }
+        private set
+        {
+            if (Set(ref _scenarioErrorKey, value))
+            {
+                RaisePropertyChanged(nameof(HasScenarioError));
+                RaisePropertyChanged(nameof(CanStart));
+                RaiseStartRefusalChanged();
+            }
+        }
     }
 
     public bool HasScenarioError => _scenarioErrorKey.Length > 0;
@@ -1000,27 +1039,19 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// preset, which is exactly the half of the catalogue this panel exists to offer. The engine stays the
     /// single source of the date either way (rule 16) - nothing here computes a calendar.
     /// </para>
+    /// <para>
+    /// The answer fills the field only while this is still the newest request and nothing was typed since
+    /// (R4-S25) - see <see cref="MomentRequests"/>.
+    /// </para>
     /// </summary>
     internal async Task ApplyScenarioAsync(ScenarioItem scenario)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         ScenarioErrorKey = string.Empty;
 
-        var resolved = await ScenarioMoment.ResolveAsync(_calcClient, scenario, SelectedZone.BiasMinutes);
-        if (resolved.Iso is null)
+        if (await _moments.ChooseScenarioAsync(scenario) is { } errorKey)
         {
-            ScenarioErrorKey = resolved.ErrorKey!;
-            return;
-        }
-
-        _applyingScenario = true;
-        try
-        {
-            Moment.LoadCanonical(resolved.Iso);
-        }
-        finally
-        {
-            _applyingScenario = false;
+            ScenarioErrorKey = errorKey;
         }
     }
 
@@ -1846,6 +1877,13 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     public async Task StartAsync()
     {
+        // 🔴 A press straight after choosing a scenario waits for its date, rather than start with the one
+        // the field held before the choice (R4-S25). It completes at once when nothing is being computed,
+        // and a date typed while it waits is an answer of its own, so Start goes with what the field shows
+        // once nothing is coming for it. CanStart is read AFTER the wait: a scenario that gave no date
+        // refuses the start, it does not start the session with the old date (R4-Z2).
+        await _moments.WhenCurrentAsync();
+
         if (!CanStart)
         {
             return;
@@ -2387,22 +2425,10 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
     private static string Seconds(long ms) => (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
 
-    // Format a possibly-missing template safely: a resolver that returns the raw key (no placeholders)
-    // leaves it unchanged, because string.Format ignores extra arguments when there are no holes to fill.
-    // It does NOT ignore a hole with no argument ({5} of three) or an unbalanced brace, and translation
-    // files are loose files anyone may edit - so a bad one degrades to the raw template instead of taking
-    // down the summary that was being built.
-    private static string Fmt(string template, params object[] args)
-    {
-        try
-        {
-            return string.Format(CultureInfo.InvariantCulture, template, args);
-        }
-        catch (FormatException)
-        {
-            return template;
-        }
-    }
+    // Format a possibly-missing template safely: a bad translation file degrades to the raw template
+    // instead of taking down the summary that was being built. The rule lives in TextFormat, shared with
+    // the calculator and the window title (R4-N46).
+    private static string Fmt(string template, params object[] args) => Localization.TextFormat.Fill(template, args);
 
     /// <summary>
     /// The processes the hook never got into, one line per pid the way the CLI report prints them (pid,

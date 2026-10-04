@@ -89,7 +89,7 @@ public class RelativeMomentTests
     {
         var field = new MomentField();
         field.LoadCanonical("2038-01-19T03:14:07");
-        var vm = new RelativeMomentViewModel(field, null, () => -120) { Amount = "not a number" };
+        var vm = new RelativeMomentViewModel(new MomentRequests(field, null, () => -120)) { Amount = "not a number" };
 
         await vm.ApplyAsync();
 
@@ -105,7 +105,7 @@ public class RelativeMomentTests
     {
         var field = new MomentField();
         field.LoadCanonical("2038-01-19T03:14:07");
-        var vm = new RelativeMomentViewModel(field, null, () => -120);
+        var vm = new RelativeMomentViewModel(new MomentRequests(field, null, () => -120));
 
         await vm.ApplyAsync();
 
@@ -133,5 +133,5 @@ public class RelativeMomentTests
         Assert.IsType<RelativeMomentViewModel>(context);
     }
 
-    private static RelativeMomentViewModel NewViewModel() => new(new MomentField(), null, () => -120);
+    private static RelativeMomentViewModel NewViewModel() => new(new MomentRequests(new MomentField(), null, () => -120));
 }

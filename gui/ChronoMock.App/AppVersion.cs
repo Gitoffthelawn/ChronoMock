@@ -24,21 +24,11 @@ public static class AppVersion
     /// that goes wrong are handled here rather than at startup: a format with no placeholder is
     /// returned unchanged (a title without a version reads fine), and a format naming an argument
     /// that does not exist would otherwise throw and take the window with it. Both degrade to a
-    /// usable title, which is the same choice ApplyOrDegrade makes for the strings as a whole.
+    /// usable title, which is the same choice ApplyOrDegrade makes for the strings as a whole. The rule
+    /// itself lives in <see cref="Localization.TextFormat"/>, shared with every other translated template.
     /// </remarks>
     public static string FormatTitle(string format, string version)
-    {
-        ArgumentNullException.ThrowIfNull(format);
-
-        try
-        {
-            return string.Format(System.Globalization.CultureInfo.InvariantCulture, format, version);
-        }
-        catch (FormatException)
-        {
-            return format;
-        }
-    }
+        => Localization.TextFormat.Fill(format, version);
 
     private static string ReadFromAssembly()
     {

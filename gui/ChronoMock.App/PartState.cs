@@ -64,4 +64,21 @@ public static class PartState
 
     public static void SetIsSuggested(DependencyObject element, bool value)
         => element.SetValue(IsSuggestedProperty, value);
+
+    /// <summary>What this block shows answers an earlier input than the one beside it, and a newer answer
+    /// is on its way.</summary>
+    /// <remarks>
+    /// 🔴 A VALUE like the others, set from whatever knows which input an answer belongs to (LatestAnswer),
+    /// so the catalogue can show the state with no engine behind it (R4-W4). A block that went on showing
+    /// the old answer at full strength passed it off as the answer to the new input, and that is the
+    /// moment a tester copies it or sends it on.
+    /// </remarks>
+    public static readonly DependencyProperty IsStaleProperty = DependencyProperty.RegisterAttached(
+        "IsStale", typeof(bool), typeof(PartState), new PropertyMetadata(false));
+
+    public static bool GetIsStale(DependencyObject element)
+        => (bool)element.GetValue(IsStaleProperty);
+
+    public static void SetIsStale(DependencyObject element, bool value)
+        => element.SetValue(IsStaleProperty, value);
 }

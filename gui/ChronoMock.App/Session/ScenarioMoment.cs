@@ -62,9 +62,14 @@ internal static class ScenarioMoment
     /// through <c>calc --preset</c>: that path gates on <c>applies_to</c> and refuses a substitution-only
     /// preset, which is exactly the half of the catalogue this panel exists to offer.
     /// </para>
+    /// <para>
+    /// <paramref name="ct"/> cancels a question that a newer one replaced, which also stops the engine
+    /// process behind it, and surfaces as <see cref="OperationCanceledException"/> rather than as a failure
+    /// of the scenario's.
+    /// </para>
     /// </summary>
     internal static async Task<ScenarioResolution> ResolveAsync(
-        CalcClient? engine, ScenarioItem scenario, int zoneBiasMinutes)
+        ICalcEngine? engine, ScenarioItem scenario, int zoneBiasMinutes, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         if (engine is null)
@@ -74,7 +79,7 @@ internal static class ScenarioMoment
 
         try
         {
-            var result = await engine.EvaluateAsync(BuildArgs(scenario, zoneBiasMinutes));
+            var result = await engine.EvaluateAsync(BuildArgs(scenario, zoneBiasMinutes), ct);
             var iso = result.Moment?.Iso;
             return iso is null
                 ? new ScenarioResolution(null, "scenario.failed")

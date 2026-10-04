@@ -576,6 +576,24 @@
         </StackPanel>
       </Border>
 
+      <!-- ============ Answer block ============ -->
+      <TextBlock Text="Answer block" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
+
+      <Border Style="{StaticResource PartCard}" Margin="{StaticResource StackGapSm}">
+        <StackPanel>
+          <TextBlock Style="{StaticResource PartCaption}"
+                     Text="A block of answers that can fall behind the input they answer - the calculator's result, the readings of a pasted date. It fades while a newer answer is being computed, and only fades, so nothing in it moves when the answer arrives. Both states below hold the same answer, the second as it looks between an edit and its result." />
+          <StackPanel Style="{StaticResource PartAnswerBlock}" Margin="{StaticResource StackGapSm}">
+            <TextBlock Style="{StaticResource PartCaption}" Text="Current - the answer to what the input says" />
+            <TextBlock Style="{StaticResource PartValueMono}" Text="Saturday, 31 January 2026 - 1769817600 - an answer long enough to wrap onto a second line in a narrow column" />
+          </StackPanel>
+          <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="True" Margin="{StaticResource StackGapSm}">
+            <TextBlock Style="{StaticResource PartCaption}" Text="Stale - a newer answer is being computed" />
+            <TextBlock Style="{StaticResource PartValueMono}" Text="Saturday, 31 January 2026 - 1769817600 - an answer long enough to wrap onto a second line in a narrow column" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
     </StackPanel>
   </ScrollViewer>
 </UserControl>

@@ -1,0 +1,61 @@
+using System.Globalization;
+using ChronoMock.Protocol;
+
+namespace ChronoMock.App.Tests;
+
+/// <summary>
+/// The engine behind the calculator renders in the state sheet: New Year's Day 2026 plus the day shift
+/// asked for, with every format filled the way the real engine fills it, a refusal past a hundred thousand
+/// days, and a fixed ambiguous analysis that refuses a date with a thirty-first month.
+/// <para>
+/// A type of its own rather than a method on the sheet, because answering in full takes most of the
+/// protocol's result types, and the sheet's own coupling is measured like any other class's.
+/// </para>
+/// </summary>
+internal static class CalculatorSheetEngine
+{
+    public static CalcResult Answer(IReadOnlyList<string> args)
+    {
+        var question = new FakeCalcEngine.Question(args);
+        if (question.ValueOf("--analyze") is { } pasted)
+        {
+            return pasted.StartsWith("31/31", StringComparison.Ordinal)
+                ? throw new CalcException($"chrono calc: '{pasted}' is not a date this analyser reads (calc.analyze_unrecognized)", 1)
+                : CalcResults.Analysis("2008-04-08T00:00:00", "2008-08-04T00:00:00");
+        }
+
+        var shift = question.ValueOf("--shift");
+        var days = shift is null ? 0 : long.Parse(shift[1..^1], CultureInfo.InvariantCulture);
+        if (days > 100_000)
+        {
+            throw new CalcException("chrono calc: step 1 overflows the representable range (calc.overflow)", 1);
+        }
+
+        var moment = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddDays(days);
+        var epoch = new DateTimeOffset(moment).ToUnixTimeSeconds();
+        var mask = question.ValueOf("--format");
+        return new CalcResult(
+            "chronomock.calc/1",
+            new CalcMoment(
+                moment.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture),
+                0,
+                "today",
+                [shift ?? string.Empty],
+                new CalcFormats(
+                    moment.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    moment.ToString("yyyy-MM-dd'T'HH:mm:ss'+00:00'", CultureInfo.InvariantCulture),
+                    moment.ToString("MM/dd/yyyy", CultureInfo.InvariantCulture),
+                    moment.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture),
+                    epoch,
+                    epoch * 1000,
+                    moment.ToFileTimeUtc(),
+                    moment.ToString("R", CultureInfo.InvariantCulture)),
+                new CalcMetadata(moment.DayOfWeek.ToString(), 2026, 5, 5, moment.DayOfYear, 1, false, days, null, null),
+                [],
+                mask is null ? null : moment.ToString(mask, CultureInfo.InvariantCulture),
+                null,
+                null,
+                null),
+            null);
+    }
+}
