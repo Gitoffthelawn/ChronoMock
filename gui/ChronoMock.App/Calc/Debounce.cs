@@ -82,9 +82,16 @@ internal sealed class Debounce
 
         // Cancel THEN dispose, in that order and both here: cancellation callbacks run synchronously, so
         // by the time Cancel returns, the delay that run was sitting in is already cancelled and nothing
-        // will touch the source again.
-        previous.Cancel();
-        previous.Dispose();
+        // will touch the source again. Disposed in a finally, because a callback that throws makes Cancel
+        // throw - the fault still reaches the edit, and the source is not left behind (LatestAnswer.Put).
+        try
+        {
+            previous.Cancel();
+        }
+        finally
+        {
+            previous.Dispose();
+        }
     }
 
     /// <summary>

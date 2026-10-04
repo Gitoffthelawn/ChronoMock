@@ -146,7 +146,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   scenario to the next could leave the first one's date beside the second one's name, and a date typed
   while a scenario was being computed was overwritten. An answer now fills the field only while it
   answers the latest request, and nothing overwrites a date typed by hand. Start pressed straight
-  after choosing a scenario waits for its date instead of starting with the one before it.
+  after choosing a scenario waits for its date instead of starting with the one before it, and when
+  that date takes longer than 15 seconds to come, Start does not go ahead with the old one: it says
+  the date is still being computed and is available again the moment the date arrives.
 - **Start refuses when the chosen scenario gave no date.** The field still held the date from before
   the choice, so the session started with a date nobody chose. The reason is shown beside Start, the
   line above it no longer promises that old date to the application, and typing a date or choosing
@@ -159,10 +161,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   its text only when focus left it, so a pasted date was not analysed until something else was
   clicked. It now follows typing after a short pause. A failed analysis also clears the readings of the
   previous date and shows the engine's own sentence under the message, as the result column does.
-- **Copy is off for a format the date falls outside of.** Such a row shows that it is out of range, and
+- **Copy is off for a format the date falls outside.** Such a row shows that it is out of range, and
   Copy used to put that text on the clipboard as if it were the value.
 - **A broken translation file no longer breaks a calculation.** A template naming a value that does
-  not exist made the result fail halfway through being shown. Such a template is now shown as written.
+  not exist made the result fail halfway through being shown. Such a template now falls back to the
+  English text, with the values in it, and only shows as written when that cannot be filled either.
 - **A busy web page no longer stops a Chromium or Electron session.** Once a second the session
   asked every page and worker for its call counts and waited for each answer in turn, up to ten
   seconds each. A page busy with its own work - a long script, an `alert` - does not answer, so every

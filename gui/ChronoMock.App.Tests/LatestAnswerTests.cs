@@ -213,6 +213,20 @@ public class LatestAnswerTests
     }
 
     [Fact]
+    public void A_superseded_source_is_disposed_even_when_a_cancellation_callback_throws()
+    {
+        // Cancel runs the callbacks synchronously and throws when one of them does. The throw must still
+        // reach the edit that caused it - and must not leave the superseded source undisposed behind it.
+        var answer = new LatestAnswer();
+        answer.Ask();
+        var ticket = answer.Begin()!;
+        ticket.Token.Register(() => throw new InvalidOperationException("a callback failed"));
+
+        Assert.Throws<AggregateException>(answer.Ask);
+        Assert.Throws<ObjectDisposedException>(() => ticket.Source.Token.WaitHandle);
+    }
+
+    [Fact]
     public async Task A_storm_of_edits_and_runs_never_touches_a_disposed_source()
     {
         // The ownership rule Debounce follows, under load: whatever supersedes a run disposes its source,

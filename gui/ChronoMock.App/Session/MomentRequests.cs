@@ -22,13 +22,15 @@ namespace ChronoMock.App;
 /// </summary>
 internal sealed class MomentRequests
 {
-    /// <summary>How long Start waits for the answer to the newest request before going ahead with the field
-    /// as it stands. Above the engine's own 10 s limit, so an honest request always answers inside it.</summary>
+    /// <summary>How long Start waits for the answer to the newest request before refusing. Above the engine's
+    /// own 10 s limit, which however starts counting only once the process has started - a launch held up by
+    /// a scanner can take longer, and Start then says so rather than go ahead with the date from before.</summary>
     private static readonly TimeSpan StartWait = TimeSpan.FromSeconds(15);
 
     private readonly MomentField _moment;
     private readonly ICalcEngine? _engine;
     private readonly Func<int> _zoneBias;
+    private readonly TimeSpan _startWait;
     private readonly LatestAnswer _answer = new();
     private bool _filling;
     private bool _relativeAsked;
@@ -37,11 +39,15 @@ internal sealed class MomentRequests
     /// <param name="engine">The calculator engine, or null when it could not be resolved.</param>
     /// <param name="zoneBias">The session zone's bias, read when a request is made rather than captured,
     /// because the zone is part of every question asked here (untouchable rule 2).</param>
-    public MomentRequests(MomentField moment, ICalcEngine? engine, Func<int> zoneBias)
+    /// <param name="startWait">How long Start waits for the newest answer, the default when null. Shorter
+    /// only in a test, which would otherwise sit out the whole default to prove the limit.</param>
+    public MomentRequests(MomentField moment, ICalcEngine? engine, Func<int> zoneBias, TimeSpan? startWait = null)
     {
         _moment = moment ?? throw new ArgumentNullException(nameof(moment));
         _engine = engine;
         _zoneBias = zoneBias ?? throw new ArgumentNullException(nameof(zoneBias));
+        _startWait = startWait ?? StartWait;
+        _answer.CurrentChanged += (_, e) => CurrentChanged?.Invoke(this, e);
 
         // A change this type did not make - typed, Today or Now, the calculator's date, a history row - is
         // the user's own answer. Whatever is still being computed is cancelled and will be refused, so it
@@ -55,8 +61,14 @@ internal sealed class MomentRequests
         };
     }
 
+    /// <summary>Raised when <see cref="IsCurrent"/> flips, in either direction.</summary>
+    public event EventHandler? CurrentChanged;
+
     /// <summary>The session zone's bias right now, the one every request is asked in.</summary>
     public int ZoneBias => _zoneBias();
+
+    /// <summary>Whether the field holds the answer to the newest request - false while one is computed.</summary>
+    public bool IsCurrent => _answer.IsCurrent;
 
     /// <summary>True only while the field is being filled from a scenario's answer, so the field's change
     /// does not clear the scenario that caused it.</summary>
@@ -129,7 +141,7 @@ internal sealed class MomentRequests
     /// computed. Start waits on this, so a press straight after a choice starts with the chosen date rather
     /// than the one before it. True when the field is current, false when the wait ran out.
     /// </summary>
-    public Task<bool> WhenCurrentAsync() => _answer.WhenCurrentAsync(StartWait);
+    public Task<bool> WhenCurrentAsync() => _answer.WhenCurrentAsync(_startWait);
 
     private string? Settle(LatestAnswer.Ticket ticket, string? iso, string? errorKey, bool fromScenario)
     {

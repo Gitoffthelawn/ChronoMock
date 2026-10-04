@@ -477,6 +477,9 @@ public sealed class CalculatorViewModel : ObservableObject
     /// </summary>
     private static readonly TimeSpan ActionWait = TimeSpan.FromSeconds(15);
 
+    /// <summary>A "Use this date" press is waiting for its result - a second press is ignored until it is done.</summary>
+    private bool _sendingToSubstitution;
+
     /// <summary>How long the builder stays quiet before a keystroke turns into a calc process. Every edit
     /// used to spawn one immediately - typing a date meant about ten process launches, and unpacking a
     /// preset about nine - which is visible jank on a machine with an AV scanner in the loop (the typical
@@ -881,9 +884,26 @@ public sealed class CalculatorViewModel : ObservableObject
     /// </summary>
     public async Task RequestUseInSubstitutionAsync()
     {
-        if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)
+        // One press, one transfer. A second press while the first still waits would send the same date
+        // again - the substitution panel filled and switched to twice. Kept here rather than by disabling
+        // the button: its IsEnabled is bound to CanUseInSubstitution, and a value set on the control would
+        // replace that binding for good.
+        if (_sendingToSubstitution)
         {
-            UseInSubstitutionRequested?.Invoke(_resultMomentLocal, _resultZoneBias);
+            return;
+        }
+
+        _sendingToSubstitution = true;
+        try
+        {
+            if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)
+            {
+                UseInSubstitutionRequested?.Invoke(_resultMomentLocal, _resultZoneBias);
+            }
+        }
+        finally
+        {
+            _sendingToSubstitution = false;
         }
     }
 
@@ -1522,7 +1542,7 @@ public sealed class CalculatorViewModel : ObservableObject
         ClampNotice = HasClampNotice
             ? string.Join(
                 Environment.NewLine,
-                clamps!.Select(c => TextFormat.Fill(Tr("calc.clamped_step"), c.Step, c.RequestedDay, c.ClampedTo)))
+                clamps!.Select(c => TextFormat.Translate("calc.clamped_step", c.Step, c.RequestedDay, c.ClampedTo)))
             : string.Empty;
 
         MetadataLine = BuildMetadataLine(moment.Metadata);
@@ -1587,7 +1607,7 @@ public sealed class CalculatorViewModel : ObservableObject
         // so the row without this warning reads as a rendered date that happens to contain letters.
         HasCustomFormatWarning = HasCustomFormat && unknown is { Count: > 0 };
         CustomFormatWarning = HasCustomFormatWarning
-            ? TextFormat.Fill(Tr("calc.fmt.unknown_tokens"), string.Join(", ", unknown!))
+            ? TextFormat.Translate("calc.fmt.unknown_tokens", string.Join(", ", unknown!))
             : string.Empty;
     }
 
@@ -1652,7 +1672,7 @@ public sealed class CalculatorViewModel : ObservableObject
         var label = Calendars.FirstOrDefault(c => c.Id == calendarId) is { } known
             ? Tr(known.LabelKey)
             : calendarId;
-        return TextFormat.Fill(Tr("calc.sig_calendar"), label);
+        return TextFormat.Translate("calc.sig_calendar", label);
     }
 
     private static string BuildMetadataLine(CalcMetadata m)

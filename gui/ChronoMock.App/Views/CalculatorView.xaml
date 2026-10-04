@@ -320,8 +320,7 @@
                   <controls:TextNamedItems.ItemTemplate>
                     <DataTemplate>
                       <StackPanel Margin="{StaticResource StackGapSm}">
-                        <TextBlock Text="{Binding ReadingLabelKey, Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
-                                   FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
+                        <TextBlock Style="{StaticResource PartCaption}" Text="{Binding ReadingLabelKey, Converter={StaticResource KeyToText}}" />
                         <StackPanel Orientation="Horizontal">
                           <TextBlock VerticalAlignment="Center"
                                      FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}"><Run Text="{Binding WeekdayKey, Converter={StaticResource KeyToText}, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Date, Mode=OneWay}" /></TextBlock>
@@ -364,7 +363,7 @@
                     Visibility="{Binding HasActivePreset, Converter={StaticResource BoolToVis}}">
               <StackPanel>
                 <TextBlock Text="{Binding ActivePresetName}" TextWrapping="Wrap"
-                           FontSize="{StaticResource FontSizeBody}" FontWeight="SemiBold"
+                           FontSize="{StaticResource FontSizeBody}" FontWeight="{StaticResource FontWeightHeading}"
                            Foreground="{DynamicResource BrushAccent}" />
                 <TextBlock Text="{Binding ActivePresetExplains}" TextWrapping="Wrap"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
@@ -430,7 +429,7 @@
                  rather than one, because the mask box sits between them and an input never fades. -->
             <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}">
               <TextBlock Margin="{StaticResource SpaceXs}" TextWrapping="Wrap"
-                         FontSize="{StaticResource FontSizeTitle}" FontWeight="SemiBold"
+                         FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightHeading}"
                          Foreground="{DynamicResource BrushTextPrimary}">
                 <Run Text="{Binding ResultWeekday, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultDate, Mode=OneWay}" />
               </TextBlock>
@@ -453,7 +452,7 @@
                       Visibility="{Binding HasSignificance, Converter={StaticResource BoolToVis}}">
                 <StackPanel>
                   <TextBlock Text="{DynamicResource calc.what_tests}" FontSize="{StaticResource FontSizeCaption}"
-                             FontWeight="Bold" Foreground="{DynamicResource BrushAccent}" />
+                             FontWeight="{StaticResource FontWeightHeading}" Foreground="{DynamicResource BrushAccent}" />
                   <controls:TextNamedItems ItemsSource="{Binding Significance}" Margin="{StaticResource SpaceXs}">
                     <controls:TextNamedItems.ItemTemplate>
                       <DataTemplate>
@@ -466,10 +465,9 @@
                        only beside the picker: the picker is in the middle column and this is read in the
                        right one, so a line saying "weekend - not a business day" would otherwise be a
                        calendar-dependent judgement with its calendar nowhere in sight. -->
-                  <TextBlock Text="{Binding SignificanceCalendar}" TextWrapping="Wrap"
+                  <TextBlock Style="{StaticResource PartCaption}" Text="{Binding SignificanceCalendar}"
                              Visibility="{Binding HasSignificanceCalendar, Converter={StaticResource BoolToVis}}"
-                             Margin="{StaticResource SpaceXs}"
-                             FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
+                             Margin="{StaticResource SpaceXs}" />
                 </StackPanel>
               </Border>
 
@@ -491,12 +489,12 @@
                   <DataTemplate>
                     <Grid Margin="{StaticResource SpaceXs}">
                       <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="104" />
+                        <ColumnDefinition Width="{StaticResource FormatLabelColumnWidth}" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                       </Grid.ColumnDefinitions>
-                      <TextBlock Grid.Column="0" Text="{Binding Label}"
-                                 FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
+                      <!-- One line, as before: a label that wrapped would push its value down a row. -->
+                      <TextBlock Grid.Column="0" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}" />
                       <TextBlock Grid.Column="1" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
                                  Margin="{StaticResource CopyValueGap}" />
                       <Button Grid.Column="2" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"

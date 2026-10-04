@@ -236,7 +236,8 @@ internal sealed class LatestAnswer
 
     /// <summary>Put down a superseded run's source: cancel it THEN dispose it, both here. Cancellation
     /// callbacks run synchronously, so by the time Cancel returns the run is already on its way out and
-    /// nothing will touch the source again.</summary>
+    /// nothing will touch the source again. A callback that throws makes Cancel throw, and the source is
+    /// disposed all the same - the throw still reaches the edit that caused it, loudly.</summary>
     private static void Put(CancellationTokenSource? previous)
     {
         if (previous is null)
@@ -244,8 +245,14 @@ internal sealed class LatestAnswer
             return;
         }
 
-        previous.Cancel();
-        previous.Dispose();
+        try
+        {
+            previous.Cancel();
+        }
+        finally
+        {
+            previous.Dispose();
+        }
     }
 
     /// <summary>One run's claim to answer one generation of the input.</summary>

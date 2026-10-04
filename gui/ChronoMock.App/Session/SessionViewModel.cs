@@ -50,6 +50,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     private RecentTarget? _selectedTarget;
     private readonly string? _presetsDir;
     private readonly MomentRequests _moments;
+    private bool _momentPending; // Start gave up waiting for the newest date - refused until it lands
     private readonly ScenarioPicker _scenarios = new();
     private ScenarioItem? _selectedScenario;
     private string _scenarioExplains = string.Empty;
@@ -140,7 +141,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         IDiagnosticsLog? diagnosticsLog = null,
         ICalcEngine? calcClient = null,
         string? presetsDir = null,
-        bool canReachElevated = false)
+        bool canReachElevated = false,
+        TimeSpan? momentWait = null)
     {
         _store = history;
         _diagnosticsLog = diagnosticsLog ?? new NoOpDiagnosticsLog();
@@ -168,8 +170,21 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         // requests, so a late answer from either can never overwrite whichever was asked later or a date
         // typed since (R4-S25). Both read the zone at the moment of use, so changing the zone changes what
         // "now plus one day" means without any wiring between the two.
-        _moments = new MomentRequests(Moment, calcClient, () => SelectedZone.BiasMinutes);
+        _moments = new MomentRequests(Moment, calcClient, () => SelectedZone.BiasMinutes, momentWait);
         Relative = new RelativeMomentViewModel(_moments);
+
+        // A Start refused for a date still being computed comes back the moment that date lands, or the
+        // moment the field is typed in - both make the field current again.
+        _moments.CurrentChanged += (_, _) =>
+        {
+            if (_momentPending && _moments.IsCurrent)
+            {
+                _momentPending = false;
+                RaisePropertyChanged(nameof(CanStart));
+                RaisePropertyChanged(nameof(HasContract));
+                RaiseStartRefusalChanged();
+            }
+        };
 
         // Ship with the same default moment the panel had before these inputs existed.
         Moment.LoadCanonical("2038-01-19T03:14:07");
@@ -579,7 +594,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// it promised the date from before the choice - one the tester did not choose and Start would not use.
     /// A bool rather than a type, at this class's coupling ceiling (gui/CodeMetricsConfig.txt).
     /// </remarks>
-    public bool HasContract => HasMomentPreview && !HasScenarioError;
+    public bool HasContract => HasMomentPreview && !HasScenarioError && !_momentPending;
 
     private void RaiseMomentPreviewChanged()
     {
@@ -783,8 +798,9 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// <summary>True when a session may be started: nothing is running, a target is chosen, the moment is
     /// valid, and it is not standing in for a chosen scenario that gave no date (R4-Z2) - the field then
     /// still holds the date from before the choice, and starting with it would start a session the tester
-    /// did not choose.</summary>
-    public bool CanStart => _idle && HasTarget && Moment.IsValid && !HasScenarioError;
+    /// did not choose. Nor while a Start already gave up waiting for the newest date to be computed - it
+    /// comes back the moment that date lands or the field is typed in.</summary>
+    public bool CanStart => _idle && HasTarget && Moment.IsValid && !HasScenarioError && !_momentPending;
 
     /// <summary>
     /// Why Start is refusing, as a translation key, or empty when it is not refusing.
@@ -807,6 +823,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         : !HasTarget ? "setup.needs_target"
         : !Moment.IsValid ? "setup.needs_moment"
         : HasScenarioError ? "setup.scenario_failed"
+        : _momentPending ? "setup.moment_pending"
         : string.Empty;
 
     /// <summary>Whether <see cref="StartRefusalKey"/> has something to say. Exactly the negation of
@@ -1896,7 +1913,18 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         // and a date typed while it waits is an answer of its own, so Start goes with what the field shows
         // once nothing is coming for it. CanStart is read AFTER the wait: a scenario that gave no date
         // refuses the start, it does not start the session with the old date (R4-Z2).
-        await _moments.WhenCurrentAsync();
+        //
+        // A wait that runs out refuses too, and says so: going ahead would start with the date from before
+        // the request - the very fault the wait is for - and silently. The answer re-enables Start when it
+        // lands (the handler beside _moments in the constructor).
+        if (!await _moments.WhenCurrentAsync() && !_moments.IsCurrent)
+        {
+            _momentPending = true;
+            RaisePropertyChanged(nameof(CanStart));
+            RaisePropertyChanged(nameof(HasContract));
+            RaiseStartRefusalChanged();
+            return;
+        }
 
         if (!CanStart)
         {
@@ -2181,10 +2209,10 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     private static string FormatReadRow(CoveredChannel channel, Func<string, string> translate)
     {
-        var format = translate(channel.Calls == 1 ? "coverage.reads_one" : "coverage.reads");
-        // Guarded like every other translated template here: a loose file with a bad placeholder degrades to
-        // the raw template instead of throwing out of the summary being built (rule 6).
-        return Fmt(format, channel.Channel, channel.Calls);
+        var key = channel.Calls == 1 ? "coverage.reads_one" : "coverage.reads";
+        // Guarded like every other translated template here: a loose file with a bad placeholder falls back
+        // to the default language instead of throwing out of the summary being built (rule 6).
+        return Fmt(translate, key, channel.Channel, channel.Calls);
     }
 
     /// <summary>Build the wire time from the inputs. The moment is the local time in the session zone
@@ -2255,7 +2283,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             if (_vanishReasonKey.Length > 0)
             {
                 sb.Append("    ")
-                  .Append(Fmt(translate("report.vanish_detail"), translate(_vanishReasonKey), _livedMs))
+                  .Append(Fmt(translate, "report.vanish_detail", translate(_vanishReasonKey), _livedMs))
                   .Append('\n');
             }
         }
@@ -2264,7 +2292,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             sb.Append("  ").Append(translate("report.verdict")).Append(": ").Append(translate(VerdictLabelKey));
             if (IsFamily)
             {
-                sb.Append("  ").Append(Fmt(translate("report.processes"), _processCount));
+                sb.Append("  ").Append(Fmt(translate, "report.processes", _processCount));
             }
 
             sb.Append('\n');
@@ -2298,9 +2326,9 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             // Prefer the authoritative end wall from `ended` - fall back to the last heartbeat's fake clock.
             var fakeWall = _fakeEndWall.Length > 0 ? _fakeEndWall : Fake.Wall;
             sb.Append("  ").Append(translate("report.session")).Append(": ")
-              .Append(Fmt(translate("report.session_reached"), fakeWall)).Append('\n');
+              .Append(Fmt(translate, "report.session_reached", fakeWall)).Append('\n');
             sb.Append("    ")
-              .Append(Fmt(translate("report.elapsed"), Seconds(_elapsedRealMs), Seconds(_elapsedFakeMs)))
+              .Append(Fmt(translate, "report.elapsed", Seconds(_elapsedRealMs), Seconds(_elapsedFakeMs)))
               .Append('\n');
         }
 
@@ -2340,7 +2368,8 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
         // The "requested" line is the START request (snapshot) throughout - moment, zone and mode alike.
         sb.Append("  ")
           .Append(Fmt(
-              translate("report.requested"),
+              translate,
+              "report.requested",
               RequestedMoment,
               RequestedZone.Label,
               translate(RequestedMode.LabelKey)))
@@ -2439,10 +2468,11 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
 
     private static string Seconds(long ms) => (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
 
-    // Format a possibly-missing template safely: a bad translation file degrades to the raw template
-    // instead of taking down the summary that was being built. The rule lives in TextFormat, shared with
-    // the calculator and the window title (R4-N46).
-    private static string Fmt(string template, params object[] args) => Localization.TextFormat.Fill(template, args);
+    // Fill a translated template safely: a bad translation file falls back to the default language's
+    // template, and to the raw one only when that fails too, instead of taking down the summary being
+    // built. The rule lives in TextFormat, shared with the calculator and the window title (R4-N46).
+    private static string Fmt(Func<string, string> translate, string key, params object[] args)
+        => Localization.TextFormat.Translate(translate, key, args);
 
     /// <summary>
     /// The processes the hook never got into, one line per pid the way the CLI report prints them (pid,
@@ -2465,14 +2495,14 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             // an empty name as the unnamed row - the clipboard must not print a blank where it prints words.
             var image = string.IsNullOrEmpty(child.Image) ? translate("audit.process_unnamed") : child.Image;
             var line = child.Role is { Length: > 0 } role
-                ? Fmt(translate("report.process_line_role"), child.Pid, image, role, child.ParentPid)
-                : Fmt(translate("report.process_line"), child.Pid, image, child.ParentPid);
+                ? Fmt(translate, "report.process_line_role", child.Pid, image, role, child.ParentPid)
+                : Fmt(translate, "report.process_line", child.Pid, image, child.ParentPid);
             sb.Append("    - ").Append(line).Append('\n');
         }
 
         if (UncoveredChildrenUnnamed > 0)
         {
-            sb.Append("    - ").Append(Fmt(translate("report.processes_more"), UncoveredChildrenUnnamed)).Append('\n');
+            sb.Append("    - ").Append(Fmt(translate, "report.processes_more", UncoveredChildrenUnnamed)).Append('\n');
         }
     }
 
@@ -2505,7 +2535,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             // Whitespace like empty: an engine that named nothing gets the word, never a blank where the
             // report prints a name. The core sanitises that text but does not trim it.
             var name = string.IsNullOrWhiteSpace(engine.Browser) ? translate("audit.engine_unnamed") : engine.Browser;
-            sb.Append("    - ").Append(Fmt(translate("report.engine_line"), name, engine.Port, engine.Pid)).Append('\n');
+            sb.Append("    - ").Append(Fmt(translate, "report.engine_line", name, engine.Port, engine.Pid)).Append('\n');
         }
     }
 

@@ -30,6 +30,26 @@ public class TextFormatTests
     public void A_template_without_a_placeholder_is_left_alone()
         => Assert.Equal("calc.clamped_step", TextFormat.Fill("calc.clamped_step", 1, 31, 28));
 
+    [Fact]
+    public void A_translation_that_can_be_filled_is_used_as_it_is()
+        => Assert.Equal("krok 2", TextFormat.Translate(_ => "krok {0}", "calc.clamped_step", 2, 31, 28));
+
+    [Fact]
+    public void A_translation_that_cannot_be_filled_falls_back_to_the_default_language()
+    {
+        // The same sentence with the values in it, rather than the broken template on screen.
+        var english = LocalizationService.DefaultTemplate("calc.clamped_step");
+        Assert.NotNull(english); // not vacuous: the default file was found and has the key
+
+        var text = TextFormat.Translate(_ => "krok {9}", "calc.clamped_step", 2, 31, 28);
+
+        Assert.Equal(string.Format(System.Globalization.CultureInfo.InvariantCulture, english, 2, 31, 28), text);
+    }
+
+    [Fact]
+    public void When_the_default_language_cannot_fill_it_either_the_translation_comes_back_as_written()
+        => Assert.Equal("broken {7}", TextFormat.Translate(_ => "broken {7}", "no.such.key.anywhere", 1));
+
     /// <summary>A placeholder index, skipping escaped braces, with any alignment or format after it.</summary>
     private static readonly Regex Placeholder = new(@"(?<!\{)\{(\d+)(?:[,:][^{}]*)?\}", RegexOptions.Compiled);
 
@@ -39,6 +59,9 @@ public class TextFormatTests
         // The guard at the source, beside the one in TextFormat for files a user edits: a Polish template
         // naming {2} where the English one names {1} would show the wrong value, or the raw template, in
         // one language only - and only to the people reading that language.
+        //
+        // Only keys present in both are compared here. A key missing from one language is a finding of its
+        // own, and LocalizationTests.English_and_Polish_have_the_same_key_set already makes it.
         var english = Templates("en");
         var polish = Templates("pl");
 

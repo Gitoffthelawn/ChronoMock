@@ -1,7 +1,9 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ChronoMock.App.Calc;
 using ChronoMock.App.Views;
 using ChronoMock.Protocol;
@@ -109,6 +111,48 @@ public class CalculatorViewBindingTests
         Assert.Equal(token, stale);
         Assert.True(token < 1);
         Assert.Equal(1, current);
+    }
+
+    [Fact]
+    public async Task A_failure_behind_the_Use_press_reaches_the_dispatchers_fault_net()
+    {
+        // The click handlers keep no catch of their own, on the claim that a fault escaping an awaited async
+        // void handler lands on the dispatcher, where the application records and shows it once and stays up
+        // (App.OnDispatcherUnhandledException). Measured here rather than trusted: the host window's handler
+        // throws, the button is pressed, and the dispatcher's net must be what catches it.
+        var caught = await WpfTestHost.RunAsync(async () =>
+        {
+            Exception? seen = null;
+            void Net(object sender, DispatcherUnhandledExceptionEventArgs e)
+            {
+                seen = e.Exception;
+                e.Handled = true;
+            }
+
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            dispatcher.UnhandledException += Net;
+            try
+            {
+                var vm = new CalculatorViewModel(new FakeCalcEngine(args => args.Contains("--analyze")
+                    ? CalcResults.Analysis("2008-04-08T00:00:00")
+                    : CalcResults.Moment("2026-01-01T00:00:00")));
+                var view = new CalculatorView { DataContext = vm };
+                Layout(view);
+                await vm.EnsureComputedAsync();
+                vm.UseInSubstitutionRequested += (_, _) => throw new InvalidOperationException("the host failed");
+
+                ((Button)view.FindName("UseInSubstitutionButton")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                return seen;
+            }
+            finally
+            {
+                dispatcher.UnhandledException -= Net;
+            }
+        });
+
+        Assert.Equal("the host failed", Assert.IsType<InvalidOperationException>(caught).Message);
     }
 
     [Fact]

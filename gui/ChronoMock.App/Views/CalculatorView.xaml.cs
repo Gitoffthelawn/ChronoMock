@@ -31,7 +31,14 @@ public partial class CalculatorView : UserControl
 
     // Send the result to the substitution panel (6.3): the view model raises an event the host window
     // handles (it knows both modules), so the moment travels with its zone (rule 2). It waits for a result
-    // still being computed and sends that one, never the one on screen before it (R4-W4).
+    // still being computed and sends that one, never the one on screen before it (R4-W4), and a second
+    // press during that wait is ignored by the view model.
+    //
+    // No catch here, on purpose, in this handler and the one below. What either awaits returns its failures
+    // as values (an error result, a null to copy), and anything else that escapes an awaited async void
+    // handler is posted to the dispatcher, where App.OnDispatcherUnhandledException records and shows it
+    // once per signature and keeps the window alive. A catch here would be a second route for the same
+    // fault, or a place to lose it.
     private async void OnUseInSubstitutionClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel is { } vm)

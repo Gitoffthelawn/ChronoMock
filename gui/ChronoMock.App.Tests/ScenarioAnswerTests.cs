@@ -26,7 +26,9 @@ public class ScenarioAnswerTests
         var vm = NewSession(engine);
         var (a, b) = (vm.ScenarioPicker.Visible[0], vm.ScenarioPicker.Visible[1]);
 
-        vm.SelectedScenario = a; // arrowing down the list
+        // Arrowing down the list. Choosing A starts exactly this request (the selection's setter runs it),
+        // and it is started here so the test can wait for it to finish rather than guess how long that takes.
+        var choiceOfA = vm.ApplyScenarioAsync(a);
         var forA = await engine.QuestionAsync(0);
         vm.SelectedScenario = b;
         var forB = await engine.QuestionAsync(1);
@@ -34,7 +36,7 @@ public class ScenarioAnswerTests
         forB.Answer(CalcResults.Moment("2031-02-02T00:00:00"));
         await CalculatorAnswerTests.Until(() => vm.Moment.Canonical == "2031-02-02T00:00:00", "B's date");
         forA.Answer(CalcResults.Moment("2030-01-01T00:00:00"));
-        await Task.Delay(RoomForAWrongApply, TestContext.Current.CancellationToken);
+        await choiceOfA; // A's late answer has now been applied or refused - nothing of it is still on its way
 
         Assert.Equal("2031-02-02T00:00:00", vm.Moment.Canonical);
         Assert.Same(b, vm.SelectedScenario);
@@ -46,16 +48,16 @@ public class ScenarioAnswerTests
         var engine = new FakeCalcEngine(honoursCancellation: false);
         var vm = NewSession(engine);
 
-        vm.SelectedScenario = vm.ScenarioPicker.Visible[0];
+        var choice = vm.ApplyScenarioAsync(vm.ScenarioPicker.Visible[0]);
         var forScenario = await engine.QuestionAsync(0);
         vm.Moment.DateText = "2040-06-15";
         var typed = vm.Moment.Canonical;
 
         forScenario.Answer(CalcResults.Moment("2030-01-01T00:00:00"));
-        await Task.Delay(RoomForAWrongApply, TestContext.Current.CancellationToken);
+        await choice;
 
         Assert.Equal(typed, vm.Moment.Canonical);
-        Assert.True(vm.HasNoSelectedScenario);
+        Assert.False(vm.HasScenarioError); // refused for being old, which is no failure of the scenario's
     }
 
     [Fact]
@@ -102,6 +104,45 @@ public class ScenarioAnswerTests
             // any core is spawned - which is what proves Start got past the wait.
             Assert.Equal("2030-01-01T00:00:00", vm.Moment.Canonical);
             Assert.Equal("status.target_unsupported", vm.StatusKey);
+        }
+        finally
+        {
+            File.Delete(target);
+        }
+    }
+
+    [Fact]
+    public async Task Start_refuses_when_the_chosen_date_is_still_being_computed_after_the_wait()
+    {
+        // A launch held up long enough (a scanner on the engine, say) outlasts Start's wait. Going ahead then
+        // would start with the date from before the choice - the fault the wait is for - and say nothing.
+        var engine = new FakeCalcEngine();
+        var vm = new SessionViewModel(
+            new InMemorySessionHistoryStore(),
+            calcClient: engine,
+            presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"),
+            momentWait: TimeSpan.FromMilliseconds(200));
+        var target = NotAnExecutable();
+        try
+        {
+            vm.SetTarget(target);
+            var choice = vm.ApplyScenarioAsync(vm.ScenarioPicker.Visible[0]);
+            var forScenario = await engine.QuestionAsync(0);
+
+            await vm.StartAsync(); // gives up after the short wait
+
+            Assert.Equal(SessionStatusKind.Idle, vm.StatusKind); // nothing was started
+            Assert.False(vm.CanStart);
+            Assert.Equal("setup.moment_pending", vm.StartRefusalKey);
+            Assert.False(vm.HasContract); // and no promise of the old date beside the refusal
+
+            forScenario.Answer(CalcResults.Moment("2030-01-01T00:00:00"));
+            await choice;
+
+            // The date landed, so Start is back, with nothing left to say against it.
+            Assert.True(vm.CanStart);
+            Assert.False(vm.HasStartRefusal);
+            Assert.Equal("2030-01-01T00:00:00", vm.Moment.Canonical);
         }
         finally
         {

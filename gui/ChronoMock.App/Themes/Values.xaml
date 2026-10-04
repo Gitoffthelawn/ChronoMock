@@ -326,6 +326,11 @@
        keeps a long value (a full ISO datetime) from butting straight against the button when it wraps. -->
   <Thickness x:Key="CopyValueGap">0,0,8,0</Thickness>
 
+  <!-- The label column of the calculator's format rows, so every value starts at the same x. Wide enough for
+       its longest label in one line ("RFC 1123 (GMT)"), which the row keeps unwrapped so a value never moves
+       down a line. A GridLength because a column width is one (see GroupChannelWidth). -->
+  <GridLength x:Key="FormatLabelColumnWidth">104</GridLength>
+
   <sys:Double x:Key="TargetBoxMaxWidth">320</sys:Double>
 
   <!-- The scenario chips wrap inside this width. A cap is what MAKES them wrap: a WrapPanel measured with

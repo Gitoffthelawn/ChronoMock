@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Windows.Threading;
 using ChronoMock.App.Calc;
 using ChronoMock.Protocol;
 
@@ -33,6 +34,23 @@ public class CalculatorAnswerTests
         await vm.RequestUseInSubstitutionAsync();
 
         Assert.Equal("2026-01-31T00:00:00", sent);
+    }
+
+    [Fact]
+    public async Task A_second_Use_press_during_the_wait_sends_nothing_more()
+    {
+        // One press, one transfer: the second press would have filled the substitution panel and switched
+        // to it a second time.
+        var vm = await CalculatorWithOneStepAsync(new FakeCalcEngine(NewYearShifted));
+        var sent = new List<string>();
+        vm.UseInSubstitutionRequested += (moment, _) => sent.Add(moment);
+
+        vm.Steps[0].Amount = "30";
+        var first = vm.RequestUseInSubstitutionAsync();
+        var second = vm.RequestUseInSubstitutionAsync(); // pressed again before the result came
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(["2026-01-31T00:00:00"], sent);
     }
 
     [Fact]
@@ -74,25 +92,34 @@ public class CalculatorAnswerTests
     {
         // The engine ignores cancellation here, so the old answer DOES arrive, and last. What keeps it off
         // the screen is the generation it was asked for, not the luck of it never coming.
-        var engine = new FakeCalcEngine(honoursCancellation: false);
-        var vm = new CalculatorViewModel(engine);
-        var reveal = vm.EnsureComputedAsync();
-        (await engine.QuestionAsync(0)).Answer(CalcResults.Analysis("2008-04-08T00:00:00"));
-        (await engine.QuestionAsync(1)).Answer(CalcResults.Moment(BaseDay));
-        await reveal;
+        //
+        // On the UI thread, as the window runs it, so the late answer's handling is a dispatcher item: once
+        // the queue has drained past it, it has run - applied or refused - and the assertion is not a guess
+        // about how long that takes.
+        var (date, stale) = await WpfTestHost.RunAsync(async () =>
+        {
+            var engine = new FakeCalcEngine(honoursCancellation: false);
+            var vm = new CalculatorViewModel(engine);
+            var reveal = vm.EnsureComputedAsync();
+            (await engine.QuestionAsync(0)).Answer(CalcResults.Analysis("2008-04-08T00:00:00"));
+            (await engine.QuestionAsync(1)).Answer(CalcResults.Moment(BaseDay));
+            await reveal;
 
-        vm.AddStep();
-        var older = await engine.QuestionAsync(2); // +1 d, held
-        vm.Steps[0].Amount = "30";
-        var newer = await engine.QuestionAsync(3); // +30 d
+            vm.AddStep();
+            var older = await engine.QuestionAsync(2); // +1 d, held
+            vm.Steps[0].Amount = "30";
+            var newer = await engine.QuestionAsync(3); // +30 d
 
-        newer.Answer(NewYearShifted(newer.Args));
-        await Until(() => vm.ResultDate == "2026-01-31", "the newer answer to land");
-        older.Answer(NewYearShifted(older.Args));
-        await Task.Delay(300, TestContext.Current.CancellationToken); // room for the late answer to be applied, wrongly
+            newer.Answer(NewYearShifted(newer.Args));
+            await Until(() => vm.ResultDate == "2026-01-31", "the newer answer to land");
+            older.Answer(NewYearShifted(older.Args));
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+            return (vm.ResultDate, vm.IsResultStale);
+        });
 
-        Assert.Equal("2026-01-31", vm.ResultDate);
-        Assert.False(vm.IsResultStale);
+        Assert.Equal("2026-01-31", date);
+        Assert.False(stale);
     }
 
     [Fact]
