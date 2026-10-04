@@ -300,20 +300,31 @@ pub struct Injected {
 /// Then cascade auto-attach so the page's Web Workers are attached and shimmed too.
 ///
 /// One `deadline` for the whole sequence (R4-S10): each call used to have a deadline of its own, so a
-/// page in a busy renderer could hold the session for five of them. The calls stay one after another,
-/// each waiting for its reply, because the order is what keeps the page's first script off the real
-/// clock - the shim and the auto-attach are in before the page is let go. The release itself is not
-/// waited for: nothing follows it here, and its answer changes nothing.
+/// page in a busy renderer could hold the session for five of them.
+///
+/// The enable, the hook and the shim go out together, in that order, before any answer is awaited
+/// (R4-15b, 2026-10-04). A page whose document is already loading when it is reached - the first
+/// window of an app whose browser answers only once that window is open - runs its startup scripts
+/// as soon as its renderer is free, and the shim has to be in the renderer's queue by then. Measured
+/// on an Electron app: the renderer answered the enable, and the page's startup scripts ran before a
+/// shim sent only after that answer - the page read the real clock at start and showed it for the
+/// whole session. All three go to the page's own session, which takes its commands in the order
+/// they came. Only the hook and the shim are awaited - the enable's answer changes nothing. The
+/// auto-attach and the release stay one after another, after the shim: the auto-attach is the
+/// browser's and the release the renderer's, and the order of those two is not documented. The
+/// release itself is not waited for: nothing follows it here, and its answer changes nothing.
 pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<Injected> {
-    client.call_until("Page.enable", json!({}), Some(session_id), deadline).ok();
-    let added = client.call_until(
-        "Page.addScriptToEvaluateOnNewDocument",
-        json!({ "source": shim }),
-        Some(session_id),
-        deadline,
-    )?;
-    let script = script_identifier(&added);
-    if let Err(e) = evaluate_shim(client, session_id, shim, deadline) {
+    client.send("Page.enable", json!({}), Some(session_id))?;
+    let hook = client.send("Page.addScriptToEvaluateOnNewDocument", json!({ "source": shim }), Some(session_id))?;
+    let shimmed = send_shim(client, session_id, shim)?;
+    let script = match client.reply_until(hook, "Page.addScriptToEvaluateOnNewDocument", deadline) {
+        Ok(added) => script_identifier(&added),
+        Err(e) => {
+            take_back(client, session_id, None);
+            return Err(e);
+        }
+    };
+    if let Err(e) = shim_reply(client, shimmed, deadline) {
         take_back(client, session_id, script.as_deref());
         return Err(e);
     }
@@ -378,12 +389,18 @@ pub fn script_identifier(reply: &Value) -> Option<String> {
 /// Evaluate the shim in a session's global context and surface a thrown exception as an error (the
 /// shim must never fail silently - an uncovered context is an honest non-effect, not a hidden one).
 fn evaluate_shim(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<()> {
-    let r = client.call_until(
-        "Runtime.evaluate",
-        json!({ "expression": shim, "returnByValue": true }),
-        Some(session_id),
-        deadline,
-    )?;
+    let shimmed = send_shim(client, session_id, shim)?;
+    shim_reply(client, shimmed, deadline)
+}
+
+/// Send the shim to the context's current document, without waiting.
+fn send_shim(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result<u64> {
+    client.send("Runtime.evaluate", json!({ "expression": shim, "returnByValue": true }), Some(session_id))
+}
+
+/// Wait by `deadline` for the shim's reply, an error when it threw.
+fn shim_reply(client: &mut CdpClient, shimmed: u64, deadline: Instant) -> io::Result<()> {
+    let r = client.reply_until(shimmed, "Runtime.evaluate", deadline)?;
     if let Some(exc) = r.get("exceptionDetails") {
         return Err(shim_error(exc));
     }
@@ -566,11 +583,13 @@ mod tests {
     /// CodeRabbit on #85: an injection whose shim evaluate runs out of time takes itself back before
     /// the context is let go. The hook it added is removed, and the release is queued behind the
     /// evaluate that may still run late, in the same session - otherwise the page went on to the
-    /// session clock with nothing left to move or release it. A worker has no hook, only the release.
+    /// session clock with nothing left to move or release it. A worker has no hook, only the release,
+    /// and so has a page whose hook never answered - its shim went out with the hook (R4-15b).
     #[test]
     fn an_injection_that_runs_out_of_time_takes_its_hook_back_and_queues_the_release() {
         use std::time::Duration;
         let (port, browser) = super::super::ws::tests::fake_browser(|request| match request["method"].as_str()? {
+            "Page.addScriptToEvaluateOnNewDocument" if request["sessionId"] == "Q" => None,
             "Page.addScriptToEvaluateOnNewDocument" => Some(json!({ "identifier": "h1" })),
             // A busy context: no evaluate is ever answered.
             "Runtime.evaluate" => None,
@@ -580,6 +599,7 @@ mod tests {
         let mut client = CdpClient::from_ws(ws);
         let soon = || Instant::now() + Duration::from_millis(300);
         assert!(inject_page(&mut client, "P", "SHIM", soon()).is_err());
+        assert!(inject_page(&mut client, "Q", "SHIM", soon()).is_err());
         assert!(inject_worker(&mut client, "W", "SHIM", soon()).is_err());
         drop(client);
         let log = browser.join().unwrap();
@@ -603,6 +623,63 @@ mod tests {
                 "Runtime.evaluate release",
             ]
         );
+        assert_eq!(
+            steps("Q"),
+            [
+                "Page.enable ",
+                "Page.addScriptToEvaluateOnNewDocument ",
+                "Runtime.evaluate SHIM",
+                "Runtime.evaluate release",
+            ]
+        );
         assert_eq!(steps("W"), ["Runtime.evaluate SHIM", "Runtime.evaluate release"]);
+    }
+
+    /// R4-15b (2026-10-04): a page reached while its document is loading runs its startup scripts as
+    /// soon as its renderer is free, so the shim goes out with the enable and the hook, not after
+    /// their answers. This browser answers neither until the shim has come, like a renderer busy
+    /// with the document - a client that waited for either first would wait out its deadline - and
+    /// then answers the shim first: a reply that came while another was awaited is not lost.
+    #[test]
+    fn the_shim_goes_out_with_the_enable_and_the_hook_before_any_answer() {
+        use std::time::Duration;
+        let mut held = Vec::new();
+        let (port, browser) = super::super::ws::tests::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Page.enable" => {
+                    held.push((id, json!({})));
+                    Vec::new()
+                }
+                "Page.addScriptToEvaluateOnNewDocument" => {
+                    held.push((id, json!({ "identifier": "h1" })));
+                    Vec::new()
+                }
+                "Runtime.evaluate" => {
+                    let mut now = vec![(id, json!({ "result": {} }))];
+                    now.append(&mut held);
+                    now
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = super::super::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut client = CdpClient::from_ws(ws);
+        let injected = inject_page(&mut client, "P", "SHIM", Instant::now() + Duration::from_secs(2)).expect("the page took the shim");
+        assert_eq!(injected.script.as_deref(), Some("h1"), "the hook answered after the shim is still the page's hook");
+        assert!(injected.children);
+        drop(client);
+        let methods: Vec<String> =
+            browser.join().unwrap().iter().map(|r| r["method"].as_str().unwrap_or("").to_string()).collect();
+        assert_eq!(
+            methods,
+            [
+                "Page.enable",
+                "Page.addScriptToEvaluateOnNewDocument",
+                "Runtime.evaluate",
+                "Target.setAutoAttach",
+                "Runtime.runIfWaitingForDebugger",
+            ]
+        );
     }
 }

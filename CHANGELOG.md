@@ -148,6 +148,15 @@ Notable changes to Chrono Mock, newest first. The format follows
   they had taken, and the session took such an error for the application closing. A thread of its
   own now reads the connection with no timeout, and connecting, `/json/version` and the WebSocket
   upgrade have one deadline for the whole exchange instead of ten seconds for every read.
+- **A page that is already loading when a Chromium or Electron session reaches it now gets the
+  session clock ahead of its own scripts.** The browser can answer the session only once the
+  application's first window is loading, and that page is then reached halfway through, when
+  nothing can hold it any more. The session sent it three setup commands one after another, each
+  after the answer to the one before, and the page's startup scripts could run in between: a page
+  that reads the date once at start kept the real one for the whole session, and the verdict was
+  "undetermined". Measured on an Electron application, about one session in ten ended that way. The
+  three commands now go out together, and in every measured run the page reached halfway through
+  took the clock before its startup scripts ran.
 - **A speed change no longer moves a page's clock backwards.** In a Chromium or Electron session, a
   speed change took effect in the window's clock at once and in each page only when the change
   reached it, so the page's clock jumped at that moment by the delay times the change in speed -

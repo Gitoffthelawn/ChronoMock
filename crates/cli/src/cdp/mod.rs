@@ -370,6 +370,20 @@ impl CdpClient {
     /// five is bounded like one (R4-S10).
     pub fn call_until(&mut self, method: &str, params: Value, session_id: Option<&str>, deadline: Instant) -> io::Result<Value> {
         let id = self.send(method, params, session_id)?;
+        self.reply_until(id, method, deadline)
+    }
+
+    /// Wait by `deadline` for the reply to a command already sent with [`CdpClient::send`], queuing
+    /// anything else seen in between. For a few commands sent together to one session and then
+    /// answered in turn: a reply that came while an earlier one was awaited is taken from the queue.
+    pub fn reply_until(&mut self, id: u64, method: &str, deadline: Instant) -> io::Result<Value> {
+        let queued = self.queued.iter().position(|m| matches!(m, Msg::Response { id: rid, .. } if *rid == id));
+        if let Some(Msg::Response { result, error, .. }) = queued.and_then(|at| self.queued.remove(at)) {
+            return match error {
+                Some(e) => Err(target_error(method, &e)),
+                None => Ok(result),
+            };
+        }
         loop {
             // Checked every pass, not only when the connection goes quiet. A target that keeps pushing
             // events - a page logging in a loop, a worker chattering - would otherwise never let the

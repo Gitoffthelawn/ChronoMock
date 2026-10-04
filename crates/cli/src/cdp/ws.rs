@@ -522,6 +522,14 @@ pub(crate) mod tests {
     pub(crate) fn fake_browser(
         answer: impl Fn(&serde_json::Value) -> Option<serde_json::Value> + Send + 'static,
     ) -> (u16, std::thread::JoinHandle<Vec<serde_json::Value>>) {
+        fake_browser_holding(move |request| answer(request).map(|result| vec![(request["id"].clone(), result)]).unwrap_or_default())
+    }
+
+    /// The same, but `answer` may hold a reply back and give it with a later request: it returns the
+    /// replies to write now, each an id and a result - like a renderer busy until a later command.
+    pub(crate) fn fake_browser_holding(
+        mut answer: impl FnMut(&serde_json::Value) -> Vec<(serde_json::Value, serde_json::Value)> + Send + 'static,
+    ) -> (u16, std::thread::JoinHandle<Vec<serde_json::Value>>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let (port, server) = server(move |mut s| {
             s.write_all(UPGRADED).unwrap();
@@ -536,8 +544,8 @@ pub(crate) mod tests {
                     let Ok(request) = serde_json::from_slice::<serde_json::Value>(&payload) else {
                         continue;
                     };
-                    if let Some(result) = answer(&request) {
-                        let reply = serde_json::json!({ "id": request["id"], "result": result }).to_string();
+                    for (id, result) in answer(&request) {
+                        let reply = serde_json::json!({ "id": id, "result": result }).to_string();
                         s.write_all(&server_frame(reply.as_bytes(), true)).unwrap();
                     }
                     log.push(request);
