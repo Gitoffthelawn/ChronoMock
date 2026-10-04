@@ -342,9 +342,20 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         }
     });
 
+    /// <summary>
+    /// Clear what this build can read. A file it cannot read was never on the panel, so the reader never
+    /// chose to delete it: it is set aside, like an append sets it aside, rather than deleted unseen. The
+    /// panel can be out of step with the file - a newer build or another instance may have replaced it
+    /// since it was loaded.
+    /// </summary>
     public void Clear() => UnderGate(() =>
     {
-        if (File.Exists(FilePath))
+        _ = ReadFile(out var unreadable);
+        if (unreadable)
+        {
+            SetAsideUnreadableFile();
+        }
+        else if (File.Exists(FilePath))
         {
             File.Delete(FilePath);
         }

@@ -855,10 +855,14 @@ public sealed class SessionViewModel : ObservableObject
     /// return, the rule R4/17 gave every answer that arrives late.
     /// </para>
     /// </summary>
-    public async Task<bool> DropTargetAsync(string path)
+    public Task<bool> DropTargetAsync(string path) => DropTargetAsync(path, Task.Run(() => File.Exists(path)));
+
+    /// <summary>The same, with the answer to "does it exist" handed in - so a test decides the ORDER in which
+    /// two answers arrive, which a real check on two local files cannot promise.</summary>
+    internal async Task<bool> DropTargetAsync(string path, Task<bool> existence)
     {
         var mine = ++_drops;
-        var exists = await Task.Run(() => File.Exists(path)).ConfigureAwait(true);
+        var exists = await existence.ConfigureAwait(true);
         if (mine != _drops)
         {
             return true;
@@ -2228,6 +2232,9 @@ public sealed class SessionViewModel : ObservableObject
         }
 
         RequestStop(); // a no-op unless the session is running - one still connecting stops itself above
+        // A race with Task.Delay rather than WaitAsync: its TimeoutException would be one type too many for
+        // this class's coupling ceiling, and the delay outliving a run that won lives only until the process
+        // exits, which is what a closing window does next.
         return await Task.WhenAny(run, Task.Delay(limit)).ConfigureAwait(true) == run;
     }
 

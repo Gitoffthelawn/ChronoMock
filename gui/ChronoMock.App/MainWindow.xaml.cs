@@ -111,6 +111,13 @@ public partial class MainWindow : FluentWindow
         {
             await finishing;
         }
+        catch (Exception fault)
+        {
+            // The window closes regardless - it must - but the failure is written where every other fault
+            // goes. Left to escape, it became an unobserved task that the exiting process never reported.
+            // No dialog: the window it would sit on is closing, and the process exits right after.
+            FileDiagnosticsLog.ForApp().Save(FaultReports.Record(fault, "window close"));
+        }
         finally
         {
             _closeStage = CloseStage.Done;

@@ -63,26 +63,29 @@ public class TargetDropTests
         Assert.False(await drop);
     }
 
-    /// <summary>Two drops while a slow check runs are answered in the order they were MADE: the first one,
-    /// answered first, must not become the target once a second drop has replaced it.</summary>
+    /// <summary>
+    /// Two drops whose checks overlap are answered in the order they were MADE: the older one, whose answer
+    /// comes last, must not become the target once a newer drop has replaced it.
+    /// <para>
+    /// The answers are handed in, so their order is the test's. The first version raced two real checks and
+    /// went red on a CI runner: with no dispatcher to wait for, the older check finished and set the target
+    /// before the test had made the second drop at all - an order the window itself never produces.
+    /// </para>
+    /// </summary>
     [Fact]
     public async Task Only_the_newest_drop_decides_the_target()
     {
         var vm = new SessionViewModel();
-        var first = Path.Combine(Path.GetTempPath(), $"chrono-drop-{Guid.NewGuid():N}.exe");
-        File.WriteAllText(first, string.Empty);
-        try
-        {
-            var older = vm.DropTargetAsync(first);
-            var newer = vm.DropTargetAsync(OnAMissingShare());
+        var olderAnswer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var newerAnswer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            Assert.True(await older); // moot, so nothing to say about it
-            Assert.False(await newer); // the newest names no file, which the window says out loud
-            Assert.Null(vm.TargetPath);
-        }
-        finally
-        {
-            File.Delete(first);
-        }
+        var older = vm.DropTargetAsync(@"C:\apps\older.exe", olderAnswer.Task);
+        var newer = vm.DropTargetAsync(@"C:\apps\newer.exe", newerAnswer.Task);
+        newerAnswer.SetResult(false); // the newest names no file, which the window says out loud
+        Assert.False(await newer);
+        olderAnswer.SetResult(true); // the older one's file is there, and its answer comes last
+        Assert.True(await older); // moot, so nothing to say about it
+
+        Assert.Null(vm.TargetPath);
     }
 }

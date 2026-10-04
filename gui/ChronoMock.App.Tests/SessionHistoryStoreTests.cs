@@ -210,6 +210,25 @@ public sealed class SessionHistoryStoreTests : IDisposable
         Assert.Empty(store.Load());
     }
 
+    /// <summary>
+    /// Review of #87: clearing deleted whatever file was there, including one this build cannot read - a newer
+    /// build's history, never shown on this panel and so never chosen for deletion. It is set aside now, the
+    /// way an append sets it aside.
+    /// </summary>
+    [Fact]
+    public void Clear_sets_aside_a_history_this_build_cannot_read_rather_than_deleting_it()
+    {
+        Directory.CreateDirectory(_dir);
+        const string fromALaterBuild = "{\"schema\":2,\"stability\":\"unstable\",\"sessions\":[]}";
+        File.WriteAllText(Path.Combine(_dir, "sessions.json"), fromALaterBuild);
+
+        new FileSessionHistoryStore(_dir).Clear();
+
+        Assert.False(File.Exists(Path.Combine(_dir, "sessions.json")));
+        var setAside = Assert.Single(Directory.GetFiles(_dir, "sessions.json.unreadable-*"));
+        Assert.Equal(fromALaterBuild, File.ReadAllText(setAside));
+    }
+
     [Fact]
     public void Remove_deletes_the_matching_record()
     {

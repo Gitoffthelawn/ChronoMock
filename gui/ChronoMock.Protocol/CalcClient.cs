@@ -107,22 +107,27 @@ public sealed class CalcClient : ICalcEngine
             throw new CalcException($"cannot launch '{exe}': {reason} (calc.launch_failed)", -1);
         }
 
-        // Drain both pipes concurrently before awaiting exit, so a full pipe buffer cannot deadlock.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-
         // Bounded wait, and the child is killed on the way out either way. `using var process` disposes
         // the managed wrapper, NOT the running process - a cancelled call (every keystroke supersedes the
         // previous one) used to leave chrono.exe running, so a burst of typing left a pile of orphans.
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
         attempt.CancelAfter(CalcTimeout);
+
+        // Drain both pipes concurrently before awaiting exit, so a full pipe buffer cannot deadlock. On the
+        // attempt's token rather than the caller's alone, so the readers stop with the limit too.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(attempt.Token);
+        var stderrTask = process.StandardError.ReadToEndAsync(attempt.Token);
+        string stdout;
+        string stderr;
         try
         {
             await process.WaitForExitAsync(attempt.Token).ConfigureAwait(false);
+            stdout = await stdoutTask.ConfigureAwait(false);
+            stderr = await stderrTask.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            ChildProcesses.KillQuietly(process);
+            var stopped = ChildProcesses.KillQuietly(process);
             await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
             if (ct.IsCancellationRequested)
             {
@@ -131,14 +136,13 @@ public sealed class CalcClient : ICalcEngine
 
             // Carries a stable key in the engine's own shape, so the interface can translate this the way
             // it translates the engine's refusals. This library knows nothing about languages and must not
-            // - the key is the seam that keeps it that way (rule 15).
+            // - the key is the seam that keeps it that way (rule 15). The detail says whether the process is
+            // really gone: a kill the system refused leaves it running, and "stopped" would not be true.
+            var outcome = stopped ? "was stopped" : "could not be stopped";
             throw new CalcException(
-                $"calc did not finish within {CalcTimeout.TotalSeconds:0} s and was stopped (calc.timeout)",
+                $"calc did not finish within {CalcTimeout.TotalSeconds:0} s and {outcome} (calc.timeout)",
                 -1);
         }
-
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {

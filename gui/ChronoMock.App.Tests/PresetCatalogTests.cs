@@ -199,6 +199,13 @@ public class PresetCatalogTests
             acl.AddAccessRule(deny);
             locked.SetAccessControl(acl);
             Assert.Throws<UnauthorizedAccessException>(() => File.ReadAllText(locked.FullName));
+            // The order is the file system's, not a promise: NTFS lists names sorted, another volume may not.
+            // Checked rather than assumed, because with the readable file listed first this test would pass
+            // over the very fault it exists for.
+            Assert.Equal(
+                locked.FullName,
+                Directory.EnumerateFiles(dir, "*.json").First(),
+                StringComparer.OrdinalIgnoreCase);
 
             Assert.Equal("z-good", Assert.Single(PresetCatalog.Load(dir)).Id);
         }
