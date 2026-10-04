@@ -135,6 +135,47 @@ public static class LocalizationService
             return new ResourceDictionary();
         }
 
+        var dictionary = new ResourceDictionary();
+        foreach (var (key, value) in ReadEntries(culture))
+        {
+            dictionary[key] = value;
+        }
+
+        return dictionary;
+    }
+
+    /// <summary>
+    /// The default language's text for a key, or null when its file cannot be read or has no such key.
+    /// </summary>
+    /// <remarks>
+    /// Only one language is merged into the resources at a time, so this reads the default file on its
+    /// own, once, the first time it is asked. It is the fallback for a translated template that cannot be
+    /// filled - a translation naming a value that does not exist - which then shows the same sentence in
+    /// the default language rather than the broken template (TextFormat, R4-N46).
+    /// </remarks>
+    public static string? DefaultTemplate(string key) => DefaultStrings.Value?.GetValueOrDefault(key);
+
+    private static readonly Lazy<IReadOnlyDictionary<string, string>?> DefaultStrings = new(ReadDefaultStrings);
+
+    private static IReadOnlyDictionary<string, string>? ReadDefaultStrings()
+    {
+        try
+        {
+            return ReadEntries(DefaultCulture);
+        }
+        catch (Exception e) when (e is FileNotFoundException
+                                      or InvalidOperationException
+                                      or IOException
+                                      or UnauthorizedAccessException)
+        {
+            return null; // the fallback is missing too - the caller keeps the translation as written
+        }
+    }
+
+    /// <summary>Read one language's strings file into its entries, naming a missing, malformed or empty
+    /// file in the exception rather than surfacing it later as a missing key.</summary>
+    private static Dictionary<string, string> ReadEntries(string culture)
+    {
         var path = Path.Combine(FolderPath, $"{FilePrefix}{culture}{FileSuffix}");
         if (!File.Exists(path))
         {
@@ -158,13 +199,7 @@ public static class LocalizationService
             throw new InvalidOperationException($"strings file '{path}' is empty");
         }
 
-        var dictionary = new ResourceDictionary();
-        foreach (var (key, value) in entries)
-        {
-            dictionary[key] = value;
-        }
-
-        return dictionary;
+        return entries;
     }
 
     /// <summary>
@@ -194,7 +229,9 @@ public static class LocalizationService
     {
         if (dictionary[TitleKey] is string format)
         {
-            dictionary[TitleKey] = AppVersion.FormatTitle(format, AppVersion.Current);
+            // Through the key, so a translated title that cannot be filled falls back to the default
+            // language's title rather than showing its own placeholder (R4-N46).
+            dictionary[TitleKey] = TextFormat.Translate(_ => format, TitleKey, AppVersion.Current);
         }
     }
 

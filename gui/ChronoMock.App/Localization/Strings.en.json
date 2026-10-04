@@ -66,6 +66,8 @@
   // These point at the field rather than repeating its message: the field says WHAT is wrong, this says
   // where to go and that it is what is holding Start.
   "setup.needs_moment": "Fix the date and time above before starting.",
+  "setup.scenario_failed": "The chosen scenario gave no date - pick another one or type the date above before starting.",
+  "setup.moment_pending": "The date is still being computed - press Start again once it shows above.",
   // 🔴 The session phase's own keys, in its own namespace, for the same reason the setup phase has its:
   // every key shared with the shipped panel moves that panel's pixels, and these go with the old screen
   // when the product adopts the parts library.

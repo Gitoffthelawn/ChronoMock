@@ -1,5 +1,4 @@
 using ChronoMock.App.Calc;
-using ChronoMock.Protocol;
 
 namespace ChronoMock.App;
 
@@ -17,9 +16,7 @@ namespace ChronoMock.App;
 /// </summary>
 public sealed class RelativeMomentViewModel : ObservableObject
 {
-    private readonly MomentField _target;
-    private readonly CalcClient? _engine;
-    private readonly Func<int> _zoneBias;
+    private readonly MomentRequests _requests;
 
     // "+ 1 day" - the commonest relative start, and the same default a fresh calculator shift step opens
     // on, so the two surfaces do not disagree about what a new delta looks like.
@@ -28,16 +25,13 @@ public sealed class RelativeMomentViewModel : ObservableObject
     private UnitOption _unit = RelativeMoment.Units.First(u => u.Token == "d");
     private string _errorKey = string.Empty;
 
-    /// <param name="target">The moment field this line fills - the same one the At row edits.</param>
-    /// <param name="engine">The calculator engine, or null when it could not be resolved.</param>
-    /// <param name="zoneBias">The session zone's bias, read at the moment of use rather than captured as a
-    /// value, so changing the zone changes what "now plus one day" means with no wiring between the two.
-    /// </param>
-    public RelativeMomentViewModel(MomentField target, CalcClient? engine, Func<int> zoneBias)
+    /// <param name="requests">What fills the moment field the At row edits, shared with the scenario list,
+    /// so an answer from this line and one from a scenario can never overwrite whichever was asked later
+    /// (R4-S25). It also carries the session zone, read at the moment of use, so changing the zone changes
+    /// what "now plus one day" means with no wiring between the two.</param>
+    internal RelativeMomentViewModel(MomentRequests requests)
     {
-        _target = target ?? throw new ArgumentNullException(nameof(target));
-        _engine = engine;
-        _zoneBias = zoneBias ?? throw new ArgumentNullException(nameof(zoneBias));
+        _requests = requests ?? throw new ArgumentNullException(nameof(requests));
     }
 
     /// <summary>The signs offered - the same pair the calculator's shift step uses.</summary>
@@ -74,13 +68,14 @@ public sealed class RelativeMomentViewModel : ObservableObject
     internal IReadOnlyList<string>? CurrentArgs()
     {
         var token = RelativeMoment.ShiftToken(_sign, _amount, _unit.Token);
-        return token is null ? null : RelativeMoment.BuildArgs(token, _zoneBias());
+        return token is null ? null : RelativeMoment.BuildArgs(token, _requests.ZoneBias);
     }
 
     /// <summary>
     /// Fill the moment field with now, shifted by this delta. The arithmetic belongs to the engine (months,
     /// quarters and years fold onto the civil date), and the session zone travels with the question, because
-    /// "now plus one day" is a different civil date read from another zone (untouchable rule 2).
+    /// "now plus one day" is a different civil date read from another zone (untouchable rule 2). An answer
+    /// that comes after the field was typed in, or after a scenario was chosen, fills nothing (R4-S25).
     /// </summary>
     public async Task ApplyAsync()
     {
@@ -93,13 +88,9 @@ public sealed class RelativeMomentViewModel : ObservableObject
             return;
         }
 
-        var resolved = await RelativeMoment.ResolveAsync(_engine, args);
-        if (resolved.Iso is null)
+        if (await _requests.FillRelativeAsync(args) is { } errorKey)
         {
-            ErrorKey = resolved.ErrorKey!;
-            return;
+            ErrorKey = errorKey;
         }
-
-        _target.LoadCanonical(resolved.Iso);
     }
 }

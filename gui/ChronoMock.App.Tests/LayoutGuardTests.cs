@@ -353,6 +353,70 @@ public class LayoutGuardTests
         Assert.Contains(readings, r => r.TooFaint);
     }
 
+    /// <summary>
+    /// Text in a faded block is read as drawn, not as its brush says.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 THIS WAS A HOLE (R4/17). The ink came from the text's own Foreground, so white text in a block
+    /// faded to a quarter read about 16 to 1 while it was drawn near 2 to 1. Found on the first render of
+    /// the calculator's result while a newer one is computed, whose report claimed the faded lines at
+    /// their full-strength ratio.
+    ///
+    /// Reversal probe: drop the composite in ContrastReport.Measure (use the brush ink as it was) and this
+    /// reddens.
+    /// </remarks>
+    [Fact]
+    public void The_contrast_rule_reads_text_through_the_opacity_it_is_drawn_with()
+    {
+        var readings = WpfTestHost.InvokeSettled(() =>
+        {
+            var grid = new Grid { Background = new SolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1F)) };
+            var faded = new StackPanel { Opacity = 0.25 };
+            faded.Children.Add(new TextBlock
+            {
+                Text = "faded white",
+                FontSize = 14,
+                Foreground = new SolidColorBrush(Colors.White),
+            });
+            grid.Children.Add(faded);
+            LayoutProbe.Settle(grid, 200, 200);
+            return ContrastReport.Measure(grid, LayoutProbe.Walk(grid), 200, 200);
+        });
+
+        var line = Assert.Single(readings);
+        Assert.True(line.TooFaint, $"read at {line.Ratio} with ink {line.Ink}");
+    }
+
+    /// <summary>
+    /// A switched-off control is measured as drawn and reported, but not held to the floor.
+    /// </summary>
+    /// <remarks>
+    /// WCAG 2.1 (1.4.3) exempts an inactive control, and the shared templates fade a disabled one on purpose
+    /// - so once the reading saw opacity at all, every greyed-out button would have reddened the gate.
+    /// </remarks>
+    [Fact]
+    public void The_contrast_rule_reports_a_switched_off_control_without_failing_it()
+    {
+        var readings = WpfTestHost.InvokeSettled(() =>
+        {
+            var grid = new Grid { Background = new SolidColorBrush(Color.FromRgb(0x1B, 0x1B, 0x1F)) };
+            grid.Children.Add(new TextBlock
+            {
+                Text = "switched off",
+                FontSize = 14,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2E)),
+                IsEnabled = false,
+            });
+            LayoutProbe.Settle(grid, 200, 200);
+            return ContrastReport.Measure(grid, LayoutProbe.Walk(grid), 200, 200);
+        });
+
+        var line = Assert.Single(readings);
+        Assert.True(line.Inactive);
+        Assert.True(line.Ratio < line.Required); // measured as it is - just not failed for it
+        Assert.False(line.TooFaint);
+    }
+
     [Fact]
     public void The_type_scale_rule_fires_on_a_size_nobody_declared()
     {

@@ -62,9 +62,10 @@ internal static class RelativeMoment
 
     /// <summary>Ask the engine what "now, shifted" is. Returns the canonical ISO moment, or the translation
     /// key naming why there is none - never both, and never neither, so the field is either filled with a
-    /// real answer or left alone with a reason on screen (rule 6).</summary>
+    /// real answer or left alone with a reason on screen (rule 6). <paramref name="ct"/> cancels a question a
+    /// newer one replaced, as <see cref="OperationCanceledException"/>, never as a failure.</summary>
     internal static async Task<RelativeResolution> ResolveAsync(
-        CalcClient? engine, IReadOnlyList<string> args)
+        ICalcEngine? engine, IReadOnlyList<string> args, CancellationToken ct = default)
     {
         if (engine is null)
         {
@@ -73,7 +74,7 @@ internal static class RelativeMoment
 
         try
         {
-            var result = await engine.EvaluateAsync(args);
+            var result = await engine.EvaluateAsync(args, ct);
             var iso = result.Moment?.Iso;
             return iso is null
                 ? new RelativeResolution(null, "moment.relative_failed")

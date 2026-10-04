@@ -129,6 +129,43 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **"Use this date" and Copy in the calculator act on the result for what the builder shows, not
+  the one from before the last edit.** Pressing a button takes focus from the field being edited,
+  which commits the edit and only schedules its result, so a press straight after typing sent or
+  copied the result from before the edit. A press now waits for the result of the current input -
+  normally well under a second - and acts on that, or does nothing when that result is an error.
+  While a newer result is being computed the result column fades a little, so the old date is no
+  longer passed off as the answer to the new input. The format rows are updated in place, so
+  keyboard focus on a Copy button survives a new result.
+- **A failed calculation no longer leaves the previous result on screen.** The old date, formats and
+  metadata stayed visible under the error, and Copy copied them. A preset that is still waiting for a
+  parameter now shows no result either, with "Use this date" off until the parameter is filled. The
+  month-length note and the custom-format warning are cleared with the rest of the result.
+- **The scenario list and "Relative to now" no longer overwrite a later choice.** A scenario's date is
+  computed in the background, and an answer that came late filled the field anyway: arrowing from one
+  scenario to the next could leave the first one's date beside the second one's name, and a date typed
+  while a scenario was being computed was overwritten. An answer now fills the field only while it
+  answers the latest request, and nothing overwrites a date typed by hand. Start pressed straight
+  after choosing a scenario waits for its date instead of starting with the one before it, and when
+  that date takes longer than 15 seconds to come, Start does not go ahead with the old one: it says
+  the date is still being computed and is available again the moment the date arrives.
+- **Start refuses when the chosen scenario gave no date.** The field still held the date from before
+  the choice, so the session started with a date nobody chose. The reason is shown beside Start, the
+  line above it no longer promises that old date to the application, and typing a date or choosing
+  another scenario clears both.
+- **Changing the session zone recomputes the chosen scenario.** A scenario is computed in the session
+  zone, so after a zone change the field kept a wall clock that names a different instant in the new
+  zone - the 2038 boundary chosen in UTC and then read at UTC+01:00 was an hour short of it - while the
+  scenario still showed as chosen.
+- **"Analyze a pasted date" reads a pasted date at once and keeps the engine's explanation.** The field took
+  its text only when focus left it, so a pasted date was not analysed until something else was
+  clicked. It now follows typing after a short pause. A failed analysis also clears the readings of the
+  previous date and shows the engine's own sentence under the message, as the result column does.
+- **Copy is off for a format the date falls outside.** Such a row shows that it is out of range, and
+  Copy used to put that text on the clipboard as if it were the value.
+- **A broken translation file no longer breaks a calculation.** A template naming a value that does
+  not exist made the result fail halfway through being shown. Such a template now falls back to the
+  English text, with the values in it, and only shows as written when that cannot be filled either.
 - **A busy web page no longer stops a Chromium or Electron session.** Once a second the session
   asked every page and worker for its call counts and waited for each answer in turn, up to ten
   seconds each. A page busy with its own work - a long script, an `alert` - does not answer, so every

@@ -295,43 +295,54 @@
                    the builder's fields at a width of its own, which is the "randomly placed" the owner's
                    review named. A pasted date is short, but a field narrower than its column has no
                    reason to be, and the same edge is the point. -->
-              <TextBox x:Name="AnalyzeBox" Text="{Binding AnalyzeText, UpdateSourceTrigger=LostFocus}"
+              <!-- PropertyChanged, like the custom-format mask and for the same reason: this is the last field
+                   in its column, so a date pasted here and then looked at was never analysed - on LostFocus
+                   it reached the view model only once focus happened to move (R4-N44, the open decision of
+                   2026-09-08 closed by the owner on 2026-10-04). The 250 ms quiet period keeps typing at one
+                   analysis per pause, and a half-typed date shows its "cannot read" only after that pause. -->
+              <TextBox x:Name="AnalyzeBox" Text="{Binding AnalyzeText, UpdateSourceTrigger=PropertyChanged}"
                        Margin="{StaticResource StackGapSm}"
                        FontFamily="{StaticResource FontFamilyMono}" ToolTip="{DynamicResource tip.analyze}"
                        AutomationProperties.Name="{DynamicResource calc.reverse_header}" />
-              <TextBlock Text="{DynamicResource calc.analyze_ambiguous}" TextWrapping="Wrap" Margin="{StaticResource StackGapSm}"
-                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}"
-                         Visibility="{Binding AnalyzeAmbiguous, Converter={StaticResource BoolToVis}}" />
-              <TextBlock Text="{Binding AnalyzeError}" TextWrapping="Wrap" Margin="{StaticResource StackGapSm}"
-                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusFails}"
-                         Visibility="{Binding AnalyzeHasError, Converter={StaticResource BoolToVis}}" />
-              <controls:TextNamedItems ItemsSource="{Binding Readings}" Margin="{StaticResource StackGapSm}">
-                <controls:TextNamedItems.ItemTemplate>
-                  <DataTemplate>
-                    <StackPanel Margin="{StaticResource StackGapSm}">
-                      <TextBlock Text="{Binding ReadingLabelKey, Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
-                                 FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
-                      <StackPanel Orientation="Horizontal">
-                        <TextBlock VerticalAlignment="Center"
-                                   FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}"><Run Text="{Binding WeekdayKey, Converter={StaticResource KeyToText}, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Date, Mode=OneWay}" /></TextBlock>
-                        <controls:TextNamedItems ItemsSource="{Binding Significance}" VerticalAlignment="Center" Margin="{StaticResource SpaceSm}">
-                          <controls:TextNamedItems.ItemsPanel>
-                            <ItemsPanelTemplate>
-                              <StackPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                          </controls:TextNamedItems.ItemsPanel>
-                          <controls:TextNamedItems.ItemTemplate>
-                            <DataTemplate>
-                              <TextBlock Text="{Binding Converter={StaticResource KeyToText}}" Margin="{StaticResource SpaceXs}"
-                                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushAccent}" />
-                            </DataTemplate>
-                          </controls:TextNamedItems.ItemTemplate>
-                        </controls:TextNamedItems>
+              <!-- Everything below answers the text above, so it fades while that text is newer than the
+                   readings shown (PartAnswerBlock). The box itself stays outside: it is the input. -->
+              <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsAnalysisStale}">
+                <TextBlock Text="{DynamicResource calc.analyze_ambiguous}" TextWrapping="Wrap" Margin="{StaticResource StackGapSm}"
+                           FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}"
+                           Visibility="{Binding AnalyzeAmbiguous, Converter={StaticResource BoolToVis}}" />
+                <!-- The failure and, under it, the engine's own sentence - the same pair the result column
+                     shows, in the same two parts (R4-N44: the sentence used to be dropped here). -->
+                <TextBlock Style="{StaticResource PartFieldMessage}" Text="{Binding AnalyzeError}" Margin="{StaticResource StackGapSm}"
+                           Visibility="{Binding AnalyzeHasError, Converter={StaticResource BoolToVis}}" />
+                <TextBlock Style="{StaticResource PartCaption}" Text="{Binding AnalyzeErrorDetail}" Margin="{StaticResource StackGapSm}"
+                           Visibility="{Binding HasAnalyzeErrorDetail, Converter={StaticResource BoolToVis}}" />
+                <controls:TextNamedItems ItemsSource="{Binding Readings}" Margin="{StaticResource StackGapSm}">
+                  <controls:TextNamedItems.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="{StaticResource StackGapSm}">
+                        <TextBlock Style="{StaticResource PartCaption}" Text="{Binding ReadingLabelKey, Converter={StaticResource KeyToText}}" />
+                        <StackPanel Orientation="Horizontal">
+                          <TextBlock VerticalAlignment="Center"
+                                     FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}"><Run Text="{Binding WeekdayKey, Converter={StaticResource KeyToText}, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Date, Mode=OneWay}" /></TextBlock>
+                          <controls:TextNamedItems ItemsSource="{Binding Significance}" VerticalAlignment="Center" Margin="{StaticResource SpaceSm}">
+                            <controls:TextNamedItems.ItemsPanel>
+                              <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                              </ItemsPanelTemplate>
+                            </controls:TextNamedItems.ItemsPanel>
+                            <controls:TextNamedItems.ItemTemplate>
+                              <DataTemplate>
+                                <TextBlock Text="{Binding Converter={StaticResource KeyToText}}" Margin="{StaticResource SpaceXs}"
+                                           FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushAccent}" />
+                              </DataTemplate>
+                            </controls:TextNamedItems.ItemTemplate>
+                          </controls:TextNamedItems>
+                        </StackPanel>
                       </StackPanel>
-                    </StackPanel>
-                  </DataTemplate>
-                </controls:TextNamedItems.ItemTemplate>
-              </controls:TextNamedItems>
+                    </DataTemplate>
+                  </controls:TextNamedItems.ItemTemplate>
+                </controls:TextNamedItems>
+              </StackPanel>
             </StackPanel>
           </StackPanel>
         </ScrollViewer>
@@ -352,7 +363,7 @@
                     Visibility="{Binding HasActivePreset, Converter={StaticResource BoolToVis}}">
               <StackPanel>
                 <TextBlock Text="{Binding ActivePresetName}" TextWrapping="Wrap"
-                           FontSize="{StaticResource FontSizeBody}" FontWeight="SemiBold"
+                           FontSize="{StaticResource FontSizeBody}" FontWeight="{StaticResource FontWeightHeading}"
                            Foreground="{DynamicResource BrushAccent}" />
                 <TextBlock Text="{Binding ActivePresetExplains}" TextWrapping="Wrap"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
@@ -413,83 +424,87 @@
               </StackPanel>
             </Border>
 
-            <TextBlock Margin="{StaticResource SpaceXs}" TextWrapping="Wrap"
-                       FontSize="{StaticResource FontSizeTitle}" FontWeight="SemiBold"
-                       Foreground="{DynamicResource BrushTextPrimary}">
-              <Run Text="{Binding ResultWeekday, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultDate, Mode=OneWay}" />
-            </TextBlock>
-            <TextBlock Margin="{StaticResource SpaceXs}"
-                       FontFamily="{StaticResource FontFamilyMono}"
-                       FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}">
-              <Run Text="{Binding ResultTime, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultZone, Mode=OneWay}" />
-            </TextBlock>
+            <!-- The result answers the builder, so it fades while the builder says something newer than the
+                 result shown (PartAnswerBlock, R4-W4) - from an edit until its result lands. Two blocks
+                 rather than one, because the mask box sits between them and an input never fades. -->
+            <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}">
+              <TextBlock Margin="{StaticResource SpaceXs}" TextWrapping="Wrap"
+                         FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightHeading}"
+                         Foreground="{DynamicResource BrushTextPrimary}">
+                <Run Text="{Binding ResultWeekday, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultDate, Mode=OneWay}" />
+              </TextBlock>
+              <TextBlock Margin="{StaticResource SpaceXs}"
+                         FontFamily="{StaticResource FontFamilyMono}"
+                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}">
+                <Run Text="{Binding ResultTime, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultZone, Mode=OneWay}" />
+              </TextBlock>
 
-            <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Margin="{StaticResource SpaceXs}"
-                       FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusFails}"
-                       Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}" />
-            <!-- The engine's own sentence, UNDER the translated message: it names a step number or a year
-                 range that the key alone does not carry. Quieter than the line above, because it is the
-                 detail, not the answer. -->
-            <TextBlock Text="{Binding ErrorDetail}" TextWrapping="Wrap" Margin="{StaticResource SpaceXs}"
-                       FontSize="{StaticResource FontSizeCaption}"
-                       Foreground="{DynamicResource BrushTextSecondary}"
-                       Visibility="{Binding HasErrorDetail, Converter={StaticResource BoolToVis}}" />
+              <TextBlock Style="{StaticResource PartFieldMessage}" Text="{Binding Error}" Margin="{StaticResource SpaceXs}"
+                         Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}" />
+              <!-- The engine's own sentence, UNDER the translated message: it names a step number or a year
+                   range that the key alone does not carry. Quieter than the line above, because it is the
+                   detail, not the answer. -->
+              <TextBlock Style="{StaticResource PartCaption}" Text="{Binding ErrorDetail}" Margin="{StaticResource SpaceXs}"
+                         Visibility="{Binding HasErrorDetail, Converter={StaticResource BoolToVis}}" />
 
-            <Border Margin="{StaticResource SpaceMd}" Padding="{StaticResource SpaceMd}"
-                    Background="{DynamicResource BrushBgBase}" CornerRadius="{StaticResource RadiusSm}"
-                    Visibility="{Binding HasSignificance, Converter={StaticResource BoolToVis}}">
-              <StackPanel>
-                <TextBlock Text="{DynamicResource calc.what_tests}" FontSize="{StaticResource FontSizeCaption}"
-                           FontWeight="Bold" Foreground="{DynamicResource BrushAccent}" />
-                <controls:TextNamedItems ItemsSource="{Binding Significance}" Margin="{StaticResource SpaceXs}">
-                  <controls:TextNamedItems.ItemTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
-                                 FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}" />
-                    </DataTemplate>
-                  </controls:TextNamedItems.ItemTemplate>
-                </controls:TextNamedItems>
-                <!-- Which calendar judged the weekend and holiday marks above. It belongs HERE and not
-                     only beside the picker: the picker is in the middle column and this is read in the
-                     right one, so a line saying "weekend - not a business day" would otherwise be a
-                     calendar-dependent judgement with its calendar nowhere in sight. -->
-                <TextBlock Text="{Binding SignificanceCalendar}" TextWrapping="Wrap"
-                           Visibility="{Binding HasSignificanceCalendar, Converter={StaticResource BoolToVis}}"
-                           Margin="{StaticResource SpaceXs}"
-                           FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
-              </StackPanel>
-            </Border>
+              <Border Margin="{StaticResource SpaceMd}" Padding="{StaticResource SpaceMd}"
+                      Background="{DynamicResource BrushBgBase}" CornerRadius="{StaticResource RadiusSm}"
+                      Visibility="{Binding HasSignificance, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                  <TextBlock Text="{DynamicResource calc.what_tests}" FontSize="{StaticResource FontSizeCaption}"
+                             FontWeight="{StaticResource FontWeightHeading}" Foreground="{DynamicResource BrushAccent}" />
+                  <controls:TextNamedItems ItemsSource="{Binding Significance}" Margin="{StaticResource SpaceXs}">
+                    <controls:TextNamedItems.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
+                                   FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}" />
+                      </DataTemplate>
+                    </controls:TextNamedItems.ItemTemplate>
+                  </controls:TextNamedItems>
+                  <!-- Which calendar judged the weekend and holiday marks above. It belongs HERE and not
+                       only beside the picker: the picker is in the middle column and this is read in the
+                       right one, so a line saying "weekend - not a business day" would otherwise be a
+                       calendar-dependent judgement with its calendar nowhere in sight. -->
+                  <TextBlock Style="{StaticResource PartCaption}" Text="{Binding SignificanceCalendar}"
+                             Visibility="{Binding HasSignificanceCalendar, Converter={StaticResource BoolToVis}}"
+                             Margin="{StaticResource SpaceXs}" />
+                </StackPanel>
+              </Border>
 
-            <!-- Why a day in the result is not the day that was typed: a month-folding shift landed in
-                 a shorter month (31 January + 1 month = 28 February). Correct and documented, and
-                 otherwise invisible here, since this window shows no intermediate steps - the reader
-                 would see a changed day with no reason and could not tell the rule from a defect. -->
-            <TextBlock Text="{Binding ClampNotice}" TextWrapping="Wrap"
-                       Visibility="{Binding HasClampNotice, Converter={StaticResource BoolToVis}}"
-                       Margin="{StaticResource SpaceXs}"
-                       FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}" />
+              <!-- Why a day in the result is not the day that was typed: a month-folding shift landed in
+                   a shorter month (31 January + 1 month = 28 February). Correct and documented, and
+                   otherwise invisible here, since this window shows no intermediate steps - the reader
+                   would see a changed day with no reason and could not tell the rule from a defect. -->
+              <TextBlock Text="{Binding ClampNotice}" TextWrapping="Wrap"
+                         Visibility="{Binding HasClampNotice, Converter={StaticResource BoolToVis}}"
+                         Margin="{StaticResource SpaceXs}"
+                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}" />
 
-            <TextBlock Style="{StaticResource PartGroupHeading}" Text="{DynamicResource calc.all_formats}" Margin="{StaticResource SpaceXs}" />
-            <controls:TextNamedItems x:Name="FormatList" ItemsSource="{Binding Formats}" Margin="{StaticResource SpaceXs}">
-              <controls:TextNamedItems.ItemTemplate>
-                <DataTemplate>
-                  <Grid Margin="{StaticResource SpaceXs}">
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="104" />
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="{Binding Label}"
-                               FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
-                    <TextBlock Grid.Column="1" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
-                               Margin="{StaticResource CopyValueGap}" />
-                    <Button Grid.Column="2" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
-                            Tag="{Binding Value}" MinWidth="{StaticResource CopyButtonMinWidth}"
-                            FontSize="{StaticResource FontSizeCaption}" />
-                  </Grid>
-                </DataTemplate>
-              </controls:TextNamedItems.ItemTemplate>
-            </controls:TextNamedItems>
+              <TextBlock Style="{StaticResource PartGroupHeading}" Text="{DynamicResource calc.all_formats}" Margin="{StaticResource SpaceXs}" />
+              <!-- Copy carries the ROW, not its text: the press waits for a result being computed and then
+                   copies what the row holds in it (R4-W4), and a row whose format the moment falls outside
+                   shows a marker, not a value, so its Copy is off (R4-Z3). -->
+              <controls:TextNamedItems x:Name="FormatList" ItemsSource="{Binding Formats}" Margin="{StaticResource SpaceXs}">
+                <controls:TextNamedItems.ItemTemplate>
+                  <DataTemplate>
+                    <Grid Margin="{StaticResource SpaceXs}">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="{StaticResource FormatLabelColumnWidth}" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <!-- One line, as before: a label that wrapped would push its value down a row. -->
+                      <TextBlock Grid.Column="0" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}" />
+                      <TextBlock Grid.Column="1" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
+                                 Margin="{StaticResource CopyValueGap}" />
+                      <Button Grid.Column="2" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
+                              Tag="{Binding}" IsEnabled="{Binding HasValue}" MinWidth="{StaticResource CopyButtonMinWidth}"
+                              FontSize="{StaticResource FontSizeCaption}" />
+                    </Grid>
+                  </DataTemplate>
+                </controls:TextNamedItems.ItemTemplate>
+              </controls:TextNamedItems>
+            </StackPanel>
 
             <!-- Custom output format (7.3): a .NET/Java-token mask so the tester can hit the exact string the
                  tested app's field expects. Built from the civil date, so it renders even when epoch/FILETIME
@@ -508,29 +523,32 @@
                      app:PartState.Placeholder="{DynamicResource calc.custom_format_hint}"
                      ToolTip="{DynamicResource tip.custom_format}"
                      AutomationProperties.Name="{DynamicResource calc.custom_format}" />
-            <Grid Margin="{StaticResource SpaceXs}"
-                  Visibility="{Binding HasCustomFormat, Converter={StaticResource BoolToVis}}">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding CustomFormatResult}"
-                         Margin="{StaticResource CopyValueGap}" />
-              <Button Grid.Column="1" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
-                      Tag="{Binding CustomFormatResult}" MinWidth="{StaticResource CopyButtonMinWidth}"
-                      FontSize="{StaticResource FontSizeCaption}" />
-            </Grid>
-            <!-- Why the line above may not be what the reader expects: letter runs the engine does not
-                 know are passed through as text, so the result LOOKS formatted while carrying raw mask
-                 letters. Below the row, mirroring the base validation message, so it never shifts it. -->
-            <TextBlock Text="{Binding CustomFormatWarning}"
-                       Visibility="{Binding HasCustomFormatWarning, Converter={StaticResource BoolToVis}}"
-                       Margin="{StaticResource SpaceXs}" TextWrapping="Wrap"
-                       FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}" />
+            <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}">
+              <Grid Margin="{StaticResource SpaceXs}"
+                    Visibility="{Binding HasCustomFormat, Converter={StaticResource BoolToVis}}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding CustomFormatRow.Value}"
+                           Margin="{StaticResource CopyValueGap}" />
+                <Button Grid.Column="1" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
+                        Tag="{Binding CustomFormatRow}" IsEnabled="{Binding CustomFormatRow.HasValue}"
+                        MinWidth="{StaticResource CopyButtonMinWidth}"
+                        FontSize="{StaticResource FontSizeCaption}" />
+              </Grid>
+              <!-- Why the line above may not be what the reader expects: letter runs the engine does not
+                   know are passed through as text, so the result LOOKS formatted while carrying raw mask
+                   letters. Below the row, mirroring the base validation message, so it never shifts it. -->
+              <TextBlock Text="{Binding CustomFormatWarning}"
+                         Visibility="{Binding HasCustomFormatWarning, Converter={StaticResource BoolToVis}}"
+                         Margin="{StaticResource SpaceXs}" TextWrapping="Wrap"
+                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}" />
 
-            <TextBlock Style="{StaticResource PartGroupHeading}" Text="{DynamicResource calc.metadata}" Margin="{StaticResource SpaceXs}" />
-            <TextBlock Style="{StaticResource PartValue}" Text="{Binding MetadataLine}"
-                       Margin="{StaticResource SpaceXs}" />
+              <TextBlock Style="{StaticResource PartGroupHeading}" Text="{DynamicResource calc.metadata}" Margin="{StaticResource SpaceXs}" />
+              <TextBlock Style="{StaticResource PartValue}" Text="{Binding MetadataLine}"
+                         Margin="{StaticResource SpaceXs}" />
+            </StackPanel>
 
             <!-- The one action this module ends in, styled as the setup's Start is: it read as any other
                  button, and the owner's review of the shipped build could not find it (2026-09-21). -->

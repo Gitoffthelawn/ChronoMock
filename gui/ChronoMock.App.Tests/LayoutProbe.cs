@@ -204,10 +204,34 @@ internal static class LayoutProbe
             Text = TextOf(element),
             FontSize = element is TextBlock sized ? sized.FontSize : 0,
             Foreground = element is TextBlock { Foreground: SolidColorBrush ink } ? ink.Color : null,
+            Opacity = EffectiveOpacity(element),
             ParentIndex = step.ParentIndex,
             NaturalWidth = element is TextBlock measured ? NaturalWidthOf(measured) : 0,
             Wraps = element is TextBlock wrapping && wrapping.TextWrapping != TextWrapping.NoWrap,
         };
+
+    /// <summary>
+    /// The opacity the element is actually drawn with: its own times every ancestor's.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 A FADED ANCESTOR IS INVISIBLE TO THE BRUSH. The contrast reading took the ink from the text's own
+    /// Foreground, so a line inside a block faded to 0.6 - the calculator's result while a newer one is
+    /// computed - read 7.86 to 1 while it was drawn at well under half that. Measured on the first render
+    /// of that state (R4/17). Disabled controls fade the same way, through the shared templates.
+    /// </remarks>
+    private static double EffectiveOpacity(DependencyObject element)
+    {
+        var opacity = 1.0;
+        for (DependencyObject? node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is UIElement drawn)
+            {
+                opacity *= drawn.Opacity;
+            }
+        }
+
+        return opacity;
+    }
 
     /// <summary>
     /// How wide this text would be on one unconstrained line.

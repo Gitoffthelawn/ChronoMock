@@ -21,7 +21,7 @@ public sealed class CalcException : Exception
 /// the substitution core use (ADR-6), so the date logic lives in one place (chrono-core), never
 /// re-implemented in C#. Unlike <see cref="CoreClient"/> there is no session: each call is independent.
 /// </summary>
-public sealed class CalcClient
+public sealed class CalcClient : ICalcEngine
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 

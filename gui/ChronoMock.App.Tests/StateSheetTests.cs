@@ -1,5 +1,6 @@
 using System.Windows;
 using ChronoMock.App;
+using ChronoMock.App.Calc;
 using ChronoMock.App.Views;
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.Protocol;
@@ -112,6 +113,10 @@ public class StateSheetTests
             // only sentence the footer knew was "choose an application" - which had been done. Nothing in
             // the sheet had ever rendered a refusal other than the first one.
             total += RenderSetup("setup-bad-date", PhaseStates.SetupWithBadDate()).Count;
+
+            // R4-Z2: a chosen scenario that gave no date. Its sentence stands under the list and the footer
+            // refuses Start with the reason - before, Start went ahead with the date from before the choice.
+            total += RenderSetup("setup-scenario-failed", PhaseStates.SetupWithFailedScenario(), "ScenarioSection").Count;
 
             total += RenderSetup("setup-configured", PhaseStates.SetupConfigured()).Count;
 
@@ -357,6 +362,66 @@ public class StateSheetTests
             StateSheet.Write("calculator-startup", new CalculatorView()));
 
         Assert.NotEmpty(elements);
+    }
+
+    /// <summary>
+    /// The calculator WITH DATA, in the states its answers pass through (R4/17): a result, the same result
+    /// while a newer one is being computed, an engine refusal, and a refused analysis.
+    /// </summary>
+    /// <remarks>
+    /// The startup render above binds no view model at all, so until this no render of the calculator had
+    /// shown a single value. The engine is the test fake, answering at once from the question it is asked,
+    /// so the flow runs on the UI thread exactly as the window runs it and every render is of a state the
+    /// window reaches - the stale one included, which is rendered in the quarter of a second between an
+    /// edit and the run it schedules.
+    /// </remarks>
+    [Fact]
+    public async Task The_calculator_renders_in_the_states_its_answers_pass_through()
+    {
+        var written = await WpfTestHost.RunAsync(async () =>
+        {
+            var total = 0;
+            var vm = new CalculatorViewModel(new FakeCalcEngine(CalculatorSheetEngine.Answer), Path.Combine(TestPaths.RepoRoot(), "presets"));
+            var view = new CalculatorView { DataContext = vm };
+            await vm.EnsureComputedAsync();
+            vm.AddStep();
+            vm.Steps[0].Amount = "30";
+            vm.CustomFormatMask = "dddd, d MMMM yyyy";
+            await CalculatorAnswerTests.Until(() => vm.ResultDate == "2026-01-31" && !vm.IsResultStale, "the +30 d result");
+            total += Rendered("calculator-result", view);
+
+            // Edited, its result not in yet: the block fades rather than pass the old date off as the new one.
+            vm.Steps[0].Amount = "45";
+            Assert.True(vm.IsResultStale);
+            total += Rendered("calculator-result-stale", view);
+            Assert.True(vm.IsResultStale); // the render and its contrast reading are of the faded state
+            await CalculatorAnswerTests.Until(() => !vm.IsResultStale, "the +45 d result");
+
+            // A refusal leaves no trace of the result before it, and keeps the engine's sentence beneath.
+            vm.Steps[0].Amount = "999999999";
+            await CalculatorAnswerTests.Until(() => vm.HasError && !vm.IsResultStale, "the refusal");
+            total += Rendered("calculator-refused", view);
+
+            // The analysis strip refusing a pasted text: the failure, the engine's sentence, no old readings.
+            vm.AnalyzeText = "31/31/2031";
+            await CalculatorAnswerTests.Until(() => vm.AnalyzeHasError && !vm.IsAnalysisStale, "the analysis refusal");
+            total += Rendered("calculator-analysis-refused", view);
+            return total;
+        });
+
+        Assert.True(written > 0);
+    }
+
+    /// <summary>Render one state, write its contrast reading beside it, and count what it laid out, failing
+    /// on an empty render (rule 6). The faded state is a real colour change, so it is measured, not judged
+    /// by eye.</summary>
+    private static int Rendered(string name, FrameworkElement view)
+    {
+        var rendered = StateSheet.Write(name, view);
+        Assert.NotEmpty(rendered);
+        var readings = ContrastReport.Measure(view, LayoutProbe.Walk(view), LayoutProbe.WindowWidth, LayoutProbe.WindowHeight);
+        File.WriteAllText(Path.Combine(StateSheet.OutputDirectory, name + ".contrast.txt"), ContrastReport.Describe(readings));
+        return rendered.Count;
     }
 
     [Fact]
