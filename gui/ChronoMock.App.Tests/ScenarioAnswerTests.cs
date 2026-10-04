@@ -1,4 +1,6 @@
 using System.IO;
+using ChronoMock.App.Localization;
+using ChronoMock.App.Views;
 using ChronoMock.Protocol;
 
 namespace ChronoMock.App.Tests;
@@ -127,15 +129,43 @@ public class ScenarioAnswerTests
             Assert.Equal("setup.scenario_failed", vm.StartRefusalKey);
             Assert.True(vm.HasStartRefusal);
 
+            // Nor does the footer go on promising that old date beside the refusal (owner, 2026-10-04).
+            Assert.True(vm.HasMomentPreview); // the field still holds a moment...
+            Assert.False(vm.HasContract); // ...that is not offered as the session's
+
             vm.Moment.DateText = "2040-06-15";
 
             Assert.True(vm.CanStart);
             Assert.False(vm.HasStartRefusal);
+            Assert.True(vm.HasContract);
         }
         finally
         {
             File.Delete(target);
         }
+    }
+
+    [Fact]
+    public void The_footer_stops_promising_the_old_date_while_Start_refuses_it()
+    {
+        // Measured on the laid-out phase, not read off the binding (GUI rule 10): the contract's opening
+        // words are on screen for a configured form and absent beside the refusal.
+        var (configured, refused) = WpfTestHost.InvokeSettled(() =>
+        {
+            var promise = TranslationKeyConverter.Resolve("moment.preview_label");
+            return (Promises(PhaseStates.SetupConfigured(), promise), Promises(PhaseStates.SetupWithFailedScenario(), promise));
+        });
+
+        Assert.True(configured); // not vacuous: the line is found where it should be
+        Assert.False(refused);
+    }
+
+    /// <summary>Whether the laid-out setup phase shows a visible line reading <paramref name="text"/>.</summary>
+    private static bool Promises(SessionViewModel model, string text)
+    {
+        var view = new SetupPhaseView { DataContext = model };
+        LayoutProbe.Settle(view);
+        return LayoutProbe.Walk(view).Any(e => e.IsVisible && e.Text == text);
     }
 
     [Fact]

@@ -148,8 +148,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   answers the latest request, and nothing overwrites a date typed by hand. Start pressed straight
   after choosing a scenario waits for its date instead of starting with the one before it.
 - **Start refuses when the chosen scenario gave no date.** The field still held the date from before
-  the choice, so the session started with a date nobody chose. The reason is shown above Start, and
-  typing a date or choosing another scenario clears it.
+  the choice, so the session started with a date nobody chose. The reason is shown beside Start, the
+  line above it no longer promises that old date to the application, and typing a date or choosing
+  another scenario clears both.
 - **Changing the session zone recomputes the chosen scenario.** A scenario is computed in the session
   zone, so after a zone change the field kept a wall clock that names a different instant in the new
   zone - the 2038 boundary chosen in UTC and then read at UTC+01:00 was an hour short of it - while the

@@ -569,10 +569,23 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
     /// never changes height.</summary>
     public bool HasMomentPreview => MomentPreview.Length > 0;
 
+    /// <summary>
+    /// Whether the footer promises the application this moment: the field holds one, and it is not standing
+    /// in for a chosen scenario that gave no date (R4-Z2).
+    /// </summary>
+    /// <remarks>
+    /// The promise and the field are two things here. The moment section's own summary goes on describing
+    /// what the field holds, but the footer is the contract above Start, and beside a Start that refuses
+    /// it promised the date from before the choice - one the tester did not choose and Start would not use.
+    /// A bool rather than a type, at this class's coupling ceiling (gui/CodeMetricsConfig.txt).
+    /// </remarks>
+    public bool HasContract => HasMomentPreview && !HasScenarioError;
+
     private void RaiseMomentPreviewChanged()
     {
         RaisePropertyChanged(nameof(MomentPreview));
         RaisePropertyChanged(nameof(HasMomentPreview));
+        RaisePropertyChanged(nameof(HasContract));
         // The started-at fact falls back to the form until a session has captured its snapshot.
         RaisePropertyChanged(nameof(StartedAtPreview));
     }
@@ -1024,6 +1037,7 @@ public sealed class SessionViewModel : ObservableObject, IAsyncDisposable
             {
                 RaisePropertyChanged(nameof(HasScenarioError));
                 RaisePropertyChanged(nameof(CanStart));
+                RaisePropertyChanged(nameof(HasContract));
                 RaiseStartRefusalChanged();
             }
         }

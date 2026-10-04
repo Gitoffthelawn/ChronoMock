@@ -542,10 +542,13 @@
 
     Under it, and only when it applies, the reason Start is refusing. A disabled button whose reason lives
     in a tooltip is a result the reader cannot account for, and this screen is not allowed those.
+
+    No promise while a chosen scenario gave no date (HasContract, R4-Z2): the field still holds the date
+    from before the choice, and beside a Start that refuses it the line promised exactly that date.
   -->
   <Border Grid.Row="1" Style="{StaticResource PartFooter}">
     <StackPanel>
-      <WrapPanel Visibility="{Binding HasMomentPreview, Converter={StaticResource BoolToVis}}">
+      <WrapPanel Visibility="{Binding HasContract, Converter={StaticResource BoolToVis}}">
         <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                    VerticalAlignment="Center"
                    Text="{DynamicResource moment.preview_label}" />
