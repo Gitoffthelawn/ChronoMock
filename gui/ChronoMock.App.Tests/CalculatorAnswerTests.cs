@@ -177,10 +177,13 @@ public class CalculatorAnswerTests
 
         vm.SelectedBase = vm.BaseKinds.Single(b => b.Kind == BaseKind.Specific);
         vm.Base.DateText = "not a date";
-        await Until(() => vm.ResultDate == "-", "the result to clear");
+        // A test has no window thread, so the recompute clears the result on a thread of its own, and the
+        // date can read "-" before the lines written after it are (seen on CI, 2026-10-05). The wait is on
+        // the last line the clearing writes - a note that never clears runs the wait out, which fails the
+        // test as well (R4-N43).
+        await Until(() => vm.ResultDate == "-" && !vm.HasClampNotice, "the result and its clamp note to clear");
 
         // R4-N43: both stood under a result that was no longer there.
-        Assert.False(vm.HasClampNotice);
         Assert.Empty(vm.ClampNotice);
         Assert.False(vm.HasCustomFormatWarning);
         Assert.Empty(vm.CustomFormatWarning);
