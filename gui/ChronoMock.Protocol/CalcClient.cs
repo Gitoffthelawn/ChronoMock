@@ -42,17 +42,13 @@ public sealed class CalcClient : ICalcEngine
     /// matter), run from the repo root so its <c>calendars/</c> and <c>presets/</c> resolve. Named by its
     /// explicit target triple, like <see cref="CoreLocator.ForRepo"/> - <c>target/release/</c> is only
     /// written by a build without <c>--target</c>, so it goes stale silently (R2-X3).</summary>
-    public static CalcClient ForRepo(string repoRoot)
-        => new(
-            () => Path.Combine(repoRoot, "target", "x86_64-pc-windows-msvc", "release", "chrono.exe"),
-            repoRoot);
+    public static CalcClient ForRepo(string repoRoot) => new(() => EnginePaths.Repo(repoRoot), repoRoot);
 
     /// <summary>Portable-install factory (the shipped layout, Stage 5): the x64 core at
     /// <paramref name="baseDir"/>/core/x64/chrono.exe (calc is pure computation, bitness does not matter),
     /// run from <paramref name="baseDir"/> so its root-level <c>calendars/</c> and <c>presets/</c> resolve
     /// via the <c>./</c> lookup.</summary>
-    public static CalcClient ForPortable(string baseDir)
-        => new(() => Path.Combine(baseDir, "core", "x64", "chrono.exe"), baseDir);
+    public static CalcClient ForPortable(string baseDir) => new(() => EnginePaths.Portable(baseDir), baseDir);
 
     /// <summary>
     /// Evaluate a calc invocation. <paramref name="calcArgs"/> are the flags after <c>calc</c> (e.g.

@@ -350,7 +350,15 @@ pub(crate) fn presets_run(args: &[String]) -> i32 {
     let catalogue = match read_catalogue(&dir) {
         Ok(catalogue) => catalogue,
         Err(e) => {
-            diag!("chrono presets: {e} (presets.folder_missing)");
+            // Two keys, because the two need different hands: a folder that is not there is an install
+            // to repair, a folder that is there and refuses to be read is a permission to look at. One
+            // key for both told a reader with "Access is denied" that the folder was missing.
+            // Written out in full, so the translation guard (wire_keys.rs) sees both.
+            if dir.exists() {
+                diag!("chrono presets: {e} (presets.folder_unreadable)");
+            } else {
+                diag!("chrono presets: {e} (presets.folder_missing)");
+            }
             return 1;
         }
     };
@@ -424,29 +432,42 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../presets")
     }
 
-    /// The test catalogue gives exactly the answer recorded beside it. That file is also what the
-    /// window's tests read (`PresetCatalogueTests`), so this is one end of a bridge: a change to what the
-    /// engine hands on turns this red, and a change to what the window makes of it turns that red.
-    /// A deliberate change is recorded with `CHRONO_BLESS=1` and then read as a diff before it is kept.
-    #[test]
-    fn the_test_catalogue_gives_its_recorded_answer() {
-        let catalogue = read_catalogue(Path::new(TEST_CATALOGUE)).expect("the test catalogue is readable");
+    /// The answer for `dir`, compared with the one recorded in `recorded` - or recorded there when
+    /// `CHRONO_BLESS` is set, to be read as a diff before it is kept.
+    fn gives_its_recorded_answer(dir: &str, recorded: &str) {
+        let catalogue = read_catalogue(Path::new(dir)).expect("the catalogue is readable");
         let got = serde_json::to_string_pretty(&catalogue).expect("the catalogue serialises") + "\n";
         if std::env::var_os("CHRONO_BLESS").is_some() {
-            std::fs::write(RECORDED_ANSWER, &got).expect("the recorded answer is writable");
+            std::fs::write(recorded, &got).expect("the recorded answer is writable");
             return;
         }
-        let want = std::fs::read_to_string(RECORDED_ANSWER).expect("the recorded answer exists").replace("\r\n", "\n");
+        let want = std::fs::read_to_string(recorded).expect("the recorded answer exists").replace("\r\n", "\n");
         if got != want {
             let line = got.lines().zip(want.lines()).position(|(g, w)| g != w).unwrap_or(got.lines().count().min(want.lines().count()));
             panic!(
-                "the catalogue no longer gives its recorded answer, first difference at line {} - got {:?}, recorded {:?}. \
+                "{dir} no longer gives the answer recorded in {recorded}, first difference at line {} - got {:?}, recorded {:?}. \
                  Record a deliberate change with CHRONO_BLESS=1 and read the diff.",
                 line + 1,
                 got.lines().nth(line),
                 want.lines().nth(line)
             );
         }
+    }
+
+    /// The test catalogue gives exactly the answer recorded beside it. That file is also what the
+    /// window's tests read (`PresetCatalogueTests`), so this is one end of a bridge: a change to what the
+    /// engine hands on turns this red, and a change to what the window makes of it turns that red.
+    #[test]
+    fn the_test_catalogue_gives_its_recorded_answer() {
+        gives_its_recorded_answer(TEST_CATALOGUE, RECORDED_ANSWER);
+    }
+
+    /// The same for the SHIPPED catalogue, which the window's tests read as the real list - the panel's
+    /// scenarios, the calculator's presets. A shipped preset changed without this answer recorded again
+    /// turns this red, so the window's tests never run against a catalogue that no longer ships.
+    #[test]
+    fn the_shipped_catalogue_gives_its_recorded_answer() {
+        gives_its_recorded_answer("../../presets", "tests/data/presets-shipped.json");
     }
 
     /// Every shipped preset is listed and none is refused - a shipped file the catalogue leaves out is a

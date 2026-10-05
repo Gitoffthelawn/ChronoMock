@@ -171,29 +171,42 @@ public class CalculatorArgsTests
     }
 
     [Fact]
-    public void A_preset_with_a_malformed_moment_shows_needs_parameters_and_does_not_crash()
+    public void A_preset_the_window_cannot_represent_says_so_and_does_not_crash()
     {
-        // A preset file missing "moment" (PresetCatalog stores default(JsonElement)), or with an empty
-        // step / a shift without an amount, makes PresetUnpack throw InvalidOperationException /
-        // KeyNotFoundException / FormatException - not NotSupportedException. Those used to escape
-        // ApplyPreset's NotSupportedException-only catch and crash the dispatcher (M-8). Now they degrade
-        // to the honest "needs parameters" note. Non-parametric + malformed never reaches a recompute, so
-        // the calc client is not invoked.
+        // The catalogue lists only what the engine accepts, in canonical form, so this is a defence: a base
+        // kind the window does not know (an engine newer than its window) makes PresetUnpack throw. That used
+        // to crash the dispatcher (M-8), and then to show "fill in the parameters below" over a preset with
+        // no parameters to fill (R4-S22). Now it says the preset is in a shape this build cannot read (D3).
+        // Non-parametric and unrepresentable never reaches a recompute, so the calc client is not invoked.
         var vm = new CalculatorViewModel(new CalcClient(() => "chrono"));
         var preset = new PresetInfo(
-            "broken",
-            new Dictionary<string, string> { ["en"] = "Broken" },
+            "unknown-base",
+            new Dictionary<string, string> { ["en"] = "Unknown base" },
             new Dictionary<string, string>(),
             "calculator",
-            null,
+            Market: null,
+            Calendar: null,
             [],
-            default); // no moment -> default(JsonElement), GetProperty("base") throws InvalidOperationException
+            new CatalogueMoment(new CatalogueBase("tomorrow", null, null), []));
 
         var ex = Record.Exception(() => vm.ApplyPreset(preset));
 
         Assert.Null(ex); // no crash
         Assert.True(vm.HasActivePreset);
-        Assert.True(vm.ActiveNeedsParameters); // honest note instead of a wrong or absent date
+        Assert.Equal("scenario.unsupported", vm.ActiveNoteKey);
+    }
+
+    /// <summary>A market preset counts in the calendar the catalogue names for it - the one <c>calc --preset</c>
+    /// adopts too (D5), so the window and the command line agree on which days are business days.</summary>
+    [Fact]
+    public void A_market_preset_picks_the_calendar_the_catalogue_names()
+    {
+        var vm = new CalculatorViewModel(new FakeCalcEngine());
+        Assert.Null(vm.SelectedCalendar.Id);
+
+        vm.ApplyPreset(TestCatalogues.ShippedPreset("payment-due-business-days"));
+
+        Assert.Equal("us-banking", vm.SelectedCalendar.Id);
     }
 
     [Fact]
@@ -215,7 +228,7 @@ public class CalculatorArgsTests
         // while the zone picker went on saying "this machine" - the screen said two different zones.
         // Reversal probe: apply the preset's base kind directly and the picker stays on the host.
         var vm = new CalculatorViewModel(new CalcClient(() => "chrono"));
-        var boundary = PresetCatalog.Load(Path.Combine(TestPaths.RepoRoot(), "presets")).Single(p => p.Id == "year-2038");
+        var boundary = TestCatalogues.ShippedPreset("year-2038");
 
         vm.ApplyPreset(boundary);
 
@@ -231,10 +244,8 @@ public class CalculatorArgsTests
         // The UTC zone must not linger under the next scenario, where it would quietly make "Today" the
         // UTC day. A scenario defines its moment whole, zone included.
         var vm = new CalculatorViewModel(new CalcClient(() => "chrono"));
-        var catalogue = PresetCatalog.Load(Path.Combine(TestPaths.RepoRoot(), "presets"));
-
-        vm.ApplyPreset(catalogue.Single(p => p.Id == "year-2038"));
-        vm.ApplyPreset(catalogue.Single(p => p.Id == "month-end"));
+        vm.ApplyPreset(TestCatalogues.ShippedPreset("year-2038"));
+        vm.ApplyPreset(TestCatalogues.ShippedPreset("month-end"));
 
         Assert.True(vm.SelectedBaseZone.IsHost);
     }

@@ -4,6 +4,23 @@ using System.Text;
 
 namespace ChronoMock.Protocol;
 
+/// <summary>
+/// Where the engine the window asks one-shot questions lives: the x64 core (a calculation, the catalogue and
+/// the component register are pure computation, so bitness does not matter). One place for the path the
+/// calculator, the preset catalogue and the licence query all use.
+/// </summary>
+public static class EnginePaths
+{
+    /// <summary>A dev checkout: the build named by its explicit target triple, like
+    /// <see cref="CoreLocator.ForRepo"/> - <c>target/release/</c> is only written by a build without
+    /// <c>--target</c>, so it goes stale silently (R2-X3).</summary>
+    public static string Repo(string repoRoot)
+        => Path.Combine(repoRoot, "target", "x86_64-pc-windows-msvc", "release", "chrono.exe");
+
+    /// <summary>The shipped portable layout (Stage 5): the x64 core beside the window.</summary>
+    public static string Portable(string baseDir) => Path.Combine(baseDir, "core", "x64", "chrono.exe");
+}
+
 /// <summary>What one run of the engine left behind: its exit code and both streams, read to the end.</summary>
 internal sealed record EngineRun(int ExitCode, string Stdout, string Stderr);
 

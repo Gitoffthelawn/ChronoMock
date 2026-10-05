@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.App;
 
 namespace ChronoMock.App.Tests;
@@ -10,12 +9,11 @@ namespace ChronoMock.App.Tests;
 /// </summary>
 public class ScenarioPickerTests
 {
-    private static string PresetsDir() => Path.Combine(TestPaths.RepoRoot(), "presets");
-
-    private static ScenarioPicker Loaded()
+    /// <summary>A picker over the engine's answer for the shipped catalogue, read.</summary>
+    private static async Task<ScenarioPicker> Loaded()
     {
-        var picker = new ScenarioPicker();
-        picker.Load(PresetsDir());
+        var picker = TestCatalogues.Picker(TestCatalogues.Shipped());
+        await picker.LoadAsync();
         return picker;
     }
 
@@ -30,10 +28,28 @@ public class ScenarioPickerTests
         Assert.False(picker.HasNeedingParameters);
     }
 
+    /// <summary>R4/18: a catalogue the engine could not give is said in the list's place, and the header
+    /// counts nothing over it. Before, a list that could not be read was an empty list, and the section
+    /// hid itself without a word.</summary>
     [Fact]
-    public void An_empty_filter_shows_the_whole_catalogue()
+    public async Task A_catalogue_that_could_not_be_read_is_said_and_counts_nothing()
     {
-        var picker = Loaded();
+        var picker = new ScenarioPicker(new Calc.PresetLibrary(
+            FakePresetSource.Failing("cannot launch 'C:\\x\\chrono.exe': not found (calc.launch_failed)")));
+
+        await picker.LoadAsync();
+
+        Assert.True(picker.Status.HasFailed);
+        Assert.False(picker.Status.ShowsList);
+        Assert.False(picker.ShowsCount);
+        Assert.False(picker.HasScenarios);
+        Assert.Contains("chrono.exe", picker.Status.FailureReason + picker.Status.FailureDetail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_empty_filter_shows_the_whole_catalogue()
+    {
+        var picker = await Loaded();
         var all = picker.Visible.Count;
 
         Assert.True(all > 0, "the shipped presets folder has substitution scenarios in it");
@@ -45,9 +61,9 @@ public class ScenarioPickerTests
     }
 
     [Fact]
-    public void A_filter_keeps_only_the_names_that_contain_it()
+    public async Task A_filter_keeps_only_the_names_that_contain_it()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
         var wanted = picker.Visible[0].DisplayName;
 
         picker.Filter = wanted;
@@ -59,9 +75,9 @@ public class ScenarioPickerTests
     }
 
     [Fact]
-    public void Case_does_not_matter_to_the_person_typing()
+    public async Task Case_does_not_matter_to_the_person_typing()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
         var wanted = picker.Visible[0].DisplayName;
 
         picker.Filter = wanted.ToUpper(CultureInfo.CurrentCulture);
@@ -77,9 +93,9 @@ public class ScenarioPickerTests
     /// The two blank states mean opposite things and must not look alike to a caller.
     /// </summary>
     [Fact]
-    public void Nothing_matched_is_a_different_state_from_nothing_installed()
+    public async Task Nothing_matched_is_a_different_state_from_nothing_installed()
     {
-        var installed = Loaded();
+        var installed = await Loaded();
         installed.Filter = "no scenario is called this";
 
         Assert.Empty(installed.Visible);
@@ -99,9 +115,9 @@ public class ScenarioPickerTests
     /// those N had matched and were waiting for a value. Measured on the setup-no-matches render.
     /// </summary>
     [Fact]
-    public void The_parametric_note_goes_quiet_while_a_search_is_showing_nothing()
+    public async Task The_parametric_note_goes_quiet_while_a_search_is_showing_nothing()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
 
         Assert.True(picker.HasNeedingParameters, "the shipped presets folder has parametric ones in it");
         Assert.True(picker.ShowsParametricNote);
@@ -122,9 +138,9 @@ public class ScenarioPickerTests
     /// with the section shut.
     /// </summary>
     [Fact]
-    public void The_count_the_header_shows_is_the_whole_catalogue_and_not_the_filtered_view()
+    public async Task The_count_the_header_shows_is_the_whole_catalogue_and_not_the_filtered_view()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
         var all = picker.Available;
 
         Assert.Equal(picker.Visible.Count, all);
@@ -136,9 +152,9 @@ public class ScenarioPickerTests
     }
 
     [Fact]
-    public void Clearing_the_filter_brings_the_whole_catalogue_back()
+    public async Task Clearing_the_filter_brings_the_whole_catalogue_back()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
         var all = picker.Visible.Count;
 
         picker.Filter = "no scenario is called this";
@@ -151,9 +167,9 @@ public class ScenarioPickerTests
     /// A list that changed without saying so leaves the screen showing the previous one.
     /// </summary>
     [Fact]
-    public void Narrowing_the_list_announces_the_list_and_the_empty_state()
+    public async Task Narrowing_the_list_announces_the_list_and_the_empty_state()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
         var announced = new List<string>();
         picker.PropertyChanged += (_, e) => announced.Add(e.PropertyName ?? string.Empty);
 
@@ -166,13 +182,13 @@ public class ScenarioPickerTests
     }
 
     [Fact]
-    public void Loading_announces_everything_a_screen_binds_before_the_catalogue_is_there()
+    public async Task Loading_announces_everything_a_screen_binds_before_the_catalogue_is_there()
     {
-        var picker = new ScenarioPicker();
+        var picker = TestCatalogues.Picker(TestCatalogues.Shipped());
         var announced = new List<string>();
         picker.PropertyChanged += (_, e) => announced.Add(e.PropertyName ?? string.Empty);
 
-        picker.Load(PresetsDir());
+        await picker.LoadAsync();
 
         Assert.Contains(nameof(ScenarioPicker.Visible), announced);
         Assert.Contains(nameof(ScenarioPicker.HasScenarios), announced);
@@ -180,15 +196,16 @@ public class ScenarioPickerTests
         Assert.Contains(nameof(ScenarioPicker.NeedingParameters), announced);
         Assert.Contains(nameof(ScenarioPicker.HasNeedingParameters), announced);
         Assert.Contains(nameof(ScenarioPicker.ShowsParametricNote), announced);
+        Assert.Contains(nameof(ScenarioPicker.ShowsCount), announced);
     }
 
     /// <summary>
     /// A row that matched on text the reader cannot see is a result they cannot account for.
     /// </summary>
     [Fact]
-    public void The_filter_reads_the_name_and_never_the_explanation()
+    public async Task The_filter_reads_the_name_and_never_the_explanation()
     {
-        var picker = Loaded();
+        var picker = await Loaded();
         var withExplanation = picker.Visible.First(s => s.DisplayExplains.Length > 0);
         var wordFromTheExplanationAlone = withExplanation.DisplayExplains
             .Split(' ')

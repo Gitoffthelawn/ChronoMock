@@ -126,10 +126,9 @@ public class CalculatorDebounceTests
     {
         // The second undebounced path: a parameter input re-resolves the preset on every keystroke, and a
         // resolve that succeeds computes. Five keystrokes, one evaluation.
-        var presets = Path.Combine(TestPaths.RepoRoot(), "presets");
-        var (vm, launches) = NewViewModel(presets);
+        var (vm, launches) = NewViewModel(TestCatalogues.Library(TestCatalogues.Shipped()));
         await vm.EnsureComputedAsync();
-        vm.ApplyPreset(PresetCatalog.Load(presets).Single(p => p.Id == "payment-due-business-days"));
+        vm.ApplyPreset(TestCatalogues.ShippedPreset("payment-due-business-days"));
         var before = await QuietAsync(launches);
 
         var input = vm.ParamInputs.Single();
@@ -214,7 +213,7 @@ public class CalculatorDebounceTests
     /// was asked for. The path is resolved once per evaluation and the launch then fails immediately, so
     /// no process is ever created and the recompute ends in the CalcException the view model handles.
     /// </summary>
-    private static (CalculatorViewModel Vm, StrongBox<int> Launches) NewViewModel(string? presetsDir = null)
+    private static (CalculatorViewModel Vm, StrongBox<int> Launches) NewViewModel(PresetLibrary? presets = null)
     {
         var launches = new StrongBox<int>(0);
         var client = new CalcClient(() =>
@@ -222,7 +221,7 @@ public class CalculatorDebounceTests
             Interlocked.Increment(ref launches.Value);
             return Path.Combine(Path.GetTempPath(), "chrono-does-not-exist-here.exe");
         });
-        return (new CalculatorViewModel(client, presetsDir), launches);
+        return (new CalculatorViewModel(client, presets), launches);
     }
 
     /// <summary>

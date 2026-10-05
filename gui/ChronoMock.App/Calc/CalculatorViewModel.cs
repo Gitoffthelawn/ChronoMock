@@ -242,9 +242,10 @@ public sealed class PresetItemViewModel(PresetInfo info, string culture)
 }
 
 /// <summary>One preset-parameter input in the active-preset panel (7.3, docs/04 4.2). A <c>date</c>
-/// parameter is a text box (a bare date is midnight) - a <c>duration</c> is an amount plus a unit, seeded
-/// from the file default. The label is the parameter id as a technical name (like the format labels) - the
-/// preset schema carries no localized label. Editing raises PropertyChanged so the parent re-resolves.</summary>
+/// parameter is a text box (a bare date is midnight) - a <c>duration</c> is an amount plus a unit - a
+/// <c>variant</c> is a choice. Seeded from the default the catalogue gives, and left EMPTY where the preset
+/// gives none. The label is the parameter id as a technical name (like the format labels) - the preset
+/// schema carries no localized label. Editing raises PropertyChanged so the parent re-resolves.</summary>
 public sealed record VariantOption(string Token, string LabelKey)
 {
     public string DisplayText => TranslationKeyConverter.Resolve(LabelKey);
@@ -252,43 +253,63 @@ public sealed record VariantOption(string Token, string LabelKey)
 
 public sealed class ParamInputViewModel : ObservableObject
 {
-    /// <summary>The boundary-variant options (docs/05 3.6), shared by every variant parameter input.</summary>
-    public static IReadOnlyList<VariantOption> VariantChoices { get; } =
-    [
-        new VariantOption("day_before", "calc.variant.day_before"),
-        new VariantOption("on_day", "calc.variant.on_day"),
-        new VariantOption("day_after", "calc.variant.day_after"),
-    ];
-
-    // The shape of a complete ISO date, not its validity - the engine judges the calendar.
-    private static readonly System.Text.RegularExpressions.Regex DateShape =
-        new(@"^\d{4}-\d{2}-\d{2}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    // The shape of a complete date as the engine writes and reads one - a date, optionally with its time,
+    // the year written in full (four digits or more, a minus before the common era) - not its validity:
+    // the engine judges the calendar, and its sentence shows when a full shape is no date.
+    private static readonly System.Text.RegularExpressions.Regex DateShape = new(
+        @"^-?\d{4,}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private string _dateText = string.Empty;
-    private string _amount;
+    private string _amount = string.Empty;
     private UnitOption _unit;
-    private VariantOption _variant;
+    private VariantOption? _variant;
 
-    public ParamInputViewModel(PresetParameter param, IReadOnlyList<UnitOption> units)
+    public ParamInputViewModel(CatalogueParameter param, IReadOnlyList<UnitOption> units)
     {
+        ArgumentNullException.ThrowIfNull(param);
+        ArgumentNullException.ThrowIfNull(units);
         Param = param;
         Units = units;
         IsDate = param.Type == "date";
         IsDuration = param.Type == "duration";
         IsVariant = param.Type == "variant";
         Label = param.Id.Replace('_', ' ');
-        _amount = param.DefaultAmount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "1";
-        _unit = FindUnit(param.DefaultUnit, units);
-        _variant = VariantChoices.FirstOrDefault(v => v.Token == param.DefaultVariant) ?? VariantChoices[0];
+        VariantOptions = [.. (param.Choices ?? []).Select(c => new VariantOption(c.Label, $"calc.variant.{c.Label}"))];
+
+        // 🔴 NOTHING INVENTED (R4-S22). A duration without a default used to show "1 day" and compute with it,
+        // and a variant without one showed "day before" - values nobody entered, while the engine said the
+        // parameter had no value. Now an input the preset leaves empty IS empty, and the "fill in the
+        // parameters" note is true. The unit list still needs a selection, so it starts on days, harmless with
+        // no amount beside it.
+        var days = units.FirstOrDefault(u => u.Token == "d") ?? units[0];
+        _unit = days;
+        var given = param.Default;
+        if (IsDate && given.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            _dateText = ShownDate(given.GetString()!);
+        }
+        else if (IsDuration && given.ValueKind == System.Text.Json.JsonValueKind.Object)
+        {
+            _amount = given.GetProperty("amount").GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var token = given.GetProperty("unit").GetString();
+            _unit = units.FirstOrDefault(u => u.Token == token) ?? days;
+        }
+        else if (IsVariant && given.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var label = given.GetString();
+            _variant = VariantOptions.FirstOrDefault(v => v.Token == label);
+        }
     }
 
-    public PresetParameter Param { get; }
+    public CatalogueParameter Param { get; }
     public IReadOnlyList<UnitOption> Units { get; }
     public string Label { get; }
     public bool IsDate { get; }
     public bool IsDuration { get; }
     public bool IsVariant { get; }
-    public IReadOnlyList<VariantOption> VariantOptions => VariantChoices;
+
+    /// <summary>The choices of a variant parameter, as the catalogue lists them.</summary>
+    public IReadOnlyList<VariantOption> VariantOptions { get; }
 
     public string DateText
     {
@@ -324,24 +345,27 @@ public sealed class ParamInputViewModel : ObservableObject
 
     public string Amount { get => _amount; set => Set(ref _amount, value); }
     public UnitOption Unit { get => _unit; set => Set(ref _unit, value); }
-    public VariantOption Variant { get => _variant; set => Set(ref _variant, value); }
+    public VariantOption? Variant { get => _variant; set => Set(ref _variant, value); }
 
     /// <summary>The parameter id, used to build the value map.</summary>
     public string Id => Param.Id;
 
-    /// <summary>The resolved value, or null if it cannot be resolved honestly - a date not entered yet, or a
-    /// parameter type this build does not resolve. A variant always has a value (it defaults to a selected
-    /// option), as does a duration.</summary>
+    /// <summary>The resolved value, or null while it is not there yet: a date not entered, an amount left
+    /// blank, a variant not chosen, or a parameter type this build does not resolve (the catalogue lists only
+    /// the types the engine builds, so that last one is a defence).</summary>
     public ParamValue? ToValue()
     {
         if (IsVariant)
         {
-            return new VariantValue(_variant.Token);
+            return _variant is { } chosen ? new VariantValue(chosen.Token) : null;
         }
 
         if (IsDuration)
         {
-            return new DurationValue(_amount.Trim(), _unit.Token);
+            // Blank is "not entered yet", like a half-typed date. Anything else goes to the engine as typed,
+            // so its own reason shows for an amount it cannot read.
+            var amount = _amount.Trim();
+            return amount.Length > 0 ? new DurationValue(amount, _unit.Token) : null;
         }
 
         if (IsDate)
@@ -354,33 +378,13 @@ public sealed class ParamInputViewModel : ObservableObject
             return DateShape.IsMatch(text) ? new DateValue(text) : null;
         }
 
-        // A parameter type this build does not resolve, where the engine answers an honest "not built" and
-        // refuses (crates/cli parse_parameter). It used to fall into the duration branch and quietly feed
-        // the builder a value nobody entered, so the preset computed a date from an invented parameter
-        // (R2-S8). Null keeps it unfilled: the panel shows the "needs parameters" note instead (rule 6).
         return null;
     }
 
-    // The fallback unit is looked up by TOKEN, not by position (R2-N11): units[3] happened to be days, so
-    // reordering the dropdown would have silently changed which unit an unspecified parameter defaults to.
-    private static UnitOption FindUnit(string? unit, IReadOnlyList<UnitOption> units)
-    {
-        var days = units.FirstOrDefault(u => u.Token == "d") ?? units[0];
-        if (unit is null)
-        {
-            return days;
-        }
-
-        try
-        {
-            var token = PresetUnpack.NormalizeUnit(unit);
-            return units.FirstOrDefault(u => u.Token == token) ?? days;
-        }
-        catch (NotSupportedException)
-        {
-            return days;
-        }
-    }
+    // A default at midnight is shown as the bare date the field is made for - the same moment, the form a
+    // person types. One with a time keeps it: cutting it off would move the moment without a word.
+    private static string ShownDate(string iso)
+        => iso.EndsWith("T00:00:00", StringComparison.Ordinal) ? iso[..^"T00:00:00".Length] : iso;
 }
 
 /// <summary>One reading of an analyzed date (7.3): its interpretation label (a key), the resolved date with
@@ -392,6 +396,9 @@ public sealed class ReadingRow
         ReadingLabelKey = $"calc.reading.{reading.Reading}";
         var t = reading.Iso.IndexOf('T', StringComparison.Ordinal);
         Date = t >= 0 ? reading.Iso[..t] : reading.Iso;
+        // The time the engine says this reading has to show - always for an epoch reading, for an ISO one
+        // only when the pasted text wrote it. It used to be cut off with the rest of `iso` (R4-S23).
+        Time = reading.Time ?? string.Empty;
         // The engine sends the weekday name in English - map it to a key so the view renders it in the
         // current language (rule 15), rather than baking an English literal into a bound string. Kept as a
         // key (not resolved here) so this row stays language-neutral and unit-testable without a WPF host.
@@ -407,6 +414,9 @@ public sealed class ReadingRow
     /// <summary>The resolved date (no time), shown next to the weekday.</summary>
     public string Date { get; }
 
+    /// <summary>The time of day after the date, or empty when the reading has none to show.</summary>
+    public string Time { get; }
+
     public ObservableCollection<string> Significance { get; }
 }
 
@@ -419,13 +429,14 @@ public sealed class ReadingRow
 public sealed class CalculatorViewModel : ObservableObject
 {
     private readonly ICalcEngine _client;
-    private readonly string? _presetsDir;
+    private readonly PresetLibrary? _presets;
     private IReadOnlyList<PresetItemViewModel> _allPresets = [];
     private PresetItemViewModel? _selectedPreset;
     private string _presetFilter = string.Empty;
     private bool _unpacking;
     private bool _hasActivePreset;
-    private bool _activeNeedsParameters;
+    private string _activeNoteKey = string.Empty;
+    private string _analysisZoneLine = string.Empty;
     private bool _hasParamInputs;
     private string _activePresetName = string.Empty;
     private string _activePresetExplains = string.Empty;
@@ -489,10 +500,10 @@ public sealed class CalculatorViewModel : ObservableObject
     private readonly Debounce _recomputeDebounce = new(EditDebounce);
     private readonly Debounce _analyzeDebounce = new(EditDebounce);
 
-    public CalculatorViewModel(ICalcEngine client, string? presetsDir = null)
+    public CalculatorViewModel(ICalcEngine client, PresetLibrary? presets = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
-        _presetsDir = presetsDir;
+        _presets = presets;
         _result.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsResultStale));
         _analysis.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsAnalysisStale));
 
@@ -606,9 +617,26 @@ public sealed class CalculatorViewModel : ObservableObject
     /// clears the moment a field is edited by hand).</summary>
     public bool HasActivePreset { get => _hasActivePreset; private set => Set(ref _hasActivePreset, value); }
 
-    /// <summary>Whether the active preset needs parameters and so could not fill the builder (honest note,
-    /// its inputs are a later slice).</summary>
-    public bool ActiveNeedsParameters { get => _activeNeedsParameters; private set => Set(ref _activeNeedsParameters, value); }
+    /// <summary>
+    /// The note under the active preset's name, as a translation key, empty when the preset filled the
+    /// builder: <c>calc.preset_needs_params</c> while a parameter has no value, or <c>scenario.unsupported</c>
+    /// when the preset is in a shape this window cannot represent. The second is a defence - the catalogue
+    /// lists only what the engine accepts - and it used to read "fill in the parameters below" too, over a
+    /// preset with no parameters to fill (R4-S22, owner's decision D3).
+    /// </summary>
+    public string ActiveNoteKey
+    {
+        get => _activeNoteKey;
+        private set
+        {
+            if (Set(ref _activeNoteKey, value))
+            {
+                RaisePropertyChanged(nameof(HasActiveNote));
+            }
+        }
+    }
+
+    public bool HasActiveNote => _activeNoteKey.Length > 0;
 
     /// <summary>The active preset's localized name (data locale).</summary>
     public string ActivePresetName { get => _activePresetName; private set => Set(ref _activePresetName, value); }
@@ -714,6 +742,9 @@ public sealed class CalculatorViewModel : ObservableObject
             if (Set(ref _baseZone, value))
             {
                 TriggerRecompute();
+                // A pasted number is an instant, read in this same zone - the one `--zone` names for
+                // `--analyze` in the CLI too (R4-S23, owner's decision D4) - so its readings move with it.
+                TriggerAnalyze();
             }
         }
     }
@@ -956,15 +987,18 @@ public sealed class CalculatorViewModel : ObservableObject
         }
 
         _computedOnce = true;
-        LoadPresets();
+        _ = LoadPresetsAsync();
         _analysis.Ask();
         _ = AnalyzeAsync(); // the reverse-analysis strip is live from the start (its default example)
         _result.Ask();
         return RecomputeAsync();
     }
 
-    /// <summary>Build the calc arguments for reverse analysis (pure - unit-tested).</summary>
-    public static IReadOnlyList<string> BuildAnalyzeArgs(string text) => ["--analyze", text.Trim()];
+    /// <summary>Build the calc arguments for reverse analysis (pure - unit-tested). <paramref name="zoneOffset"/>
+    /// is the calculator's zone, null for this machine's, which sends no flag - the zone a pasted number is
+    /// read in, exactly as <c>--zone</c> does for <c>--analyze</c> in the CLI (R4-S23).</summary>
+    public static IReadOnlyList<string> BuildAnalyzeArgs(string text, string? zoneOffset = null)
+        => zoneOffset is null ? ["--analyze", text.Trim()] : ["--analyze", text.Trim(), "--zone", zoneOffset];
 
     private void TriggerAnalyze()
     {
@@ -985,7 +1019,7 @@ public sealed class CalculatorViewModel : ObservableObject
 
         try
         {
-            var result = await _client.EvaluateAsync(BuildAnalyzeArgs(_analyzeText), ticket.Token);
+            var result = await _client.EvaluateAsync(BuildAnalyzeArgs(_analyzeText, BaseZoneOffset), ticket.Token);
             if (_analysis.Accept(ticket))
             {
                 ApplyAnalysis(result);
@@ -1027,6 +1061,7 @@ public sealed class CalculatorViewModel : ObservableObject
         AnalyzeHasError = true;
         HasAnalysis = false;
         AnalyzeAmbiguous = false;
+        AnalysisZoneLine = string.Empty;
         Readings.Clear();
     }
 
@@ -1042,6 +1077,13 @@ public sealed class CalculatorViewModel : ObservableObject
         AnalyzeError = string.Empty;
         AnalyzeErrorDetail = string.Empty;
         AnalyzeAmbiguous = analysis.Ambiguous;
+        // An instant has a wall clock only in some zone, and the readings showed it with no zone near them
+        // (R4-S23) - the CLI prints the same line above them. A date written as fields has none to name.
+        AnalysisZoneLine = analysis.Readings.Any(r => r.Instant)
+            ? TextFormat.Translate(
+                Tr, "calc.analyze_zone",
+                ZoneLabel.FromBiasMinutes(analysis.ZoneBiasMin) + (_baseZone.IsHost ? $" ({Tr("zone.host")})" : string.Empty))
+            : string.Empty;
         Readings.Clear();
         foreach (var reading in analysis.Readings)
         {
@@ -1051,13 +1093,49 @@ public sealed class CalculatorViewModel : ObservableObject
         HasAnalysis = Readings.Count > 0;
     }
 
-    /// <summary>Load the shared preset catalogue once, keep the ones this module offers, and show them
-    /// (7.3). Reading happens on first reveal, never in the constructor, so building the window in a test
-    /// touches no files.</summary>
-    private void LoadPresets()
+    /// <summary>The line above instant readings naming the zone they are shown in, empty when there is none.</summary>
+    public string AnalysisZoneLine
     {
-        if (_presetsDir is null)
+        get => _analysisZoneLine;
+        private set
         {
+            if (Set(ref _analysisZoneLine, value))
+            {
+                RaisePropertyChanged(nameof(HasAnalysisZoneLine));
+            }
+        }
+    }
+
+    public bool HasAnalysisZoneLine => _analysisZoneLine.Length > 0;
+
+    /// <summary>Where the scenario list stands - reading, failed, empty, or read with files left out.</summary>
+    public CatalogueStatus PresetStatus { get; } = new();
+
+    /// <summary>Read the shared preset catalogue through the engine, keep the presets this module offers, and
+    /// show them (7.3). On first reveal, never in the constructor, so building the window in a test starts no
+    /// process. A failed read says why in the list's own place, and the next reveal does not retry - the
+    /// catalogue is the window's ("PresetLibrary"), which retries for whoever asks next.</summary>
+    private async Task LoadPresetsAsync()
+    {
+        if (_presets is null)
+        {
+            PresetStatus.Ready(0, []);
+            return;
+        }
+
+        PresetStatus.Reading();
+        PresetCatalogue catalogue;
+        try
+        {
+            catalogue = await _presets.ReadAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            return; // the window is closing
+        }
+        catch (CalcException e)
+        {
+            PresetStatus.Failed(e.Message, Tr);
             return;
         }
 
@@ -1066,11 +1144,13 @@ public sealed class CalculatorViewModel : ObservableObject
         // Ordered invariantly, like every other ordering and comparison in this project (R2-N19): a
         // current-culture sort reorders the same catalogue from one machine to the next, so a preset a
         // colleague describes as "third in the list" is not the same preset on the reader's box.
-        _allPresets = PresetCatalog.Load(_presetsDir)
+        _allPresets = catalogue.Presets
+            .Select(PresetInfo.From)
             .Where(p => p.ForCalculator)
             .Select(p => new PresetItemViewModel(p, culture))
             .OrderBy(p => p.DisplayName, StringComparer.InvariantCulture)
             .ToList();
+        PresetStatus.Ready(_allPresets.Count, catalogue.Refused);
         ApplyPresetFilter();
     }
 
@@ -1166,7 +1246,7 @@ public sealed class CalculatorViewModel : ObservableObject
         {
             if (input.ToValue() is not { } value)
             {
-                ShowWithoutResult(preset, culture);
+                ShowWithoutResult(preset, culture, "calc.preset_needs_params");
                 return;
             }
 
@@ -1175,7 +1255,7 @@ public sealed class CalculatorViewModel : ObservableObject
 
         try
         {
-            var unpacked = PresetUnpack.UnpackMoment(preset.Moment, values);
+            var unpacked = PresetUnpack.UnpackMoment(preset.Moment, preset.Parameters, values);
             _unpacking = true;
             try
             {
@@ -1203,7 +1283,7 @@ public sealed class CalculatorViewModel : ObservableObject
                     AddUnpackedStep(step);
                 }
 
-                ApplyMarketCalendar(preset.Market);
+                ApplyMarketCalendar(preset.Calendar);
             }
             finally
             {
@@ -1216,16 +1296,15 @@ public sealed class CalculatorViewModel : ObservableObject
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException
                                        or KeyNotFoundException or FormatException)
         {
-            // A shape the builder cannot represent, OR a malformed preset moment (missing base/steps, an
-            // empty step, a shift without an amount, a non-string where a token is expected) - PresetUnpack
-            // throws NotSupportedException for all of those now (R2-S8) - the other three stay as defence for
-            // the builder-filling half. Be honest with the "needs parameters" note rather than crash the
-            // dispatcher (M-8, rule 6).
-            ShowWithoutResult(preset, culture);
+            // A shape the builder cannot represent - after R4/18 a defence, since the catalogue lists only
+            // what the engine accepts and hands it in canonical form. PresetUnpack throws
+            // NotSupportedException for it, the other three stay as defence for the builder-filling half.
+            // Said as what it is, not as "fill in the parameters" (R4-S22, D3), and never a crash (M-8).
+            ShowWithoutResult(preset, culture, "scenario.unsupported");
             return;
         }
 
-        ShowActivePreset(preset, culture, needsParameters: false);
+        ShowActivePreset(preset, culture, noteKey: string.Empty);
 
         // Debounced for the same reason as the mask above: this runs again on every keystroke in a
         // parameter input, and each complete value used to spawn its own calc. The unpack itself is
@@ -1245,13 +1324,13 @@ public sealed class CalculatorViewModel : ObservableObject
     }
 
     /// <summary>Select the calendar a regional preset implies (docs/05 3.5), so a market preset computes
-    /// without the user first picking one. A preset with no market leaves the calendar as it is.</summary>
-    private void ApplyMarketCalendar(string? market)
+    /// without the user first picking one - the calendar the engine names for the preset's market, the same
+    /// one `calc --preset` and `run --preset` count in. A preset with no market leaves the calendar as it is.</summary>
+    private void ApplyMarketCalendar(string? calendarId)
     {
-        var id = PresetInfo.CalendarIdForMarket(market);
-        if (id is not null)
+        if (calendarId is not null)
         {
-            SelectedCalendar = Calendars.FirstOrDefault(c => c.Id == id) ?? _calendar;
+            SelectedCalendar = Calendars.FirstOrDefault(c => c.Id == calendarId) ?? _calendar;
         }
     }
 
@@ -1295,25 +1374,25 @@ public sealed class CalculatorViewModel : ObservableObject
     /// result under this preset.
     /// </para>
     /// </summary>
-    private void ShowWithoutResult(PresetInfo preset, string culture)
+    private void ShowWithoutResult(PresetInfo preset, string culture, string noteKey)
     {
-        ShowActivePreset(preset, culture, needsParameters: true);
+        ShowActivePreset(preset, culture, noteKey);
         _result.Settle();
         ClearResult();
     }
 
-    private void ShowActivePreset(PresetInfo preset, string culture, bool needsParameters)
+    private void ShowActivePreset(PresetInfo preset, string culture, string noteKey)
     {
         ActivePresetName = preset.LocalizedName(culture);
         ActivePresetExplains = preset.LocalizedExplains(culture);
-        ActiveNeedsParameters = needsParameters;
+        ActiveNoteKey = noteKey;
         HasActivePreset = true;
     }
 
     private void ClearActivePreset()
     {
         HasActivePreset = false;
-        ActiveNeedsParameters = false;
+        ActiveNoteKey = string.Empty;
         ActivePresetName = string.Empty;
         ActivePresetExplains = string.Empty;
         _activePreset = null;

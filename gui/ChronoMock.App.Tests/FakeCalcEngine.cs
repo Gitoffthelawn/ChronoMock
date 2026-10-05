@@ -94,6 +94,19 @@ internal sealed class FakeCalcEngine : ICalcEngine
         }
     }
 
+    /// <summary>Every question asked so far, oldest first - a copy, so the test can read it while the view
+    /// model keeps asking.</summary>
+    public IReadOnlyList<Question> Asked
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _questions];
+            }
+        }
+    }
+
     /// <summary>The newest question asked.</summary>
     public Question Last
     {
@@ -174,6 +187,14 @@ internal static class CalcResults
             Schema,
             null,
             new CalcAnalysis("pasted", isos.Length > 1, [.. isos.Select((iso, i) => new CalcReading(ReadingIds[i], iso, [], Metadata))]));
+
+    /// <summary>An analysis of a pasted number: one instant reading, with the time the engine shows for it,
+    /// read in the zone of <paramref name="zoneBias"/> (UTC = local + bias, minutes) - R4-S23.</summary>
+    public static CalcResult Instant(string iso, string time, int zoneBias)
+        => new(
+            Schema,
+            null,
+            new CalcAnalysis("pasted", false, [new CalcReading("epoch_seconds", iso, [], Metadata, Instant: true, Time: time)], zoneBias));
 
     /// <summary>An answer that carries neither a moment nor an analysis.</summary>
     public static CalcResult Nothing() => new(Schema, null, null);

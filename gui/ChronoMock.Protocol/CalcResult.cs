@@ -82,11 +82,21 @@ public sealed record CalcPreset(
 public sealed record CalcAnalysis(
     [property: JsonPropertyName("input")] string Input,
     [property: JsonPropertyName("ambiguous")] bool Ambiguous,
-    [property: JsonPropertyName("readings")] IReadOnlyList<CalcReading> Readings);
+    [property: JsonPropertyName("readings")] IReadOnlyList<CalcReading> Readings,
+    /// <summary>The zone the analysis was read in (UTC = local + bias, minutes). An instant reading's wall
+    /// clock is in this zone, so the window names it beside such a reading (R4-S23).</summary>
+    [property: JsonPropertyName("zone_bias_min")] int ZoneBiasMin = 0);
 
 /// <summary>One reading of an analyzed date: its interpretation, the resolved date, and its landmarks.</summary>
 public sealed record CalcReading(
     [property: JsonPropertyName("reading")] string Reading,
     [property: JsonPropertyName("iso")] string Iso,
     [property: JsonPropertyName("significance")] IReadOnlyList<string> Significance,
-    [property: JsonPropertyName("metadata")] CalcMetadata Metadata);
+    [property: JsonPropertyName("metadata")] CalcMetadata Metadata,
+    /// <summary>Whether this reading is an instant (seconds or milliseconds since 1970), whose wall clock
+    /// depends on the analysis zone.</summary>
+    [property: JsonPropertyName("instant")] bool Instant = false,
+    /// <summary>The time of day to show, <c>HH:MM:SS</c>, or null - decided by the engine by the rule its
+    /// text output follows, so the window does not guess it from <see cref="Iso"/>, where every date reads
+    /// as midnight (R4-S23).</summary>
+    [property: JsonPropertyName("time")] string? Time = null);

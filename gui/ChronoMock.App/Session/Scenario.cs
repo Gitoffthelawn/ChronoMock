@@ -14,16 +14,16 @@ public sealed record ScenarioCatalogue(IReadOnlyList<ScenarioItem> Ready, int Ne
 }
 
 /// <summary>
-/// Reads the substitution-side view of the shared preset catalogue (docs/04 4.2). The panel offers the
-/// presets it can turn into a date with one click - <c>substitution</c> or <c>both</c>, no parameters -
-/// and counts the parametric ones so the panel can say they exist rather than hide them (rule 6).
+/// The substitution-side view of the shared preset catalogue (docs/04 4.2), as the engine read it. The panel
+/// offers the presets it can turn into a date with one click - <c>substitution</c> or <c>both</c>, no
+/// parameters - and counts the parametric ones so the panel can say they exist rather than hide them (rule 6).
 /// </summary>
 public static class ScenarioCatalog
 {
-    public static ScenarioCatalogue Load(string presetsDir)
+    public static ScenarioCatalogue From(IEnumerable<PresetInfo> presets)
     {
         var culture = LocalizationService.CurrentCulture;
-        var forSubstitution = PresetCatalog.Load(presetsDir).Where(p => p.ForSubstitution).ToList();
+        var forSubstitution = presets.Where(p => p.ForSubstitution).ToList();
 
         // Ordered invariantly, like every other ordering in this project (R2-N19): a current-culture sort
         // reorders the same catalogue between machines, so "the third scenario" would not be the same one.

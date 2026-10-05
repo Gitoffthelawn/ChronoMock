@@ -65,12 +65,10 @@ public sealed class LicenseClient
     }
 
     /// <summary>Dev-checkout factory: the x64 core build, matching <see cref="CalcClient.ForRepo"/>.</summary>
-    public static LicenseClient ForRepo(string repoRoot)
-        => new(() => Path.Combine(repoRoot, "target", "x86_64-pc-windows-msvc", "release", "chrono.exe"));
+    public static LicenseClient ForRepo(string repoRoot) => new(() => EnginePaths.Repo(repoRoot));
 
     /// <summary>Portable-install factory: the x64 core beside the window, matching <see cref="CalcClient.ForPortable"/>.</summary>
-    public static LicenseClient ForPortable(string baseDir)
-        => new(() => Path.Combine(baseDir, "core", "x64", "chrono.exe"));
+    public static LicenseClient ForPortable(string baseDir) => new(() => EnginePaths.Portable(baseDir));
 
     /// <summary>
     /// The component register as the core prints it, or <c>null</c> when the core could not be asked.

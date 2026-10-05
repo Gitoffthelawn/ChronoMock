@@ -48,10 +48,9 @@ public sealed class SessionViewModel : ObservableObject
     private bool _idle = true;
     private string? _targetPath;
     private RecentTarget? _selectedTarget;
-    private readonly string? _presetsDir;
     private readonly MomentRequests _moments;
     private bool _momentPending; // Start gave up waiting for the newest date - refused until it lands
-    private readonly ScenarioPicker _scenarios = new();
+    private readonly ScenarioPicker _scenarios;
     private ScenarioItem? _selectedScenario;
     private string _scenarioExplains = string.Empty;
     private string _scenarioErrorKey = string.Empty;
@@ -142,13 +141,13 @@ public sealed class SessionViewModel : ObservableObject
         ISessionHistoryStore history,
         IDiagnosticsLog? diagnosticsLog = null,
         ICalcEngine? calcClient = null,
-        string? presetsDir = null,
+        ScenarioPicker? scenarios = null,
         bool canReachElevated = false,
         TimeSpan? momentWait = null)
     {
         _store = history;
         _diagnosticsLog = diagnosticsLog ?? new NoOpDiagnosticsLog();
-        _presetsDir = presetsDir;
+        _scenarios = scenarios ?? new ScenarioPicker();
         _canReachElevated = canReachElevated;
 
         // 🔴 UTC, changed 2026-09-12, and UTC+02:00 before that. The old default was one market's summer
@@ -222,14 +221,6 @@ public sealed class SessionViewModel : ObservableObject
         }
 
         SeedRecentTargets();
-
-        // Reading the catalogue is file I/O only - no process is spawned here. Evaluating a scenario does
-        // spawn the engine, and that happens on a click, never in a constructor (a window built in a test
-        // must start nothing).
-        if (_presetsDir is not null)
-        {
-            _scenarios.Load(_presetsDir);
-        }
 
         // The panel's actions, lifted off this view model so it holds state and they hold behaviour (GUI
         // rule 15). Built last, once Relative and the scenario picker exist for the commands to reach. The
@@ -1037,6 +1028,14 @@ public sealed class SessionViewModel : ObservableObject
     /// </remarks>
     public ScenarioPicker ScenarioPicker => _scenarios;
 
+    /// <summary>
+    /// Read the scenario list, once the window is shown. Never from the constructor: reading the catalogue
+    /// runs the engine now (R4/18), and a window built in a test must start nothing. Without a catalogue (a
+    /// test that gives none) the list is read as empty.
+    /// </summary>
+    public Task EnsureScenariosAsync()
+        => _scenarios.LoadAsync();
+
     /// <summary>The chosen scenario. Setting it computes its moment and fills the date - and nothing else:
     /// it never starts a session (untouchable rule 7) and never touches the time mode, which is a separate
     /// axis the tester set deliberately.</summary>
@@ -1048,7 +1047,7 @@ public sealed class SessionViewModel : ObservableObject
             if (Set(ref _selectedScenario, value))
             {
                 RaisePropertyChanged(nameof(HasSelectedScenario));
-                RaisePropertyChanged(nameof(HasNoSelectedScenario));
+                _scenarios.SetChosen(value is not null);
                 ScenarioExplains = value?.DisplayExplains ?? string.Empty;
                 if (value is not null)
                 {
@@ -1058,18 +1057,11 @@ public sealed class SessionViewModel : ObservableObject
         }
     }
 
+    /// <summary>Whether a scenario is chosen. The other half - the number on offer, shown only while none is
+    /// and the list is read - is <see cref="ScenarioPicker.ShowsCount"/>, told by
+    /// <see cref="ScenarioPicker.SetChosen"/>, so this class carries no type for the list's state (its
+    /// coupling ceiling, gui/CodeMetricsConfig.txt).</summary>
     public bool HasSelectedScenario => _selectedScenario is not null;
-
-    /// <summary>
-    /// The other half of <see cref="HasSelectedScenario"/>, for a slot that must never be empty.
-    /// </summary>
-    /// <remarks>
-    /// The folded catalogue's header shows the chosen scenario OR the number on offer, and those two
-    /// TextBlocks share one cell. WPF has no negating converter here and a second one would be a second
-    /// thing to keep in step, so the state says both halves out loud. A bool costs nothing at this
-    /// class's coupling ceiling (gui/CodeMetricsConfig.txt) - a type would have.
-    /// </remarks>
-    public bool HasNoSelectedScenario => _selectedScenario is null;
 
     /// <summary>
     /// Choose the first scenario the filter left standing - the keyboard equivalent of clicking the top row,
@@ -1155,7 +1147,7 @@ public sealed class SessionViewModel : ObservableObject
         ScenarioErrorKey = string.Empty;
         RaisePropertyChanged(nameof(SelectedScenario));
         RaisePropertyChanged(nameof(HasSelectedScenario));
-        RaisePropertyChanged(nameof(HasNoSelectedScenario));
+        _scenarios.SetChosen(false);
     }
 
     /// <summary>

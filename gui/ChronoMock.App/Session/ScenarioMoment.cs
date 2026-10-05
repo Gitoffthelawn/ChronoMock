@@ -36,7 +36,7 @@ internal static class ScenarioMoment
     internal static IReadOnlyList<string> BuildArgs(ScenarioItem scenario, int zoneBiasMinutes)
     {
         ArgumentNullException.ThrowIfNull(scenario);
-        var unpacked = PresetUnpack.UnpackMoment(scenario.Info.Moment);
+        var unpacked = PresetUnpack.UnpackMoment(scenario.Info.Moment, scenario.Info.Parameters);
         var sessionZone = ZoneLabel.OffsetFromBiasMinutes(zoneBiasMinutes);
         var steps = unpacked.Steps.Any(s => s.Kind == StepKind.Zone)
             ? unpacked.Steps.Append(new UnpackedStep(StepKind.Zone, ZoneOffset: sessionZone))
@@ -47,7 +47,7 @@ internal static class ScenarioMoment
                 unpacked.Base,
                 unpacked.BaseText,
                 steps.Select(UnpackedMoment.StepArgs),
-                PresetInfo.CalendarIdForMarket(scenario.Info.Market),
+                scenario.Info.Calendar,
                 customFormatMask: null,
                 zoneOffset: sessionZone),
         ];

@@ -55,6 +55,13 @@ internal static class AppPaths
     /// <summary>The shared preset catalogue directory.</summary>
     public static string PresetsDir => Path.Combine(DataRoot, "presets");
 
+    /// <summary>The preset catalogue as the engine reads it (<c>chrono presets</c>, R4/18): the same core the
+    /// calculator asks, pointed at <see cref="PresetsDir"/> explicitly so the answer does not depend on where
+    /// the engine runs from.</summary>
+    public static PresetCatalogueClient PresetCatalogue => new(
+        () => IsPortable ? EnginePaths.Portable(AppContext.BaseDirectory) : EnginePaths.Repo(DevPaths.RepoRoot()),
+        PresetsDir);
+
     /// <summary>Client for the component register the About window shows, from the same core as the rest.</summary>
     public static LicenseClient LicenceClient => IsPortable
         ? LicenseClient.ForPortable(AppContext.BaseDirectory)
