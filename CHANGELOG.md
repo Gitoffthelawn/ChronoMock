@@ -160,13 +160,15 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
-- **The session no longer sends an HTTP request to the application's own servers.** While looking
+- **The session sends far fewer HTTP requests to the application's own servers.** While looking
   for a web engine inside the application, the session asked every local port the application
   listened on whether it was a debugging endpoint - up to four HTTP requests to each, also to a server
   that speaks another protocol and may take such a request badly. Only the port reserved for Qt
   WebEngine and the processes that can be a Chromium engine are asked now - one beside the Chromium
   runtime, or one with Qt WebEngine loaded. A process whose executable or libraries the system will
-  not name is still asked, so a web engine is not missed for that.
+  not name is still asked, so a web engine is not missed for that. A process that runs the engine
+  itself - Qt WebEngine, or an application built on CEF - still has every local port asked, so a
+  server inside it can still get the request.
 - **A Chromium or Electron application started through a launcher no longer ends its session at
   once.** A target that starts the browser and exits - a script beside the application, or a
   Chromium browser started from its runtime folder, which hands over to a process of its own - ended

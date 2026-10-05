@@ -7,7 +7,10 @@
 //! sockets (mech), keeps the loopback ones owned by a pid in the family where an engine can be - the
 //! port reserved for Qt, a process whose executable sits beside the Chromium runtime (R4-N29), or one
 //! with Qt WebEngine loaded - and asks each new one whether it is a DevTools endpoint (`/json/version` names a browser
-//! WebSocket URL). The application's other servers are not sent the HTTP request. A yes goes to
+//! WebSocket URL). The application's other servers are not sent the HTTP request - except those in a
+//! process that runs the engine itself (Qt WebEngine, or an application built on CEF), whose every
+//! loopback port is asked, because nothing tells its DevTools port from the rest before asking
+//! (CodeRabbit on #89, a narrower rule is open). A yes goes to
 //! the caller as [`Discovered`]. A no is remembered, with a few retries spaced out - an endpoint
 //! bound a moment ago may not answer HTTP yet - and forgotten once the socket leaves the table, so a
 //! port reused later starts fresh.
