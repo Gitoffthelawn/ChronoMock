@@ -154,10 +154,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   session. It now waits briefly and, if the file stays locked, says the session was not recorded. A
   history file with an empty entry (`"sessions": null`, a `null` row, a row with a text set to
   `null`) made the window fail at start or later, and is now treated like a history this version
-  cannot read: an empty list, and the file moved aside rather than written over. Removing a row or
-  clearing the history no longer runs on the window's thread, and no longer drops a session another
-  instance recorded at the same moment. Two instances started together no longer keep their history
-  in two different folders, and their diagnostics files no longer overwrite each other.
+  cannot read: an empty list, and the file moved aside rather than written over. Clearing the history
+  moves such a file aside as well, rather than deleting sessions the window never showed. Removing a
+  row or clearing the history no longer runs on the window's thread, and no longer drops a session
+  another instance recorded at the same moment. Two instances started together no longer keep their
+  history in two different folders, and their diagnostics files no longer overwrite each other.
 - **One preset file the current user may not read no longer hides the presets listed after it.**
 - **The About window lists the components even when the core writes a lot of diagnostics.** A core
   that wrote more than a few kilobytes of diagnostics stalled until the window gave up and said the
