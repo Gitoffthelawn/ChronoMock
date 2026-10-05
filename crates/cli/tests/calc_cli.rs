@@ -174,3 +174,58 @@ fn a_catalogue_file_loads_as_saved_and_is_named_when_refused() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// R4/18 (D5): a preset with a market counts its business days in that market's calendar, as the
+/// window's calculator does when the preset is chosen and `run --preset` has since R4-S12. This path
+/// used to stop with "pass --calendar" (exit 5) while the window computed the same preset. A calendar
+/// named on the command line still wins, as one picked in the window does, and a preset with no market
+/// still needs one.
+#[test]
+fn a_market_preset_counts_in_its_markets_calendar_unless_another_is_named() {
+    // Two calendars that disagree about Saturday: in `us-banking` it is a weekend, in `pl` here it is
+    // not. Friday 2026-07-03 plus one business day is then Monday in one and Saturday in the other.
+    let calendar = |id: &str, weekend: &str| {
+        format!(
+            r#"{{"schema":"chronomock.calendar/1","id":"{id}","country":"XX","weekend":[{weekend}],"observed":"none","holidays":[]}}"#
+        )
+        .into_bytes()
+    };
+    let preset = |id: &str, market: &str| {
+        format!(
+            r#"{{"schema":"chronomock.preset/1","id":"{id}","name":{{"en":"n"}},"explains":{{"en":"e"}},"applies_to":"calculator",{market}"moment":{{"base":{{"absolute":"2026-07-03T00:00:00"}},"steps":[{{"shift":{{"sign":"+","amount":1,"unit":"business_days"}}}}]}}}}"#
+        )
+        .into_bytes()
+    };
+    let dir = catalogue(
+        "market",
+        &[
+            ("calendars/us-banking.json", calendar("us-banking", r#""saturday","sunday""#)),
+            ("calendars/pl.json", calendar("pl", r#""sunday""#)),
+            ("presets/due-us.json", preset("due-us", r#""market":"us","#)),
+            ("presets/due-nowhere.json", preset("due-nowhere", "")),
+        ],
+    );
+    let moment = |out: &Output| {
+        let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("calc --json is JSON");
+        (doc["moment"]["iso"].as_str().unwrap_or_default().to_string(), doc["moment"]["metadata"]["calendar"].clone())
+    };
+
+    let out = calc_in(&dir, &["--preset", "due-us", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "the market's calendar is used: {}", stderr(&out));
+    assert_eq!(moment(&out), ("2026-07-06T00:00:00".to_string(), serde_json::json!("us-banking")));
+
+    let out = calc_in(&dir, &["--preset", "due-us", "--calendar", "pl", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(moment(&out), ("2026-07-04T00:00:00".to_string(), serde_json::json!("pl")), "a named calendar wins");
+
+    // The text says which calendar it counted in and where that came from, since nobody named it.
+    let out = calc_in(&dir, &["--preset", "due-us"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("calendar: us-banking, from the preset's market (us)"), "{text}");
+
+    let out = calc_in(&dir, &["--preset", "due-nowhere", "--json"]);
+    assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
+    assert!(stderr(&out).contains("calc.needs_calendar"), "{}", stderr(&out));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

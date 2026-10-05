@@ -28,7 +28,7 @@ use crate::cli::print_calc_usage;
 use crate::grammar::{parse_base, parse_nearest, parse_set_time, parse_shift, parse_snap};
 use crate::output::{diag, out, outln};
 use crate::preset::{
-    load_preset, preset_targets_calculator, resolve_moment, resolve_parameters,
+    load_market_calendar, load_preset, preset_targets_calculator, resolve_moment, resolve_parameters,
 };
 use crate::zone::{format_bias, now_filetime_utc, parse_zone_to_bias, session_zone_default};
 /// Parsed `chrono calc` arguments: a base, an ordered step list, and the session
@@ -96,7 +96,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
 
     // Load the calendar (if requested) before evaluating: a missing or malformed calendar is a
     // usage error surfaced before any result, never a silently dropped metadata field.
-    let calendar = match &ca.calendar {
+    let mut calendar = match &ca.calendar {
         Some(id) => match load_calendar(id) {
             Ok(c) => Some(c),
             Err(e) => {
@@ -145,6 +145,13 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                     );
                     return 1;
                 }
+                let implied = match adopt_market_calendar(&p, &mut calendar) {
+                    Ok(line) => line,
+                    Err(e) => {
+                        diag!("chrono calc: {e}");
+                        return 1;
+                    }
+                };
                 // Resolve the preset's parameters (--param / default) then substitute them into its
                 // moment. A non-parametric preset resolves to an empty map and an unchanged moment.
                 // The calculator has no target, so no target_file_creation hint (None).
@@ -164,7 +171,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 };
                 let pj = PresetJson { id: p.id, name: p.name_en, explains: p.explains_en };
                 let header =
-                    format!("  preset:   {} - {}\n  explains: {}\n", pj.id, pj.name, pj.explains);
+                    format!("  preset:   {} - {}\n  explains: {}\n{implied}", pj.id, pj.name, pj.explains);
                 (moment, Some(header), Some(pj))
             }
             Err(e) => {
@@ -426,6 +433,33 @@ pub(crate) fn calc_moment_json(
     };
     let doc = CalcJson { schema: CALC_SCHEMA, moment: Some(moment), analysis: None };
     serde_json::to_string(&doc).unwrap_or_else(|e| format!(r#"{{"error":"serialize: {e}"}}"#))
+}
+
+/// Count a preset's business days in its market's calendar when no `--calendar` named one, and say so.
+///
+/// The window's calculator selects that calendar when the preset is chosen and `run --preset` has used
+/// it since R4-S12 (docs/05 3.5). `--calendar` still names another, as a calendar picked in the window
+/// replaces the market's. `calc --preset` used to stop a market preset with "pass --calendar" while the
+/// window computed the same preset - one catalogue, two answers. Returns the header line naming the
+/// calendar and where it came from, empty when none was implied.
+fn adopt_market_calendar(
+    preset: &crate::preset::Preset,
+    calendar: &mut Option<chrono_core::calendar::Calendar>,
+) -> Result<String, String> {
+    if calendar.is_some() {
+        return Ok(String::new());
+    }
+    let Some(loaded) = load_market_calendar(&preset.id, preset.market.as_deref()) else {
+        return Ok(String::new());
+    };
+    let implied = loaded?;
+    let line = format!(
+        "  calendar: {}, from the preset's market ({})\n",
+        implied.id,
+        preset.market.as_deref().unwrap_or_default()
+    );
+    *calendar = Some(implied);
+    Ok(line)
 }
 
 pub(crate) fn calc_analysis_json(
