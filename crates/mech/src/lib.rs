@@ -32,7 +32,7 @@ pub use batch::{batch_launch_problem, is_batch_script};
 pub use ending::FamilyEnd;
 pub use environment::{current_environment, environment_block};
 pub use family::FamilyMember;
-pub use host_zone::host_zone_name;
+pub use host_zone::{host_zone_name, host_zone_sample, ZoneSample};
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
 pub use policy_value::{
@@ -315,6 +315,47 @@ unsafe fn command_line_of(h: HANDLE) -> Option<String> { unsafe {
     }
     let units: Vec<u16> = (0..len / 2).map(|i| std::ptr::read_unaligned((start as *const u16).add(i))).collect();
     Some(String::from_utf16_lossy(&units))
+}}
+
+/// `PROCESS_BASIC_INFORMATION` as Microsoft Learn lays it out for `NtQueryInformationProcess` with
+/// `ProcessBasicInformation` (class 0): `InheritedFromUniqueProcessId` is the parent process.
+#[repr(C)]
+struct ProcessBasicInformation {
+    exit_status: i32,
+    peb_base_address: *mut c_void,
+    affinity_mask: usize,
+    base_priority: i32,
+    unique_process_id: usize,
+    inherited_from_unique_process_id: usize,
+}
+
+/// The pid of the process that started `pid` - its declared parent - or `None` when it cannot be
+/// asked (the process is gone, or does not grant even a limited query). One open and one query, with
+/// no snapshot of the system's processes: a question asked of one process, about one process.
+pub fn process_parent(pid: u32) -> Option<u32> {
+    // SAFETY: the handle is closed on every path out, the entry point is checked before it is called,
+    // and the buffer is the structure the information class writes, at its own size.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let parent = parent_of(process);
+        let _ = CloseHandle(process);
+        parent
+    }
+}
+
+/// # Safety
+/// `h` must be an open process handle with at least limited query access.
+unsafe fn parent_of(h: HANDLE) -> Option<u32> { unsafe {
+    let ntdll = GetModuleHandleA(s!("ntdll.dll")).ok()?;
+    let entry = GetProcAddress(ntdll, s!("NtQueryInformationProcess"))?;
+    let query: NtQueryInformationProcessFn = std::mem::transmute(entry);
+    let mut info = std::mem::MaybeUninit::<ProcessBasicInformation>::zeroed();
+    let size = std::mem::size_of::<ProcessBasicInformation>() as u32;
+    let mut returned = 0u32;
+    if query(h, 0, info.as_mut_ptr().cast(), size, &mut returned) < 0 {
+        return None;
+    }
+    u32::try_from(info.assume_init().inherited_from_unique_process_id).ok()
 }}
 
 /// Both clocks at one instant, in raw UTC FILETIME ticks. The core formats them.
@@ -1856,6 +1897,18 @@ unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError>
 
 #[cfg(test)]
 mod tests {
+    /// A process started here names this one as its parent, and a pid nobody holds names none.
+    #[test]
+    fn a_process_names_the_one_that_started_it_as_its_parent() {
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let path = format!(r"{system_root}\System32\PING.EXE");
+        let args = ["-n".to_string(), "30".into(), "127.0.0.1".into()];
+        let target = crate::Target { path: &path, args: &args, cwd: None, env: &[], stdio: crate::TargetStdio::Discarded };
+        let child = crate::launch_plain(&target).expect("ping launches");
+        assert_eq!(super::process_parent(child.pid), Some(std::process::id()));
+        assert_eq!(super::process_parent(u32::MAX - 5), None);
+    }
+
     /// A launcher that signs a child in and ends between the two looks: running and alone at the first
     /// look, ended with the child in the registry from the second on. Each look counts itself.
     struct LauncherWorld {

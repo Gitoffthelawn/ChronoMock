@@ -4,13 +4,15 @@
 //! not when - a WebView2 host creates its browser process when it first shows a page, which can be
 //! a minute after the host started, and a Qt host opens the port inside itself. So this is a thread
 //! that keeps looking, in the spirit of ADR-10: every second it reads the machine's listening
-//! sockets (mech), keeps the loopback ones owned by a pid in the family where an engine can be - the
-//! port reserved for Qt, a process whose executable sits beside the Chromium runtime (R4-N29), or one
-//! with Qt WebEngine loaded - and asks each new one whether it is a DevTools endpoint (`/json/version` names a browser
-//! WebSocket URL). The application's other servers are not sent the HTTP request - except those in a
-//! process that runs the engine itself (Qt WebEngine, or an application built on CEF), whose every
-//! loopback port is asked, because nothing tells its DevTools port from the rest before asking
-//! (CodeRabbit on #89, a narrower rule is open). A yes goes to
+//! sockets (mech), keeps the loopback ones owned by a pid in the family where an engine can be, and
+//! asks each new one whether it is a DevTools endpoint (`/json/version` names a browser WebSocket URL).
+//! Where an engine can be (R4-N29): the port the Qt engine was told to open, every port of a process
+//! whose executable sits beside the Chromium runtime (the WebView2 runtime, CEF, Chromium - nothing
+//! tells their DevTools port from the rest before asking), and in a process with Qt WebEngine loaded
+//! only that told port - its other ports only once its engine runs without it, because the application
+//! chose a port of its own. A process whose endpoint was found is not asked about its other ports
+//! while that endpoint is open: an engine opens one. The application's own servers are not sent the
+//! HTTP request otherwise. A yes goes to
 //! the caller as [`Discovered`]. A no is remembered, with a few retries spaced out - an endpoint
 //! bound a moment ago may not answer HTTP yet - and forgotten once the socket leaves the table, so a
 //! port reused later starts fresh.
@@ -26,7 +28,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::cdp;
-use crate::embedded::is_devtools_version;
+use crate::embedded::{is_devtools_version, role_from_command_line};
 
 /// A DevTools endpoint found in the family: the pid that holds it, the loopback host and port to
 /// connect to (`::1` for an IPv6 socket, `127.0.0.1` otherwise), and what the engine calls itself in
@@ -46,10 +48,11 @@ pub(crate) enum Notice {
     /// The table could not be read at all - said once, then the thread ends. The session goes on
     /// without the channel, and the caller reports the loss (untouchable rule 6).
     Unavailable(String),
-    /// The port reserved for a Qt engine is held by something that is not a DevTools endpoint: a
-    /// process outside the family bound it first, or one inside the family that never answered as
-    /// DevTools (the application's own server landing on the same ephemeral port). Said once. The
-    /// engine could not have bound it, so its pages stay unreached and the caller says why.
+    /// The port the Qt engine was told to open is held by something that is not a DevTools endpoint:
+    /// a process outside the family bound it first, or one inside the family that never answered as
+    /// DevTools (the application's own server landing on the same ephemeral port), while a process of
+    /// the family has Qt WebEngine loaded. Said once. The engine could not have bound it, so its pages
+    /// stay unreached and the caller says why.
     PortTaken(u16),
 }
 
@@ -60,6 +63,17 @@ const SWEEP: Duration = Duration::from_secs(1);
 const RETRIES: u32 = 3;
 const RETRY_GAP: Duration = Duration::from_secs(2);
 
+/// How long the engine of a Qt process runs without a listener on the port it was told before that
+/// process's other ports are asked - it chose a port of its own. Measured on a Qt WebEngine host
+/// (2026-10-05, six starts): the DevTools port listens 243 to 2128 ms BEFORE the engine's first
+/// subprocess starts, so an engine that took its port has it by then. The wait is margin for other
+/// versions of Qt, and costs only the application that chose its own port.
+const QT_ENGINE_GRACE: Duration = Duration::from_secs(2);
+
+/// How often a family whose Qt port is held by something else is looked into for Qt WebEngine, while
+/// the port stays held - a module list per process, so not on every sweep of a long session.
+const QT_LOOK_GAP: Duration = Duration::from_secs(5);
+
 /// The caller's end: push the family's pids as they change, pull notices as they come. Dropping it
 /// ends the thread.
 pub(crate) struct Discovery {
@@ -68,18 +82,18 @@ pub(crate) struct Discovery {
 }
 
 impl Discovery {
-    /// Start the thread with an initial family and, when a port was reserved for a Qt engine, that
-    /// port - so the thread can say when something else took it. A thread that cannot be started
-    /// (handles or memory exhausted) is the caller's to report - the session goes on without the
-    /// channel, which is what `Notice::Unavailable` promises for the table, and a panic here would
-    /// end it instead.
-    pub(crate) fn start(family: Vec<u32>, reserved: Option<u16>) -> std::io::Result<Discovery> {
+    /// Start the thread with an initial family and, when one is known, the port a Qt engine was told
+    /// to open ([`crate::embedded::qt_port_told`]) - so the thread asks that port first and can say
+    /// when something else took it. A thread that cannot be started (handles or memory exhausted) is
+    /// the caller's to report - the session goes on without the channel, which is what
+    /// `Notice::Unavailable` promises for the table, and a panic here would end it instead.
+    pub(crate) fn start(family: Vec<u32>, qt_port: Option<u16>) -> std::io::Result<Discovery> {
         let (pid_tx, pid_rx) = mpsc::channel::<Vec<u32>>();
         let (notice_tx, notice_rx) = mpsc::channel::<Notice>();
         let _ = pid_tx.send(family);
         thread::Builder::new()
             .name("chrono-discover".into())
-            .spawn(move || run(&pid_rx, &notice_tx, reserved))?;
+            .spawn(move || run(&pid_rx, &notice_tx, qt_port))?;
         Ok(Discovery { pids: pid_tx, notices: notice_rx })
     }
 
@@ -95,10 +109,9 @@ impl Discovery {
 }
 
 /// The thread body: sweep, probe what is new, report, sleep, until the caller is gone.
-fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, reserved: Option<u16>) {
+fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, qt_port: Option<u16>) {
     let mut family: HashSet<u32> = HashSet::new();
-    let mut memory = Memory::default();
-    let mut taken_said = false;
+    let mut looking = Looking::default();
     loop {
         // The latest family wins, and a closed channel means the caller dropped its handle.
         loop {
@@ -116,38 +129,169 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, reserved: Option<u16
             }
         };
         let now = Instant::now();
-        if let Some(port) = reserved
-            && !taken_said
-            && reserved_port_taken(&table, &family, port, &memory)
+        looking.engine_since.retain(|pid, _| family.contains(pid));
+        looking.members.retain(|pid, _| family.contains(pid));
+        if let Some(port) = qt_port
+            && looking.qt_port_taken_now(&table, &family, port, now, family_has_qt)
+            && notices.send(Notice::PortTaken(port)).is_err()
         {
-            taken_said = true;
-            if notices.send(Notice::PortTaken(port)).is_err() {
-                return;
-            }
+            return;
         }
-        // Asked only where an engine can be (R4-N29): the request below is HTTP, and the application's
-        // own servers in the family may speak something else. Checked on every sweep rather than kept
-        // per pid - one query, one file lookup and, away from the runtime, one module list per listener
-        // a second - and a pid the system hands to another process of the family is judged afresh.
-        let candidates = memory
-            .due(candidates(&table, &family), now)
-            .into_iter()
-            .filter(|l| worth_asking(l, reserved, may_be_engine));
-        for candidate in candidates {
+        for candidate in looking.listeners_to_ask(&table, &family, qt_port, now) {
+            // An endpoint found earlier in this sweep closes the rest of its process, as on a later one.
+            if qt_port != Some(candidate.port) && looking.memory.endpoint_open(candidate.pid) {
+                continue;
+            }
             let host = candidate.loopback_host();
             match probe(host, candidate.port) {
                 Some(browser) => {
-                    memory.found(candidate);
+                    looking.memory.found(candidate);
                     let found = Discovered { pid: candidate.pid, host, port: candidate.port, browser };
                     if notices.send(Notice::Found(found)).is_err() {
                         return;
                     }
                 }
-                None => memory.refused(candidate, now),
+                None => looking.memory.refused(candidate, now),
             }
         }
         thread::sleep(SWEEP);
     }
+}
+
+/// What the thread keeps from one sweep to the next.
+#[derive(Default)]
+struct Looking {
+    memory: Memory,
+    /// When the engine was first seen running in each Qt process of the family ([`QT_ENGINE_GRACE`]).
+    engine_since: HashMap<u32, Instant>,
+    /// What was learned once about each process of the family ([`Member`]). Neither fact changes while
+    /// the process lives, so each process is asked once - rather than the system's process list being
+    /// walked every sweep, which cost 12.9 ms a sweep on a machine with 465 processes (measured,
+    /// CodeRabbit on #90). The engine's subprocesses are in the family already: hooked, or named by the
+    /// hook as children it could not reach.
+    members: HashMap<u32, Member>,
+    /// The Qt port was said to be taken - once a session.
+    taken_said: bool,
+    /// When the family was last looked into for Qt WebEngine while its Qt port was held.
+    qt_looked: Option<Instant>,
+}
+
+impl Looking {
+    /// Whether the Qt port is to be said taken now: held by something that is not its engine
+    /// ([`qt_port_taken`]) while `has_qt` says a process of the family has Qt WebEngine loaded. Every
+    /// session reserves the port, also for an application with no Qt at all, and a stranger that took it
+    /// there kept no engine from anything - saying the pages ran on the real clock would be false. Asked
+    /// at most every [`QT_LOOK_GAP`] while the port stays held, and said once.
+    fn qt_port_taken_now(
+        &mut self,
+        table: &[chrono_mech::Listener],
+        family: &HashSet<u32>,
+        port: u16,
+        now: Instant,
+        has_qt: impl Fn(&HashSet<u32>) -> bool,
+    ) -> bool {
+        if self.taken_said || !qt_port_taken(table, family, port, &self.memory) {
+            return false;
+        }
+        if self.qt_looked.is_some_and(|at| now.duration_since(at) < QT_LOOK_GAP) {
+            return false;
+        }
+        self.qt_looked = Some(now);
+        self.taken_said = has_qt(family);
+        self.taken_said
+    }
+
+    /// The listeners worth an HTTP request on this sweep (R4-N29): due by the memory, and where an
+    /// engine can be ([`worth_asking`]). Judged afresh on every sweep rather than kept per pid - one file
+    /// lookup and, away from the runtime, one module list per process a second - so a pid the system
+    /// hands to another process of the family is judged as what it is now.
+    fn listeners_to_ask(
+        &mut self,
+        table: &[chrono_mech::Listener],
+        family: &HashSet<u32>,
+        qt_port: Option<u16>,
+        now: Instant,
+    ) -> Vec<chrono_mech::Listener> {
+        let due = self.memory.due(candidates(table, family), now);
+        let mut signs: HashMap<u32, EngineSign> = HashMap::new();
+        let mut asked = Vec::new();
+        for l in due {
+            let sign = *signs.entry(l.pid).or_insert_with(|| engine_sign_of(l.pid));
+            let on_qt_port = qt_port.is_some_and(|port| table.iter().any(|t| t.pid == l.pid && t.port == port));
+            let endpoint_open = self.memory.endpoint_open(l.pid);
+            // The family is looked into only for the one question it answers: a Qt process with a told
+            // port that it does not listen on, and nothing found in it yet.
+            let wants_engine = sign == EngineSign::Qt && qt_port.is_some() && !on_qt_port && !endpoint_open;
+            let engine_for = if wants_engine { self.engine_for(l.pid, family, now, learn_member) } else { None };
+            if worth_asking(&l, qt_port, Asking { sign, endpoint_open, on_qt_port, engine_for }) {
+                asked.push(l);
+            }
+        }
+        asked
+    }
+
+    /// How long the engine has run in the process `pid`, `None` while it does not.
+    fn engine_for(
+        &mut self,
+        pid: u32,
+        family: &HashSet<u32>,
+        now: Instant,
+        learn: impl Fn(u32) -> Option<Member>,
+    ) -> Option<Duration> {
+        if let Some(since) = self.engine_since.get(&pid) {
+            return Some(now.duration_since(*since));
+        }
+        if !self.engine_runs_in(pid, family, learn) {
+            return None;
+        }
+        self.engine_since.insert(pid, now);
+        Some(Duration::ZERO)
+    }
+
+    /// Whether the engine runs in the process `pid`: a process of the family that `pid` started carries a
+    /// Chromium role (`--type=`) on its command line. By the role, not the name, because a Qt application
+    /// may start its engine's subprocesses from an executable of its own (`QTWEBENGINEPROCESS_PATH`, Qt
+    /// documentation, "Deploying Qt WebEngine Applications"). Each member is asked through `learn` once,
+    /// and again only while it could not be - a process that is gone, or would not say.
+    fn engine_runs_in(&mut self, pid: u32, family: &HashSet<u32>, learn: impl Fn(u32) -> Option<Member>) -> bool {
+        for &member in family.iter().filter(|&&m| m != pid) {
+            let known = match self.members.get(&member) {
+                Some(known) => *known,
+                None => {
+                    let Some(learned) = learn(member) else {
+                        continue;
+                    };
+                    self.members.insert(member, learned);
+                    learned
+                }
+            };
+            if known.parent == pid && known.engine_role {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// What one process of the family is, for the question whether an engine runs: the process that
+/// started it, and whether its command line carries a Chromium role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Member {
+    parent: u32,
+    engine_role: bool,
+}
+
+/// One process of the family, asked from outside: its declared parent and its command line, one open
+/// each. `None` while either cannot be read, so it is asked again rather than taken as no engine.
+fn learn_member(pid: u32) -> Option<Member> {
+    let parent = chrono_mech::process_parent(pid)?;
+    let line = chrono_mech::name_unhooked(pid, parent).command_line?;
+    Some(member_of(parent, &line))
+}
+
+/// A member from what was read of it: its parent, and its command line judged for a Chromium role. Pure.
+fn member_of(parent: u32, command_line: &str) -> Member {
+    Member { parent, engine_role: role_from_command_line(command_line).is_some() }
 }
 
 /// The loopback listeners owned by the family, whichever address family they are on. Pure over the
@@ -156,47 +300,108 @@ fn candidates(table: &[chrono_mech::Listener], family: &HashSet<u32>) -> Vec<chr
     table.iter().filter(|l| l.loopback && family.contains(&l.pid)).copied().collect()
 }
 
-/// Whether a listener of the family is worth an HTTP request: it is on the port reserved for a Qt
-/// engine, whose browser runs inside the application's own process, or `may_be_engine` says its process
-/// can be a Chromium engine. Every family listener used to be asked, up to four times - a request a
-/// server of the application that speaks another protocol than HTTP may take badly (R4-N29). Pure, so
-/// the rule is tested on a made-up machine.
-fn worth_asking(l: &chrono_mech::Listener, reserved: Option<u16>, may_be_engine: impl Fn(u32) -> bool) -> bool {
-    reserved == Some(l.port) || may_be_engine(l.pid)
+/// What a listener's process shows of a Chromium engine (R4-N29).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EngineSign {
+    /// Nothing: a process of the application's own, whose servers are left alone.
+    None,
+    /// Beside the Chromium runtime, or a process the system would not say the executable of: every
+    /// loopback port of it is asked, because nothing tells its DevTools port from the rest before asking.
+    Runtime,
+    /// Qt WebEngine loaded, or a module list the system would not give, away from the runtime: the
+    /// engine runs inside this process and opens the port its variable names.
+    Qt,
+}
+
+/// What decides whether one listener is asked, besides its port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Asking {
+    sign: EngineSign,
+    /// A DevTools endpoint of this process was found and is still open - an engine opens one.
+    endpoint_open: bool,
+    /// This process listens on the port the Qt engine was told to open.
+    on_qt_port: bool,
+    /// How long the engine has run in this process (a child with a Chromium role), `None` while not.
+    engine_for: Option<Duration>,
+}
+
+/// Whether a listener of the family is worth an HTTP request. Every family listener used to be asked,
+/// up to four times - a request a server of the application that speaks another protocol than HTTP may
+/// take badly (R4-N29). Now:
+/// - the port the Qt engine was told to open, whoever holds it - Qt runs the engine's browser inside
+///   the application's own process,
+/// - not another port of a process whose endpoint is open,
+/// - every port of a process beside the Chromium runtime,
+/// - in a Qt process only the told port, and its other ports once its engine has run for
+///   [`QT_ENGINE_GRACE`] without listening there - the application chose its own port, in its code or
+///   on its command line (`--remote-debugging-port`, Qt documentation). With no told port every port.
+///
+/// Pure, so the rule is tested on a made-up machine.
+fn worth_asking(l: &chrono_mech::Listener, qt_port: Option<u16>, asking: Asking) -> bool {
+    if qt_port == Some(l.port) {
+        return true;
+    }
+    if asking.endpoint_open {
+        return false;
+    }
+    match asking.sign {
+        EngineSign::None => false,
+        EngineSign::Runtime => true,
+        EngineSign::Qt => {
+            qt_port.is_none() || (!asking.on_qt_port && asking.engine_for.is_some_and(|ran| ran >= QT_ENGINE_GRACE))
+        }
+    }
 }
 
 /// The library of Qt WebEngine's Chromium, in Qt 6 and Qt 5, release and debug builds. Qt runs the
 /// engine's browser inside the application's own process and keeps its ICU data in a folder of its own
-/// (`resources`), so a Qt host has no `icudtl.dat` beside its executable, and a Qt engine on any port
-/// but the reserved one - set by the application itself, or found by a probe that reserved nothing -
-/// went unasked (R4/16 review round, measured on a Qt WebEngine host).
+/// (`resources`), so a Qt host has no `icudtl.dat` beside its executable (R4/16 review round, measured on
+/// a Qt WebEngine host).
 const QT_WEBENGINE_LIBRARIES: [&str; 4] =
     ["Qt6WebEngineCore.dll", "Qt5WebEngineCore.dll", "Qt6WebEngineCored.dll", "Qt5WebEngineCored.dll"];
 
-/// Whether the process `pid` can be a Chromium engine (see [`engine_signs`]).
-fn may_be_engine(pid: u32) -> bool {
-    engine_signs(chrono_mech::process_image_path(pid), || chrono_mech::process_has_any_module(pid, &QT_WEBENGINE_LIBRARIES))
+/// What the process `pid` shows of an engine (see [`engine_sign`]).
+fn engine_sign_of(pid: u32) -> EngineSign {
+    engine_sign(chrono_mech::process_image_path(pid), || chrono_mech::process_has_any_module(pid, &QT_WEBENGINE_LIBRARIES))
 }
 
-/// Whether a process started from `image` can be a Chromium engine: its executable sits beside the ICU
+/// What a process started from `image` shows of a Chromium engine: its executable sits beside the ICU
 /// data file every Chromium build ships (`icudtl.dat` - the WebView2 runtime, CEF and Chromium itself,
 /// measured on this machine's WebView2 runtime folder), or it has Qt WebEngine loaded (`qt`, asked only
-/// when the file is not there). A question the system would not answer - no image path, a module list
-/// it would not give - is taken as a yes: a page left unreached would be coverage given up without a
-/// word (rule 27), a request too many is what every listener got before. Pure over the two answers.
-fn engine_signs(image: Option<std::path::PathBuf>, qt: impl FnOnce() -> chrono_mech::ModuleProbe) -> bool {
+/// when the file is not there). A question the system would not answer is not taken as "no engine": a
+/// page left unreached would be coverage given up without a word (rule 27). An image path it would not
+/// give asks every port, as every listener was asked before, and a module list it would not give is a
+/// Qt process, whose told port is asked and its other ports once an engine runs in it. Pure over the
+/// two answers.
+fn engine_sign(image: Option<std::path::PathBuf>, qt: impl FnOnce() -> chrono_mech::ModuleProbe) -> EngineSign {
     let Some(path) = image else {
-        return true;
+        return EngineSign::Runtime;
     };
-    path.parent().is_some_and(|dir| dir.join("icudtl.dat").exists()) || qt() != chrono_mech::ModuleProbe::NotLoaded
+    if path.parent().is_some_and(|dir| dir.join("icudtl.dat").exists()) {
+        return EngineSign::Runtime;
+    }
+    match qt() {
+        chrono_mech::ModuleProbe::NotLoaded => EngineSign::None,
+        chrono_mech::ModuleProbe::Loaded | chrono_mech::ModuleProbe::Unknown => EngineSign::Qt,
+    }
 }
 
-/// Whether the port reserved for a Qt engine is held by something that is not its DevTools endpoint:
-/// a listener on it outside the family, or one inside the family whose retries as DevTools are spent.
-/// Only a socket that stands in the way of the engine's own bind (`127.0.0.1:<port>`) counts - an IPv6
-/// socket or one on another IPv4 address on the same port leaves that bind free, and would make this
-/// a false alarm. Pure over the table and the memory, so every shape is tested without a socket.
-fn reserved_port_taken(
+/// Whether a process of the family has Qt WebEngine loaded - a list read in full that names it. A list
+/// the system would not give is no evidence here: this decides whether to SAY the engine could not bind
+/// its port, which needs an engine there.
+fn family_has_qt(family: &HashSet<u32>) -> bool {
+    family
+        .iter()
+        .any(|&pid| chrono_mech::process_has_any_module(pid, &QT_WEBENGINE_LIBRARIES) == chrono_mech::ModuleProbe::Loaded)
+}
+
+
+/// Whether the port the Qt engine was told to open is held by something that is not its DevTools
+/// endpoint: a listener on it outside the family, or one inside the family whose retries as DevTools
+/// are spent. Only a socket that stands in the way of the engine's own bind (`127.0.0.1:<port>`) counts -
+/// an IPv6 socket or one on another IPv4 address on the same port leaves that bind free, and would make
+/// this a false alarm. Pure over the table and the memory, so every shape is tested without a socket.
+fn qt_port_taken(
     table: &[chrono_mech::Listener],
     family: &HashSet<u32>,
     port: u16,
@@ -265,6 +470,11 @@ impl Memory {
     fn spent(&self, l: &chrono_mech::Listener) -> bool {
         self.refused.get(&key(l)).is_some_and(|(attempts, _)| *attempts > RETRIES)
     }
+
+    /// Whether a DevTools endpoint of the process `pid` was found and has not left the table since.
+    fn endpoint_open(&self, pid: u32) -> bool {
+        self.found.iter().any(|&(found_pid, ..)| found_pid == pid)
+    }
 }
 
 #[cfg(test)]
@@ -297,32 +507,58 @@ mod tests {
         assert!(candidates(&table, &HashSet::new()).is_empty());
     }
 
-    /// The port reserved for a Qt engine is taken when something outside the family listens on it,
-    /// or when a family process on it never answered as DevTools in all its retries - either way the
-    /// engine could not have bound it (docs/09 section 12.17 point 4). A family listener still being
-    /// asked is not taken yet.
+    /// The Qt port is taken when something outside the family listens on it, or when a family process
+    /// on it never answered as DevTools in all its retries - either way the engine could not have bound
+    /// it (docs/09 section 12.17 point 4). A family listener still being asked is not taken yet.
     #[test]
-    fn the_reserved_port_is_taken_by_a_stranger_or_by_a_family_socket_that_is_not_devtools() {
+    fn the_qt_port_is_taken_by_a_stranger_or_by_a_family_socket_that_is_not_devtools() {
         let family: HashSet<u32> = [10].into_iter().collect();
         let mut memory = Memory::default();
         let t0 = Instant::now();
 
         let stranger = [listener(99, 40000, true)];
-        assert!(reserved_port_taken(&stranger, &family, 40000, &memory));
-        assert!(!reserved_port_taken(&stranger, &family, 40001, &memory), "another port is not ours");
+        assert!(qt_port_taken(&stranger, &family, 40000, &memory));
+        assert!(!qt_port_taken(&stranger, &family, 40001, &memory), "another port is not ours");
         // Sockets on the same port that do NOT stand in the way of a bind to 127.0.0.1: an IPv6 one,
         // and an IPv4 one on a LAN address. The wildcard does.
-        assert!(!reserved_port_taken(&[listener6(99, 40000)], &family, 40000, &memory), "IPv6 leaves the IPv4 bind free");
-        assert!(!reserved_port_taken(&[listener(99, 40000, false)], &family, 40000, &memory), "a LAN address leaves it free");
+        assert!(!qt_port_taken(&[listener6(99, 40000)], &family, 40000, &memory), "IPv6 leaves the IPv4 bind free");
+        assert!(!qt_port_taken(&[listener(99, 40000, false)], &family, 40000, &memory), "a LAN address leaves it free");
         let wildcard = Listener { pid: 99, port: 40000, loopback: false, v6: false, addr_v4: chrono_mech::IPV4_ANY_ADDR };
-        assert!(reserved_port_taken(&[wildcard], &family, 40000, &memory), "the wildcard claims every address");
+        assert!(qt_port_taken(&[wildcard], &family, 40000, &memory), "the wildcard claims every address");
 
         let own = listener(10, 40000, true);
-        assert!(!reserved_port_taken(&[own], &family, 40000, &memory), "still being asked");
+        assert!(!qt_port_taken(&[own], &family, 40000, &memory), "still being asked");
         for n in 0..=RETRIES {
             memory.refused(own, t0 + RETRY_GAP * n);
         }
-        assert!(reserved_port_taken(&[own], &family, 40000, &memory), "retries spent, never DevTools");
+        assert!(qt_port_taken(&[own], &family, 40000, &memory), "retries spent, never DevTools");
+    }
+
+    /// Every session reserves a Qt port, also for an application with no Qt at all: a stranger holding
+    /// it is said only when a process of the family has Qt WebEngine loaded - once, and the family is
+    /// looked into at most every few seconds while the port stays held.
+    #[test]
+    fn the_qt_port_is_said_taken_only_with_qt_in_the_family_and_once() {
+        let family: HashSet<u32> = [10].into_iter().collect();
+        let stranger = [listener(99, 40000, true)];
+        let t0 = Instant::now();
+        let looks = std::cell::Cell::new(0);
+
+        let mut no_qt = Looking::default();
+        let without = |_: &HashSet<u32>| {
+            looks.set(looks.get() + 1);
+            false
+        };
+        assert!(!no_qt.qt_port_taken_now(&stranger, &family, 40000, t0, without), "no Qt, nothing kept from it");
+        assert!(!no_qt.qt_port_taken_now(&stranger, &family, 40000, t0 + Duration::from_secs(1), without));
+        assert_eq!(looks.get(), 1, "not looked into again before the gap");
+        assert!(!no_qt.qt_port_taken_now(&stranger, &family, 40000, t0 + QT_LOOK_GAP, without));
+        assert_eq!(looks.get(), 2, "looked into again after it: Qt may have loaded since");
+
+        let mut qt = Looking::default();
+        assert!(qt.qt_port_taken_now(&stranger, &family, 40000, t0, |_| true));
+        assert!(!qt.qt_port_taken_now(&stranger, &family, 40000, t0 + QT_LOOK_GAP * 2, |_| true), "said once");
+        assert!(!Looking::default().qt_port_taken_now(&[], &family, 40000, t0, |_| true), "a free port is not taken");
     }
 
     #[test]
@@ -368,16 +604,122 @@ mod tests {
         assert_eq!(memory.due(vec![one], t0), vec![one]);
     }
 
+    fn asking(sign: EngineSign) -> Asking {
+        Asking { sign, endpoint_open: false, on_qt_port: false, engine_for: None }
+    }
+
     /// Only a listener where an engine can be is asked (R4-N29): the Qt port whoever holds it, and the
     /// listeners of a process beside the Chromium runtime. The application's own server elsewhere in
     /// the family is left alone.
     #[test]
     fn only_a_listener_where_an_engine_can_be_is_asked() {
-        let engine = |pid: u32| pid == 20;
-        assert!(worth_asking(&listener(20, 9222, true), None, engine), "a process beside the runtime");
-        assert!(!worth_asking(&listener(10, 9222, true), None, engine), "the application's own server");
-        assert!(worth_asking(&listener(10, 40000, true), Some(40000), engine), "the Qt port, held by the host itself");
-        assert!(!worth_asking(&listener(10, 40001, true), Some(40000), engine), "the host's other ports");
+        assert!(worth_asking(&listener(20, 9222, true), None, asking(EngineSign::Runtime)), "a process beside the runtime");
+        assert!(worth_asking(&listener(20, 9333, true), Some(40000), asking(EngineSign::Runtime)), "every port of it");
+        assert!(!worth_asking(&listener(10, 9222, true), None, asking(EngineSign::None)), "the application's own server");
+        assert!(worth_asking(&listener(10, 40000, true), Some(40000), asking(EngineSign::None)), "the Qt port, whoever holds it");
+        assert!(!worth_asking(&listener(10, 40001, true), Some(40000), asking(EngineSign::None)), "the host's other ports");
+    }
+
+    /// A Qt process (R4/16 (h)): its told port is asked, its other ports are not - while it listens on
+    /// the told port, before its engine runs, and while the engine has run for less than the grace - and
+    /// once the engine has run that long without the told port, the application chose its own, and they
+    /// are. With no told port at all, every port of it is asked, as before.
+    #[test]
+    fn a_qt_process_is_asked_its_told_port_and_its_others_only_once_its_engine_runs_without_it() {
+        let other = listener(10, 50000, true);
+        let qt = |on_qt_port, engine_for| Asking { sign: EngineSign::Qt, endpoint_open: false, on_qt_port, engine_for };
+        assert!(worth_asking(&listener(10, 40000, true), Some(40000), qt(true, None)), "the told port");
+        assert!(!worth_asking(&other, Some(40000), qt(true, Some(QT_ENGINE_GRACE * 5))), "it listens on the told port");
+        assert!(!worth_asking(&other, Some(40000), qt(false, None)), "no engine yet");
+        assert!(!worth_asking(&other, Some(40000), qt(false, Some(QT_ENGINE_GRACE / 2))), "within the grace");
+        assert!(worth_asking(&other, Some(40000), qt(false, Some(QT_ENGINE_GRACE))), "a port of its own");
+        assert!(worth_asking(&other, None, qt(false, None)), "no told port: every port");
+    }
+
+    /// A process whose DevTools endpoint is open is not asked about its other ports - an engine opens one,
+    /// beside the runtime as in a Qt process. The told port is still the told port.
+    #[test]
+    fn a_process_whose_endpoint_is_open_is_not_asked_again() {
+        let open = |sign| Asking { sign, endpoint_open: true, on_qt_port: false, engine_for: Some(QT_ENGINE_GRACE * 5) };
+        assert!(!worth_asking(&listener(20, 9333, true), None, open(EngineSign::Runtime)));
+        assert!(!worth_asking(&listener(10, 50000, true), Some(40000), open(EngineSign::Qt)));
+        assert!(worth_asking(&listener(10, 40000, true), Some(40000), open(EngineSign::Qt)));
+
+        let mut memory = Memory::default();
+        let devtools = listener(20, 9222, true);
+        memory.found(devtools);
+        assert!(memory.endpoint_open(20) && !memory.endpoint_open(10));
+        let _ = memory.due(vec![listener(20, 9333, true)], Instant::now());
+        assert!(!memory.endpoint_open(20), "the endpoint left the table: the process is asked afresh");
+    }
+
+    /// The engine runs where a process of the family that the Qt process started carries a Chromium role
+    /// on its command line - by the role, whatever the executable is called. A grandchild, a child with no
+    /// role and the process itself are not it.
+    #[test]
+    fn the_engine_runs_where_a_child_of_the_process_has_a_chromium_role() {
+        let learn = |pid: u32| match pid {
+            11 => Some(Member { parent: 10, engine_role: false }),
+            12 => Some(Member { parent: 10, engine_role: true }),
+            13 => Some(Member { parent: 11, engine_role: true }),
+            10 => panic!("the process is not asked about itself"),
+            _ => None,
+        };
+        let family = |pids: &[u32]| -> HashSet<u32> { pids.iter().copied().collect() };
+        assert!(!Looking::default().engine_runs_in(10, &family(&[10, 11]), learn), "a child with no role");
+        assert!(Looking::default().engine_runs_in(10, &family(&[10, 11, 12]), learn));
+        assert!(!Looking::default().engine_runs_in(10, &family(&[10, 13]), learn), "a grandchild is another's engine");
+        assert!(!Looking::default().engine_runs_in(10, &family(&[10, 14]), learn), "one that would not say");
+        assert!(!Looking::default().engine_runs_in(std::process::id(), &family(&[std::process::id()]), learn_member));
+    }
+
+    /// A member is what was read of it: the role is the engine's `--type=` on its command line, whatever
+    /// the executable is called, and a command line without one is no engine. Read from a live child: its
+    /// parent is this process, and a plain program has no role.
+    #[test]
+    fn a_member_is_its_parent_and_the_role_on_its_command_line() {
+        assert_eq!(
+            member_of(10, r#""C:\qt\QtWebEngineProcess.exe" --type=renderer --lang=en"#),
+            Member { parent: 10, engine_role: true }
+        );
+        assert_eq!(member_of(10, "own-engine.exe --type=gpu-process"), Member { parent: 10, engine_role: true });
+        assert_eq!(member_of(10, "helper.exe --port 5"), Member { parent: 10, engine_role: false });
+        assert_eq!(member_of(10, ""), Member { parent: 10, engine_role: false });
+
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let path = format!(r"{system_root}\System32\PING.EXE");
+        let args = ["-n".to_string(), "30".into(), "127.0.0.1".into()];
+        let target = chrono_mech::Target { path: &path, args: &args, cwd: None, env: &[], stdio: chrono_mech::TargetStdio::Discarded };
+        let child = chrono_mech::launch_plain(&target).expect("ping launches");
+        assert_eq!(learn_member(child.pid), Some(Member { parent: std::process::id(), engine_role: false }));
+        assert_eq!(learn_member(u32::MAX - 5), None, "a process that cannot be asked is asked again later");
+    }
+
+    /// The cost CodeRabbit measured away on #90: each process of the family is asked once in its life, not
+    /// on every sweep - only one that could not be asked is asked again - and the engine, once seen
+    /// running, is not looked for again.
+    #[test]
+    fn each_process_of_the_family_is_asked_once() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let learn = |pid: u32| {
+            asked.borrow_mut().push(pid);
+            (pid != 14).then_some(Member { parent: 10, engine_role: false })
+        };
+        let family: HashSet<u32> = [10, 11, 14].into_iter().collect();
+        let mut looking = Looking::default();
+        let t0 = Instant::now();
+        for sweep in 0..3 {
+            assert_eq!(looking.engine_for(10, &family, t0 + SWEEP * sweep, learn), None);
+        }
+        let mut seen = asked.borrow().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, [11, 14, 14, 14], "11 once, 14 again each time it would not say");
+
+        let with_engine: HashSet<u32> = [10, 12].into_iter().collect();
+        let engine = |_: u32| Some(Member { parent: 10, engine_role: true });
+        assert_eq!(looking.engine_for(10, &with_engine, t0, engine), Some(Duration::ZERO));
+        let never = |_: u32| -> Option<Member> { panic!("the engine is not looked for once it runs") };
+        assert_eq!(looking.engine_for(10, &with_engine, t0 + QT_ENGINE_GRACE, never), Some(QT_ENGINE_GRACE));
     }
 
     /// The thread end to end, on a listener of this test's own process, which sits beside no Chromium
@@ -404,17 +746,20 @@ mod tests {
         assert!(asked(true), "the Qt port is asked, whoever holds it");
     }
 
-    /// The executable of this test sits beside no ICU data, so it is no engine. A pid nobody holds
-    /// cannot be asked where its executable is, and is then asked about its port rather than skipped.
+    /// The executable of this test sits beside no ICU data and has no Qt WebEngine, so it is no engine. A
+    /// pid nobody holds cannot be asked where its executable is, and is then asked about every port
+    /// rather than skipped.
     #[test]
     fn an_engine_is_told_by_the_file_beside_its_executable() {
-        assert!(!may_be_engine(std::process::id()));
-        assert!(may_be_engine(u32::MAX - 3), "a process that cannot be asked is not skipped");
+        assert_eq!(engine_sign_of(std::process::id()), EngineSign::None);
+        assert_eq!(engine_sign_of(u32::MAX - 3), EngineSign::Runtime, "a process that cannot be asked is not skipped");
+        assert!(!family_has_qt(&[std::process::id()].into_iter().collect()));
+        assert!(!family_has_qt(&[u32::MAX - 3].into_iter().collect()), "a list the system would not give is no evidence of Qt");
     }
 
-    /// A Qt WebEngine host has no ICU data beside its executable, and is an engine by the library it
+    /// A Qt WebEngine host has no ICU data beside its executable, and is a Qt engine by the library it
     /// loaded (R4/16 review round). The module list is asked only away from the runtime, and a list the
-    /// system would not give is a yes, like a path it would not give.
+    /// system would not give is a Qt process - its told port is asked - not "no engine".
     #[test]
     fn a_qt_engine_is_told_by_the_library_it_loaded() {
         use chrono_mech::ModuleProbe;
@@ -423,12 +768,12 @@ mod tests {
         let host = dir.join("host.exe");
         let not_asked = || -> ModuleProbe { panic!("the module list is not asked beside the runtime") };
 
-        assert!(!engine_signs(Some(host.clone()), || ModuleProbe::NotLoaded), "no runtime, no Qt: not an engine");
-        assert!(engine_signs(Some(host.clone()), || ModuleProbe::Loaded), "Qt WebEngine loaded");
-        assert!(engine_signs(Some(host.clone()), || ModuleProbe::Unknown), "a list the system would not give");
-        assert!(engine_signs(None, not_asked), "a path the system would not give");
+        assert_eq!(engine_sign(Some(host.clone()), || ModuleProbe::NotLoaded), EngineSign::None, "no runtime, no Qt");
+        assert_eq!(engine_sign(Some(host.clone()), || ModuleProbe::Loaded), EngineSign::Qt, "Qt WebEngine loaded");
+        assert_eq!(engine_sign(Some(host.clone()), || ModuleProbe::Unknown), EngineSign::Qt, "a list the system would not give");
+        assert_eq!(engine_sign(None, not_asked), EngineSign::Runtime, "a path the system would not give");
         std::fs::write(dir.join("icudtl.dat"), b"").expect("a marker file");
-        assert!(engine_signs(Some(host), not_asked), "beside the runtime");
+        assert_eq!(engine_sign(Some(host), not_asked), EngineSign::Runtime, "beside the runtime");
         let _ = std::fs::remove_dir_all(&dir);
         assert!(QT_WEBENGINE_LIBRARIES.contains(&"Qt6WebEngineCore.dll") && QT_WEBENGINE_LIBRARIES.contains(&"Qt5WebEngineCore.dll"));
     }

@@ -37,6 +37,9 @@ pub(crate) struct CdpContext {
     released: bool,
     /// How it answered the release, once it has.
     release_answer: Option<bool>,
+    /// What it showed for the zone after the session gave this machine's back: `getTimezoneOffset()` at
+    /// the two instants of the read ([`cdp::zone_read_expr`]), once it answered with two numbers.
+    zone_read: Option<[i32; 2]>,
 }
 
 impl CdpContext {
@@ -50,8 +53,80 @@ impl CdpContext {
             counting: false,
             released: false,
             release_answer: None,
+            zone_read: None,
         }
     }
+}
+
+/// Where a context let go of stands with its zone, judged from what it read after the session gave it
+/// this machine's zone back (ADR-21).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ZoneBack {
+    /// It no longer reads the session's zone.
+    Back,
+    /// It still reads the session's fixed offset at both instants, where this machine's zone has
+    /// another offset at one of them at least.
+    Kept,
+    /// It did not answer with two numbers, or it read the session's offset at both instants where this
+    /// machine's offsets are not known - nothing to vouch for it by.
+    Unanswered,
+}
+
+/// How the contexts let go of stand with their zone, counted by [`ZoneBack`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ZoneTally {
+    pub(crate) back: usize,
+    pub(crate) kept: usize,
+    pub(crate) unanswered: usize,
+}
+
+impl ZoneTally {
+    pub(crate) fn add(&mut self, other: ZoneTally) {
+        self.back += other.back;
+        self.kept += other.kept;
+        self.unanswered += other.unanswered;
+    }
+
+    /// Whether some context cannot be said to be back on this machine's zone.
+    pub(crate) fn any_not_back(&self) -> bool {
+        self.kept + self.unanswered > 0
+    }
+}
+
+/// Judge one context's zone after the release: `read` is what it showed at the two instants, `session`
+/// the session's fixed offset (the same at both), `machine` this machine's offsets at them.
+///
+/// Kept is the session's offset at BOTH instants where the machine has another at one of them: anything
+/// else means the session's zone has gone from the page. A reading that differs from the machine's too is
+/// still back - an engine with older zone rules than the system's (a bundled Chromium) shows other
+/// offsets for some zones with or without a session, and blaming the session for that would mislead. When
+/// the session's offset is the machine's at both instants, the two cannot be told apart, and the local
+/// times of this year are the same either way. Pure, so every case is tested without a page.
+pub(crate) fn zone_back(read: Option<[i32; 2]>, session: i32, machine: Option<[i32; 2]>) -> ZoneBack {
+    let on_session = [session, session];
+    match read {
+        None => ZoneBack::Unanswered,
+        Some(read) if read != on_session => ZoneBack::Back,
+        Some(_) => match machine {
+            Some(machine) if machine == on_session => ZoneBack::Back,
+            Some(_) => ZoneBack::Kept,
+            None => ZoneBack::Unanswered,
+        },
+    }
+}
+
+/// The two offsets a zone read answered, `None` for anything but two numbers a zone can have.
+fn read_offsets(reply: &Result<Value, ()>) -> Option<[i32; 2]> {
+    let values = reply.as_ref().ok()?["result"]["value"].as_array()?;
+    let [first, second] = values.as_slice() else {
+        return None;
+    };
+    let minutes = |v: &Value| {
+        v.as_f64()
+            .filter(|m| m.is_finite() && m.abs() <= 24.0 * 60.0)
+            .and_then(|m| i32::try_from(m.round() as i64).ok())
+    };
+    Some([minutes(first)?, minutes(second)?])
 }
 
 /// The new-document hooks of one page: the one that carries the clock now, and earlier ones whose
@@ -90,6 +165,11 @@ enum Asked {
     Unhook { session: String, script: String },
     Move { session: String },
     Release { session: String },
+    /// This machine's zone given back at the release. The answer proves nothing about what the context
+    /// reads, but once every one is in, every renderer process has taken the zone from its holder.
+    Zone { session: String },
+    /// What the context shows for the zone after that.
+    ZoneRead { session: String },
 }
 
 impl Asked {
@@ -99,7 +179,9 @@ impl Asked {
             | Asked::Hook { session, .. }
             | Asked::Unhook { session, .. }
             | Asked::Move { session, .. }
-            | Asked::Release { session } => session,
+            | Asked::Release { session }
+            | Asked::Zone { session }
+            | Asked::ZoneRead { session } => session,
         }
     }
 }
@@ -127,6 +209,9 @@ pub(crate) struct Requests {
     zone_missed: BTreeSet<u32>,
     /// The pages, by index, that were hidden at some point while their timers ran faster (R4-N28).
     hidden_fast: BTreeSet<u32>,
+    /// The zone read of the release ([`cdp::zone_read_expr`]), from the moment the zone is given back
+    /// until it is sent - when the last context answered the zone, or when the caller waits no longer.
+    zone_read: Option<String>,
 }
 
 impl Requests {
@@ -162,6 +247,65 @@ impl Requests {
         for ctx in &self.contexts {
             let _ = out.ask(SET_ZONE, json!({ "timezoneId": zone }), &ctx.session_id);
         }
+    }
+
+    /// Give every live context `zone` back at the release - this machine's zone by name, or an empty
+    /// string when the system names none - and ask each what it then shows with `read`. The read goes
+    /// once every context answered the zone (ADR-21): the override of a renderer process has one holder,
+    /// and a page read before its holder took the zone would show the session's and be judged kept. A
+    /// context the zone could not even be sent to is read all the same, and answers for itself.
+    pub(crate) fn give_zone_back(&mut self, zone: &str, read: &str, out: &mut impl Outbox) {
+        for ctx in &self.contexts {
+            if let Some(id) = out.ask(SET_ZONE, json!({ "timezoneId": zone }), &ctx.session_id) {
+                self.asked.insert(id, Asked::Zone { session: ctx.session_id.clone() });
+            }
+        }
+        self.zone_read = Some(read.to_string());
+        if self.zones_settled() {
+            self.read_zones_now(out);
+        }
+    }
+
+    /// Whether no zone given back is still waiting for its answer.
+    pub(crate) fn zones_settled(&self) -> bool {
+        !self.asked.values().any(|a| matches!(a, Asked::Zone { .. }))
+    }
+
+    /// Send the zone read of the release to every live context now, whether every zone was answered or
+    /// not - what the caller does once it can wait no longer. Once, and nothing before the zone was given.
+    pub(crate) fn read_zones_now(&mut self, out: &mut impl Outbox) {
+        let Some(read) = self.zone_read.take() else {
+            return;
+        };
+        for ctx in &self.contexts {
+            let params = json!({ "expression": read, "returnByValue": true });
+            if let Some(id) = out.ask(EVALUATE, params, &ctx.session_id) {
+                self.asked.insert(id, Asked::ZoneRead { session: ctx.session_id.clone() });
+            }
+        }
+    }
+
+    /// Whether the zone read of the release went out.
+    pub(crate) fn zone_reads_sent(&self) -> bool {
+        self.zone_read.is_none()
+    }
+
+    /// Whether the zone read went out and every context answered it.
+    pub(crate) fn zone_reads_settled(&self) -> bool {
+        self.zone_reads_sent() && !self.asked.values().any(|a| matches!(a, Asked::ZoneRead { .. }))
+    }
+
+    /// Where the live contexts stand with their zone after the release (see [`zone_back`]).
+    pub(crate) fn zone_tally(&self, session: i32, machine: Option<[i32; 2]>) -> ZoneTally {
+        let mut tally = ZoneTally::default();
+        for ctx in &self.contexts {
+            match zone_back(ctx.zone_read, session, machine) {
+                ZoneBack::Back => tally.back += 1,
+                ZoneBack::Kept => tally.kept += 1,
+                ZoneBack::Unanswered => tally.unanswered += 1,
+            }
+        }
+        tally
     }
 
     /// How many contexts read a zone other than the session's at some point.
@@ -345,6 +489,16 @@ impl Requests {
             Asked::Release { .. } => {
                 if let Some(i) = at {
                     self.contexts[i].release_answer = Some(confirmed(&reply));
+                }
+            }
+            Asked::Zone { .. } => {
+                if self.zones_settled() {
+                    self.read_zones_now(out);
+                }
+            }
+            Asked::ZoneRead { .. } => {
+                if let Some(i) = at {
+                    self.contexts[i].zone_read = read_offsets(&reply);
                 }
             }
         }
@@ -704,6 +858,111 @@ mod tests {
         r.on_reply(wire.ids(EVALUATE, "P")[1], answer(0), &mut wire);
         assert_eq!(r.hidden_fast(), 1, "shown again, it was still hidden before");
         assert_eq!(r.zone_missed(), 0, "the two facts are told apart");
+    }
+
+    /// ADR-21 at the release: the zone given back goes to every live context, and what each then shows is
+    /// read only once the LAST of them answered the zone - a page read before its renderer's holder took
+    /// the zone would show the session's and be judged kept. The answers are any answer: a context that is
+    /// not its process's holder answers with an error, and still counts.
+    #[test]
+    fn the_zone_read_goes_once_every_context_answered_the_zone_given_back() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        r.give_zone_back("Europe/Warsaw", "READ", &mut wire);
+        assert_eq!(wire.lines(0), vec![format!("{SET_ZONE} P"), format!("{SET_ZONE} W")]);
+        assert!(wire.sent.iter().all(|(.., params)| params["timezoneId"] == "Europe/Warsaw"));
+        assert!(!r.zones_settled() && !r.zone_reads_sent());
+
+        r.on_reply(wire.ids(SET_ZONE, "P")[0], Ok(json!({})), &mut wire);
+        assert!(wire.ids(EVALUATE, "P").is_empty(), "W has not answered the zone yet");
+        r.on_reply(wire.ids(SET_ZONE, "W")[0], Err(()), &mut wire);
+        assert_eq!(wire.lines(2), vec![format!("{EVALUATE} P"), format!("{EVALUATE} W")]);
+        assert!(wire.sent[2..].iter().all(|(.., params)| params["expression"] == "READ"));
+        assert!(r.zone_reads_sent() && !r.zone_reads_settled());
+
+        r.on_reply(wire.ids(EVALUATE, "P")[0], Ok(json!({ "result": { "value": [-60, -120] } })), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[0], Ok(json!({ "result": { "value": [-330, -330] } })), &mut wire);
+        assert!(r.zone_reads_settled());
+        assert_eq!(r.zone_tally(-330, Some([-60, -120])), ZoneTally { back: 1, kept: 1, unanswered: 0 });
+    }
+
+    /// A caller that waits no longer sends the read itself, once - a context whose zone answer never came
+    /// is read all the same and answers for itself. Nothing is read before the zone was given back, and a
+    /// read that could not be sent, or never answered, leaves its context unanswered.
+    #[test]
+    fn the_caller_sends_the_zone_read_when_it_waits_no_longer_and_only_once() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        r.read_zones_now(&mut wire);
+        assert!(wire.sent.is_empty(), "nothing to read before the zone was given back");
+
+        r.give_zone_back("", "READ", &mut wire);
+        assert!(wire.sent.iter().all(|(.., params)| params["timezoneId"] == ""), "no name: the override is taken away");
+        r.read_zones_now(&mut wire);
+        r.read_zones_now(&mut wire);
+        assert_eq!(wire.ids(EVALUATE, "P").len() + wire.ids(EVALUATE, "W").len(), 2, "once to each");
+        r.on_reply(wire.ids(SET_ZONE, "P")[0], Ok(json!({})), &mut wire);
+        r.on_reply(wire.ids(SET_ZONE, "W")[0], Ok(json!({})), &mut wire);
+        assert_eq!(wire.ids(EVALUATE, "P").len(), 1, "the late zone answers send nothing again");
+        r.on_reply(wire.ids(EVALUATE, "P")[0], Ok(json!({ "result": { "value": [0, 0] } })), &mut wire);
+        assert_eq!(r.zone_tally(-330, Some([0, 0])), ZoneTally { back: 1, kept: 0, unanswered: 1 }, "W never answered");
+        assert!(r.zone_tally(-330, Some([0, 0])).any_not_back(), "one that did not answer cannot be vouched for");
+        assert!(!ZoneTally { back: 3, kept: 0, unanswered: 0 }.any_not_back());
+
+        let mut gone = requests(vec![page("P", "h0")]);
+        let mut refused = Wire { refuse: true, ..Wire::default() };
+        gone.give_zone_back("Europe/Warsaw", "READ", &mut refused);
+        assert!(gone.zone_reads_settled(), "nothing in flight on a connection that is over");
+        assert_eq!(gone.zone_tally(-330, Some([-60, -120])).unanswered, 1);
+    }
+
+    /// The judgement of one context. Kept is the session's offset at both instants where the machine has
+    /// another at one of them. A reading that is neither the session's nor the machine's is back - an
+    /// engine with older zone rules shows it with or without a session. A machine on the session's
+    /// offset all year cannot be told apart and is back, and without the machine's offsets a session
+    /// reading cannot be vouched for.
+    #[test]
+    fn a_context_is_kept_only_on_the_sessions_offset_where_the_machine_has_another() {
+        let warsaw = Some([-60, -120]);
+        assert_eq!(zone_back(Some([-60, -120]), -330, warsaw), ZoneBack::Back);
+        assert_eq!(zone_back(Some([-330, -330]), -330, warsaw), ZoneBack::Kept);
+        assert_eq!(zone_back(Some([-120, -120]), -120, warsaw), ZoneBack::Kept, "summer's offset is not January's");
+        assert_eq!(zone_back(Some([-60, -60]), -120, warsaw), ZoneBack::Back, "older rules, not the session's");
+        assert_eq!(zone_back(Some([-330, -60]), -330, warsaw), ZoneBack::Back, "one instant off the session is enough");
+        assert_eq!(zone_back(Some([-540, -540]), -540, Some([-540, -540])), ZoneBack::Back, "cannot be told apart");
+        assert_eq!(zone_back(Some([-330, -330]), -330, None), ZoneBack::Unanswered);
+        assert_eq!(zone_back(Some([-60, -120]), -330, None), ZoneBack::Back);
+        assert_eq!(zone_back(None, -330, warsaw), ZoneBack::Unanswered);
+    }
+
+    /// Only two numbers a zone can have are a reading: fractions round to the minute, and anything else -
+    /// one number, text, `null`, an error, an offset over a day - is no reading at all.
+    #[test]
+    fn a_zone_read_is_two_offsets_or_nothing() {
+        let value = |v: Value| Ok(json!({ "result": { "value": v } }));
+        assert_eq!(read_offsets(&value(json!([-60, -120]))), Some([-60, -120]));
+        assert_eq!(read_offsets(&value(json!([-59.6, 330.2]))), Some([-60, 330]));
+        assert_eq!(read_offsets(&value(json!([-60]))), None);
+        assert_eq!(read_offsets(&value(json!([-60, -120, 0]))), None);
+        assert_eq!(read_offsets(&value(json!(["-60", -120]))), None);
+        assert_eq!(read_offsets(&value(json!([2000, 0]))), None);
+        assert_eq!(read_offsets(&value(Value::Null)), None);
+        assert_eq!(read_offsets(&Err(())), None);
+    }
+
+    /// A context that went away during the release takes its zone read with it: a closed page reads no
+    /// zone, and it is neither kept nor unanswered.
+    #[test]
+    fn a_context_that_went_away_is_not_judged_on_its_zone() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        r.give_zone_back("Europe/Warsaw", "READ", &mut wire);
+        assert!(r.forget("W", ""));
+        assert!(!r.zones_settled(), "P has not answered");
+        r.on_reply(wire.ids(SET_ZONE, "P")[0], Ok(json!({})), &mut wire);
+        assert_eq!(wire.ids(EVALUATE, "W").len(), 0, "nothing goes to a context that is gone");
+        r.on_reply(wire.ids(EVALUATE, "P")[0], Ok(json!({ "result": { "value": [-60, -120] } })), &mut wire);
+        assert_eq!(r.zone_tally(-330, Some([-60, -120])), ZoneTally { back: 1, kept: 0, unanswered: 0 });
     }
 
     /// The zone goes to every live context and nothing waits for it: its answer proves nothing, so it

@@ -81,6 +81,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     perfRead: 0,                    /* the real reading behind the last performance.now handed out */
     _realNow: _now,
     _realPerf: _perf,
+    _Date: _OrigDate,               /* the engine's own Date, for the zone read after the release */
     counts: { si: 0, st: 0, now: 0, date: 0, intl: 0, perf: 0 }
   };
   globalThis.__chronomock = S;
@@ -326,6 +327,18 @@ pub fn release_expr() -> String {
         1,
         1,
         None,
+    )
+}
+
+/// The expression that reads what a context shows for the zone after the release: `getTimezoneOffset()`
+/// at the two instants `at_ms` (Unix-epoch ms), as an array of two numbers, `null` when it could not.
+/// Through the engine's own `Date` the shim kept, so a page that replaced `Date` cannot answer for it -
+/// and through `Date` where there is no shim of this build. A date given as a number neither reads the
+/// session clock nor counts as a call (ADR-21).
+pub fn zone_read_expr(at_ms: [i64; 2]) -> String {
+    format!(
+        "(function(){{var S=globalThis.__chronomock,D=(S&&S._Date)||Date;try{{return [new D({}).getTimezoneOffset(),new D({}).getTimezoneOffset()];}}catch(e){{return null;}}}})()",
+        at_ms[0], at_ms[1]
     )
 }
 
@@ -652,6 +665,19 @@ mod tests {
         assert!(s.contains("Object.defineProperty(_OrigDate.prototype, 'constructor', { value: CMDate"));
         assert!(s.contains("if (d === undefined) { S.counts.intl++; d = fakeNow(); }"), "Intl formats the session's now");
         assert!(s.contains("perfBase: _perf ? _perf() : 0,"), "performance.now does not restart at 0");
+    }
+
+    /// The zone read of the release (ADR-21) goes through the engine's own `Date`, which the shim keeps,
+    /// so a page that replaced `Date` does not answer for the engine - and through `Date` where no shim
+    /// of this build is. It reads the two instants it is given and nothing else. The behaviour is checked
+    /// in Node (tools/probes/r4-14/shim-test.mjs) - this pins the source.
+    #[test]
+    fn the_zone_read_goes_through_the_engines_own_date() {
+        let s = build_shim(0, 0, 1, 1, None, 0, Some(-330));
+        assert!(s.contains("_Date: _OrigDate,"), "the shim keeps the engine's Date");
+        let read = zone_read_expr([1_768_478_400_000, 1_784_116_800_000]);
+        assert!(read.contains("D=(S&&S._Date)||Date;"), "{read}");
+        assert!(read.contains("[new D(1768478400000).getTimezoneOffset(),new D(1784116800000).getTimezoneOffset()]"), "{read}");
     }
 
     /// A context that refused auto-attach is counted only when it can start workers of its own: a

@@ -92,8 +92,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   which used to compare today's offsets and is now said only when a page read another zone). When a
   session ends and the application lives on, its pages are put back on this machine's own time zone,
   as the system names it, so a date on either side of daylight saving shows this machine's offset
-  again. When the system does not name it, the report says the pages keep the session's zone
-  (`embedded.zone_kept`).
+  again. Each page is then asked what it shows, because an engine that does not know the name keeps
+  the page where it was: a page that still shows the session's zone, or does not answer, is reported
+  (`embedded.zone_kept`) - also when the system names no zone, and only then.
 - **A console application's output goes to `chrono run`'s standard error.** The application writes
   its output and errors there, and reads the terminal's input when `chrono run` runs in a terminal
   with a window, or empty input otherwise, as in CI. Standard output carries the report and nothing
@@ -163,12 +164,20 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **The session sends far fewer HTTP requests to the application's own servers.** While looking
   for a web engine inside the application, the session asked every local port the application
   listened on whether it was a debugging endpoint - up to four HTTP requests to each, also to a server
-  that speaks another protocol and may take such a request badly. Only the port reserved for Qt
-  WebEngine and the processes that can be a Chromium engine are asked now - one beside the Chromium
-  runtime, or one with Qt WebEngine loaded. A process whose executable or libraries the system will
-  not name is still asked, so a web engine is not missed for that. A process that runs the engine
-  itself - Qt WebEngine, or an application built on CEF - still has every local port asked, so a
-  server inside it can still get the request.
+  that speaks another protocol and may take such a request badly. Only the port Qt WebEngine was told
+  to open and the processes that can be a Chromium engine are asked now. In a process with Qt
+  WebEngine loaded only the port its engine was told is asked, and its other ports only once its
+  engine runs without that port, because the application chose a port of its own. A process beside
+  the Chromium runtime - an application built on CEF among them - still has every local port asked,
+  so a server inside it can still get the request, and no process is asked again once its debugging
+  endpoint is found. A process whose executable the system will not name is still asked, so a web
+  engine is not missed for that.
+- **A session no longer says a Qt WebEngine port was taken in an application without Qt WebEngine.**
+  Every session sets a port aside for Qt WebEngine, and when another program on the machine started
+  listening on it, the report said the application's web pages could not be reached and ran on the
+  real clock (`embedded.qt_port_taken`), also for an application that has no web engine at all. It is
+  said now only when a process of the application has Qt WebEngine loaded, and about the port its
+  engine was actually told, which is the tester's own when they set one.
 - **A Chromium or Electron application started through a launcher no longer ends its session at
   once.** A target that starts the browser and exits - a script beside the application, or a
   Chromium browser started from its runtime folder, which hands over to a process of its own - ended
