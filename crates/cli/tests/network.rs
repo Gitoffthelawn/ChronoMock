@@ -146,6 +146,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          because a test can reach the network in CI as easily as the product can on a desktop",
     ),
     (
+        "crates/cli/src/cdp_discover.rs",
+        "socket",
+        "a unit test binds a loopback listener in its own process, to see the engine discovery leave \
+         the application's own server alone and still ask on the port reserved for Qt. Nothing \
+         connects past this machine, and the listener closes with the test",
+    ),
+    (
         "crates/cli/tests/listeners.rs",
         "socket",
         "binds a loopback listener on a port the system picks, so the mechanism's read of the          local TCP table can be seen to name this process and that port. Nothing connects to it          and it is closed before the test ends",

@@ -34,8 +34,13 @@ pub(crate) struct RunArgs {
     /// docs/09 section 12.19): the session writes one WebView2 value to the machine registry for its
     /// duration and removes it. Off by default and exclusive of `--no-embedded`.
     pub(super) elevated_embedded: bool,
+    /// Start the web engine with its slowdown of timers in hidden windows switched off
+    /// (`--keep-background-timers`, R4-N28) - the browser of a Chromium target and the engine inside an
+    /// application alike. Off by default: the application then also works at full pace while hidden.
+    pub(super) keep_background_timers: bool,
     /// How many `state` heartbeats to stream before ending. 0 = no cut: the session lasts until the
-    /// target, and whatever it started on the session clock, has exited (ADR-16).
+    /// target, and whatever it started on the session clock, has exited (ADR-16) - or, on the
+    /// Chromium path, until the browser closes its debugging connection (R4-S18).
     pub(super) ticks: u64,
     /// After the Nth state heartbeat, send set_multiplier M (in-flight speed change).
     pub(super) set_after: Option<(u64, i64)>,
@@ -134,6 +139,7 @@ pub(crate) fn target_spec_for(ra: &RunArgs) -> TargetSpec {
         cwd: ra.cwd.clone(),
         embedded: ra.embedded,
         elevated_embedded: ra.elevated_embedded,
+        keep_background_timers: ra.keep_background_timers,
         // The terminal `chrono run` was started from: its console for input, its stderr for output
         // (R4-D15). Named rather than left to the default, so the driver's choice is visible here.
         console: TargetConsole::Shared,
@@ -168,6 +174,28 @@ fn parse_set_after(raw: &str) -> Result<(u64, i64), String> {
         return Err(format!("--set-after multiplier must be <= {}, got '{raw}'", chrono_core::MULTIPLIER_MAX));
     }
     Ok((tick, mult))
+}
+
+/// The flags about the web engines a session reaches. A type of their own so `parse_run_args`, whose
+/// length is the workspace's ceiling, takes them in one line however many there are.
+#[derive(Debug, Clone, Copy)]
+struct EngineFlags {
+    embedded: bool,
+    elevated_embedded: bool,
+    keep_background_timers: bool,
+}
+
+impl EngineFlags {
+    /// Take `flag` if it is one of these, and say whether it was.
+    fn take(&mut self, flag: &str) -> bool {
+        match flag {
+            "--no-embedded" => self.embedded = false,
+            "--elevated-embedded" => self.elevated_embedded = true,
+            "--keep-background-timers" => self.keep_background_timers = true,
+            _ => return false,
+        }
+        true
+    }
 }
 
 /// The flags that cannot stand together, refused rather than resolved by picking one silently.
@@ -207,8 +235,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     let mut multiplier: Option<i64> = None;
     let mut scale_duration = false;
     let mut scale_qpc = false;
-    let mut embedded = true;
-    let mut elevated_embedded = false;
+    let mut engine = EngineFlags { embedded: true, elevated_embedded: false, keep_background_timers: false };
     let mut force = false;
     let mut dry_run = false;
     let mut ticks: u64 = 0;
@@ -279,18 +306,9 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
                 scale_duration = true;
                 saw_time_flag = true;
             }
-            "--force" => {
-                force = true;
-            }
-            "--no-embedded" => {
-                embedded = false;
-            }
-            "--elevated-embedded" => {
-                elevated_embedded = true;
-            }
-            "--dry-run" => {
-                dry_run = true;
-            }
+            "--force" => force = true,
+            flag if engine.take(flag) => {}
+            "--dry-run" => dry_run = true,
             "--scale-qpc" => {
                 // ADR-2 reversal, opt-in. NOT a preset-exclusive time flag: a preset carries its own
                 // scale_duration but never scale_qpc, so --scale-qpc is the only source and composes with
@@ -343,7 +361,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         i += 1;
     }
 
-    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), embedded, elevated_embedded)?;
+    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), engine.embedded, engine.elevated_embedded)?;
 
     Ok(RunArgs {
         target: target.ok_or("missing <target>")?,
@@ -356,8 +374,9 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         scale_duration,
         scale_qpc,
         force,
-        embedded,
-        elevated_embedded,
+        embedded: engine.embedded,
+        elevated_embedded: engine.elevated_embedded,
+        keep_background_timers: engine.keep_background_timers,
         dry_run,
         ticks,
         timeout_secs,
@@ -443,6 +462,18 @@ mod tests {
         let off = parse_run_args(&["app.exe".into(), "--no-embedded".into()]).unwrap();
         assert!(!off.embedded);
         assert!(!target_spec_for(&off).embedded, "the opt-out has to reach the wire");
+    }
+
+    /// The engine switches that change how the application behaves while hidden are off unless asked
+    /// for, and the request reaches the wire (R4-N28).
+    #[test]
+    fn keep_background_timers_is_opt_in_and_reaches_the_wire() {
+        let bare = parse_run_args(&["app.exe".into()]).unwrap();
+        assert!(!bare.keep_background_timers);
+        assert!(!target_spec_for(&bare).keep_background_timers);
+        let on = parse_run_args(&["app.exe".into(), "--keep-background-timers".into()]).unwrap();
+        assert!(target_spec_for(&on).keep_background_timers, "the opt-in has to reach the wire");
+        assert!(target_spec_for(&on).embedded, "and it does not turn the pages off");
     }
 
     /// The option that writes the machine registry is off unless asked for, says so on the wire, and

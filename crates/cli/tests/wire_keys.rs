@@ -78,8 +78,9 @@ fn is_key_shaped(s: &str) -> bool {
         return false;
     }
     // File names share the shape. The list is short, explicit and only ever grows when a new kind of
-    // file name shows up in the sources (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin).
-    const FILE_SUFFIXES: [&str; 7] = [".dat", ".bin", ".exe", ".dll", ".json", ".js", ".now"];
+    // file name shows up in the sources (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, and an
+    // Electron application's app.asar).
+    const FILE_SUFFIXES: [&str; 8] = [".dat", ".bin", ".exe", ".dll", ".json", ".js", ".now", ".asar"];
     !FILE_SUFFIXES.iter().any(|suffix| s.ends_with(suffix))
 }
 
@@ -166,9 +167,16 @@ fn keys_in_line(line: &str) -> Vec<String> {
 }
 
 /// The functions in `report.rs` that turn a key into prose for the CLI report. A key the core emits
-/// must have an arm in one of them, or the report prints it raw.
-const GLOSSING_FUNCTIONS: [&str; 5] =
-    ["describe_reason", "describe_error", "describe_warning", "describe_residue", "vanish_cause"];
+/// must have an arm in one of them, or the report prints it raw. `describe_chromium_warning` holds the
+/// `chromium.*` keys `describe_warning` hands it (R4/16, split for the length ceiling).
+const GLOSSING_FUNCTIONS: [&str; 6] = [
+    "describe_reason",
+    "describe_error",
+    "describe_warning",
+    "describe_chromium_warning",
+    "describe_residue",
+    "vanish_cause",
+];
 
 /// The bodies of [`GLOSSING_FUNCTIONS`], comment lines dropped so a key MENTIONED in a comment is not
 /// taken for an arm.

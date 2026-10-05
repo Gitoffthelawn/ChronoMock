@@ -455,8 +455,9 @@ pub(crate) fn run_session(
     let mut ledger = SessionLedger::new(verdict);
     ledger.poll(&mut session);
     // The bridge to the pages inside the application (docs/09 section 12): looks for an engine's
-    // debugging port in the family from here on, inert when the channel is off.
-    let mut bridge = EmbeddedBridge::start(launch, ledger.family(session.pid), scale_duration);
+    // debugging port in the family from here on, inert when the channel is off. Its pages go on the
+    // session's zone, the one the hook hands the rest of the application.
+    let mut bridge = EmbeddedBridge::start(launch, ledger.family(session.pid), scale_duration, session.state().tz_bias);
 
     let heartbeat = Duration::from_secs(1);
     // Children are polled faster than the heartbeat. A child publishes its evidence in a section
@@ -862,7 +863,6 @@ pub(crate) fn close_session(
             emit(&event);
         }
     }
-    let zone_differs = session.state().tz_bias != chrono_mech::host_tz_bias_min();
     // Rate 1 before the core leaves, after everything `ended` reports has been read. Each process of
     // the family freezes its duration axes when its hook sees the core gone (`release_duration_axes`),
     // and at rate 1 every one of them freezes on the same line whenever its watcher happens to wake -
@@ -882,7 +882,7 @@ pub(crate) fn close_session(
     let mut children_warnings = uncovered_children_warnings(&uncovered_children, uncovered_children_total);
     reconcile_engine_warnings(&mut children_warnings, pages.pages_reached());
     session_warnings.extend(children_warnings);
-    session_warnings.extend(pages.session_warnings(zone_differs));
+    session_warnings.extend(pages.session_warnings());
     place_policy_keys(&mut session_warnings, policy_keys);
     if !followed.is_empty() {
         session_warnings.push(KEY_FOLLOWED_FAMILY.to_string());
@@ -1314,6 +1314,7 @@ mod tests {
                 cwd: cwd.map(str::to_string),
                 embedded: true,
                 elevated_embedded: false,
+                keep_background_timers: false,
                 console: Default::default(),
             },
             time: TimeSpec {

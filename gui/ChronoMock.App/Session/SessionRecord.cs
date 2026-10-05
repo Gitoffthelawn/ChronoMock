@@ -66,6 +66,10 @@ public sealed record SessionRecord
     /// before this field existed reads as off, which is what it did.</summary>
     [JsonPropertyName("elevated_embedded")] public bool ElevatedEmbedded { get; init; }
 
+    /// <summary>Whether the session started the web engine with its slowdown of timers in hidden windows
+    /// switched off (R4-N28). A record from before this field existed reads as off, which is what it did.</summary>
+    [JsonPropertyName("keep_background_timers")] public bool KeepBackgroundTimers { get; init; }
+
     /// <summary>Whether every text this record promises is there. <c>required</c> only says a key was
     /// present, and an explicit JSON <c>null</c> satisfies it - so a hand-edited or damaged row could carry a
     /// null that failed only where it was read (R4-N47).</summary>

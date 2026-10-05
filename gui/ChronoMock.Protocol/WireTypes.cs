@@ -21,6 +21,13 @@ public sealed record TargetSpec
     /// Written out rather than left to the core's default, like <see cref="Embedded"/>.</summary>
     [JsonPropertyName("elevated_embedded")] public bool ElevatedEmbedded { get; init; }
 
+    /// <summary>Start the web engine with its slowdown of timers in hidden windows switched off (R4-N28):
+    /// a Chromium engine runs the timers of a minimized or hidden window about once a second, which takes
+    /// the speed-up away from them. The browser of a Chromium target and the engine inside an application
+    /// alike. OFF by default, because the application then also works at full pace while hidden. Written
+    /// out rather than left to the core's default, like <see cref="Embedded"/>.</summary>
+    [JsonPropertyName("keep_background_timers")] public bool KeepBackgroundTimers { get; init; }
+
     /// <summary>Where a console program's console is (mirrors <c>chrono_proto::TargetConsole</c>, docs/08,
     /// ADR-17): <see cref="SharedConsole"/> gives it the core's console and stderr, <see cref="NewConsole"/>
     /// a console window of its own. Neither hands it the core's stdin or stdout, which carry this protocol.

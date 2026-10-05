@@ -8,6 +8,25 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **Timers keep the session speed in a hidden window, when asked.** A Chromium engine runs the timers
+  of a minimized or hidden window about once a second, so with time sped up a hidden window lost the
+  speed-up - measured at x60, a page's timer ran about 16 times in 15 seconds once its window was
+  minimized, against 938 times with the slowdown switched off. `chrono run --keep-background-timers`
+  and the option "Keep timers at speed in hidden windows" in the window start the web engine with
+  that slowdown switched off: the browser of a Chromium or Electron application, and the engine
+  inside an application (WebView2 and Qt WebEngine, through their own variables). Off by default,
+  because the application then also works at full pace while it is hidden. Without it, a page that
+  was hidden while time ran faster is reported (`chromium.background_timers_slowed`) - also for an
+  application that switched the slowdown off itself, which the session cannot tell, so the report
+  says the timers may have run slower. An application started as administrator through
+  `--elevated-embedded` does not get the switches, and its hidden pages are reported the same way.
+  The wire carries the option as `start.target.keep_background_timers`, and `--dry-run --json` as
+  `session.keep_background_timers`.
+- **A caution for the part of an Electron application outside its windows.** Its windows run on the
+  session clock, but its main process runs JavaScript in Node, which the session does not reach, and
+  reads the real date and time. The report now says so for every Electron application
+  (`chromium.main_process_uncovered`). The verdict still speaks of the pages the audit sees.
+
 - **The .NET timing caution now reaches .NET applications that leave no runtime files beside
   them.** An application published as NativeAOT or as a single file (self-contained or not), a
   .NET Framework application, whose runtime lives in the Windows directory, and one started as
@@ -63,6 +82,18 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **The pages of a Chromium or Electron application, and the web pages inside an application, read
+  the session's time zone.** They read this machine's zone before, so a local time they showed could
+  be an hour or more away from the session's - also when the session ran in this machine's own zone,
+  because the session's zone is a fixed offset and the machine's moves with daylight saving: a January
+  date showed an hour off in summer, and nothing said so. Each page and worker is now put on the
+  session's offset through the engine's own zone override, and checks the offset it reads. A page that
+  read another zone at some point is reported (`chromium.zone_is_host`, and `embedded.zone_is_host`,
+  which used to compare today's offsets and is now said only when a page read another zone). When a
+  session ends and the application lives on, its pages are put back on this machine's own time zone,
+  as the system names it, so a date on either side of daylight saving shows this machine's offset
+  again. When the system does not name it, the report says the pages keep the session's zone
+  (`embedded.zone_kept`).
 - **A console application's output goes to `chrono run`'s standard error.** The application writes
   its output and errors there, and reads the terminal's input when `chrono run` runs in a terminal
   with a window, or empty input otherwise, as in CI. Standard output carries the report and nothing
@@ -129,6 +160,23 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The session sends far fewer HTTP requests to the application's own servers.** While looking
+  for a web engine inside the application, the session asked every local port the application
+  listened on whether it was a debugging endpoint - up to four HTTP requests to each, also to a server
+  that speaks another protocol and may take such a request badly. Only the port reserved for Qt
+  WebEngine and the processes that can be a Chromium engine are asked now - one beside the Chromium
+  runtime, or one with Qt WebEngine loaded. A process whose executable or libraries the system will
+  not name is still asked, so a web engine is not missed for that. A process that runs the engine
+  itself - Qt WebEngine, or an application built on CEF - still has every local port asked, so a
+  server inside it can still get the request.
+- **A Chromium or Electron application started through a launcher no longer ends its session at
+  once.** A target that starts the browser and exits - a script beside the application, or a
+  Chromium browser started from its runtime folder, which hands over to a process of its own - ended
+  the session within a second, with no verdict, and the session's cleanup closed the browser it had
+  handed the application to. The session now lasts as long as the browser's debugging connection,
+  and the report says that the target handed the application over and names the program the session
+  went on with (`chromium.followed_browser`, `session_verdict.followed`). `--dry-run` says how a
+  Chromium session ends instead of promising the rule of the native mechanism.
 - **Closing the window during a session no longer freezes it for three seconds, and the session is
   recorded.** The window waited for the session to end on the same thread the end needed, so every
   close during a session took three seconds and the application quit before the session reached the
@@ -154,10 +202,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   session. It now waits briefly and, if the file stays locked, says the session was not recorded. A
   history file with an empty entry (`"sessions": null`, a `null` row, a row with a text set to
   `null`) made the window fail at start or later, and is now treated like a history this version
-  cannot read: an empty list, and the file moved aside rather than written over. Removing a row or
-  clearing the history no longer runs on the window's thread, and no longer drops a session another
-  instance recorded at the same moment. Two instances started together no longer keep their history
-  in two different folders, and their diagnostics files no longer overwrite each other.
+  cannot read: an empty list, and the file moved aside rather than written over. Clearing the history
+  moves such a file aside as well, rather than deleting sessions the window never showed. Removing a
+  row or clearing the history no longer runs on the window's thread, and no longer drops a session
+  another instance recorded at the same moment. Two instances started together no longer keep their
+  history in two different folders, and their diagnostics files no longer overwrite each other.
 - **One preset file the current user may not read no longer hides the presets listed after it.**
 - **The About window lists the components even when the core writes a lot of diagnostics.** A core
   that wrote more than a few kilobytes of diagnostics stalled until the window gave up and said the

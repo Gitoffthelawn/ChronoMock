@@ -22,6 +22,18 @@ pub fn is_chromium_target(target: &str) -> bool {
     has_icu && has_snapshot
 }
 
+/// Whether a Chromium target is an Electron application: its `resources` folder holds the packed app
+/// (`app.asar`), the unpacked one (`app`), or Electron's own default app (`default_app.asar`, the bare
+/// runtime). Its main process then runs JavaScript in Node, outside every page the session reaches, on
+/// the real clock (R4-S19) - the report says so.
+pub fn is_electron_target(target: &str) -> bool {
+    let Some(dir) = Path::new(target).parent() else {
+        return false;
+    };
+    let resources = dir.join("resources");
+    resources.join("app.asar").exists() || resources.join("app").is_dir() || resources.join("default_app.asar").exists()
+}
+
 /// A Chromium target we launched: an isolated profile and a debug port, both owned by us. The child
 /// is terminated and the temp profile removed on [`shutdown`], since (unlike a native target) this is
 /// our own instance, not the user's running app.
@@ -39,10 +51,17 @@ pub struct LaunchedChromium {
 }
 
 impl LaunchedChromium {
-    /// Whether the launched instance is still running. Reaps it if it has exited (so a later shutdown
-    /// is a clean no-op). Lets the driver end the session when the user closes the app.
+    /// Whether the process the session launched is still running. It does not end the session: a
+    /// launcher that hands the application over to another process and exits leaves the browser it
+    /// started running, and that browser holds the debugging connection the session lives on (R4-S18).
+    /// The session ends when that connection closes.
     pub fn is_running(&mut self) -> bool {
         self.child.is_alive()
+    }
+
+    /// The pid of the process the session launched - the target itself, which may be a launcher.
+    pub fn pid(&self) -> u32 {
+        self.child.pid
     }
 
     /// Terminate the launched instance and remove its temp profile. Best-effort: a QA tool must not
@@ -122,6 +141,24 @@ impl Drop for LaunchedChromium {
 /// How long the cleanup waits for the browser to end once its job has been told to end it, in real
 /// milliseconds. The profile can only be removed once the processes holding it are gone.
 const PROCESS_END_WAIT_MS: u32 = 2_000;
+
+/// The switches that stop a Chromium engine slowing the timers of a minimized, hidden or covered
+/// window (R4-N28). Measured on Chromium 154 without Chrono Mock: a 16 ms timer in a minimized window
+/// ran 11 to 15 times in ten seconds without them and 625 times with them - as often as in a visible
+/// one. One list for the browser of a Chromium target and the engines inside an application.
+pub const BACKGROUND_TIMER_SWITCHES: [&str; 3] = [
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+];
+
+/// The tester's own arguments for the browser, with [`BACKGROUND_TIMER_SWITCHES`] ahead of them when the
+/// session keeps timers at speed in hidden windows. Ahead, so a switch of the tester's own on the same
+/// subject comes later and is the one Chromium keeps.
+pub fn with_background_timers(args: &[String], keep: bool) -> Vec<String> {
+    let switches = BACKGROUND_TIMER_SWITCHES.iter().filter(|_| keep).map(|s| (*s).to_string());
+    switches.chain(args.iter().cloned()).collect()
+}
 
 /// The arguments the browser starts with: the isolated profile and a debug port Chromium picks
 /// itself, ahead of the user's own. Separated from [`launch_chromium`] so they can be checked without
@@ -437,6 +474,41 @@ mod tests {
         let target = chromium_target("app.exe", &arguments, Some("C:/work"));
         assert_eq!(target.args, ["--user-data-dir=C:/temp/profile", "--remote-debugging-port=0", "--mine"]);
         assert_eq!(target.stdio, TargetStdio::Discarded, "the browser's output went somewhere it was not before");
+    }
+
+    /// An Electron application is told by its `resources` folder, in any of the three shapes it ships in.
+    /// A Chromium runtime folder with no app in it is not one.
+    #[test]
+    fn an_electron_application_is_told_by_its_resources_folder() {
+        let root = std::env::temp_dir().join(format!("chrono-electron-{}", std::process::id()));
+        let exe = |dir: &std::path::Path| dir.join("app.exe").display().to_string();
+        for (shape, make) in [("asar", "app.asar"), ("unpacked", "app"), ("default", "default_app.asar")] {
+            let dir = root.join(shape);
+            std::fs::create_dir_all(dir.join("resources")).expect("resources");
+            if make == "app" {
+                std::fs::create_dir_all(dir.join("resources").join("app")).expect("unpacked app");
+            } else {
+                std::fs::write(dir.join("resources").join(make), b"").expect("archive");
+            }
+            assert!(is_electron_target(&exe(&dir)), "{shape}");
+        }
+        let chromium = root.join("chromium");
+        std::fs::create_dir_all(chromium.join("resources")).expect("resources");
+        std::fs::write(chromium.join("resources").join("app.asar.txt"), b"").expect("a file of another name");
+        assert!(!is_electron_target(&exe(&chromium)));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The switches that keep timers at speed in hidden windows go to the browser only when asked for,
+    /// all three, ahead of the tester's own arguments (R4-N28).
+    #[test]
+    fn the_background_timer_switches_go_only_when_asked_for() {
+        let mine = ["--mine".to_string()];
+        assert_eq!(with_background_timers(&mine, false), mine);
+        let kept = with_background_timers(&mine, true);
+        assert_eq!(kept.len(), 4);
+        assert_eq!(kept[..3], BACKGROUND_TIMER_SWITCHES.map(str::to_string));
+        assert_eq!(kept[3], "--mine");
     }
 
     /// Cleanup runs once. A second run is not merely wasted work: `shutdown_with_residue` may have

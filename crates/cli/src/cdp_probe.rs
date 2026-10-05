@@ -155,7 +155,7 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
 
     // Pure acceleration for the proof: fake start = real start (the absolute wall moment is C5).
     let now = now_epoch_ms();
-    let shim = cdp::build_shim(now, now, mult, mult, None, WALL_MAX_MS);
+    let shim = cdp::build_shim(now, now, mult, mult, None, WALL_MAX_MS, None);
     outln!("multiplier: x{mult}, injecting shim into all contexts...");
 
     if let Err(e) = client.call(
@@ -181,9 +181,9 @@ pub(crate) fn cdp_shim_probe(argv: &[String]) -> i32 {
                     continue;
                 }
                 let r = if cdp::is_worker(&ty) {
-                    cdp::inject_worker(&mut client, &sid, &shim, inject_by())
+                    cdp::inject_worker(&mut client, &sid, &shim, None, inject_by())
                 } else {
-                    cdp::inject_page(&mut client, &sid, &shim, inject_by())
+                    cdp::inject_page(&mut client, &sid, &shim, None, inject_by())
                 };
                 match r {
                     Ok(_) => outln!("{}", probe_target_line("shimmed", &ty, &url)),
@@ -267,7 +267,7 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
         diag!("chrono: not a moment a session can run at: {iso}");
         return 1;
     };
-    let shim = cdp::build_shim(fake, real, 1, 1, None, WALL_MAX_MS); // flow: a wall offset, no acceleration
+    let shim = cdp::build_shim(fake, real, 1, 1, None, WALL_MAX_MS, None); // flow: a wall offset, no acceleration
 
     let launched = match cdp::launch_chromium(target, &[], None, || {}) {
         Ok(l) => l,
@@ -299,7 +299,7 @@ pub(crate) fn cdp_date_probe(argv: &[String]) -> i32 {
             Ok(Some(cdp::Msg::Event { method, params, .. })) if method == "Target.attachedToTarget" => {
                 let sid = params["sessionId"].as_str().unwrap_or("").to_string();
                 let ty = params["targetInfo"]["type"].as_str().unwrap_or("").to_string();
-                if ty == "page" && !sid.is_empty() && cdp::inject_page(&mut client, &sid, &shim, inject_by()).is_ok() {
+                if ty == "page" && !sid.is_empty() && cdp::inject_page(&mut client, &sid, &shim, None, inject_by()).is_ok() {
                     page_sid = Some(sid);
                 }
             }

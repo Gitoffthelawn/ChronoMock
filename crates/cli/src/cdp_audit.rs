@@ -79,42 +79,104 @@ pub(crate) fn verdict_keys(verdict: &Verdict) -> (&'static str, &'static str) {
     }
 }
 
+/// The target ended after handing the application over to another process, and the session went on
+/// with the browser that process runs instead of ending with the target (R4-S18). Its own key rather
+/// than the native `session.followed_family`: a session on this path is held by its debugging
+/// connection alone, so the native text's warning about a helper keeping the session open is not true
+/// here.
+pub(crate) const KEY_FOLLOWED_BROWSER: &str = "chromium.followed_browser";
+
+/// A page or worker read a zone other than the session's at some point: the engine's zone override did
+/// not reach it, or its renderer process lost the override with the page that held it (R4/16). Its
+/// clock was the session's, its local time was not.
+pub(crate) const KEY_ZONE_IS_HOST: &str = "chromium.zone_is_host";
+
+/// A page was hidden while its timers ran faster, and its engine was not started with its slowdown of
+/// hidden windows switched off: it runs a hidden window's timers about once a second, so they may have
+/// run slower than the session speed (R4-N28). Said of a Chromium session and of the pages of an
+/// embedded engine alike.
+pub(crate) const KEY_BACKGROUND_TIMERS_SLOWED: &str = "chromium.background_timers_slowed";
+
+/// The target is an Electron application: its windows are on the session clock, and its main process,
+/// which runs JavaScript in Node outside every page, reads the real clock (R4-S19, R4-D4: said, not yet
+/// reached).
+pub(crate) const KEY_MAIN_PROCESS_UNCOVERED: &str = "chromium.main_process_uncovered";
+
+/// What a finished CDP session observed about itself, each fact under its name. Named fields rather
+/// than a row of booleans, because a call site with seven `true`/`false` in a row cannot be read and
+/// two of them swapped still compiles.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct SessionFacts {
+    /// The connection closed, i.e. the application exited, before the session ended it.
+    pub(crate) app_closed: bool,
+    /// At least one context answered with its call counts.
+    pub(crate) audited: bool,
+    /// The rate changed while the session ran.
+    pub(crate) rate_changed_in_flight: bool,
+    /// A context took a clock move late or not at all.
+    pub(crate) clock_moves_missed: bool,
+    /// Contexts were refused past the ceiling.
+    pub(crate) context_ceiling_reached: bool,
+    /// The fake wall reached the end of its range and stood there.
+    pub(crate) clock_clamped: bool,
+    /// The target ended and the session went on with the browser it handed the application to.
+    pub(crate) followed_browser: bool,
+    /// A context read a zone other than the session's at some point.
+    pub(crate) zone_missed: bool,
+    /// A page was hidden while its timers ran faster, and the browser was not started with its slowdown
+    /// of hidden windows switched off.
+    pub(crate) background_timers_slowed: bool,
+    /// The target is an Electron application, whose main process the session does not reach.
+    pub(crate) main_process_uncovered: bool,
+}
+
 /// What a finished CDP session has to say about itself beyond the coverage numbers.
 ///
 /// The launch is invasive by construction (our own profile, a debug port), so that one is always
 /// said. The others are honest caveats rather than failures, and each would be invisible to the
 /// reader if it were left out (rule 6).
-pub(crate) fn session_warnings(
-    app_closed: bool,
-    audited: bool,
-    rate_changed_in_flight: bool,
-    clock_moves_missed: bool,
-    context_ceiling_reached: bool,
-    clock_clamped: bool,
-) -> Vec<String> {
+pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
     let mut warnings = vec!["chromium.launched_with_debug_port".to_string()];
-    if app_closed && !audited {
+    if facts.followed_browser {
+        // Said next to the launch, because it explains the shape of the whole session: the program
+        // the tester named ended, and the session did not (R4-S18).
+        warnings.push(KEY_FOLLOWED_BROWSER.to_string());
+    }
+    if facts.main_process_uncovered {
+        // The verdict speaks of the pages, which are what the audit sees. This says which part of the
+        // application it does not (R4-D4: works, with the warning).
+        warnings.push(KEY_MAIN_PROCESS_UNCOVERED.to_string());
+    }
+    if facts.app_closed && !facts.audited {
         warnings.push("chromium.app_closed_before_audit".to_string());
     }
-    if rate_changed_in_flight {
+    if facts.rate_changed_in_flight {
         // Honest caveat: a rate change reaches Date.now/new Date/performance.now and every NEW timer at
         // once, but a setInterval already scheduled at the old rate keeps its old cadence - the JS engine
         // had already queued it (rule 4). The native hook has no equivalent gap (it divides Ctl live).
         warnings.push("chromium.rate_change_affects_running_timers".to_string());
     }
-    if clock_moves_missed {
+    if facts.background_timers_slowed {
+        warnings.push(KEY_BACKGROUND_TIMERS_SLOWED.to_string());
+    }
+    if facts.clock_moves_missed {
         // A context took a rate change or a jump late, or not at all, or did not take the new
         // new-document hook: it runs apart from the panel until the next jump, and a reload may bring
         // back an older clock (R4-S17, R4-W5).
         warnings.push(KEY_CLOCK_MOVE_MISSED.to_string());
     }
-    if context_ceiling_reached {
+    if facts.context_ceiling_reached {
         // The attacher shims at most MAX_CONTEXTS contexts in one session. The ones past that ran on
         // the real clock and have no row in the audit - the verdict already counts them as uncovered,
         // and this says why (rule 4).
         warnings.push("chromium.context_ceiling_reached".to_string());
     }
-    if clock_clamped {
+    if facts.zone_missed {
+        // The shim in a context read an offset other than the session's (rule 4: the zone is said to
+        // be the session's only where it was read to be).
+        warnings.push(KEY_ZONE_IS_HOST.to_string());
+    }
+    if facts.clock_clamped {
         // The same key the native session uses (R4-S8): the wall reached the last instant it can hold
         // and stood there, so later readings are not what the chosen speed would have produced.
         warnings.push("time.fake_clock_clamped".to_string());
@@ -340,25 +402,27 @@ mod tests {
     /// anything could be audited says so, a rate changed in flight says so, because a running
     /// setInterval keeps its old cadence, and a session that refused contexts past its ceiling says
     /// so, because those ran on the real clock with no row in the audit (rule 4). A page that took a
-    /// clock move late or not at all says so too, because its clock stands apart from the panel's.
+    /// clock move late or not at all says so too, because its clock stands apart from the panel's, and
+    /// a session that outlived the program the tester named says why.
     #[test]
     fn the_session_warnings_say_only_what_happened() {
-        assert_eq!(session_warnings(false, true, false, false, false, false), vec!["chromium.launched_with_debug_port"]);
+        let audited = SessionFacts { audited: true, ..SessionFacts::default() };
+        assert_eq!(session_warnings(&audited), vec!["chromium.launched_with_debug_port"]);
         assert_eq!(
-            session_warnings(true, false, false, false, false, false),
+            session_warnings(&SessionFacts { app_closed: true, ..SessionFacts::default() }),
             vec!["chromium.launched_with_debug_port", "chromium.app_closed_before_audit"]
         );
         assert_eq!(
-            session_warnings(false, true, false, false, true, false),
+            session_warnings(&SessionFacts { context_ceiling_reached: true, ..audited }),
             vec!["chromium.launched_with_debug_port", "chromium.context_ceiling_reached"]
         );
         assert_eq!(
-            session_warnings(true, true, true, false, false, false),
+            session_warnings(&SessionFacts { app_closed: true, rate_changed_in_flight: true, ..audited }),
             vec!["chromium.launched_with_debug_port", "chromium.rate_change_affects_running_timers"],
             "an app that closed AFTER being audited has nothing to apologise for"
         );
         assert_eq!(
-            session_warnings(false, true, true, true, false, false),
+            session_warnings(&SessionFacts { rate_changed_in_flight: true, clock_moves_missed: true, ..audited }),
             vec![
                 "chromium.launched_with_debug_port",
                 "chromium.rate_change_affects_running_timers",
@@ -367,9 +431,29 @@ mod tests {
             "a page that took a clock move late or not at all says so (R4-S17)"
         );
         assert_eq!(
-            session_warnings(false, true, false, false, false, true),
+            session_warnings(&SessionFacts { clock_clamped: true, ..audited }),
             vec!["chromium.launched_with_debug_port", "time.fake_clock_clamped"],
             "a clock that stood at the end of its range says so, as it does natively (R4-S8)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { followed_browser: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_FOLLOWED_BROWSER],
+            "a session that went on after its target handed the application over says so (R4-S18)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { main_process_uncovered: true, followed_browser: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_FOLLOWED_BROWSER, KEY_MAIN_PROCESS_UNCOVERED],
+            "an Electron application's main process is said to read the real clock (R4-S19)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { background_timers_slowed: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_BACKGROUND_TIMERS_SLOWED],
+            "a page hidden while its timers ran faster says so (R4-N28)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { zone_missed: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_ZONE_IS_HOST],
+            "a context that read another zone says so"
         );
     }
 }

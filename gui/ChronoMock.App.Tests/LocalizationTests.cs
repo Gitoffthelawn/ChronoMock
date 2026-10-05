@@ -56,7 +56,7 @@ public class LocalizationTests
         // The embedded-engine channel (docs/09 section 12): the pages inside the application.
         "embedded.web_engine_reached", "embedded.debug_port_open", "embedded.engine_unreachable",
         "embedded.discovery_unavailable", "embedded.qt_port_taken", "embedded.zone_is_host",
-        "embedded.registry_arguments_hidden", "embedded.pages_not_released",
+        "embedded.registry_arguments_hidden", "embedded.pages_not_released", "embedded.zone_kept",
         "embedded.webview2_not_reached", "embedded.elevated_host",
         // The one WebView2 value a session may write to the machine registry for an application that runs
         // as administrator (docs/09 section 12.19), and what became of it.
@@ -71,6 +71,12 @@ public class LocalizationTests
         "chromium.rate_change_affects_running_timers", "chromium.context_ceiling_reached",
         // A page that took a speed change or a jump late or not at all (R4-S17).
         "chromium.clock_move_missed",
+        // The target handed the application over to another program and the session went on with it
+        // (R4-S18), and a page that read another zone than the session's (R4/16).
+        "chromium.followed_browser", "chromium.zone_is_host",
+        // A page hidden while its timers ran faster (R4-N28), and an Electron application's main process
+        // on the real clock (R4-S19).
+        "chromium.background_timers_slowed", "chromium.main_process_uncovered",
         // Runtime detection warnings the driver appends to coverage (B1): a Python/.NET/Java target whose
         // monotonic/elapsed clock stands on QPC and does not scale.
         // Not a QPC-axis caution like the four below: a clock that is out of reach entirely.

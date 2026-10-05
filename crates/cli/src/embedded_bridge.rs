@@ -26,7 +26,7 @@ use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, Pumped, ShimOrigin};
-use crate::cdp_audit::KEY_CLOCK_MOVE_MISSED;
+use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED};
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::engine_env;
@@ -60,13 +60,17 @@ pub(crate) const KEY_ENGINE_UNREACHABLE: &str = "embedded.engine_unreachable";
 pub(crate) const KEY_DISCOVERY_UNAVAILABLE: &str = "embedded.discovery_unavailable";
 /// The port reserved for a Qt engine was held by something else when the engine would have bound it.
 pub(crate) const KEY_QT_PORT_TAKEN: &str = "embedded.qt_port_taken";
-/// The pages read the host machine's time zone, not the session's (ADR-8) - said when they differ.
+/// A page read the host machine's time zone instead of the session's at some point - its engine's zone
+/// override did not reach it, or its process lost the override with the page that held it (R4/16).
 pub(crate) const KEY_ZONE_IS_HOST: &str = "embedded.zone_is_host";
 /// A WebView2 policy value in the registry was hidden by the session's variable for its duration.
 pub(crate) const KEY_REGISTRY_ARGUMENTS_HIDDEN: &str = "embedded.registry_arguments_hidden";
 /// A page still open when the session ended did not confirm it was let go, so it may keep the session
 /// clock until it is reloaded or closed.
 const KEY_PAGES_NOT_RELEASED: &str = "embedded.pages_not_released";
+/// The pages of an application that outlived the session keep the session's zone until it restarts:
+/// the system did not name this machine's zone, so they could not be put back on it (ADR-21).
+const KEY_ZONE_KEPT: &str = "embedded.zone_kept";
 /// The application loaded WebView2 and the session never reached its web engine, for whatever reason
 /// no other key names - so its pages may have run on the real clock (docs/09 section 12.12).
 pub(crate) const KEY_WEBVIEW2_NOT_REACHED: &str = "embedded.webview2_not_reached";
@@ -188,6 +192,9 @@ pub(crate) struct Launch {
     pub(crate) registry_hidden: bool,
     /// What the closing words about WebView2 depend on beyond the channel itself.
     reach: Reach,
+    /// The engines were given the switches that keep timers at speed in hidden windows (R4-N28): asked
+    /// for, and put in variables an engine reads - an elevated host ignores them.
+    timers_kept: bool,
 }
 
 impl Launch {
@@ -203,6 +210,7 @@ impl Launch {
             unavailable: false,
             registry_hidden: false,
             reach: Reach::default(),
+            timers_kept: false,
         }
     }
 
@@ -223,7 +231,9 @@ impl Launch {
             .unwrap_or_default();
         let qt_port = cdp::free_loopback_port().ok();
         let registry_hidden = hidden_by_variable(elevated, || chrono_mech::webview2_arguments_policy_present(&exe_name));
-        Launch { reach: Reach::of(elevated), ..Launch::compose(&chrono_mech::current_environment(), qt_port, registry_hidden) }
+        let composed = Launch::compose(&chrono_mech::current_environment(), qt_port, registry_hidden, target.keep_background_timers);
+        // An application started elevated ignores the variables, the switches in them included.
+        Launch { reach: Reach::of(elevated), timers_kept: composed.timers_kept && !elevated, ..composed }
     }
 
     /// Say what the registry value came to, so the closing words can be chosen: whether the tester asked
@@ -238,15 +248,16 @@ impl Launch {
     /// is about to be hidden. A machine without a port gets no variables at all - half a channel
     /// would find WebView2 and silently never Qt. Pure, so the shapes are tested with an environment
     /// of the test's choosing rather than whatever the tester's machine carries.
-    fn compose(base: &[(String, String)], qt_port: Option<u16>, registry_hidden: bool) -> Launch {
+    fn compose(base: &[(String, String)], qt_port: Option<u16>, registry_hidden: bool, keep_timers: bool) -> Launch {
         let Some(qt_port) = qt_port else {
             return Launch { enabled: true, unavailable: true, registry_hidden, ..Launch::off() };
         };
         Launch {
-            env: engine_env(base, qt_port),
+            env: engine_env(base, qt_port, keep_timers),
             qt_port: Some(qt_port),
             enabled: true,
             registry_hidden,
+            timers_kept: keep_timers,
             ..Launch::off()
         }
     }
@@ -272,6 +283,12 @@ pub(crate) struct Outcome {
     /// How many processes of an elevated host's engine the process tree turned up that nobody else
     /// had named (docs/09 section 12.19). Named ones are in the session's list, this is the count.
     pub(crate) tree_found: u32,
+    /// How many pages and workers read a zone other than the session's at some point (R4/16).
+    zone_missed: usize,
+    /// How many pages were hidden at some point while their timers ran faster (R4-N28).
+    hidden_fast: usize,
+    /// The engines were started with their slowdown of hidden windows switched off (`Launch`).
+    timers_kept: bool,
 }
 
 impl Outcome {
@@ -290,9 +307,11 @@ impl Outcome {
     }
 
     /// The warnings the session verdict carries for this channel, each said only when it happened.
-    /// `zone_differs` is whether the session zone is not the host machine's: the pages read the
-    /// host's (ADR-8), which is a fact to say only when it makes a difference.
-    pub(crate) fn session_warnings(&self, zone_differs: bool) -> Vec<String> {
+    /// The zone is said when a page or worker READ another zone than the session's - every one is put
+    /// on the session's zone, and the shim in it checks what it reads. This used to compare the
+    /// session's bias with the host's bias of today, which said nothing about a fake date across a
+    /// daylight-saving change: a January date showed an hour off with both biases equal in summer.
+    pub(crate) fn session_warnings(&self) -> Vec<String> {
         let mut out = self.warnings.clone();
         out.extend(self.unreached_warnings());
         let pages = !self.seen.is_empty();
@@ -305,8 +324,13 @@ impl Outcome {
         if self.rate_changed && pages {
             out.push("chromium.rate_change_affects_running_timers".to_string());
         }
-        if pages && zone_differs {
+        if pages && self.zone_missed > 0 {
             out.push(KEY_ZONE_IS_HOST.to_string());
+        }
+        // The same fact as in a Chromium session, under the same key: a hidden page's timers slowed by
+        // its engine, unless the engine was started with that switched off (R4-N28).
+        if pages && self.hidden_fast > 0 && !self.timers_kept {
+            out.push(KEY_BACKGROUND_TIMERS_SLOWED.to_string());
         }
         out
     }
@@ -333,6 +357,11 @@ pub(crate) fn reconcile_engine_warnings(warnings: &mut [String], pages_reached: 
 
 pub(crate) struct EmbeddedBridge {
     scale_duration: bool,
+    /// The engines were started with their slowdown of hidden windows switched off (R4-N28).
+    timers_kept: bool,
+    /// The session's zone bias, which every page and worker the bridge reaches is put on - the zone the
+    /// hook hands the rest of the application.
+    zone: i32,
     discovery: Option<Discovery>,
     connects_tx: Sender<(Discovered, io::Result<Attacher>)>,
     connects: Receiver<(Discovered, io::Result<Attacher>)>,
@@ -371,10 +400,12 @@ pub(crate) struct EmbeddedBridge {
 impl EmbeddedBridge {
     /// Start looking for engines in a family, or stand inert when the channel is off or could not be
     /// set up - saying so in the latter case. Never fails: the session goes on either way.
-    pub(crate) fn start(launch: &Launch, family: Vec<u32>, scale_duration: bool) -> EmbeddedBridge {
+    pub(crate) fn start(launch: &Launch, family: Vec<u32>, scale_duration: bool, zone_bias_min: i32) -> EmbeddedBridge {
         let (connects_tx, connects) = mpsc::channel();
         let mut bridge = EmbeddedBridge {
             scale_duration,
+            timers_kept: launch.timers_kept,
+            zone: zone_bias_min,
             discovery: None,
             connects_tx,
             connects,
@@ -604,6 +635,7 @@ impl EmbeddedBridge {
                     // already covers from being shimmed a second time.
                     attacher.set_budgets(POLL, CALL);
                     attacher.probe_clock_before_shim();
+                    attacher.set_zone(self.zone);
                     if self.pushed.is_none() {
                         self.pushed = Some(origin);
                     }
@@ -677,12 +709,25 @@ impl EmbeddedBridge {
     ///
     /// Waits until `end_by` at the latest - the same deadline as [`EmbeddedBridge::finish`], because
     /// a GUI gives the core two seconds after `end` and both have to fit in them (ADR-20).
+    ///
+    /// The pages go back on this machine's zone as the system names it, read once here, at the end, so
+    /// a zone changed during the session is the one they get (ADR-21).
     pub(crate) fn release_pages(&mut self, origin: ShimOrigin, end_by: Instant) {
+        self.release_pages_to(chrono_mech::host_zone_name().as_deref(), origin, end_by);
+    }
+
+    /// [`EmbeddedBridge::release_pages`] onto `machine_zone`, so a test names the zone, or none.
+    fn release_pages_to(&mut self, machine_zone: Option<&str>, origin: ShimOrigin, end_by: Instant) {
         let expr = cdp_release_expr();
+        let pages = self.attachers.iter().any(|a| !a.contexts().is_empty());
         let next_index = &mut self.next_index;
-        let unconfirmed: u32 = self.attachers.iter_mut().map(|a| a.release(&expr, origin, next_index, end_by)).sum();
+        let unconfirmed: u32 =
+            self.attachers.iter_mut().map(|a| a.release(&expr, machine_zone, origin, next_index, end_by)).sum();
         if unconfirmed > 0 {
             self.warn(KEY_PAGES_NOT_RELEASED);
+        }
+        if pages && machine_zone.is_none() {
+            self.warn(KEY_ZONE_KEPT);
         }
     }
 
@@ -731,6 +776,9 @@ impl EmbeddedBridge {
             channel_on: self.channel_on,
             reach: self.reach,
             tree_found: self.tree.total(),
+            zone_missed: 0,
+            hidden_fast: 0,
+            timers_kept: self.timers_kept,
         };
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
@@ -743,6 +791,8 @@ impl EmbeddedBridge {
             outcome.counts.extend(part.counts);
             outcome.failed += part.failed;
             outcome.overflow += part.overflow;
+            outcome.zone_missed += part.zone_missed;
+            outcome.hidden_fast += part.hidden_fast;
         }
         outcome
     }
@@ -759,6 +809,7 @@ mod tests {
             cwd: None,
             embedded,
             elevated_embedded: false,
+            keep_background_timers: false,
             console: Default::default(),
         }
     }
@@ -779,6 +830,20 @@ mod tests {
         assert!(on.enabled);
         assert!(!on.unavailable, "this machine hands out loopback ports");
         assert!(on.qt_port.is_some());
+    }
+
+    /// The engines keep their timers at speed in hidden windows only when the tester asked for it and the
+    /// engines read the variables the switches go in: an elevated application ignores them, so a page it
+    /// hides is still said to be slowed (R4-N28).
+    #[test]
+    fn the_timer_switches_count_as_given_only_when_the_engine_reads_them() {
+        let keep = TargetSpec { keep_background_timers: true, ..target(true) };
+        let given = Launch::for_target(&keep, false);
+        assert!(given.timers_kept);
+        assert!(given.env.iter().any(|(_, v)| v.contains("--disable-background-timer-throttling")));
+        assert!(!Launch::for_target(&keep, true).timers_kept, "an elevated application ignores the variables");
+        assert!(!Launch::for_target(&target(true), false).timers_kept, "not asked, not given");
+        assert!(!Launch::for_target(&TargetSpec { embedded: false, ..keep }, false).timers_kept, "no channel, no variables");
     }
 
     /// The core's own token is carried into the launch, channel on or off, because the closing words and
@@ -828,7 +893,7 @@ mod tests {
     /// through untouched either way.
     #[test]
     fn the_launch_is_composed_from_the_environment_and_the_reserved_port() {
-        let on = Launch::compose(&[], Some(45_001), false);
+        let on = Launch::compose(&[], Some(45_001), false, false);
         assert!(on.enabled && !on.unavailable);
         assert_eq!(on.qt_port, Some(45_001));
         let names: Vec<&str> = on.env.iter().map(|(n, _)| n.as_str()).collect();
@@ -837,7 +902,7 @@ mod tests {
         let qt = on.env.iter().find(|(n, _)| n == "QTWEBENGINE_REMOTE_DEBUGGING").map(|(_, v)| v.clone()).unwrap();
         assert_eq!(qt, "127.0.0.1:45001", "the Qt variable names the reserved port");
 
-        let no_port = Launch::compose(&[], None, true);
+        let no_port = Launch::compose(&[], None, true, false);
         assert!(no_port.enabled && no_port.unavailable);
         assert!(no_port.env.is_empty(), "half a channel would find WebView2 and never Qt");
         assert!(no_port.registry_hidden);
@@ -875,19 +940,27 @@ mod tests {
             channel_on: true,
             reach: Reach::default(),
             tree_found: 0,
+            zone_missed: 0,
+            hidden_fast: 0,
+            timers_kept: false,
         }
     }
 
     /// Each warning only when it happened: the open port once an engine was reached, the ceiling
     /// once a page was refused past it, the running-timers caveat once the rate changed WITH pages
-    /// to feel it, the zone once there are pages AND the zones differ. What the bridge noted along
-    /// the way (an unreachable engine, say) comes first, in the order it was noted.
+    /// to feel it, the zone once there are pages AND one of them read another zone than the
+    /// session's. What the bridge noted along the way (an unreachable engine, say) comes first, in the
+    /// order it was noted.
     #[test]
     fn the_session_warnings_say_only_what_happened() {
-        assert!(outcome(false, &[], 0, false, &[]).session_warnings(true).is_empty());
-        assert_eq!(outcome(true, &[], 0, true, &[]).session_warnings(true), vec![KEY_DEBUG_PORT_OPEN]);
+        let missed_zone = |mut o: Outcome| {
+            o.zone_missed = 1;
+            o
+        };
+        assert!(missed_zone(outcome(false, &[], 0, false, &[])).session_warnings().is_empty());
+        assert_eq!(missed_zone(outcome(true, &[], 0, true, &[])).session_warnings(), vec![KEY_DEBUG_PORT_OPEN]);
         assert_eq!(
-            outcome(true, &[1], 1, true, &[KEY_ENGINE_UNREACHABLE]).session_warnings(true),
+            missed_zone(outcome(true, &[1], 1, true, &[KEY_ENGINE_UNREACHABLE])).session_warnings(),
             vec![
                 KEY_ENGINE_UNREACHABLE,
                 KEY_DEBUG_PORT_OPEN,
@@ -896,7 +969,19 @@ mod tests {
                 KEY_ZONE_IS_HOST,
             ]
         );
-        assert_eq!(outcome(true, &[1], 0, false, &[]).session_warnings(false), vec![KEY_DEBUG_PORT_OPEN]);
+        assert_eq!(
+            outcome(true, &[1], 0, false, &[]).session_warnings(),
+            vec![KEY_DEBUG_PORT_OPEN],
+            "pages that read the session's zone are not said to read the host's"
+        );
+        let hidden = |timers_kept: bool| {
+            let mut o = outcome(true, &[1], 0, false, &[]);
+            o.hidden_fast = 1;
+            o.timers_kept = timers_kept;
+            o.session_warnings()
+        };
+        assert_eq!(hidden(false), vec![KEY_DEBUG_PORT_OPEN, KEY_BACKGROUND_TIMERS_SLOWED], "a hidden page's timers slowed (R4-N28)");
+        assert_eq!(hidden(true), vec![KEY_DEBUG_PORT_OPEN], "not when the engine was started with that switched off");
     }
 
     fn host(elevated: Option<bool>) -> Option<WebView2Host> {
@@ -981,7 +1066,7 @@ mod tests {
         assert!(!with_host(false, &[KEY_DISCOVERY_UNAVAILABLE], host(None)).engine_missed());
         assert!(with_host(false, &[KEY_QT_PORT_TAKEN], host(None)).engine_missed());
         assert_eq!(
-            with_host(false, &[], host(Some(true))).session_warnings(false),
+            with_host(false, &[], host(Some(true))).session_warnings(),
             vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]
         );
     }
@@ -989,7 +1074,7 @@ mod tests {
     /// A bridge with the channel on and no discovery to start: nothing is reserved and no thread runs.
     fn looking_bridge() -> EmbeddedBridge {
         let launch = Launch { enabled: true, unavailable: true, ..Launch::off() };
-        EmbeddedBridge::start(&launch, vec![1], false)
+        EmbeddedBridge::start(&launch, vec![1], false, -120)
     }
 
     /// The three answers of a test: which pid has the library, its token, its file. The question about the
@@ -1019,7 +1104,7 @@ mod tests {
         let asked = Cell::new(0u32);
         let t0 = Instant::now();
 
-        let mut off = EmbeddedBridge::start(&Launch::off(), vec![1], false);
+        let mut off = EmbeddedBridge::start(&Launch::off(), vec![1], false, -120);
         off.look_with(&[1, 2], true, t0, probes(&asked, 2));
         assert_eq!(asked.get(), 2, "a channel that is off still asks");
         assert_eq!(off.host, Some(WebView2Host { pid: 2, elevated: Some(true), image: Some("p2.exe".into()) }));
@@ -1061,7 +1146,7 @@ mod tests {
     /// A bridge that has seen a host, for the tests of the tree below.
     fn bridge_with_host(elevated_core: bool) -> EmbeddedBridge {
         let launch = Launch { enabled: true, unavailable: true, reach: Reach::of(elevated_core), ..Launch::off() };
-        let mut bridge = EmbeddedBridge::start(&launch, vec![1], false);
+        let mut bridge = EmbeddedBridge::start(&launch, vec![1], false, -120);
         bridge.host = host(Some(elevated_core));
         bridge
     }
@@ -1111,5 +1196,68 @@ mod tests {
         assert_eq!(looked_in, [1, 51], "50 left the tree: the family is the known pid and what the tree shows");
         assert_eq!(bridge.family.len(), 1, "the family that only grows was not given the tree's pids");
         assert!(bridge.tree_pids().contains(&51) && !bridge.tree_pids().contains(&50));
+    }
+
+    /// A bridge holding one engine with one page on the session's zone, over a scripted browser that
+    /// answers every release `ok`. The log of what the session asked comes back when the bridge is gone.
+    fn bridge_with_a_page() -> (EmbeddedBridge, thread::JoinHandle<Vec<serde_json::Value>>) {
+        let (port, browser) = cdp::fake_browser_holding(|request| {
+            let id = request["id"].clone();
+            let reply = match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => serde_json::json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }] }),
+                "Target.attachToTarget" => serde_json::json!({ "sessionId": "S1" }),
+                "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({ "identifier": "h" }),
+                "Runtime.evaluate" if request["params"]["expression"] == cdp::release_expr() => {
+                    serde_json::json!({ "result": { "value": "ok" } })
+                }
+                _ => serde_json::json!({}),
+            };
+            vec![(id, reply)]
+        });
+        let ws = cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        attacher.set_zone(-330);
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut bridge = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
+        assert_eq!(attacher.attach_existing(origin, &mut bridge.next_index, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        bridge.attachers.push(attacher);
+        (bridge, browser)
+    }
+
+    /// ADR-21: the pages of an application that outlives the session go back on this machine's zone by
+    /// its name, because an engine keeps the last zone it was given. With no name the session says the
+    /// pages keep its zone - and says nothing when there were no pages to keep it.
+    #[test]
+    fn the_pages_let_go_are_put_on_the_machines_zone_or_it_is_said_that_they_keep_the_sessions() {
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let end_by = || Instant::now() + Duration::from_secs(2);
+        let last_zone = |log: &[serde_json::Value]| {
+            log.iter().rev().find(|r| r["method"] == "Emulation.setTimezoneOverride").map(|r| r["params"]["timezoneId"].clone())
+        };
+
+        let (mut named, browser) = bridge_with_a_page();
+        named.release_pages_to(Some("Europe/Warsaw"), origin, end_by());
+        assert!(!named.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", named.warnings);
+        drop(named);
+        assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!("Europe/Warsaw")));
+
+        let (mut unnamed, browser) = bridge_with_a_page();
+        unnamed.release_pages_to(None, origin, end_by());
+        assert!(unnamed.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", unnamed.warnings);
+        drop(unnamed);
+        assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!("")), "taken away all the same");
+
+        let mut empty = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
+        empty.release_pages_to(None, origin, end_by());
+        assert!(!empty.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "no page kept anything");
+
+        // The session's own call asks the system, which names this machine's zone here and on CI.
+        let machine = chrono_mech::host_zone_name().expect("the system names this machine's zone");
+        let (mut session, browser) = bridge_with_a_page();
+        session.release_pages(origin, end_by());
+        assert!(!session.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", session.warnings);
+        drop(session);
+        assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!(machine)));
     }
 }

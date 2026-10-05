@@ -328,6 +328,7 @@ mod tests {
             cwd: None,
             embedded,
             elevated_embedded,
+            keep_background_timers: false,
             console: Default::default(),
         }
     }

@@ -103,6 +103,7 @@
   "setup.chip_force": "start wymuszony",
   "setup.chip_no_embedded": "bez stron WWW",
   "setup.chip_elevated_embedded": "dotarcie do stron administratora",
+  "setup.chip_keep_timers": "ukryte okna w tempie",
   // The launch fields moved into this section, so its folded header says they are set without printing
   // values that have no length limit.
   "setup.chip_args": "argumenty ustawione",
@@ -147,6 +148,7 @@
   "setup.opt_force": "Uruchom nawet wtedy, gdy podmiana zegara okaże się nieskuteczna",
   "setup.opt_embedded": "Sięgnij do stron WWW wewnątrz aplikacji",
   "setup.opt_elevated_embedded": "Dotrzyj do stron w aplikacji uruchomionej jako administrator",
+  "setup.opt_keep_timers": "Utrzymuj tempo timerów w ukrytych oknach",
 
   // Fits after a number, like the shipped one. It names the button to press rather than quoting it in
   // passing, because a reader who has never opened the calculator cannot tell a quotation from a label.
@@ -164,6 +166,7 @@
   "setup.opt_embedded_note": "Otwiera na czas sesji lokalny port debugowania w silniku WWW aplikacji. Inne programy na tym komputerze mogą z niego korzystać, dopóki aplikacja działa.",
   "setup.opt_elevated_embedded_note": "Zapisuje na czas sesji jedną opcję WebView2 w rejestrze komputera i usuwa ją po sesji. Dopóki aplikacja działa, każdy program na tym komputerze może dotrzeć do jej stron, a aplikacja ma uprawnienia administratora.",
   "setup.opt_elevated_embedded_unavailable": "Dostępne, gdy Chrono Mock działa jako administrator.",
+  "setup.opt_keep_timers_note": "Dla aplikacji Chromium i Electron oraz stron WWW wewnątrz aplikacji. Aplikacja pracuje pełnym tempem także wtedy, gdy jej okno jest zminimalizowane.",
 
   // Both of these say "target" in the shipped panel, which is the word this screen stopped using.
   "setup.tip_recent": "Aplikacje uruchamiane wcześniej. „Wybierz…” wskazuje taką, której ta maszyna jeszcze nie uruchamiała.",
@@ -442,7 +445,7 @@
   "embedded.engine_unreachable": "Silnik WWW wewnątrz tej aplikacji otworzył port debugowania, ale sesja nie zdołała się do niego podłączyć. Jego strony biegły na realnym zegarze.",
   "embedded.discovery_unavailable": "Sesja nie mogła szukać silników WWW wewnątrz tej aplikacji, więc jej ewentualne strony biegły na realnym zegarze.",
   "embedded.qt_port_taken": "Port zarezerwowany dla silnika Qt tej aplikacji został zajęty przez coś innego, zanim silnik mógł go użyć. Jego stron nie dało się osiągnąć i biegły na realnym zegarze.",
-  "embedded.zone_is_host": "Strony wewnątrz tej aplikacji czytają strefę czasową tego komputera, nie sesji. Pokazywany przez nie czas lokalny różni się od reszty aplikacji o przesunięcie strefy.",
+  "embedded.zone_is_host": "Strona wewnątrz tej aplikacji w pewnej chwili czytała strefę czasową tego komputera zamiast strefy sesji, więc pokazany przez nią czas lokalny mógł różnić się od reszty aplikacji o przesunięcie strefy.",
   "embedded.registry_arguments_hidden": "Ta aplikacja ma w rejestrze ustawione argumenty przeglądarki WebView2. Sesja przesłoniła je na czas swojego trwania, więc to, co ustawiały (na przykład własny port debugowania), nie zadziałało.",
   "embedded.webview2_not_reached": "Aplikacja załadowała WebView2, ale sesja nie dotarła do jego silnika, więc strony mogły działać na realnym zegarze.",
   "embedded.elevated_host": "Chrono Mock działa jako administrator, więc aplikacja też, a wtedy WebView2 pomija ustawienie, przez które sesja dociera do stron. Włącz „Dotrzyj do stron w aplikacji uruchomionej jako administrator” albo uruchom Chrono Mock bez uprawnień administratora.",
@@ -454,6 +457,7 @@
   "embedded.policy_not_written": "Chrono Mock nie mógł ustawić opcji WebView2, dzięki której sesja dociera do stron aplikacji działającej jako administrator, więc strony działały na realnym zegarze.",
   "embedded.policy_name_mismatch": "Chrono Mock ustawił opcję WebView2 dla programu, który uruchomił, ale WebView2 załadował inny program, którego opcja nie obejmuje. Uruchom bezpośrednio ten program, żeby dotrzeć do jego stron.",
   "embedded.pages_not_released": "Strona wewnątrz tej aplikacji nie potwierdziła powrotu na prawdziwy zegar, gdy sesja się skończyła, więc może trzymać datę sesji, dopóki jej nie odświeżysz albo nie zamkniesz.",
+  "embedded.zone_kept": "Aplikacja przeżyła sesję, a jej strony zostają w strefie czasowej sesji do ponownego uruchomienia - system nie podał strefy tego komputera, więc nie dało się ich na nią przestawić.",
   "embedded.web_engine_processes_uncovered": "Są wśród nich procesy osadzonego silnika web (WebView2 albo Qt WebEngine), więc część tego silnika działała na prawdziwym zegarze. Czy jego strony też - nie da się ustalić: wśród nazwanych procesów nie było renderera.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
@@ -491,6 +495,10 @@
   "chromium.no_contexts": "Nie udało się objąć żadnego kontekstu JS.",
   "chromium.launched_with_debug_port": "Aplikacja Electron/Chromium: uruchomiona z portem zdalnego debugowania i czystym izolowanym profilem, nie Twoim prawdziwym. Dopóki sesja trwa, dowolny inny lokalny proces może przez ten port sterować aplikacją.",
   "chromium.app_closed_before_audit": "Aplikacja zamknęła się, zanim audyt zdążył odczytać końcowe liczniki wywołań - pokrycie może być niepełne.",
+  "chromium.zone_is_host": "Strona tej aplikacji w pewnej chwili czytała strefę czasową tego komputera zamiast strefy sesji, więc pokazany przez nią czas lokalny mógł różnić się od czasu sesji o przesunięcie strefy.",
+  "chromium.followed_browser": "Program wybrany do sesji zakończył się po przekazaniu aplikacji innemu programowi, więc sesja trwała dalej z tym programem, zamiast skończyć się razem z nim.",
+  "chromium.background_timers_slowed": "Okno tej aplikacji było ukryte albo zminimalizowane, gdy czas biegł szybciej. Jej silnik WWW spowalnia timery ukrytego okna do mniej więcej jednego wywołania na sekundę, więc mogły wtedy biec wolniej niż wybrane tempo. Opcja „Utrzymuj tempo timerów w ukrytych oknach” to wyłącza.",
+  "chromium.main_process_uncovered": "Ta aplikacja jest zbudowana na Electronie. Jej okna idą za fałszywym zegarem, ale część działająca poza oknami czyta prawdziwą datę i godzinę - data liczona tam, zaplanowane przypomnienie albo sprawdzenie przy starcie korzystają z prawdziwego zegara.",
   "chromium.context_ceiling_reached": "Aplikacja otworzyła więcej stron i workerów, niż jedna sesja potrafi objąć fałszywym zegarem (256). Te ponad limit czytały prawdziwy zegar i nie ma ich w audycie.",
   "chromium.rate_change_affects_running_timers": "Prędkość zmieniła się w locie: nowe timery i zegar odzwierciedlają ją od razu, ale już działający setInterval zachowuje stare tempo.",
   "chromium.clock_move_missed": "Strona internetowa przyjęła zmianę prędkości albo skok z opóźnieniem albo wcale, zwykle dlatego, że była zajęta, więc jej zegar odbiega od zegara sesji do następnego skoku, a jej przeładowanie może przywrócić starszy.",
@@ -787,6 +795,7 @@
   "tip.scale_qpc": "Przyśpiesz też zegary na QPC (Python monotonic, .NET Stopwatch, Java nanoTime). Może zniekształcić aplikację liczącą render z QPC.",
   "tip.embedded": "Domyślnie włączone. Aplikacja z wbudowanym silnikiem WWW (WebView2, Qt WebEngine) uruchamia swoje strony w procesie, do którego hook zegara nie wchodzi. Z tą opcją silnik jest proszony o otwarcie na czas sesji lokalnego portu debugowania, a strony idą za zegarem sesji przez ten port. Odznacz, aby zostawić te strony na realnym zegarze i nie otwierać portu.",
   "tip.elevated_embedded": "Domyślnie wyłączone. Aplikacja uruchomiona jako administrator sprawia, że WebView2 pomija ustawienie, przez które sesja dociera do jej stron, więc zostają na realnym zegarze. Po włączeniu sesja zapisuje jedną opcję WebView2 w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i usuwa ją po końcu sesji. Wymaga Chrono Mock uruchomionego jako administrator i aplikacji startowanej z pliku .exe. Dopóki jest ustawiona, każdy program uruchomiony pod tą nazwą pliku też dostaje port diagnostyczny, a uruchamiana aplikacja ma uprawnienia administratora. Wartość zostawiona przez sesję, która zakończyła się awaryjnie, jest usuwana przy następnym starcie z tą opcją.",
+  "tip.keep_timers": "Silnik WWW spowalnia timery zminimalizowanego albo ukrytego okna do mniej więcej jednego wywołania na sekundę, więc przy przyspieszonym czasie ukryte okno traci przyspieszenie. Z tą opcją aplikacja startuje z tym spowolnieniem wyłączonym.",
   "tip.force": "Domyślnie wyłączone. Gdy werdykt otwierający mówi, że podmiana nie zadziałała, cel jest zatrzymywany zamiast oddany do pracy - jego dowód dotyczyłby realnego zegara. Zaznacz, aby mimo to uruchomić - sesja jest wtedy wszędzie oznaczona jako nierzetelna.",
   "tip.start": "Uruchom cel z podmienionym zegarem. Wymaga celu i poprawnego momentu.",
   "tip.freeze": "Zamroź podmieniony zegar, by przestał iść.",

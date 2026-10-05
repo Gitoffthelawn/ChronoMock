@@ -44,14 +44,20 @@ const SNAPSHOT_ATTEMPTS: u32 = 5;
 /// launch - so the snapshot sees every module of it. Libraries mapped as data files are not listed
 /// (Microsoft Learn), which is no loss: a library that is only mapped as data never ran.
 pub fn process_has_module(pid: u32, module: &str) -> ModuleProbe {
+    process_has_any_module(pid, &[module])
+}
+
+/// Whether any of `modules` is loaded in the process `pid`, read from one snapshot - for a library that
+/// goes by several names, such as one per major version and build of a framework.
+pub fn process_has_any_module(pid: u32, modules: &[&str]) -> ModuleProbe {
     // SAFETY: the snapshot handle is closed on every path out of `probe_module`, and the entry
     // structure carries its own size as the API requires.
-    unsafe { probe_module(pid, module) }
+    unsafe { probe_module(pid, modules) }
 }
 
 /// # Safety
 /// Takes and closes its own snapshot handle, and nothing is borrowed from the caller.
-unsafe fn probe_module(pid: u32, module: &str) -> ModuleProbe { unsafe {
+unsafe fn probe_module(pid: u32, modules: &[&str]) -> ModuleProbe { unsafe {
     let mut snapshot = None;
     for _ in 0..SNAPSHOT_ATTEMPTS {
         match CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid) {
@@ -79,7 +85,7 @@ unsafe fn probe_module(pid: u32, module: &str) -> ModuleProbe { unsafe {
                 Err(_) => Step::Failed,
             }
         },
-        module,
+        modules,
     );
     let _ = CloseHandle(snapshot);
     probe
@@ -94,19 +100,19 @@ enum Step {
     Failed,
 }
 
-/// Judge a walk over a module list: the library is loaded the moment it is met, absent only when the
-/// list ended cleanly AFTER it had entries, and unknown otherwise. A list that ended at its first
-/// step is not the list of a live process (its own executable is a module), and a walk that failed
-/// part-way has read only some of it. Names compare without regard to case, over ASCII, which is what
-/// the file names of the libraries this looks for are made of. Pure over the steps, so every branch is
-/// tested without a process.
-fn classify(mut next: impl FnMut() -> Step, wanted: &str) -> ModuleProbe {
+/// Judge a walk over a module list: a library is loaded the moment one of the `wanted` names is met,
+/// absent only when the list ended cleanly AFTER it had entries, and unknown otherwise. A list that
+/// ended at its first step is not the list of a live process (its own executable is a module), and a
+/// walk that failed part-way has read only some of it. Names compare without regard to case, over
+/// ASCII, which is what the file names of the libraries this looks for are made of. Pure over the
+/// steps, so every branch is tested without a process.
+fn classify(mut next: impl FnMut() -> Step, wanted: &[&str]) -> ModuleProbe {
     let mut read_any = false;
     loop {
         match next() {
             Step::Module(name) => {
                 read_any = true;
-                if name.eq_ignore_ascii_case(wanted) {
+                if wanted.iter().any(|w| name.eq_ignore_ascii_case(w)) {
                     return ModuleProbe::Loaded;
                 }
             }
@@ -126,6 +132,19 @@ pub fn process_image_name(pid: u32) -> Option<String> {
         let name = crate::image_name_of(process);
         let _ = CloseHandle(process);
         name
+    }
+}
+
+/// The full path of the executable a running process was started from, or `None` when it cannot be
+/// asked (the process is gone, or does not grant even a limited query). The caller decides what an
+/// unanswered question means - asking it never assumes.
+pub fn process_image_path(pid: u32) -> Option<std::path::PathBuf> {
+    // SAFETY: the handle is closed on every path out, and nothing is borrowed from the caller.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let path = crate::image_path_of(process);
+        let _ = CloseHandle(process);
+        path.map(std::path::PathBuf::from)
     }
 }
 
@@ -182,10 +201,24 @@ mod tests {
         assert_eq!(process_has_module(std::process::id(), "KERNEL32.DLL"), ModuleProbe::Loaded);
         let walk = |names: &'static [&'static str], wanted| {
             let mut left = names.iter();
-            classify(move || left.next().map_or(Step::End, |n| Step::Module((*n).to_string())), wanted)
+            classify(move || left.next().map_or(Step::End, |n| Step::Module((*n).to_string())), &[wanted])
         };
         assert_eq!(walk(&["app.exe", "EmbeddedBrowserWebView.dll"], "embeddedbrowserwebview.DLL"), ModuleProbe::Loaded);
         assert_eq!(walk(&["app.exe", "EmbeddedBrowserWebView.dll"], "EmbeddedBrowserWebView"), ModuleProbe::NotLoaded, "a prefix is not the name");
+    }
+
+    /// A library that goes by several names is found under any of them, from one walk, and is absent only
+    /// when none of them is in the list.
+    #[test]
+    fn any_of_several_names_is_found_in_one_walk() {
+        let walk = |names: &'static [&'static str], wanted: &[&str]| {
+            let mut left = names.iter();
+            classify(move || left.next().map_or(Step::End, |n| Step::Module((*n).to_string())), wanted)
+        };
+        let qt = ["Qt6WebEngineCore.dll", "Qt5WebEngineCore.dll"];
+        assert_eq!(walk(&["python.exe", "qt5webenginecore.dll"], &qt), ModuleProbe::Loaded, "the second name");
+        assert_eq!(walk(&["python.exe", "Qt6Core.dll"], &qt), ModuleProbe::NotLoaded);
+        assert_eq!(process_has_any_module(std::process::id(), &["no-such-library-chrono-mock-3f9a.dll", "kernel32.dll"]), ModuleProbe::Loaded);
     }
 
     /// The four ways a walk can go, each judged on its own: found (and the walk stops there), the list
@@ -201,7 +234,7 @@ mod tests {
                     taken += 1;
                     left.next().unwrap_or(Step::End)
                 },
-                wanted,
+                &[wanted],
             );
             (probe, taken)
         }

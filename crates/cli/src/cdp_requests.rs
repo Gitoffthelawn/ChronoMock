@@ -107,6 +107,7 @@ impl Asked {
 const ADD_HOOK: &str = "Page.addScriptToEvaluateOnNewDocument";
 const REMOVE_HOOK: &str = "Page.removeScriptToEvaluateOnNewDocument";
 const EVALUATE: &str = "Runtime.evaluate";
+const SET_ZONE: &str = "Emulation.setTimezoneOverride";
 
 /// The live contexts of one attacher, the requests in flight to them, and what their answers said.
 #[derive(Default)]
@@ -121,6 +122,11 @@ pub(crate) struct Requests {
     /// the end. A page once, however many moves it missed - the warning is about pages, and the set
     /// stays as small as the list of contexts (CodeRabbit on #85).
     missed: BTreeSet<String>,
+    /// The contexts, by index, whose shim once read a zone other than the session's. Kept like the
+    /// counts: a context that closed keeps its evidence.
+    zone_missed: BTreeSet<u32>,
+    /// The pages, by index, that were hidden at some point while their timers ran faster (R4-N28).
+    hidden_fast: BTreeSet<u32>,
 }
 
 impl Requests {
@@ -146,6 +152,26 @@ impl Requests {
         self.contexts.retain(|c| !gone.contains(&c.session_id));
         self.asked.retain(|_, a| !gone.iter().any(|s| s == a.session()));
         !gone.is_empty()
+    }
+
+    /// Give every live context the zone override `zone` - a zone id, or an empty string to take it away.
+    /// Not written down: the answer says nothing about what a context reads (the override is held by one
+    /// context per renderer process), so the shim's own check is the evidence, and an answer that comes
+    /// finds no request and is dropped.
+    pub(crate) fn send_zone(&mut self, zone: &str, out: &mut impl Outbox) {
+        for ctx in &self.contexts {
+            let _ = out.ask(SET_ZONE, json!({ "timezoneId": zone }), &ctx.session_id);
+        }
+    }
+
+    /// How many contexts read a zone other than the session's at some point.
+    pub(crate) fn zone_missed(&self) -> usize {
+        self.zone_missed.len()
+    }
+
+    /// How many pages were hidden at some point while their timers ran faster.
+    pub(crate) fn hidden_fast(&self) -> usize {
+        self.hidden_fast.len()
     }
 
     /// Ask every context that is not still answering the last request for its call counts, without
@@ -273,6 +299,12 @@ impl Requests {
                 }
                 if let Ok(reply) = reply {
                     merge_counts(&mut self.counts, index, &ty, &reply);
+                    if read_fact(&reply, "zone") {
+                        self.zone_missed.insert(index);
+                    }
+                    if read_fact(&reply, "hidden") {
+                        self.hidden_fast.insert(index);
+                    }
                 }
             }
             Asked::Hook { session, expr } => {
@@ -356,6 +388,13 @@ fn merge_counts(counts: &mut BTreeMap<(u32, String), u64>, index: u32, ty: &str,
             *entry = (*entry).max(n);
         }
     }
+}
+
+/// Whether a counts reply carries one of the shim's audit facts, each 1 once it happened: `zone` - the
+/// context once read a zone other than the session's - and `hidden` - the page was hidden while its
+/// timers ran faster. A reply without it - a shim from an older build - says nothing.
+fn read_fact(reply: &Value, fact: &str) -> bool {
+    reply["result"]["value"][fact].as_u64().is_some_and(|n| n > 0)
 }
 
 /// Whether a context confirmed an evaluate that moves or lets go of its clock: `ok`, or `no-shim`
@@ -629,5 +668,54 @@ mod tests {
         r.on_reply(99, hook("stranger"), &mut wire);
         assert!(wire.sent.is_empty());
         assert_eq!(r.contexts()[0].hooks.current.as_deref(), Some("h0"));
+    }
+
+    /// A context whose shim once read another zone is counted once and stays counted - a page whose
+    /// process lost the override and got it back still read the host's zone in between, and a page
+    /// that closed keeps its evidence. A reply without the fact (an older shim) says nothing.
+    #[test]
+    fn a_context_that_once_read_another_zone_stays_counted() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        let answer = |zone: u64| Ok(json!({ "result": { "value": { "now": 1, "zone": zone } } }));
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "P")[0], answer(1), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[0], Ok(json!({ "result": { "value": { "now": 1 } } })), &mut wire);
+        assert_eq!(r.zone_missed(), 1);
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "P")[1], answer(0), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[1], answer(0), &mut wire);
+        assert_eq!(r.zone_missed(), 1, "a later right reading does not undo an earlier wrong one");
+        assert!(r.forget("P", ""));
+        assert_eq!(r.zone_missed(), 1, "a closed page keeps its evidence");
+    }
+
+    /// A page hidden while its timers ran faster is counted once, and stays counted, like the zone.
+    #[test]
+    fn a_page_once_hidden_while_its_timers_ran_faster_stays_counted() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        let answer = |hidden: u64| Ok(json!({ "result": { "value": { "si": 3, "hidden": hidden } } }));
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "P")[0], answer(1), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[0], answer(0), &mut wire);
+        assert_eq!(r.hidden_fast(), 1);
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "P")[1], answer(0), &mut wire);
+        assert_eq!(r.hidden_fast(), 1, "shown again, it was still hidden before");
+        assert_eq!(r.zone_missed(), 0, "the two facts are told apart");
+    }
+
+    /// The zone goes to every live context and nothing waits for it: its answer proves nothing, so it
+    /// is not written down, and when it comes it is an answer nobody asked for.
+    #[test]
+    fn the_zone_goes_to_every_live_context_and_nothing_waits_for_it() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        r.send_zone("GMT+05:30", &mut wire);
+        assert_eq!(wire.lines(0), vec![format!("{SET_ZONE} P"), format!("{SET_ZONE} W")]);
+        assert!(wire.sent.iter().all(|(.., params)| params["timezoneId"] == "GMT+05:30"));
+        assert!(r.asked.is_empty(), "nothing waits for the zone");
+        assert!(r.counts_settled() && r.release_settled());
     }
 }
