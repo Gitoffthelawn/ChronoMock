@@ -83,6 +83,7 @@ public sealed class SessionViewModel : ObservableObject
     // the tester ticked the option that writes the machine registry for an application that does too.
     private readonly bool _canReachElevated;
     private bool _reachElevatedEmbedded;
+    private bool _keepBackgroundTimers;
     // The key of the one warning that must not sit below the fold: a registry value the session could not
     // remove (docs/09 section 12.19). A literal, because the wire carries it as a string.
     private const string LeftBehindKey = "embedded.policy_value_left";
@@ -124,6 +125,7 @@ public sealed class SessionViewModel : ObservableObject
     private string _startWorkingFolder = string.Empty;
     private bool _startScaleDuration;
     private bool _startScaleQpc;
+    private bool _startKeepBackgroundTimers;
     private bool _startForce;
     private bool _startReachEmbedded = true;
     private bool _startReachElevated;
@@ -687,6 +689,12 @@ public sealed class SessionViewModel : ObservableObject
     /// a timer built on those accelerates too. SEPARATE from ScaleDuration because scaling QPC can distort a
     /// target that times its rendering off QPC. Off by default (ADR-2). Maps to the wire <c>scale_qpc</c>.</summary>
     public bool ScaleQpc { get => _scaleQpc; set => Set(ref _scaleQpc, value); }
+
+    /// <summary>Start the web engine with its slowdown of timers in hidden windows switched off (R4-N28): a
+    /// minimized window then keeps the session speed, and the application works at full pace while hidden.
+    /// For a Chromium or Electron application and the web pages inside an application. Off by default.
+    /// Maps to the wire <c>target.keep_background_timers</c>. Start-only.</summary>
+    public bool KeepBackgroundTimers { get => _keepBackgroundTimers; set => Set(ref _keepBackgroundTimers, value); }
 
     /// <summary>Run even when the opening verdict says the substitution did not take effect. Off by
     /// default: the core stops the target in that case, because an application that looks time-shifted
@@ -2010,6 +2018,7 @@ public sealed class SessionViewModel : ObservableObject
             _startWorkingFolder = _workingFolder;
             _startScaleDuration = _scaleDuration;
             _startScaleQpc = _scaleQpc;
+            _startKeepBackgroundTimers = _keepBackgroundTimers;
             _startForce = _forceStart;
             _startReachEmbedded = _reachEmbedded;
             _startReachElevated = WantsElevatedEmbedded;
@@ -2032,10 +2041,11 @@ public sealed class SessionViewModel : ObservableObject
             var workingFolder = _workingFolder;
             var embedded = _reachEmbedded;
             var elevated = _startReachElevated;
+            var keepTimers = _startKeepBackgroundTimers;
             try
             {
                 plan = await Task.Run(
-                    () => SessionPlan.Build(targetPath, time, force, args, workingFolder, embedded, elevated))
+                    () => SessionPlan.Build(targetPath, time, force, args, workingFolder, embedded, elevated, keepTimers))
                     .ConfigureAwait(true);
             }
             catch (InvalidOperationException ex)
@@ -2710,6 +2720,7 @@ public sealed class SessionViewModel : ObservableObject
             WorkingFolder = _startCaptured ? _startWorkingFolder : _workingFolder,
             ScaleDuration = _startCaptured ? _startScaleDuration : _scaleDuration,
             ScaleQpc = _startCaptured ? _startScaleQpc : _scaleQpc,
+            KeepBackgroundTimers = _startCaptured ? _startKeepBackgroundTimers : _keepBackgroundTimers,
             Force = _startCaptured ? _startForce : _forceStart,
             Embedded = _startCaptured ? _startReachEmbedded : _reachEmbedded,
             ElevatedEmbedded = _startCaptured ? _startReachElevated : WantsElevatedEmbedded,
@@ -2800,6 +2811,7 @@ public sealed class SessionViewModel : ObservableObject
         WorkingFolder = record.WorkingFolder;
         ScaleDuration = record.ScaleDuration;
         ScaleQpc = record.ScaleQpc;
+        KeepBackgroundTimers = record.KeepBackgroundTimers;
         ForceStart = record.Force;
         ReachEmbedded = record.Embedded;
         // What a window that is not elevated cannot do is not loaded as ticked: the box would claim it.

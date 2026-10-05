@@ -26,7 +26,8 @@ internal sealed record SessionPlan(string CorePath, PeReader.Machine Machine, St
         IReadOnlyList<string>? args = null,
         string? workingFolder = null,
         bool embedded = true,
-        bool elevatedEmbedded = false)
+        bool elevatedEmbedded = false,
+        bool keepBackgroundTimers = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(targetPath);
         ArgumentNullException.ThrowIfNull(time);
@@ -52,6 +53,9 @@ internal sealed record SessionPlan(string CorePath, PeReader.Machine Machine, St
                 // The registry option rides on the channel, so it is never on without it: the core would
                 // ignore it, and a start command that says both says something the session will not do.
                 ElevatedEmbedded = elevatedEmbedded && embedded,
+                // For the browser of a Chromium target and the engine inside an application alike, so it
+                // does not ride on the channel the way the registry option does (R4-N28).
+                KeepBackgroundTimers = keepBackgroundTimers,
                 // A console program shows up the way it does when the tester starts it, in a console
                 // window of its own (R4-D16, ADR-17). The core runs with no window, so the console it
                 // could share is one nobody sees: no input, and the program's output in the diagnostics

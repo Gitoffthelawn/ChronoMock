@@ -40,6 +40,14 @@ pub struct TargetSpec {
     /// could not do what was asked. Ignored for a Chromium target and under `embedded: false`.
     #[serde(default)]
     pub elevated_embedded: bool,
+    /// Start the web engine with its slowdown of timers in hidden windows switched off (R4-N28): a
+    /// Chromium engine runs the timers of a minimized or hidden window about once a second, which takes
+    /// the speed-up away from them. Applies to the browser of a Chromium target and to the engine inside
+    /// an application. Off by default, because the application then also works at full pace while
+    /// hidden - a client from before this field existed gets that default. Without it, a page hidden
+    /// while time ran faster is reported (`chromium.background_timers_slowed`).
+    #[serde(default)]
+    pub keep_background_timers: bool,
     /// Where a console program's console is (docs/08, ADR-17): `shared` gives it the core's console
     /// and stderr, `new` a console window of its own. Neither hands it the core's stdin or stdout,
     /// which carry this protocol (R4-W1). A client from before this field existed gets `shared`, and
@@ -399,6 +407,9 @@ mod tests {
                 // The opposite again for the option that writes the machine registry: a client that
                 // never heard of it must not get a write it did not ask for.
                 assert!(!target.elevated_embedded, "a missing elevated_embedded must mean no registry write");
+                // And for the engine switches that change how the application behaves while hidden
+                // (R4-N28): asked for, never assumed.
+                assert!(!target.keep_background_timers, "a missing keep_background_timers must leave the engine as it is");
                 // A client from before the field keeps the console it always had, and now without the
                 // protocol in it (R4-W1).
                 assert_eq!(target.console, TargetConsole::Shared, "a missing console must mean shared");
@@ -418,6 +429,7 @@ mod tests {
                 cwd: None,
                 embedded: false,
                 elevated_embedded: true,
+                keep_background_timers: true,
                 console: TargetConsole::New,
             },
             time: TimeSpec {

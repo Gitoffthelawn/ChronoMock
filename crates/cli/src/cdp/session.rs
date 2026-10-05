@@ -75,6 +75,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     wallMax: __WALL_MAX__,          /* the last instant the session clock can hold - it stands there */
     Z: __ZONE__,                    /* getTimezoneOffset() of the session's zone, null when it sets none */
     zoneMissed: 0,                  /* 1 once this context has read another zone */
+    hiddenFast: 0,                  /* 1 once this page was hidden while its timers ran faster */
     perfBase: _perf ? _perf() : 0,  /* where performance.now stood when the shim arrived (R4-S16) */
     perfAnchorReal: _perf ? _perf() : 0,
     perfRead: 0,                    /* the real reading behind the last performance.now handed out */
@@ -194,15 +195,26 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     if (S.Z === null) { return; }
     try { if (new _OrigDate(fakeNow()).getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; } } catch (e) {}
   }
+  /* Whether this page is hidden while its timers run faster than real time: a Chromium engine slows
+     the timers of a hidden window to about once a second, which takes the speed-up away from them
+     (R4-N28, measured). Looked at on install, when the page's visibility changes, and on every audit,
+     so a rate raised while hidden is seen within a second. A worker has no document. */
+  function checkHidden(){
+    try { if (typeof document !== 'undefined' && document.hidden && durationRate() > 1) { S.hiddenFast = 1; } } catch (e) {}
+  }
+  try { if (typeof document !== 'undefined' && document.addEventListener) { document.addEventListener('visibilitychange', checkHidden); } } catch (e) {}
   /* What the session reads once a second: the call counts, and the facts the end report draws on. */
   S.audit = function(){
     checkZone();
+    checkHidden();
     var o = {};
     for (var k in S.counts) { o[k] = S.counts[k]; }
     o.zone = S.zoneMissed;
+    o.hidden = S.hiddenFast;
     return o;
   };
   checkZone();
+  checkHidden();
   return 'installed';
 })()"#;
 
@@ -791,6 +803,20 @@ mod tests {
         }
     }
 
+    /// A page hidden while its timers run faster is noted - on install, when its visibility changes, and
+    /// on every audit - and handed to the session with the counts (R4-N28). Only a page: a worker has
+    /// no document.
+    #[test]
+    fn the_shim_notes_a_page_hidden_while_its_timers_run_faster() {
+        let s = build_shim(0, 0, 60, 60, None, 0, None);
+        assert!(s.contains("hiddenFast: 0,"));
+        assert!(s.contains("typeof document !== 'undefined' && document.hidden && durationRate() > 1) { S.hiddenFast = 1; }"));
+        assert!(s.contains("document.addEventListener('visibilitychange', checkHidden);"));
+        assert!(s.contains("    checkHidden();\n    var o = {};"), "every audit looks");
+        assert!(s.contains("    o.hidden = S.hiddenFast;"));
+        assert!(s.contains("  checkHidden();\n  return 'installed';"), "the install looks");
+    }
+
     /// The zone the override names is the session's fixed offset, from a bias in Windows' sense.
     #[test]
     fn the_zone_is_named_as_a_fixed_offset_from_the_bias() {
@@ -814,7 +840,7 @@ mod tests {
         assert!(s.contains("O.Z = -330;"), "a second install carries the zone too");
         assert!(s.contains("getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; }"));
         assert!(s.contains("S.audit = function(){\n    checkZone();"));
-        assert!(s.contains("  checkZone();\n  return 'installed';"));
+        assert!(s.contains("  checkZone();\n  checkHidden();\n  return 'installed';"));
         assert!(build_shim(0, 0, 1, 1, None, 0, None).contains("Z: null,"));
         assert!(COUNTS_EXPR.contains("__chronomock.audit()"));
     }

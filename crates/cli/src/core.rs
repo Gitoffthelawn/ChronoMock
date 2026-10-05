@@ -1314,6 +1314,7 @@ mod tests {
                 cwd: cwd.map(str::to_string),
                 embedded: true,
                 elevated_embedded: false,
+                keep_background_timers: false,
                 console: Default::default(),
             },
             time: TimeSpec {

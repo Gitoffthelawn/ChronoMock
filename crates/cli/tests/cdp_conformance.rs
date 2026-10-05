@@ -135,6 +135,75 @@ fn the_pages_read_the_session_zone() {
     assert_eq!(out.status.code(), Some(0), "{stdout}");
 }
 
+/// R4-N28 end to end, in two sessions at x60 whose browser window is minimized: without
+/// `--keep-background-timers` the report says the hidden page's timers may have been slowed, and with
+/// it the browser was started with the three switches (read off its command line while it runs) and
+/// the report says nothing of it. An Electron target is also said to have a main process the session
+/// does not reach (R4-S19), and any other is not.
+#[test]
+#[ignore = "opt-in: set CHRONO_CDP_TARGET to a permissive Chromium/Electron exe; it launches and minimizes that app"]
+fn a_hidden_window_is_said_unless_its_timers_were_kept() {
+    let Ok(target) = std::env::var("CHRONO_CDP_TARGET") else {
+        eprintln!("CHRONO_CDP_TARGET not set - skipping");
+        return;
+    };
+    let session = |keep: bool| {
+        let mut args = vec!["run", target.as_str(), "--at", "2038-01-19T03:14:07", "--mode", "x60", "--json", "--ticks", "12"];
+        if keep {
+            args.push("--keep-background-timers");
+        }
+        let child = Command::new(env!("CARGO_BIN_EXE_chrono"))
+            .args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run chrono");
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        let command_line = browser_powershell(
+            "(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*chrono-cdp-*' -and $_.CommandLine -notlike '*--type=*' } | Select-Object -First 1).CommandLine",
+        );
+        browser_powershell(
+            "Add-Type -Namespace R416 -Name Win -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(System.IntPtr h, int c);'
+             Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*chrono-cdp-*' -and $_.CommandLine -notlike '*--type=*' } |
+             ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+                              if ($p -and $p.MainWindowHandle -ne [IntPtr]::Zero) { [void][R416.Win]::ShowWindow($p.MainWindowHandle, 6) } }",
+        );
+        let out = child.wait_with_output().expect("collect chrono output");
+        (String::from_utf8_lossy(&out.stdout).into_owned(), command_line)
+    };
+
+    let (slowed, _) = session(false);
+    if slowed.contains("target.launch_failed") || slowed.contains("target.attach_failed") {
+        eprintln!("the target refused the debug port - skipping: {slowed}");
+        return;
+    }
+    assert!(slowed.contains("\"chromium.background_timers_slowed\""), "a page hidden at x60 is said:\n{slowed}");
+
+    let (kept, command_line) = session(true);
+    assert!(command_line.contains("--disable-background-timer-throttling"), "the browser got the switches: {command_line}");
+    assert!(command_line.contains("--disable-renderer-backgrounding"), "{command_line}");
+    assert!(command_line.contains("--disable-backgrounding-occluded-windows"), "{command_line}");
+    assert!(!kept.contains("chromium.background_timers_slowed"), "kept timers are not said to be slowed:\n{kept}");
+
+    let resources = std::path::Path::new(&target).parent().map(|d| d.join("resources"));
+    let electron = resources.is_some_and(|r| r.join("app.asar").exists() || r.join("app").is_dir() || r.join("default_app.asar").exists());
+    assert_eq!(kept.contains("\"chromium.main_process_uncovered\""), electron, "the main process is said of an Electron app only:\n{kept}");
+}
+
+/// Run a Windows PowerShell script for a check of the browser the session started, and hand back what
+/// it printed. Written to a file and run with `-File`, because the quotes a script carries do not
+/// survive a trip through a command line intact.
+fn browser_powershell(script: &str) -> String {
+    let file = std::env::temp_dir().join(format!("chrono-conformance-{}-{}.ps1", std::process::id(), script.len()));
+    std::fs::write(&file, script).expect("script file");
+    let out = Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &file.display().to_string()])
+        .output()
+        .expect("run powershell");
+    let _ = std::fs::remove_file(&file);
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 /// What the first page of the running session's browser evaluates `expr` to, asked by a second
 /// DevTools client - the browser takes several. The port comes from the session profile's
 /// `DevToolsActivePort`, under TMP or TEMP (they differ on some machines, and the core reads TMP),

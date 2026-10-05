@@ -86,6 +86,13 @@
             <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                        Text="{DynamicResource setup.chip_elevated_embedded}" />
           </Border>
+          <!-- Off by default and folded away with the rest of this section, so the header says when a
+               session will start the web engine with its hidden-window slowdown switched off (R4-N28). -->
+          <Border Style="{StaticResource PartBadge}" Margin="{StaticResource SpaceXs}"
+                  Visibility="{Binding KeepBackgroundTimers, Converter={StaticResource BoolToVis}}">
+            <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
+                       Text="{DynamicResource setup.chip_keep_timers}" />
+          </Border>
           <!-- 🔴 The launch fields live in this section too, so its header has to account for them. A chip
                rather than the value: an argument list and a folder path are both as long as somebody makes
                them, and a summary that grew with them would push the rate off the right-hand edge. Neither
@@ -479,6 +486,17 @@
           <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource OptionNoteGap}"
                      Text="{DynamicResource setup.opt_elevated_embedded_unavailable}"
                      Visibility="{Binding ElevatedEmbeddedUnavailable, Converter={StaticResource BoolToVis}}" />
+
+          <!-- R4-N28: a web engine slows the timers of a minimized or hidden window to about once a second,
+               which takes the speed-up away from them. OFF by default, because the application then also
+               works at full pace while hidden, and that cost stands under the box like the ones above. It
+               does not ride on the box that reaches the pages: it is for a Chromium or Electron application
+               as much as for the web pages inside one. -->
+          <CheckBox Content="{DynamicResource setup.opt_keep_timers}" IsChecked="{Binding KeepBackgroundTimers}"
+                    IsEnabled="{Binding IsIdle}" ToolTip="{DynamicResource tip.keep_timers}"
+                    Margin="{StaticResource StackGapSm}" />
+          <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource OptionNoteGap}"
+                     Text="{DynamicResource setup.opt_keep_timers_note}" />
 
           <!--
             🔴 AND THE LAUNCH OPTIONS, IN THE SAME GROUP. They were a fifth section of their own, and

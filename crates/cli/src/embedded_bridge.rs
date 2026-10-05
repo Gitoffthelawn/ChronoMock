@@ -26,7 +26,7 @@ use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, Pumped, ShimOrigin};
-use crate::cdp_audit::KEY_CLOCK_MOVE_MISSED;
+use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED};
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::engine_env;
@@ -189,6 +189,9 @@ pub(crate) struct Launch {
     pub(crate) registry_hidden: bool,
     /// What the closing words about WebView2 depend on beyond the channel itself.
     reach: Reach,
+    /// The engines were given the switches that keep timers at speed in hidden windows (R4-N28): asked
+    /// for, and put in variables an engine reads - an elevated host ignores them.
+    timers_kept: bool,
 }
 
 impl Launch {
@@ -204,6 +207,7 @@ impl Launch {
             unavailable: false,
             registry_hidden: false,
             reach: Reach::default(),
+            timers_kept: false,
         }
     }
 
@@ -224,7 +228,9 @@ impl Launch {
             .unwrap_or_default();
         let qt_port = cdp::free_loopback_port().ok();
         let registry_hidden = hidden_by_variable(elevated, || chrono_mech::webview2_arguments_policy_present(&exe_name));
-        Launch { reach: Reach::of(elevated), ..Launch::compose(&chrono_mech::current_environment(), qt_port, registry_hidden) }
+        let composed = Launch::compose(&chrono_mech::current_environment(), qt_port, registry_hidden, target.keep_background_timers);
+        // An application started elevated ignores the variables, the switches in them included.
+        Launch { reach: Reach::of(elevated), timers_kept: composed.timers_kept && !elevated, ..composed }
     }
 
     /// Say what the registry value came to, so the closing words can be chosen: whether the tester asked
@@ -239,15 +245,16 @@ impl Launch {
     /// is about to be hidden. A machine without a port gets no variables at all - half a channel
     /// would find WebView2 and silently never Qt. Pure, so the shapes are tested with an environment
     /// of the test's choosing rather than whatever the tester's machine carries.
-    fn compose(base: &[(String, String)], qt_port: Option<u16>, registry_hidden: bool) -> Launch {
+    fn compose(base: &[(String, String)], qt_port: Option<u16>, registry_hidden: bool, keep_timers: bool) -> Launch {
         let Some(qt_port) = qt_port else {
             return Launch { enabled: true, unavailable: true, registry_hidden, ..Launch::off() };
         };
         Launch {
-            env: engine_env(base, qt_port),
+            env: engine_env(base, qt_port, keep_timers),
             qt_port: Some(qt_port),
             enabled: true,
             registry_hidden,
+            timers_kept: keep_timers,
             ..Launch::off()
         }
     }
@@ -275,6 +282,10 @@ pub(crate) struct Outcome {
     pub(crate) tree_found: u32,
     /// How many pages and workers read a zone other than the session's at some point (R4/16).
     zone_missed: usize,
+    /// How many pages were hidden at some point while their timers ran faster (R4-N28).
+    hidden_fast: usize,
+    /// The engines were started with their slowdown of hidden windows switched off (`Launch`).
+    timers_kept: bool,
 }
 
 impl Outcome {
@@ -313,6 +324,11 @@ impl Outcome {
         if pages && self.zone_missed > 0 {
             out.push(KEY_ZONE_IS_HOST.to_string());
         }
+        // The same fact as in a Chromium session, under the same key: a hidden page's timers slowed by
+        // its engine, unless the engine was started with that switched off (R4-N28).
+        if pages && self.hidden_fast > 0 && !self.timers_kept {
+            out.push(KEY_BACKGROUND_TIMERS_SLOWED.to_string());
+        }
         out
     }
 
@@ -338,6 +354,8 @@ pub(crate) fn reconcile_engine_warnings(warnings: &mut [String], pages_reached: 
 
 pub(crate) struct EmbeddedBridge {
     scale_duration: bool,
+    /// The engines were started with their slowdown of hidden windows switched off (R4-N28).
+    timers_kept: bool,
     /// The session's zone bias, which every page and worker the bridge reaches is put on - the zone the
     /// hook hands the rest of the application.
     zone: i32,
@@ -383,6 +401,7 @@ impl EmbeddedBridge {
         let (connects_tx, connects) = mpsc::channel();
         let mut bridge = EmbeddedBridge {
             scale_duration,
+            timers_kept: launch.timers_kept,
             zone: zone_bias_min,
             discovery: None,
             connects_tx,
@@ -742,6 +761,8 @@ impl EmbeddedBridge {
             reach: self.reach,
             tree_found: self.tree.total(),
             zone_missed: 0,
+            hidden_fast: 0,
+            timers_kept: self.timers_kept,
         };
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
@@ -755,6 +776,7 @@ impl EmbeddedBridge {
             outcome.failed += part.failed;
             outcome.overflow += part.overflow;
             outcome.zone_missed += part.zone_missed;
+            outcome.hidden_fast += part.hidden_fast;
         }
         outcome
     }
@@ -771,6 +793,7 @@ mod tests {
             cwd: None,
             embedded,
             elevated_embedded: false,
+            keep_background_timers: false,
             console: Default::default(),
         }
     }
@@ -791,6 +814,20 @@ mod tests {
         assert!(on.enabled);
         assert!(!on.unavailable, "this machine hands out loopback ports");
         assert!(on.qt_port.is_some());
+    }
+
+    /// The engines keep their timers at speed in hidden windows only when the tester asked for it and the
+    /// engines read the variables the switches go in: an elevated application ignores them, so a page it
+    /// hides is still said to be slowed (R4-N28).
+    #[test]
+    fn the_timer_switches_count_as_given_only_when_the_engine_reads_them() {
+        let keep = TargetSpec { keep_background_timers: true, ..target(true) };
+        let given = Launch::for_target(&keep, false);
+        assert!(given.timers_kept);
+        assert!(given.env.iter().any(|(_, v)| v.contains("--disable-background-timer-throttling")));
+        assert!(!Launch::for_target(&keep, true).timers_kept, "an elevated application ignores the variables");
+        assert!(!Launch::for_target(&target(true), false).timers_kept, "not asked, not given");
+        assert!(!Launch::for_target(&TargetSpec { embedded: false, ..keep }, false).timers_kept, "no channel, no variables");
     }
 
     /// The core's own token is carried into the launch, channel on or off, because the closing words and
@@ -840,7 +877,7 @@ mod tests {
     /// through untouched either way.
     #[test]
     fn the_launch_is_composed_from_the_environment_and_the_reserved_port() {
-        let on = Launch::compose(&[], Some(45_001), false);
+        let on = Launch::compose(&[], Some(45_001), false, false);
         assert!(on.enabled && !on.unavailable);
         assert_eq!(on.qt_port, Some(45_001));
         let names: Vec<&str> = on.env.iter().map(|(n, _)| n.as_str()).collect();
@@ -849,7 +886,7 @@ mod tests {
         let qt = on.env.iter().find(|(n, _)| n == "QTWEBENGINE_REMOTE_DEBUGGING").map(|(_, v)| v.clone()).unwrap();
         assert_eq!(qt, "127.0.0.1:45001", "the Qt variable names the reserved port");
 
-        let no_port = Launch::compose(&[], None, true);
+        let no_port = Launch::compose(&[], None, true, false);
         assert!(no_port.enabled && no_port.unavailable);
         assert!(no_port.env.is_empty(), "half a channel would find WebView2 and never Qt");
         assert!(no_port.registry_hidden);
@@ -888,6 +925,8 @@ mod tests {
             reach: Reach::default(),
             tree_found: 0,
             zone_missed: 0,
+            hidden_fast: 0,
+            timers_kept: false,
         }
     }
 
@@ -919,6 +958,14 @@ mod tests {
             vec![KEY_DEBUG_PORT_OPEN],
             "pages that read the session's zone are not said to read the host's"
         );
+        let hidden = |timers_kept: bool| {
+            let mut o = outcome(true, &[1], 0, false, &[]);
+            o.hidden_fast = 1;
+            o.timers_kept = timers_kept;
+            o.session_warnings()
+        };
+        assert_eq!(hidden(false), vec![KEY_DEBUG_PORT_OPEN, KEY_BACKGROUND_TIMERS_SLOWED], "a hidden page's timers slowed (R4-N28)");
+        assert_eq!(hidden(true), vec![KEY_DEBUG_PORT_OPEN], "not when the engine was started with that switched off");
     }
 
     fn host(elevated: Option<bool>) -> Option<WebView2Host> {

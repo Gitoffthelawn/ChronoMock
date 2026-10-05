@@ -8,6 +8,25 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **Timers keep the session speed in a hidden window, when asked.** A Chromium engine runs the timers
+  of a minimized or hidden window about once a second, so with time sped up a hidden window lost the
+  speed-up - measured at x60, a page's timer ran about 16 times in 15 seconds once its window was
+  minimized, against 938 times with the slowdown switched off. `chrono run --keep-background-timers`
+  and the option "Keep timers at speed in hidden windows" in the window start the web engine with
+  that slowdown switched off: the browser of a Chromium or Electron application, and the engine
+  inside an application (WebView2 and Qt WebEngine, through their own variables). Off by default,
+  because the application then also works at full pace while it is hidden. Without it, a page that
+  was hidden while time ran faster is reported (`chromium.background_timers_slowed`) - also for an
+  application that switched the slowdown off itself, which the session cannot tell, so the report
+  says the timers may have run slower. An application started as administrator through
+  `--elevated-embedded` does not get the switches, and its hidden pages are reported the same way.
+  The wire carries the option as `start.target.keep_background_timers`, and `--dry-run --json` as
+  `session.keep_background_timers`.
+- **A caution for the part of an Electron application outside its windows.** Its windows run on the
+  session clock, but its main process runs JavaScript in Node, which the session does not reach, and
+  reads the real date and time. The report now says so for every Electron application
+  (`chromium.main_process_uncovered`). The verdict still speaks of the pages the audit sees.
+
 - **The .NET timing caution now reaches .NET applications that leave no runtime files beside
   them.** An application published as NativeAOT or as a single file (self-contained or not), a
   .NET Framework application, whose runtime lives in the Windows directory, and one started as

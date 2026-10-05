@@ -69,6 +69,17 @@ public class LaunchOptionsTests
         Assert.False(SessionPlan.Build(APeFile(), AnyTime(), embedded: false).Start.Target.Embedded);
     }
 
+    /// <summary>Keeping timers at speed in hidden windows is off unless asked for, and the request reaches
+    /// the wire - also with the pages inside the application left alone, because it is for a Chromium or
+    /// Electron application as much as for the pages inside one (R4-N28).</summary>
+    [Fact]
+    public void Keeping_timers_at_speed_in_hidden_windows_is_opt_in_and_reaches_the_wire()
+    {
+        Assert.False(SessionPlan.Build(APeFile(), AnyTime()).Start.Target.KeepBackgroundTimers);
+        Assert.True(SessionPlan.Build(APeFile(), AnyTime(), keepBackgroundTimers: true).Start.Target.KeepBackgroundTimers);
+        Assert.True(SessionPlan.Build(APeFile(), AnyTime(), embedded: false, keepBackgroundTimers: true).Start.Target.KeepBackgroundTimers);
+    }
+
     /// <summary>A console program started from the panel gets a console window of its own (R4-D16): the
     /// core runs with no window, so the console it would otherwise share is one nobody sees. The field has
     /// to reach the wire, since the core's default is the other one.</summary>

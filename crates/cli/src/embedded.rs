@@ -10,6 +10,8 @@
 //! uncovered child off its command line and recognises an engine's subprocesses by image name.
 //! Reaching them is a later slice, and it starts here too.
 
+use crate::cdp;
+
 /// The `--type=` value every Chromium-based engine puts on the command line of each subprocess it
 /// spawns: `renderer`, `gpu-process`, `utility`, `crashpad-handler` and so on. The one signal that
 /// tells a renderer apart from the rest, and the same for WebView2, Qt WebEngine and CEF - a CEF
@@ -63,38 +65,59 @@ pub(crate) const QT_DEBUGGING_VAR: &str = "QTWEBENGINE_REMOTE_DEBUGGING";
 /// WebView2 - the channel finds the number in the TCP table, so it never needs to know it up front.
 const REMOTE_DEBUGGING_PORT_SWITCH: &str = "--remote-debugging-port";
 
-/// The two variables that make an embedded engine open a DevTools port, merged with what the
-/// tester's environment already says - `current` is looked up by name, without regard to case, the
-/// way the system looks variables up.
+/// The variable Qt WebEngine reads extra Chromium switches from (Qt documentation, "Qt WebEngine
+/// Debugging and Profiling" and "Using Command-Line Arguments"). Written only to keep timers at speed in
+/// hidden windows (R4-N28), on top of what the tester set.
+pub(crate) const QT_FLAGS_VAR: &str = "QTWEBENGINE_CHROMIUM_FLAGS";
+
+/// The variables that make an embedded engine open a DevTools port, merged with what the tester's
+/// environment already says - `current` is looked up by name, without regard to case, the way the
+/// system looks variables up.
 ///
 /// - WebView2: our switch is added after whatever the tester set, unless they already chose a
 ///   debugging port or pipe themselves - two port switches on one command line are a coin toss,
 ///   and the table read finds their port as well as ours.
 /// - Qt: the tester's value stands untouched when there is one (an explicit port of their own
 ///   choosing), otherwise `127.0.0.1:<qt_port>`, a port the caller found free a moment ago.
+/// - `keep_timers` (R4-N28): the switches that stop the engine slowing the timers of a hidden window
+///   go after the tester's own, to WebView2's variable and to Qt's flags variable alike.
 ///
 /// Pure over `current`, so the merge is tested without an environment.
-pub(crate) fn engine_env(current: &[(String, String)], qt_port: u16) -> Vec<(String, String)> {
+pub(crate) fn engine_env(current: &[(String, String)], qt_port: u16, keep_timers: bool) -> Vec<(String, String)> {
     let lookup = |name: &str| {
         current.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
     };
+    let timer_switches: Vec<String> =
+        cdp::BACKGROUND_TIMER_SWITCHES.iter().filter(|_| keep_timers).map(|s| (*s).to_string()).collect();
     let mut out = Vec::new();
 
     let webview2 = lookup(WEBVIEW2_ARGUMENTS_VAR).unwrap_or("");
+    let mut ours = Vec::new();
     if !has_debugging_switch(webview2) {
-        let value = if webview2.trim().is_empty() {
-            format!("{REMOTE_DEBUGGING_PORT_SWITCH}=0")
-        } else {
-            format!("{} {REMOTE_DEBUGGING_PORT_SWITCH}=0", webview2.trim_end())
-        };
-        out.push((WEBVIEW2_ARGUMENTS_VAR.to_string(), value));
+        ours.push(format!("{REMOTE_DEBUGGING_PORT_SWITCH}=0"));
+    }
+    ours.extend(timer_switches.iter().cloned());
+    if !ours.is_empty() {
+        out.push((WEBVIEW2_ARGUMENTS_VAR.to_string(), appended(webview2, &ours)));
     }
 
     if lookup(QT_DEBUGGING_VAR).is_none_or(|v| v.trim().is_empty()) {
         out.push((QT_DEBUGGING_VAR.to_string(), format!("127.0.0.1:{qt_port}")));
     }
+    if !timer_switches.is_empty() {
+        out.push((QT_FLAGS_VAR.to_string(), appended(lookup(QT_FLAGS_VAR).unwrap_or(""), &timer_switches)));
+    }
 
     out
+}
+
+/// A switch list with `ours` after what was there, one space apart.
+fn appended(existing: &str, ours: &[String]) -> String {
+    if existing.trim().is_empty() {
+        ours.join(" ")
+    } else {
+        format!("{} {}", existing.trim_end(), ours.join(" "))
+    }
 }
 
 /// Whether a switch list already asks for a DevTools endpoint, by port or by pipe.
@@ -121,7 +144,7 @@ mod tests {
 
     #[test]
     fn a_clean_environment_gets_both_variables() {
-        let env = engine_env(&[], 9333);
+        let env = engine_env(&[], 9333, false);
         assert_eq!(
             env,
             vec![
@@ -133,21 +156,46 @@ mod tests {
 
     #[test]
     fn the_tester_s_own_webview2_switches_survive_with_ours_appended() {
-        let env = engine_env(&[pair("webview2_additional_browser_arguments", "--disable-gpu ")], 1);
+        let env = engine_env(&[pair("webview2_additional_browser_arguments", "--disable-gpu ")], 1, false);
         assert_eq!(env[0], pair(WEBVIEW2_ARGUMENTS_VAR, "--disable-gpu --remote-debugging-port=0"));
     }
 
     #[test]
     fn a_tester_who_chose_a_debugging_endpoint_keeps_it_and_gets_no_second_one() {
-        let port = engine_env(&[pair(WEBVIEW2_ARGUMENTS_VAR, "--remote-debugging-port=9222")], 1);
+        let port = engine_env(&[pair(WEBVIEW2_ARGUMENTS_VAR, "--remote-debugging-port=9222")], 1, false);
         assert!(port.iter().all(|(n, _)| n != WEBVIEW2_ARGUMENTS_VAR));
-        let pipe = engine_env(&[pair(WEBVIEW2_ARGUMENTS_VAR, "--remote-debugging-pipe")], 1);
+        let pipe = engine_env(&[pair(WEBVIEW2_ARGUMENTS_VAR, "--remote-debugging-pipe")], 1, false);
         assert!(pipe.iter().all(|(n, _)| n != WEBVIEW2_ARGUMENTS_VAR));
-        let qt = engine_env(&[pair("QtWebEngine_Remote_Debugging", "127.0.0.1:5555")], 1);
+        let qt = engine_env(&[pair("QtWebEngine_Remote_Debugging", "127.0.0.1:5555")], 1, false);
         assert!(qt.iter().all(|(n, _)| n != QT_DEBUGGING_VAR));
         // An empty Qt value is no choice at all.
-        let empty = engine_env(&[pair(QT_DEBUGGING_VAR, "  ")], 7);
+        let empty = engine_env(&[pair(QT_DEBUGGING_VAR, "  ")], 7, false);
         assert!(empty.contains(&pair(QT_DEBUGGING_VAR, "127.0.0.1:7")));
+    }
+
+    /// Asked to keep timers at speed in hidden windows, the session gives both engines the switches
+    /// after whatever the tester set: WebView2 in its arguments variable, next to the debugging port or
+    /// alone when the tester chose a port of their own, and Qt in its flags variable (R4-N28).
+    #[test]
+    fn the_timer_switches_reach_both_engines_after_the_tester_s_own() {
+        let switches = cdp::BACKGROUND_TIMER_SWITCHES.join(" ");
+        let env = engine_env(&[], 9333, true);
+        assert_eq!(
+            env,
+            vec![
+                pair(WEBVIEW2_ARGUMENTS_VAR, &format!("--remote-debugging-port=0 {switches}")),
+                pair(QT_DEBUGGING_VAR, "127.0.0.1:9333"),
+                pair(QT_FLAGS_VAR, &switches),
+            ]
+        );
+        let own = engine_env(
+            &[pair(WEBVIEW2_ARGUMENTS_VAR, "--remote-debugging-port=9222"), pair("qtwebengine_chromium_flags", "--mine ")],
+            1,
+            true,
+        );
+        assert!(own.contains(&pair(WEBVIEW2_ARGUMENTS_VAR, &format!("--remote-debugging-port=9222 {switches}"))));
+        assert!(own.contains(&pair(QT_FLAGS_VAR, &format!("--mine {switches}"))));
+        assert!(engine_env(&[], 1, false).iter().all(|(n, _)| n != QT_FLAGS_VAR), "not asked, not written");
     }
 
     #[test]

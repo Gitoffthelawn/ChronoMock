@@ -74,6 +74,9 @@ public class LocalizationTests
         // The target handed the application over to another program and the session went on with it
         // (R4-S18), and a page that read another zone than the session's (R4/16).
         "chromium.followed_browser", "chromium.zone_is_host",
+        // A page hidden while its timers ran faster (R4-N28), and an Electron application's main process
+        // on the real clock (R4-S19).
+        "chromium.background_timers_slowed", "chromium.main_process_uncovered",
         // Runtime detection warnings the driver appends to coverage (B1): a Python/.NET/Java target whose
         // monotonic/elapsed clock stands on QPC and does not scale.
         // Not a QPC-axis caution like the four below: a clock that is out of reach entirely.

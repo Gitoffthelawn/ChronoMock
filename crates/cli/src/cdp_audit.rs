@@ -91,6 +91,17 @@ pub(crate) const KEY_FOLLOWED_BROWSER: &str = "chromium.followed_browser";
 /// clock was the session's, its local time was not.
 pub(crate) const KEY_ZONE_IS_HOST: &str = "chromium.zone_is_host";
 
+/// A page was hidden while its timers ran faster, and its engine was not started with its slowdown of
+/// hidden windows switched off: it runs a hidden window's timers about once a second, so they may have
+/// run slower than the session speed (R4-N28). Said of a Chromium session and of the pages of an
+/// embedded engine alike.
+pub(crate) const KEY_BACKGROUND_TIMERS_SLOWED: &str = "chromium.background_timers_slowed";
+
+/// The target is an Electron application: its windows are on the session clock, and its main process,
+/// which runs JavaScript in Node outside every page, reads the real clock (R4-S19, R4-D4: said, not yet
+/// reached).
+pub(crate) const KEY_MAIN_PROCESS_UNCOVERED: &str = "chromium.main_process_uncovered";
+
 /// What a finished CDP session observed about itself, each fact under its name. Named fields rather
 /// than a row of booleans, because a call site with seven `true`/`false` in a row cannot be read and
 /// two of them swapped still compiles.
@@ -112,6 +123,11 @@ pub(crate) struct SessionFacts {
     pub(crate) followed_browser: bool,
     /// A context read a zone other than the session's at some point.
     pub(crate) zone_missed: bool,
+    /// A page was hidden while its timers ran faster, and the browser was not started with its slowdown
+    /// of hidden windows switched off.
+    pub(crate) background_timers_slowed: bool,
+    /// The target is an Electron application, whose main process the session does not reach.
+    pub(crate) main_process_uncovered: bool,
 }
 
 /// What a finished CDP session has to say about itself beyond the coverage numbers.
@@ -126,6 +142,11 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
         // the tester named ended, and the session did not (R4-S18).
         warnings.push(KEY_FOLLOWED_BROWSER.to_string());
     }
+    if facts.main_process_uncovered {
+        // The verdict speaks of the pages, which are what the audit sees. This says which part of the
+        // application it does not (R4-D4: works, with the warning).
+        warnings.push(KEY_MAIN_PROCESS_UNCOVERED.to_string());
+    }
     if facts.app_closed && !facts.audited {
         warnings.push("chromium.app_closed_before_audit".to_string());
     }
@@ -134,6 +155,9 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
         // once, but a setInterval already scheduled at the old rate keeps its old cadence - the JS engine
         // had already queued it (rule 4). The native hook has no equivalent gap (it divides Ctl live).
         warnings.push("chromium.rate_change_affects_running_timers".to_string());
+    }
+    if facts.background_timers_slowed {
+        warnings.push(KEY_BACKGROUND_TIMERS_SLOWED.to_string());
     }
     if facts.clock_moves_missed {
         // A context took a rate change or a jump late, or not at all, or did not take the new
@@ -415,6 +439,16 @@ mod tests {
             session_warnings(&SessionFacts { followed_browser: true, ..audited }),
             vec!["chromium.launched_with_debug_port", KEY_FOLLOWED_BROWSER],
             "a session that went on after its target handed the application over says so (R4-S18)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { main_process_uncovered: true, followed_browser: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_FOLLOWED_BROWSER, KEY_MAIN_PROCESS_UNCOVERED],
+            "an Electron application's main process is said to read the real clock (R4-S19)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { background_timers_slowed: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_BACKGROUND_TIMERS_SLOWED],
+            "a page hidden while its timers ran faster says so (R4-N28)"
         );
         assert_eq!(
             session_warnings(&SessionFacts { zone_missed: true, ..audited }),

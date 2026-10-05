@@ -15,7 +15,9 @@ use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-pub use launch::{is_chromium_target, launch_chromium};
+pub use launch::{
+    is_chromium_target, is_electron_target, launch_chromium, with_background_timers, BACKGROUND_TIMER_SWITCHES,
+};
 pub use session::{
     build_shim, inject_page, inject_worker, is_shimmable, is_worker, script_identifier, set_expr, starts_workers,
     zone_id, Injected, ScheduledRate, COUNTED_APIS, COUNTS_EXPR,

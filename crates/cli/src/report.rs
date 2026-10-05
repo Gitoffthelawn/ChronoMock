@@ -307,6 +307,14 @@ fn describe_chromium_warning(key: &str) -> &'static str {
         "chromium.rate_change_affects_running_timers" => {
             "the speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence"
         }
+        // Accepted by the owner before the code (R4/16, 2026-10-05), with the flag named in it.
+        "chromium.background_timers_slowed" => {
+            "a window of the app was hidden or minimised while time ran faster, and Chromium slows the timers of a hidden window to about once a second - its timers may have run slower than the session speed while it was hidden (start the session with --keep-background-timers to switch that off)"
+        }
+        // R4-S19, R4-D4: said rather than reached. The verdict speaks of the pages the audit sees.
+        "chromium.main_process_uncovered" => {
+            "this is an Electron app: its windows run on the session clock, but its main process (the Node.js part outside the windows) reads the real clock - a date it works out there, a reminder it schedules or a check it makes at start follows the real date and time"
+        }
         "chromium.clock_move_missed" => {
             "a web page took a speed change or a jump late or not at all - usually because it was busy - so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one"
         }

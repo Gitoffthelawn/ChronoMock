@@ -107,7 +107,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
                     return 2;
                 }
             };
-            let env = engine_env(&chrono_mech::current_environment(), qt_port);
+            let env = engine_env(&chrono_mech::current_environment(), qt_port, false);
             for (name, value) in &env {
                 outln!("env {name}={value}");
             }

@@ -350,6 +350,9 @@ fn session_block(p: &Plan) -> String {
         }));
     }
     out.push_str(&elevated_embedded_note(p));
+    if p.ra.keep_background_timers {
+        out.push_str(&note("--keep-background-timers: the web engine starts with its slowdown of timers in hidden windows switched off - a minimised window keeps the session speed, and the app works at full pace while hidden"));
+    }
     if let Some(path) = &p.ra.report {
         out.push_str(&line("evidence", &format!("would be written to {path}")));
     }
@@ -489,6 +492,9 @@ struct SessionJson<'a> {
     /// The name the session would write the registry value under, when it would write one: the flag is
     /// given and the target is an `.exe` that is not Chromium. A dry run writes nothing either way.
     elevated_embedded_value: Option<String>,
+    /// Whether `--keep-background-timers` was given (R4-N28): the web engine would start with its
+    /// slowdown of timers in hidden windows switched off. A setting, not an outcome.
+    keep_background_timers: bool,
     /// The path `--report` named. A dry run does not write it.
     report: Option<&'a str>,
 }
@@ -546,6 +552,7 @@ fn render_json(p: &Plan) -> String {
             embedded: p.ra.embedded && !p.chromium,
             elevated_embedded: p.ra.elevated_embedded && !p.chromium,
             elevated_embedded_value: elevated_value_name(p),
+            keep_background_timers: p.ra.keep_background_timers,
             report: p.ra.report.as_deref(),
         },
         warnings: &p.warning_keys,

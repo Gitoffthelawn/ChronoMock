@@ -76,7 +76,10 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     // watchdog is 15 s, so a slow Electron and a dead core looked the same to it. Measured on
     // the measured Electron app the gap is about 1.6 s, so this is about the tail, not the common case (R3-3).
     let mut last_beat = std::time::Instant::now();
-    let mut launched = match cdp::launch_chromium(&target.path, &target.args, target.cwd.as_deref(), || {
+    // The browser's own slowdown of timers in hidden windows is switched off when the session asked for
+    // it (R4-N28) - otherwise a page hidden while time ran faster is reported below.
+    let browser_args = cdp::with_background_timers(&target.args, target.keep_background_timers);
+    let mut launched = match cdp::launch_chromium(&target.path, &browser_args, target.cwd.as_deref(), || {
         if last_beat.elapsed() >= std::time::Duration::from_secs(1) {
             last_beat = std::time::Instant::now();
             emit(&clock.state_event_at(now_epoch_ms()));
@@ -193,6 +196,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     let failed = attacher.failed();
     let past_ceiling = attacher.overflow();
     let zone_missed = attacher.zone_missed();
+    let hidden_fast = attacher.hidden_fast();
     let counts = attacher.into_counts();
     let audited = !counts.is_empty();
 
@@ -210,6 +214,10 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
         clock_clamped: clock.reached_range_end(now_epoch_ms()),
         followed_browser: followed.is_some(),
         zone_missed: zone_missed > 0,
+        // Not said when the browser was started with the slowdown switched off - its timers kept the
+        // session speed while hidden (measured, R4-N28).
+        background_timers_slowed: hidden_fast > 0 && !target.keep_background_timers,
+        main_process_uncovered: cdp::is_electron_target(&target.path),
     };
     for event in coverage_events(&seen, &covered, session_warnings(&facts)) {
         emit(&event);

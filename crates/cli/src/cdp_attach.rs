@@ -165,6 +165,8 @@ pub(crate) struct AttacherOutcome {
     pub(crate) moves_missed: usize,
     /// How many contexts read a zone other than the session's at some point.
     pub(crate) zone_missed: usize,
+    /// How many pages were hidden at some point while their timers ran faster (R4-N28).
+    pub(crate) hidden_fast: usize,
 }
 
 pub(crate) struct Attacher {
@@ -254,6 +256,12 @@ impl Attacher {
         self.requests.zone_missed()
     }
 
+    /// How many pages were hidden at some point while their timers ran faster - an engine slows the
+    /// timers of a hidden window, unless the session started it with that switched off (R4-N28).
+    pub(crate) fn hidden_fast(&self) -> usize {
+        self.requests.hidden_fast()
+    }
+
     /// Shorten the client's poll interval and call deadline - see `CdpClient::set_budgets`. For an
     /// attacher driven from a loop that has its own cadence to keep.
     pub(crate) fn set_budgets(&mut self, poll: Duration, call: Duration) {
@@ -274,6 +282,7 @@ impl Attacher {
     pub(crate) fn into_outcome(self) -> AttacherOutcome {
         let moves_missed = self.requests.moves_missed();
         let zone_missed = self.requests.zone_missed();
+        let hidden_fast = self.requests.hidden_fast();
         AttacherOutcome {
             seen: self.seen,
             counts: self.requests.into_counts(),
@@ -281,6 +290,7 @@ impl Attacher {
             overflow: self.overflow,
             moves_missed,
             zone_missed,
+            hidden_fast,
         }
     }
 
