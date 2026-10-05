@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "market-unknown",
+  "name": { "en": "market-unknown", "pl": "market-unknown (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both", "market": "zz",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [  ] }
+}

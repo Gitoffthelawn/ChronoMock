@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "base-today-snap",
+  "name": { "en": "base-today-snap", "pl": "base-today-snap (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": "today", "steps": [ { "snap": "end-of-month" }, { "snap": "soq" } ] }
+}

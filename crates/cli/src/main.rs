@@ -1,12 +1,13 @@
 //! Chrono Mock command-line interface - a first-class interface from v0.1
 //! (chrono-mock.md 11.1 item 15), not an add-on to the GUI.
 //!
-//! One binary, four roles and two questions - `chrono version`, which names the build, which of the
+//! One binary, five roles and two questions - `chrono version`, which names the build, which of the
 //! two cores this executable is, and the protocol it speaks, and `chrono license`, which names the
 //! licence, the warranty disclaimer and the components linked into this build:
 //!   * `chrono run <target> ...` - the friendly driver ([`run`]). Spawns the core process
 //!     and speaks the machine protocol (ADR-6) to it over stdio.
 //!   * `chrono calc ...` - the date calculator ([`calc`]), the product's second half.
+//!   * `chrono presets` - the preset catalogue as both of those read it ([`preset_catalogue`]).
 //!   * `chrono __core` - the hidden core mode ([`core`]). Reads commands, drives the
 //!     mechanism layer, emits protocol events on stdout.
 //!   * `chrono __cdp-*` - hidden diagnostic probes for the Chromium path ([`cdp_probe`]).
@@ -56,6 +57,8 @@ mod pe;
 mod policy_session;
 /// Presets: a named moment with parameters (docs/04 section 4).
 mod preset;
+/// `chrono presets` - the catalogue every surface reads presets through.
+mod preset_catalogue;
 /// The terminal report and the evidence export for a finished session.
 mod report;
 /// `chrono run` - the friendly driver.
@@ -81,9 +84,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let code = match args.get(1).map(String::as_str) {
         Some("__core") => core_mode(),
-        Some(command @ ("run" | "calc")) if asks_for_help(&args[2..]) => print_help_for(command),
+        Some(command @ ("run" | "calc" | "presets")) if asks_for_help(&args[2..]) => print_help_for(command),
         Some("run") => driver_run(&args[2..]),
         Some("calc") => calc_run(&args[2..]),
+        Some("presets") => preset_catalogue::presets_run(&args[2..]),
         Some("__cdp-probe") => cdp_probe(&args[2..]),
         Some("__cdp-launch") => cdp_launch_probe(&args[2..]),
         Some("__cdp-shim") => cdp_shim_probe(&args[2..]),

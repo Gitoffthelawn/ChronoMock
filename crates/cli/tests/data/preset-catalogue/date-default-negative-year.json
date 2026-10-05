@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "date-default-negative-year",
+  "name": { "en": "date-default-negative-year", "pl": "date-default-negative-year (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "start", "type": "date", "default": "-0044-03-15" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [] }
+}

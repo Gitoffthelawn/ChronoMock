@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "applies-to-unknown",
+  "name": { "en": "applies-to-unknown", "pl": "applies-to-unknown (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "everywhere",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [  ] }
+}

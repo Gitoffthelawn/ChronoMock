@@ -1,6 +1,9 @@
 # Normalise line endings so byte comparisons are stable across machines.
 * text=auto eol=lf
 
+# A test preset written in UTF-16 on purpose (the catalogue refuses it) - its bytes are the test.
+crates/cli/tests/data/preset-catalogue/encoded-utf16.json binary
+
 # Binary assets - never touch line endings.
 *.png binary
 *.gif binary

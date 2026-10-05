@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "snap-unknown",
+  "name": { "en": "snap-unknown", "pl": "snap-unknown (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "snap": "end-of-week" } ] }
+}

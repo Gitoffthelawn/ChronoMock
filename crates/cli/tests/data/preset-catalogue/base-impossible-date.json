@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "base-impossible-date",
+  "name": { "en": "base-impossible-date", "pl": "base-impossible-date (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-02-31T00:00:00" }, "steps": [] }
+}

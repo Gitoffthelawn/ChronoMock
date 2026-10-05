@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "params-every-type",
+  "name": { "en": "params-every-type", "pl": "params-every-type (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "calculator",
+  "parameters": [ { "id": "start", "type": "date", "default": "2026-03-01" }, { "id": "length", "type": "duration", "default": { "amount": 2, "unit": "month" } }, { "id": "boundary", "type": "variant", "default": "on_day" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [ { "shift": { "sign": "-", "parameter": "length" } }, { "shift": { "parameter": "boundary" } } ] }
+}

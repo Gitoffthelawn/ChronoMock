@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "variant-unknown-default",
+  "name": { "en": "variant-unknown-default", "pl": "variant-unknown-default (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "v", "type": "variant", "default": "week_before" } ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "shift": { "parameter": "v" } } ] }
+}

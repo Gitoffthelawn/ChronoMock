@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "texts-many-languages",
+  "name": { "en": "Many languages", "pl": "Wiele języków", "de": "Viele Sprachen", "xx": 5 },
+  "explains": { "en": "Every text language is handed on, a non-text one is left out.", "pl": "Każdy język tekstu idzie dalej." },
+  "applies_to": "both",
+  "unknown_field": "ignored, as the preset format ignores unknown fields",
+  "moment": { "base": "today", "steps": [] }
+}

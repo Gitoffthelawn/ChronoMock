@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "moment-without-base",
+  "name": { "en": "moment-without-base", "pl": "moment-without-base (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "steps": [] }
+}

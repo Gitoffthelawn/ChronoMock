@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "params-without-defaults",
+  "name": { "en": "params-without-defaults", "pl": "params-without-defaults (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "start", "type": "date", "default_hint": "target_file_creation" }, { "id": "length", "type": "duration" }, { "id": "boundary", "type": "variant" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [ { "shift": { "sign": "+", "parameter": "length" } }, { "shift": { "parameter": "boundary" } } ] }
+}

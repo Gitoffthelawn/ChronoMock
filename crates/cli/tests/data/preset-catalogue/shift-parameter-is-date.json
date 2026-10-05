@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "shift-parameter-is-date",
+  "name": { "en": "shift-parameter-is-date", "pl": "shift-parameter-is-date (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "start", "type": "date" } ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "shift": { "sign": "+", "parameter": "start" } } ] }
+}

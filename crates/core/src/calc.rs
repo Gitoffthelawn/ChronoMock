@@ -399,6 +399,15 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
     Ok(EvalOutcome { base, after_each, result_bias: cur_bias, clamped })
 }
 
+/// Whether a `set_time` step names a time of day that exists: 00:00:00 to 23:59:59.
+///
+/// Public because a step is refused for it whatever moment it is applied to, so a reader that checks a
+/// written step before any moment exists - the preset catalogue - has to ask the same question, and
+/// asking it here keeps the range in one place.
+pub fn is_time_of_day(hour: u32, minute: u32, second: u32) -> bool {
+    hour <= 23 && minute <= 59 && second <= 59
+}
+
 /// Returns the stepped moment and, for a month-folding shift that hit a shorter month, the day that
 /// was asked for. Only `Shift` can report one - every other step either keeps the day or picks it.
 fn apply_step(
@@ -410,7 +419,7 @@ fn apply_step(
     match step {
         Step::Shift { sign, amount, unit } => apply_shift(cur, *sign, *amount, *unit, index, calendar),
         Step::SetTime { hour, minute, second } => {
-            if *hour > 23 || *minute > 59 || *second > 59 {
+            if !is_time_of_day(*hour, *minute, *second) {
                 return Err(EvalError::BadSetTime { index });
             }
             Ok((CivilDateTime { hour: *hour, minute: *minute, second: *second, ..cur }, None))

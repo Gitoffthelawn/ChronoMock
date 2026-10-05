@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "default-without-unit",
+  "name": { "en": "default-without-unit", "pl": "default-without-unit (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "n", "type": "duration", "default": { "amount": 2 } } ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "shift": { "sign": "+", "parameter": "n" } } ] }
+}

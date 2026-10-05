@@ -16,7 +16,7 @@
 //! only the window reads (the Polish texts), and none of them can move the moment.
 
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::Deserialize;
 
@@ -37,6 +37,10 @@ pub(crate) struct Preset {
     pub(crate) id: String,
     pub(crate) name_en: String,
     pub(crate) explains_en: String,
+    /// The name and the "what it tests" line in every language the file wrote them in, English
+    /// included - for the catalogue, which hands them to the window.
+    pub(crate) name_texts: BTreeMap<String, String>,
+    pub(crate) explains_texts: BTreeMap<String, String>,
     /// `calculator` / `substitution` / `both` (docs/04 4.2). Each surface honours it.
     pub(crate) applies_to: String,
     pub(crate) parameters: Vec<Parameter>,
@@ -51,13 +55,13 @@ pub(crate) struct Preset {
 /// substitution session, a later slice) a `default_hint` such as the target's file date.
 #[derive(Debug)]
 pub(crate) struct Parameter {
-    id: String,
-    kind: ParamKind,
-    default: Option<ParamValue>,
+    pub(crate) id: String,
+    pub(crate) kind: ParamKind,
+    pub(crate) default: Option<ParamValue>,
     /// Where to propose a value from when neither `--param` nor `default` is given (docs/04 4.2).
     /// `target_file_creation` needs a target, so it is honoured only in `run` (a later slice) - the
     /// calculator, having no target, reports it as a value the user must supply.
-    default_hint: Option<String>,
+    pub(crate) default_hint: Option<String>,
 }
 
 /// A parameter's type. `date` fills a base - `duration` and `variant` fill a shift (a `variant` by a
@@ -67,6 +71,21 @@ pub(crate) enum ParamKind {
     Date,
     Duration,
     Variant,
+}
+
+impl ParamKind {
+    /// The `type` a file writes, and the one the catalogue hands on.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            ParamKind::Date => "date",
+            ParamKind::Duration => "duration",
+            ParamKind::Variant => "variant",
+        }
+    }
+
+    fn from_name(name: &str) -> Option<ParamKind> {
+        [ParamKind::Date, ParamKind::Duration, ParamKind::Variant].into_iter().find(|kind| kind.name() == name)
+    }
 }
 
 /// A resolved parameter value, ready to substitute into the moment.
@@ -176,18 +195,39 @@ pub(crate) struct DurationDto {
     unit: String,
 }
 
-/// The English text is what the CLI renders (rule 15 - CLI is English only) - `pl` rides in the file
-/// for the GUI but this reader does not need it, so it is not a field here (unknown fields ignored).
+/// A preset's name or "what it tests" line, one text per language. `en` is required and is what the
+/// CLI renders (rule 15 - the CLI is English only). The other languages ride along for the window,
+/// which gets them from the catalogue (`chrono presets`) since it stopped reading the files itself. A
+/// language whose value is not text is left out rather than refusing the file - the window's own
+/// reader left it out too, and a file listed there has to stay usable here.
 #[derive(Deserialize)]
 pub(crate) struct PresetTextDto {
     en: String,
+    #[serde(flatten)]
+    other: BTreeMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+impl PresetTextDto {
+    /// Every language the text was written in, English included.
+    fn into_texts(self) -> BTreeMap<String, String> {
+        let mut texts: BTreeMap<String, String> = self
+            .other
+            .into_iter()
+            .filter_map(|(lang, value)| match value {
+                serde_json::Value::String(text) => Some((lang, text)),
+                _ => None,
+            })
+            .collect();
+        texts.insert("en".to_string(), self.en);
+        texts
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct MomentDto {
-    base: BaseDto,
+    pub(crate) base: BaseDto,
     #[serde(default)]
-    steps: Vec<StepDto>,
+    pub(crate) steps: Vec<StepDto>,
 }
 
 /// A preset base: the keyword `today`/`now`, an `{ "absolute": "ISO" }` object, an
@@ -198,7 +238,7 @@ pub(crate) struct MomentDto {
 /// the SESSION zone (rule 2), `absolute_utc` is an instant. A preset whose meaning is "9 AM local"
 /// wants the first, a preset whose meaning is "epoch second 0" wants the second - and using the
 /// first for the second is how these presets came to miss their target by exactly the zone offset.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum BaseDto {
     Keyword(String),
@@ -215,7 +255,7 @@ pub(crate) enum BaseDto {
 /// One preset step, externally tagged exactly as docs/04 4.2 writes it: `{ "shift": {...} }`,
 /// `{ "set_time": "HH:MM:SS" }`, `{ "snap": "end-of-month" }`, `{ "nearest": "next-business-day" }`,
 /// `{ "zone": "+05:45" }`. The string forms reuse the CLI parsers, keeping one grammar.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StepDto {
     Shift(ShiftDto),
@@ -228,7 +268,7 @@ pub(crate) enum StepDto {
 /// A `shift` step in a preset: a literal `{ sign, amount, unit }`, a parametric `{ sign, parameter }`
 /// resolved from a `duration`, or a parametric `{ parameter }` resolved from a `variant` (docs/04 4.2).
 /// The sign is optional because a `variant` parameter carries its own direction (docs/05 3.6).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ShiftDto {
     #[serde(default)]
     sign: Option<String>,
@@ -237,7 +277,7 @@ pub(crate) struct ShiftDto {
     #[serde(default)]
     unit: Option<String>,
     #[serde(default)]
-    parameter: Option<String>,
+    pub(crate) parameter: Option<String>,
 }
 
 /// Whether a preset's `applies_to` makes it a calculator question (docs/04 4.2, docs/05 3.1).
@@ -450,13 +490,28 @@ pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
             dto.schema
         )));
     }
+    // Each surface used to judge an unknown value alone, by not being it: the calculator refused it as
+    // "not for the calculator" and `run` as "not for substitution", so a typo read as a deliberate
+    // choice in both messages. It is a bad file, and the catalogue leaves it out like one.
+    if !matches!(dto.applies_to.as_str(), "calculator" | "substitution" | "both") {
+        return Err(PresetError::BadFile(format!(
+            "applies_to must be calculator, substitution or both, got '{}'",
+            dto.applies_to
+        )));
+    }
     let parameters = dto.parameters.into_iter().map(parse_parameter).collect::<Result<Vec<_>, _>>()?;
     refuse_contradictions(&parameters, &dto.moment)?;
     let time_mode = time_mode_from(dto.time_mode)?;
+    let name_en = dto.name.en.clone();
+    let explains_en = dto.explains.en.clone();
+    let name_texts = dto.name.into_texts();
+    let explains_texts = dto.explains.into_texts();
     Ok(Preset {
         id: dto.id,
-        name_en: dto.name.en,
-        explains_en: dto.explains.en,
+        name_en,
+        explains_en,
+        name_texts,
+        explains_texts,
         applies_to: dto.applies_to,
         parameters,
         moment: dto.moment,
@@ -487,16 +542,11 @@ pub(crate) fn load_market_calendar(preset_id: &str, market: Option<&str>) -> Opt
 
 /// Parse one file parameter declaration into a typed `Parameter`, checking the type and any default.
 pub(crate) fn parse_parameter(dto: ParameterDto) -> Result<Parameter, PresetError> {
-    let kind = match dto.kind.as_str() {
-        "date" => ParamKind::Date,
-        "duration" => ParamKind::Duration,
-        "variant" => ParamKind::Variant,
-        other => {
-            return Err(PresetError::NotBuilt(format!(
-                "parameter '{}' has type '{other}', which calc does not resolve yet (built: date, duration, variant)",
-                dto.id
-            )))
-        }
+    let Some(kind) = ParamKind::from_name(&dto.kind) else {
+        return Err(PresetError::NotBuilt(format!(
+            "parameter '{}' has type '{}', which calc does not resolve yet (built: date, duration, variant)",
+            dto.id, dto.kind
+        )));
     };
     let default = match dto.default {
         Some(v) => Some(param_value_from_json(&dto.id, kind, &v)?),
@@ -606,11 +656,8 @@ fn param_value_text(v: &ParamValue) -> String {
     match v {
         ParamValue::Date(d) => format!("{:04}-{:02}-{:02}", d.year, d.month, d.day),
         ParamValue::Duration { amount, unit } => format!("{amount} {}", unit.name()),
-        // The three boundary variants, by the signed day offset each resolves to (docs/05 3.6).
-        ParamValue::Variant(-1) => "day_before".to_string(),
-        ParamValue::Variant(0) => "on_day".to_string(),
-        ParamValue::Variant(1) => "day_after".to_string(),
-        ParamValue::Variant(days) => format!("{days:+} days"),
+        // A boundary variant by its label (docs/05 3.6), and an offset no variant has by its days.
+        ParamValue::Variant(days) => variant_label(*days).map_or_else(|| format!("{days:+} days"), str::to_string),
     }
 }
 
@@ -669,17 +716,23 @@ pub(crate) fn parse_param_value(id: &str, kind: ParamKind, raw: &str) -> Result<
     }
 }
 
-/// Map a boundary-variant label to its signed day offset (docs/05 3.6): the day before, on, or after
-/// the boundary. The three labels are the contract - an unknown one is a usage error, never a guess.
+/// The boundary variants (docs/05 3.6) and the signed day offset each resolves to: the day before, on,
+/// or after the boundary. One table, read by the parser, by the report and by the catalogue that hands
+/// the window its choices - the window used to keep a copy of it, and a copy is a second answer.
+pub(crate) const VARIANTS: [(&str, i64); 3] = [("day_before", -1), ("on_day", 0), ("day_after", 1)];
+
+/// Map a boundary-variant label to its signed day offset. The labels are the contract - an unknown one
+/// is a usage error, never a guess.
 pub(crate) fn variant_days(id: &str, label: &str) -> Result<i64, PresetError> {
-    match label {
-        "day_before" => Ok(-1),
-        "on_day" => Ok(0),
-        "day_after" => Ok(1),
-        other => Err(PresetError::BadFile(format!(
-            "parameter '{id}': unknown variant '{other}' (day_before, on_day, day_after)"
-        ))),
-    }
+    VARIANTS.iter().find(|(name, _)| *name == label).map(|(_, days)| *days).ok_or_else(|| {
+        let known = VARIANTS.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ");
+        PresetError::BadFile(format!("parameter '{id}': unknown variant '{label}' ({known})"))
+    })
+}
+
+/// The label of a variant's day offset, or `None` for an offset no variant has.
+pub(crate) fn variant_label(days: i64) -> Option<&'static str> {
+    VARIANTS.iter().find(|(_, d)| *d == days).map(|(name, _)| *name)
 }
 
 /// Build a `duration` value, mapping the unit token and rejecting a negative magnitude.
@@ -768,10 +821,16 @@ pub(crate) fn find_preset_file(id: &str) -> Result<std::path::PathBuf, PresetErr
 
 /// Load and validate a preset by id.
 pub(crate) fn load_preset(id: &str) -> Result<Preset, PresetError> {
-    let path = find_preset_file(id)?;
+    load_preset_at(&find_preset_file(id)?, id)
+}
+
+/// Load and validate the preset file at `path`, found by the id `id`. The one way a preset file is
+/// read: `--preset` comes here after finding the file, and the catalogue comes here for every file it
+/// lists, so a file the catalogue offers is a file `--preset` accepts (R4/18).
+pub(crate) fn load_preset_at(path: &std::path::Path, id: &str) -> Result<Preset, PresetError> {
     // Same ceiling as a calendar, for the same reason: a catalogue file is outside input, and this was
     // an unbounded read.
-    let text = crate::calendar::read_catalogue_file(&path).map_err(PresetError::BadFile)?;
+    let text = crate::calendar::read_catalogue_file(path).map_err(PresetError::BadFile)?;
     // Named here, where the id and the file are known: "time_mode multiplier must be >= 1" said what
     // was wrong and not in which of fourteen files (R4-S12), and then not where that file was - a
     // calendar's error always said so, a preset's never did (R4-N37).
@@ -781,7 +840,7 @@ pub(crate) fn load_preset(id: &str) -> Result<Preset, PresetError> {
         PresetError::NotBuilt(m) => PresetError::NotBuilt(in_file(m)),
         other => other,
     })?;
-    check_declared_id("preset", &path, &preset.id, id).map_err(PresetError::BadFile)?;
+    check_declared_id("preset", path, &preset.id, id).map_err(PresetError::BadFile)?;
     Ok(preset)
 }
 

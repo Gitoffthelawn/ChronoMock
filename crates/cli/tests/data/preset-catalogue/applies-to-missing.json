@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "applies-to-missing",
+  "name": { "en": "applies-to-missing", "pl": "applies-to-missing (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [  ] }
+}

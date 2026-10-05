@@ -53,6 +53,55 @@ pub(crate) fn parse_unit(s: &str) -> Option<Unit> {
     })
 }
 
+/// The sign a shift is written with - the inverse of the first character [`parse_shift`] reads.
+pub(crate) fn sign_code(sign: Sign) -> &'static str {
+    match sign {
+        Sign::Plus => "+",
+        Sign::Minus => "-",
+    }
+}
+
+/// The short code a unit is written with in this grammar - the inverse of [`parse_unit`], and the
+/// token the window's step builder offers. The preset catalogue writes every unit this way, so the
+/// window never has to know that `month`, `months` and `mo` are one unit (R4-S22). No catch-all arm:
+/// a new unit cannot be added without its code.
+pub(crate) fn unit_code(unit: Unit) -> &'static str {
+    match unit {
+        Unit::Seconds => "s",
+        Unit::Minutes => "m",
+        Unit::Hours => "h",
+        Unit::Days => "d",
+        Unit::Weeks => "w",
+        Unit::Months => "mo",
+        Unit::Quarters => "q",
+        Unit::Years => "y",
+        Unit::BusinessDays => "bd",
+    }
+}
+
+/// The code a snap target is written with - the inverse of [`parse_snap`], for the same reason as
+/// [`unit_code`].
+pub(crate) fn snap_code(target: SnapTarget) -> &'static str {
+    match target {
+        SnapTarget::StartOfMonth => "som",
+        SnapTarget::EndOfMonth => "eom",
+        SnapTarget::StartOfQuarter => "soq",
+        SnapTarget::EndOfQuarter => "eoq",
+        SnapTarget::StartOfYear => "soy",
+        SnapTarget::EndOfYear => "eoy",
+    }
+}
+
+/// The code a nearest target is written with - the inverse of [`parse_nearest`]. The leap day keeps
+/// its long form, which is the one the window's builder has always sent.
+pub(crate) fn nearest_code(target: NearestTarget) -> &'static str {
+    match target {
+        NearestTarget::NextBusinessDay => "nbd",
+        NearestTarget::PrevBusinessDay => "pbd",
+        NearestTarget::NextLeapDay => "next-leap-day",
+    }
+}
+
 /// Parse a `--snap` target token (full or short form) into a typed target.
 pub(crate) fn parse_snap(raw: &str) -> Result<SnapTarget, String> {
     Ok(match raw {
@@ -149,6 +198,25 @@ mod tests {
         assert_eq!(parse_snap("eom").unwrap(), SnapTarget::EndOfMonth);
         assert_eq!(parse_snap("start-of-year").unwrap(), SnapTarget::StartOfYear);
         assert!(parse_snap("end-of-week").is_err());
+    }
+
+    /// Every code reads back as the value it was written from. The catalogue hands the window these
+    /// codes and the window sends them straight back as flags, so a code the parser does not read
+    /// would turn a listed preset into a refused calculation.
+    #[test]
+    fn every_code_reads_back_as_the_value_it_names() {
+        use Unit::*;
+        for unit in [Seconds, Minutes, Hours, Days, Weeks, Months, Quarters, Years, BusinessDays] {
+            assert_eq!(parse_unit(unit_code(unit)), Some(unit), "{unit:?}");
+        }
+        use SnapTarget::*;
+        for target in [StartOfMonth, EndOfMonth, StartOfQuarter, EndOfQuarter, StartOfYear, EndOfYear] {
+            assert_eq!(parse_snap(snap_code(target)), Ok(target), "{target:?}");
+        }
+        use NearestTarget::*;
+        for target in [NextBusinessDay, PrevBusinessDay, NextLeapDay] {
+            assert_eq!(parse_nearest(nearest_code(target)), Ok(target), "{target:?}");
+        }
     }
 
     #[test]

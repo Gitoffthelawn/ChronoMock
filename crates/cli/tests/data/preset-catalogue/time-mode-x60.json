@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "time-mode-x60",
+  "name": { "en": "time-mode-x60", "pl": "time-mode-x60 (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "substitution", "time_mode": { "multiplier": 60, "scale_duration_clock": true },
+  "parameters": [  ],
+  "moment": { "base": "now", "steps": [] }
+}
