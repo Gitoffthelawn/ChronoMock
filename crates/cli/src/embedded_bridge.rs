@@ -30,7 +30,7 @@ use crate::cdp_requests::ZoneTally;
 use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED};
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
-use crate::embedded::engine_env;
+use crate::embedded::{engine_env, qt_port_told};
 use crate::output::diag;
 use crate::policy_session::{PolicySession, KEY_NAME_MISMATCH};
 use crate::unhooked_tree::UnhookedTree;
@@ -203,9 +203,11 @@ fn zone_back_line(zone: &ZoneTally, machine: &MachineZone<'_>, session: i32) -> 
 }
 
 /// What a native start needs from the channel before the target launches: the variables that make
-/// an engine open its port, the port reserved for a Qt engine, and what there already is to say.
+/// an engine open its port, the port a Qt engine is told to open, and what there already is to say.
 pub(crate) struct Launch {
     pub(crate) env: Vec<(String, String)>,
+    /// The port a Qt engine is told to open: the one reserved for it, or the tester's own (R4-N29).
+    /// `None` when the tester's value names no port, or no port could be reserved.
     qt_port: Option<u16>,
     enabled: bool,
     /// No loopback port could be reserved, so no variable was set and no engine will be found.
@@ -276,7 +278,8 @@ impl Launch {
         };
         Launch {
             env: engine_env(base, qt_port, keep_timers),
-            qt_port: Some(qt_port),
+            // The port the engine is told: ours, or the tester's own value of the variable, which stands.
+            qt_port: qt_port_told(base, qt_port),
             enabled: true,
             registry_hidden,
             timers_kept: keep_timers,
@@ -936,6 +939,13 @@ mod tests {
         assert!(no_port.enabled && no_port.unavailable);
         assert!(no_port.env.is_empty(), "half a channel would find WebView2 and never Qt");
         assert!(no_port.registry_hidden);
+
+        // The tester's own Qt value stands, and its port is the one discovery asks and watches - the
+        // reserved one is never opened by the engine (R4-N29).
+        let testers = [("QTWEBENGINE_REMOTE_DEBUGGING".to_string(), "127.0.0.1:9333".to_string())];
+        let theirs = Launch::compose(&testers, Some(45_001), false, false);
+        assert_eq!(theirs.qt_port, Some(9333));
+        assert!(theirs.env.iter().all(|(n, _)| n != "QTWEBENGINE_REMOTE_DEBUGGING"), "theirs stands untouched");
     }
 
     /// Slice A's strong claim - the pages read the real clock - is refuted once the pages were

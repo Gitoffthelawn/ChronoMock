@@ -84,9 +84,7 @@ pub(crate) const QT_FLAGS_VAR: &str = "QTWEBENGINE_CHROMIUM_FLAGS";
 ///
 /// Pure over `current`, so the merge is tested without an environment.
 pub(crate) fn engine_env(current: &[(String, String)], qt_port: u16, keep_timers: bool) -> Vec<(String, String)> {
-    let lookup = |name: &str| {
-        current.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
-    };
+    let lookup = |name: &str| variable(current, name);
     let timer_switches: Vec<String> =
         cdp::BACKGROUND_TIMER_SWITCHES.iter().filter(|_| keep_timers).map(|s| (*s).to_string()).collect();
     let mut out = Vec::new();
@@ -101,7 +99,7 @@ pub(crate) fn engine_env(current: &[(String, String)], qt_port: u16, keep_timers
         out.push((WEBVIEW2_ARGUMENTS_VAR.to_string(), appended(webview2, &ours)));
     }
 
-    if lookup(QT_DEBUGGING_VAR).is_none_or(|v| v.trim().is_empty()) {
+    if testers_qt_value(current).is_none() {
         out.push((QT_DEBUGGING_VAR.to_string(), format!("127.0.0.1:{qt_port}")));
     }
     if !timer_switches.is_empty() {
@@ -109,6 +107,28 @@ pub(crate) fn engine_env(current: &[(String, String)], qt_port: u16, keep_timers
     }
 
     out
+}
+
+/// The value of the variable `name` in `current`, looked up by name without regard to case, the way the
+/// system looks variables up.
+fn variable<'a>(current: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    current.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+}
+
+/// The tester's own value of the Qt debugging variable, when there is one: an empty value is no choice.
+fn testers_qt_value(current: &[(String, String)]) -> Option<&str> {
+    variable(current, QT_DEBUGGING_VAR).map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// The port a Qt engine of the session is told to open (R4-N29): the tester's own value of its variable
+/// when there is one - a port, or an address and a port (Qt documentation, "Qt WebEngine Debugging and
+/// Profiling") - and otherwise `ours`, the port [`engine_env`] puts there. `None` for a value of the
+/// tester's that names no port an engine can open, and then no port is known. Pure over `current`.
+pub(crate) fn qt_port_told(current: &[(String, String)], ours: u16) -> Option<u16> {
+    match testers_qt_value(current) {
+        Some(value) => value.rsplit(':').next().and_then(|port| port.trim().parse::<u16>().ok()).filter(|&port| port != 0),
+        None => Some(ours),
+    }
 }
 
 /// A switch list with `ours` after what was there, one space apart.
@@ -171,6 +191,22 @@ mod tests {
         // An empty Qt value is no choice at all.
         let empty = engine_env(&[pair(QT_DEBUGGING_VAR, "  ")], 7, false);
         assert!(empty.contains(&pair(QT_DEBUGGING_VAR, "127.0.0.1:7")));
+    }
+
+    /// The Qt engine opens the port its variable names: the session's when the tester set none, the
+    /// tester's own otherwise - a port alone or after an address - and no known port for a value that
+    /// names none an engine can open.
+    #[test]
+    fn the_qt_port_told_is_the_testers_own_or_ours() {
+        assert_eq!(qt_port_told(&[], 45_001), Some(45_001));
+        assert_eq!(qt_port_told(&[pair(QT_DEBUGGING_VAR, "  ")], 45_001), Some(45_001), "an empty value is no choice");
+        assert_eq!(qt_port_told(&[pair("qtwebengine_remote_debugging", "9222")], 45_001), Some(9222));
+        assert_eq!(qt_port_told(&[pair(QT_DEBUGGING_VAR, "127.0.0.1:9333")], 45_001), Some(9333));
+        assert_eq!(qt_port_told(&[pair(QT_DEBUGGING_VAR, " 0.0.0.0:9444 ")], 45_001), Some(9444));
+        assert_eq!(qt_port_told(&[pair(QT_DEBUGGING_VAR, "[::1]:9555")], 45_001), Some(9555));
+        for none in ["0", "127.0.0.1:0", "localhost", "127.0.0.1:70000", "9222:"] {
+            assert_eq!(qt_port_told(&[pair(QT_DEBUGGING_VAR, none)], 45_001), None, "{none}");
+        }
     }
 
     /// Asked to keep timers at speed in hidden windows, the session gives both engines the switches
