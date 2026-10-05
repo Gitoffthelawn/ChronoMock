@@ -75,15 +75,18 @@ pub fn host_zone_sample() -> ZoneSample {
     // kept past the calls.
     unsafe {
         let year = GetSystemTime().wYear;
-        let instants = [noon_utc(year, 1), noon_utc(year, 7)];
-        let at_ms = instants.map(|t| epoch_ms_of(&t).unwrap_or(0));
+        let months = [1, 7];
+        let instants = months.map(|month| noon_utc(year, month));
+        // Arithmetic rather than a conversion of the system's, so there is no failure to stand in for -
+        // a sentinel instant would send the read to a date the machine was never sampled at (CodeRabbit
+        // on #90).
+        let at_ms = months.map(|month| noon_utc_epoch_ms(year, month));
         let mut zone = DYNAMIC_TIME_ZONE_INFORMATION::default();
         // TIME_ZONE_ID_INVALID is the one failure the call reports (Microsoft Learn).
         let read = GetDynamicTimeZoneInformation(&mut zone) != u32::MAX;
         let offsets = read
             .then(|| -> Option<[i32; 2]> { Some([offset_at(&zone, &instants[0])?, offset_at(&zone, &instants[1])?]) })
-            .flatten()
-            .filter(|_| at_ms.iter().all(|&t| t != 0));
+            .flatten();
         ZoneSample { at_ms, offsets }
     }
 }
@@ -93,15 +96,18 @@ fn noon_utc(year: u16, month: u16) -> SYSTEMTIME {
     SYSTEMTIME { wYear: year, wMonth: month, wDayOfWeek: 0, wDay: 15, wHour: 12, wMinute: 0, wSecond: 0, wMilliseconds: 0 }
 }
 
-/// A system time as Unix-epoch milliseconds, `None` for one the system would not convert.
-///
-/// # Safety
-/// None beyond the call itself: both structures are owned by the caller or here.
-unsafe fn epoch_ms_of(time: &SYSTEMTIME) -> Option<i64> { unsafe {
-    let mut file = FILETIME::default();
-    SystemTimeToFileTime(time, &mut file).ok()?;
-    Some(epoch_ms_from_ticks(ticks_of(file)))
-}}
+/// The 15th of `month` in `year`, at noon UTC, as Unix-epoch milliseconds: the days since 1970 of the
+/// proleptic Gregorian calendar, by the civil-date arithmetic of H. Hinnant's `days_from_civil`. Pure, and
+/// checked against the system's own conversion for every year a session can be in.
+fn noon_utc_epoch_ms(year: u16, month: u16) -> i64 {
+    let (y, m, d) = (i64::from(year) - i64::from(month <= 2), i64::from(month), 15);
+    let era = y.div_euclid(400);
+    let year_of_era = y.rem_euclid(400);
+    let day_of_year = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    days * 86_400_000 + 12 * 3_600_000
+}
 
 /// The machine's offset at the UTC instant `utc`, in minutes, UTC minus local time.
 ///
@@ -119,13 +125,6 @@ unsafe fn offset_at(zone: &DYNAMIC_TIME_ZONE_INFORMATION, utc: &SYSTEMTIME) -> O
 /// A file time as one number of 100-nanosecond ticks since 1601.
 fn ticks_of(file: FILETIME) -> u64 {
     (u64::from(file.dwHighDateTime) << 32) | u64::from(file.dwLowDateTime)
-}
-
-/// Ticks since 1601 as Unix-epoch milliseconds. Pure, so the arithmetic is tested on known instants.
-fn epoch_ms_from_ticks(ticks: u64) -> i64 {
-    const TICKS_PER_MS: u64 = 10_000;
-    const EPOCH_FROM_1601_MS: i64 = 11_644_473_600_000;
-    i64::try_from(ticks / TICKS_PER_MS).unwrap_or(i64::MAX) - EPOCH_FROM_1601_MS
 }
 
 /// The offset between the same instant written in UTC and in local time, in whole minutes, UTC minus
@@ -223,14 +222,22 @@ mod tests {
         assert!(zone_name(&units(&name)).is_some(), "{name}");
     }
 
-    /// Known instants: the 15th of January and of July 2026 at noon UTC, through the system's own
-    /// conversion and the arithmetic here.
+    /// Known instants: the 15th of January and of July 2026 at noon UTC. And the arithmetic is the system's
+    /// own conversion, for both months of every year a SYSTEMTIME can hold - leap years, the century rule
+    /// and the four-century one included.
     #[test]
     fn the_sample_instants_are_the_fifteenth_of_january_and_july_at_noon_utc() {
-        // SAFETY: the structures are owned here.
-        let at = unsafe { [epoch_ms_of(&noon_utc(2026, 1)), epoch_ms_of(&noon_utc(2026, 7))] };
-        assert_eq!(at, [Some(1_768_478_400_000), Some(1_784_116_800_000)]);
-        assert_eq!(epoch_ms_from_ticks(116_444_736_000_000_000), 0, "the Unix epoch in ticks since 1601");
+        assert_eq!([noon_utc_epoch_ms(2026, 1), noon_utc_epoch_ms(2026, 7)], [1_768_478_400_000, 1_784_116_800_000]);
+        const EPOCH_FROM_1601_MS: i64 = 11_644_473_600_000;
+        for year in 1601..=30827u16 {
+            for month in [1, 7] {
+                let mut file = FILETIME::default();
+                // SAFETY: both structures are owned here.
+                unsafe { SystemTimeToFileTime(&noon_utc(year, month), &mut file) }.expect("the system converts it");
+                let system = i64::try_from(ticks_of(file) / 10_000).expect("in range") - EPOCH_FROM_1601_MS;
+                assert_eq!(noon_utc_epoch_ms(year, month), system, "{year}-{month:02}-15");
+            }
+        }
     }
 
     /// UTC minus local, in whole minutes: east of UTC is negative, as `getTimezoneOffset()` says it.

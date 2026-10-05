@@ -130,6 +130,7 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, qt_port: Option<u16>
         };
         let now = Instant::now();
         looking.engine_since.retain(|pid, _| family.contains(pid));
+        looking.members.retain(|pid, _| family.contains(pid));
         if let Some(port) = qt_port
             && looking.qt_port_taken_now(&table, &family, port, now, family_has_qt)
             && notices.send(Notice::PortTaken(port)).is_err()
@@ -163,6 +164,12 @@ struct Looking {
     memory: Memory,
     /// When the engine was first seen running in each Qt process of the family ([`QT_ENGINE_GRACE`]).
     engine_since: HashMap<u32, Instant>,
+    /// What was learned once about each process of the family ([`Member`]). Neither fact changes while
+    /// the process lives, so each process is asked once - rather than the system's process list being
+    /// walked every sweep, which cost 12.9 ms a sweep on a machine with 465 processes (measured,
+    /// CodeRabbit on #90). The engine's subprocesses are in the family already: hooked, or named by the
+    /// hook as children it could not reach.
+    members: HashMap<u32, Member>,
     /// The Qt port was said to be taken - once a session.
     taken_said: bool,
     /// When the family was last looked into for Qt WebEngine while its Qt port was held.
@@ -207,16 +214,15 @@ impl Looking {
     ) -> Vec<chrono_mech::Listener> {
         let due = self.memory.due(candidates(table, family), now);
         let mut signs: HashMap<u32, EngineSign> = HashMap::new();
-        let mut no_engine: HashSet<u32> = HashSet::new();
         let mut asked = Vec::new();
         for l in due {
             let sign = *signs.entry(l.pid).or_insert_with(|| engine_sign_of(l.pid));
             let on_qt_port = qt_port.is_some_and(|port| table.iter().any(|t| t.pid == l.pid && t.port == port));
             let endpoint_open = self.memory.endpoint_open(l.pid);
-            // The tree is read only for the one question it answers: a Qt process with a told port that it
-            // does not listen on, and nothing found in it yet.
+            // The family is looked into only for the one question it answers: a Qt process with a told
+            // port that it does not listen on, and nothing found in it yet.
             let wants_engine = sign == EngineSign::Qt && qt_port.is_some() && !on_qt_port && !endpoint_open;
-            let engine_for = if wants_engine { self.engine_for(l.pid, now, &mut no_engine) } else { None };
+            let engine_for = if wants_engine { self.engine_for(l.pid, family, now, learn_member) } else { None };
             if worth_asking(&l, qt_port, Asking { sign, endpoint_open, on_qt_port, engine_for }) {
                 asked.push(l);
             }
@@ -224,19 +230,68 @@ impl Looking {
         asked
     }
 
-    /// How long the engine has run in the process `pid`, `None` while it does not. A process found
-    /// without one is looked at once a sweep.
-    fn engine_for(&mut self, pid: u32, now: Instant, no_engine: &mut HashSet<u32>) -> Option<Duration> {
+    /// How long the engine has run in the process `pid`, `None` while it does not.
+    fn engine_for(
+        &mut self,
+        pid: u32,
+        family: &HashSet<u32>,
+        now: Instant,
+        learn: impl Fn(u32) -> Option<Member>,
+    ) -> Option<Duration> {
         if let Some(since) = self.engine_since.get(&pid) {
             return Some(now.duration_since(*since));
         }
-        if no_engine.contains(&pid) || !engine_runs_in(pid) {
-            no_engine.insert(pid);
+        if !self.engine_runs_in(pid, family, learn) {
             return None;
         }
         self.engine_since.insert(pid, now);
         Some(Duration::ZERO)
     }
+
+    /// Whether the engine runs in the process `pid`: a process of the family that `pid` started carries a
+    /// Chromium role (`--type=`) on its command line. By the role, not the name, because a Qt application
+    /// may start its engine's subprocesses from an executable of its own (`QTWEBENGINEPROCESS_PATH`, Qt
+    /// documentation, "Deploying Qt WebEngine Applications"). Each member is asked through `learn` once,
+    /// and again only while it could not be - a process that is gone, or would not say.
+    fn engine_runs_in(&mut self, pid: u32, family: &HashSet<u32>, learn: impl Fn(u32) -> Option<Member>) -> bool {
+        for &member in family.iter().filter(|&&m| m != pid) {
+            let known = match self.members.get(&member) {
+                Some(known) => *known,
+                None => {
+                    let Some(learned) = learn(member) else {
+                        continue;
+                    };
+                    self.members.insert(member, learned);
+                    learned
+                }
+            };
+            if known.parent == pid && known.engine_role {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// What one process of the family is, for the question whether an engine runs: the process that
+/// started it, and whether its command line carries a Chromium role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Member {
+    parent: u32,
+    engine_role: bool,
+}
+
+/// One process of the family, asked from outside: its declared parent and its command line, one open
+/// each. `None` while either cannot be read, so it is asked again rather than taken as no engine.
+fn learn_member(pid: u32) -> Option<Member> {
+    let parent = chrono_mech::process_parent(pid)?;
+    let line = chrono_mech::name_unhooked(pid, parent).command_line?;
+    Some(member_of(parent, &line))
+}
+
+/// A member from what was read of it: its parent, and its command line judged for a Chromium role. Pure.
+fn member_of(parent: u32, command_line: &str) -> Member {
+    Member { parent, engine_role: role_from_command_line(command_line).is_some() }
 }
 
 /// The loopback listeners owned by the family, whichever address family they are on. Pure over the
@@ -340,24 +395,6 @@ fn family_has_qt(family: &HashSet<u32>) -> bool {
         .any(|&pid| chrono_mech::process_has_any_module(pid, &QT_WEBENGINE_LIBRARIES) == chrono_mech::ModuleProbe::Loaded)
 }
 
-/// Whether the engine runs in the process `pid`: a child of it carries a Chromium role (`--type=`) on its
-/// command line. By the role, not the name, because a Qt application may start its engine's subprocesses
-/// from an executable of its own (`QTWEBENGINEPROCESS_PATH`, Qt documentation, "Deploying Qt WebEngine
-/// Applications"). A tree the system would not give is no engine yet: the told port is still asked, and
-/// the next sweep looks again.
-fn engine_runs_in(pid: u32) -> bool {
-    chrono_mech::descendants_of(pid)
-        .is_ok_and(|under| runs_engine(pid, &under, |child| chrono_mech::name_unhooked(child, pid).command_line))
-}
-
-/// Whether one of `pid`'s own children in `under` (pid, declared parent) has a Chromium role on the
-/// command line `command_line` gives for it. Pure, so the rule is tested on a made-up tree.
-fn runs_engine(pid: u32, under: &[(u32, u32)], command_line: impl Fn(u32) -> Option<String>) -> bool {
-    under
-        .iter()
-        .filter(|&&(_, parent)| parent == pid)
-        .any(|&(child, _)| command_line(child).as_deref().and_then(role_from_command_line).is_some())
-}
 
 /// Whether the port the Qt engine was told to open is held by something that is not its DevTools
 /// endpoint: a listener on it outside the family, or one inside the family whose retries as DevTools
@@ -616,23 +653,73 @@ mod tests {
         assert!(!memory.endpoint_open(20), "the endpoint left the table: the process is asked afresh");
     }
 
-    /// The engine runs where a child of the process carries a Chromium role on its command line - a
-    /// grandchild or a child with no role is not it, and neither is a command line the system would not
-    /// give. This test's own process has no such child.
+    /// The engine runs where a process of the family that the Qt process started carries a Chromium role
+    /// on its command line - by the role, whatever the executable is called. A grandchild, a child with no
+    /// role and the process itself are not it.
     #[test]
     fn the_engine_runs_where_a_child_of_the_process_has_a_chromium_role() {
-        let lines = |pid: u32| match pid {
-            11 => Some("helper.exe --port 5".to_string()),
-            12 => Some(r#""C:\qt\QtWebEngineProcess.exe" --type=renderer --lang=en"#.to_string()),
-            13 => Some(r#"my-own-engine.exe --type=gpu-process"#.to_string()),
+        let learn = |pid: u32| match pid {
+            11 => Some(Member { parent: 10, engine_role: false }),
+            12 => Some(Member { parent: 10, engine_role: true }),
+            13 => Some(Member { parent: 11, engine_role: true }),
+            10 => panic!("the process is not asked about itself"),
             _ => None,
         };
-        assert!(!runs_engine(10, &[(11, 10)], lines), "a child with no role");
-        assert!(runs_engine(10, &[(11, 10), (12, 10)], lines));
-        assert!(runs_engine(10, &[(13, 10)], lines), "by the role, whatever the executable is called");
-        assert!(!runs_engine(10, &[(12, 11), (11, 10)], lines), "a grandchild is not the process's own engine");
-        assert!(!runs_engine(10, &[(14, 10)], lines), "a command line the system would not give");
-        assert!(!engine_runs_in(std::process::id()));
+        let family = |pids: &[u32]| -> HashSet<u32> { pids.iter().copied().collect() };
+        assert!(!Looking::default().engine_runs_in(10, &family(&[10, 11]), learn), "a child with no role");
+        assert!(Looking::default().engine_runs_in(10, &family(&[10, 11, 12]), learn));
+        assert!(!Looking::default().engine_runs_in(10, &family(&[10, 13]), learn), "a grandchild is another's engine");
+        assert!(!Looking::default().engine_runs_in(10, &family(&[10, 14]), learn), "one that would not say");
+        assert!(!Looking::default().engine_runs_in(std::process::id(), &family(&[std::process::id()]), learn_member));
+    }
+
+    /// A member is what was read of it: the role is the engine's `--type=` on its command line, whatever
+    /// the executable is called, and a command line without one is no engine. Read from a live child: its
+    /// parent is this process, and a plain program has no role.
+    #[test]
+    fn a_member_is_its_parent_and_the_role_on_its_command_line() {
+        assert_eq!(
+            member_of(10, r#""C:\qt\QtWebEngineProcess.exe" --type=renderer --lang=en"#),
+            Member { parent: 10, engine_role: true }
+        );
+        assert_eq!(member_of(10, "own-engine.exe --type=gpu-process"), Member { parent: 10, engine_role: true });
+        assert_eq!(member_of(10, "helper.exe --port 5"), Member { parent: 10, engine_role: false });
+        assert_eq!(member_of(10, ""), Member { parent: 10, engine_role: false });
+
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let path = format!(r"{system_root}\System32\PING.EXE");
+        let args = ["-n".to_string(), "30".into(), "127.0.0.1".into()];
+        let target = chrono_mech::Target { path: &path, args: &args, cwd: None, env: &[], stdio: chrono_mech::TargetStdio::Discarded };
+        let child = chrono_mech::launch_plain(&target).expect("ping launches");
+        assert_eq!(learn_member(child.pid), Some(Member { parent: std::process::id(), engine_role: false }));
+        assert_eq!(learn_member(u32::MAX - 5), None, "a process that cannot be asked is asked again later");
+    }
+
+    /// The cost CodeRabbit measured away on #90: each process of the family is asked once in its life, not
+    /// on every sweep - only one that could not be asked is asked again - and the engine, once seen
+    /// running, is not looked for again.
+    #[test]
+    fn each_process_of_the_family_is_asked_once() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let learn = |pid: u32| {
+            asked.borrow_mut().push(pid);
+            (pid != 14).then_some(Member { parent: 10, engine_role: false })
+        };
+        let family: HashSet<u32> = [10, 11, 14].into_iter().collect();
+        let mut looking = Looking::default();
+        let t0 = Instant::now();
+        for sweep in 0..3 {
+            assert_eq!(looking.engine_for(10, &family, t0 + SWEEP * sweep, learn), None);
+        }
+        let mut seen = asked.borrow().clone();
+        seen.sort_unstable();
+        assert_eq!(seen, [11, 14, 14, 14], "11 once, 14 again each time it would not say");
+
+        let with_engine: HashSet<u32> = [10, 12].into_iter().collect();
+        let engine = |_: u32| Some(Member { parent: 10, engine_role: true });
+        assert_eq!(looking.engine_for(10, &with_engine, t0, engine), Some(Duration::ZERO));
+        let never = |_: u32| -> Option<Member> { panic!("the engine is not looked for once it runs") };
+        assert_eq!(looking.engine_for(10, &with_engine, t0 + QT_ENGINE_GRACE, never), Some(QT_ENGINE_GRACE));
     }
 
     /// The thread end to end, on a listener of this test's own process, which sits beside no Chromium

@@ -482,7 +482,7 @@
   "embedded.policy_not_written": "Chrono Mock could not set the WebView2 option that lets the session reach the pages of an application running as administrator, so those pages ran on the real clock.",
   "embedded.policy_name_mismatch": "Chrono Mock set the WebView2 option for the program it started, but WebView2 was loaded by a different program, which the option does not apply to. Start that program directly to reach its pages.",
   "embedded.pages_not_released": "A page inside this application did not confirm it was handed back to the real clock when the session ended, so it may keep the session date until you reload or close it.",
-  "embedded.zone_kept": "The application outlived the session, and some of its pages may still be on the session's time zone - asked after the session, they did not show this computer's zone. A local time they show can differ from the rest of the application by the zone offset until the application restarts.",
+  "embedded.zone_kept": "The application outlived the session, and some of its pages may still be on the session's time zone - asked after the session, they did not show this computer's time zone. A local time they show can differ from the rest of the application by the zone offset until the application restarts.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
   "coverage.pid_registry_full": "This session ran more processes than the audit can track (256). Some ran with no fake clock at all and are missing from the process count and the lists above.",
