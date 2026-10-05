@@ -171,6 +171,26 @@ fn parse_set_after(raw: &str) -> Result<(u64, i64), String> {
     Ok((tick, mult))
 }
 
+/// The flags about the web engines a session reaches. A type of their own so `parse_run_args`, whose
+/// length is the workspace's ceiling, takes them in one line however many there are.
+#[derive(Debug, Clone, Copy)]
+struct EngineFlags {
+    embedded: bool,
+    elevated_embedded: bool,
+}
+
+impl EngineFlags {
+    /// Take `flag` if it is one of these, and say whether it was.
+    fn take(&mut self, flag: &str) -> bool {
+        match flag {
+            "--no-embedded" => self.embedded = false,
+            "--elevated-embedded" => self.elevated_embedded = true,
+            _ => return false,
+        }
+        true
+    }
+}
+
 /// The flags that cannot stand together, refused rather than resolved by picking one silently.
 fn check_combinations(
     has_preset: bool,
@@ -208,8 +228,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     let mut multiplier: Option<i64> = None;
     let mut scale_duration = false;
     let mut scale_qpc = false;
-    let mut embedded = true;
-    let mut elevated_embedded = false;
+    let mut engine = EngineFlags { embedded: true, elevated_embedded: false };
     let mut force = false;
     let mut dry_run = false;
     let mut ticks: u64 = 0;
@@ -283,12 +302,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             "--force" => {
                 force = true;
             }
-            "--no-embedded" => {
-                embedded = false;
-            }
-            "--elevated-embedded" => {
-                elevated_embedded = true;
-            }
+            flag if engine.take(flag) => {}
             "--dry-run" => {
                 dry_run = true;
             }
@@ -344,7 +358,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         i += 1;
     }
 
-    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), embedded, elevated_embedded)?;
+    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), engine.embedded, engine.elevated_embedded)?;
 
     Ok(RunArgs {
         target: target.ok_or("missing <target>")?,
@@ -357,8 +371,8 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         scale_duration,
         scale_qpc,
         force,
-        embedded,
-        elevated_embedded,
+        embedded: engine.embedded,
+        elevated_embedded: engine.elevated_embedded,
         dry_run,
         ticks,
         timeout_secs,

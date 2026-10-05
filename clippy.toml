@@ -71,7 +71,14 @@
 # every command, and `cdp_session` left the top of the ranking. The holder is now
 # `run::args::parse_run_args` at 159, then `hook::install` at 153 and `report::describe_warning` at
 # 149 (measured by `tools/margin.ps1 -Rust`).
-too-many-lines-threshold = 159
+#
+# Lowered 2026-10-05 (R4/16, a Chromium session's launcher, page zone, timers in hidden windows):
+# before a new engine flag went in, the flags about web engines moved out of `parse_run_args` into
+# `EngineFlags`, and the words for `chromium.*` keys out of `describe_warning` into
+# `describe_chromium_warning` - two new keys had taken `describe_warning` to 155, and two more were on
+# their way. The holders are now `run::args::parse_run_args` and `hook::install`, both at 153, then
+# `core::core_mode` at 145 (measured by `tools/margin.ps1 -Rust`).
+too-many-lines-threshold = 153
 
 # A tie at 25: `run::driver_run` and `report::render_report`. This happens to be clippy's own
 # default, which is worth saying out loud rather than leaving to look like a copied number - it

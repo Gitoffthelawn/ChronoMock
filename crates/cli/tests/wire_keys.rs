@@ -166,9 +166,16 @@ fn keys_in_line(line: &str) -> Vec<String> {
 }
 
 /// The functions in `report.rs` that turn a key into prose for the CLI report. A key the core emits
-/// must have an arm in one of them, or the report prints it raw.
-const GLOSSING_FUNCTIONS: [&str; 5] =
-    ["describe_reason", "describe_error", "describe_warning", "describe_residue", "vanish_cause"];
+/// must have an arm in one of them, or the report prints it raw. `describe_chromium_warning` holds the
+/// `chromium.*` keys `describe_warning` hands it (R4/16, split for the length ceiling).
+const GLOSSING_FUNCTIONS: [&str; 6] = [
+    "describe_reason",
+    "describe_error",
+    "describe_warning",
+    "describe_chromium_warning",
+    "describe_residue",
+    "vanish_cause",
+];
 
 /// The bodies of [`GLOSSING_FUNCTIONS`], comment lines dropped so a key MENTIONED in a comment is not
 /// taken for an arm.

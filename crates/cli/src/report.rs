@@ -279,6 +279,44 @@ pub(crate) fn describe_error(key: &str) -> &'static str {
 /// either way the value is still on the machine.
 const POLICY_VALUE_LEFT: &str = "Chrono Mock could not remove the WebView2 option it set in the machine registry for this application - it is under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and it keeps a debugging port open for that application in every run until you delete it";
 
+/// The words for a key of the Chromium session (`chromium.*`), also said of the pages an embedded
+/// engine shares the mechanism with. Split from `describe_warning`, whose length is the workspace's
+/// ceiling, so the keys of one mechanism stand together and the next one does not push it over.
+fn describe_chromium_warning(key: &str) -> &'static str {
+    match key {
+        // Says what the port MEANS, not just that there is one. Chromium's debugging port listens on
+        // loopback with no authentication, so for as long as the session runs, any other process on
+        // this machine can attach to it and drive the app - read its pages, run JavaScript in it,
+        // navigate it. That is a fact about the session the tester is entitled to before they point
+        // this at something that matters, and the previous wording read as a note about tidiness.
+        "chromium.launched_with_debug_port" => {
+            "an Electron/Chromium app: launched with a remote-debugging port and a clean isolated profile, not your real one - while the session runs, any other local process can use that port to control the app"
+        }
+        "chromium.app_closed_before_audit" => {
+            "the app closed before the audit could read final call counts - the coverage below may be incomplete"
+        }
+        "chromium.zone_is_host" => {
+            "a page or worker of the app read this machine's time zone instead of the session's at some point, so a local time it showed could be off by the zone offset - the instant it read was still the session's"
+        }
+        // A session that outlives the program the tester named is a surprise unless it is explained
+        // (R4-S18). Unlike `session.followed_family`, nothing but the debugging connection holds this
+        // session, so the text makes no claim about helpers keeping it open.
+        "chromium.followed_browser" => {
+            "the target closed after handing the application over to another program, so the session went on with that program instead of ending with the target"
+        }
+        "chromium.rate_change_affects_running_timers" => {
+            "the speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence"
+        }
+        "chromium.clock_move_missed" => {
+            "a web page took a speed change or a jump late or not at all - usually because it was busy - so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one"
+        }
+        "chromium.context_ceiling_reached" => {
+            "the app opened more web pages and workers than one session can put under the fake clock (256) - the ones past that read the real clock and are missing from the audit"
+        }
+        _ => "",
+    }
+}
+
 /// English gloss for a warning key, with the key appended for traceability. An unknown key is
 /// shown verbatim (honest fallback).
 pub(crate) fn describe_warning(key: &str) -> String {
@@ -428,35 +466,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "coverage.channel_installed_late" => {
             "the channels listed above as hooked only once their module loaded miss the calls made before that, so their counts are floors - and a scaled one made a single jump when it joined the session clock"
         }
-        // Says what the port MEANS, not just that there is one. Chromium's debugging port listens on
-        // loopback with no authentication, so for as long as the session runs, any other process on
-        // this machine can attach to it and drive the app - read its pages, run JavaScript in it,
-        // navigate it. That is a fact about the session the tester is entitled to before they point
-        // this at something that matters, and the previous wording read as a note about tidiness.
-        "chromium.launched_with_debug_port" => {
-            "an Electron/Chromium app: launched with a remote-debugging port and a clean isolated profile, not your real one - while the session runs, any other local process can use that port to control the app"
-        }
-        "chromium.app_closed_before_audit" => {
-            "the app closed before the audit could read final call counts - the coverage below may be incomplete"
-        }
-        // A session that outlives the program the tester named is a surprise unless it is explained
-        // (R4-S18). Unlike `session.followed_family`, nothing but the debugging connection holds this
-        // session, so the text makes no claim about helpers keeping it open.
-        "chromium.zone_is_host" => {
-            "a page or worker of the app read this machine's time zone instead of the session's at some point, so a local time it showed could be off by the zone offset - the instant it read was still the session's"
-        }
-        "chromium.followed_browser" => {
-            "the target closed after handing the application over to another program, so the session went on with that program instead of ending with the target"
-        }
-        "chromium.rate_change_affects_running_timers" => {
-            "the speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence"
-        }
-        "chromium.clock_move_missed" => {
-            "a web page took a speed change or a jump late or not at all - usually because it was busy - so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one"
-        }
-        "chromium.context_ceiling_reached" => {
-            "the app opened more web pages and workers than one session can put under the fake clock (256) - the ones past that read the real clock and are missing from the audit"
-        }
+        k if k.starts_with("chromium.") => describe_chromium_warning(k),
         "runtime.python_monotonic_qpc" => {
             "this Python app measures time with perf_counter and monotonic - both use QueryPerformanceCounter on Python 3.13+, which is left real, so a timer built on them does not scale (time.time and the wall clock do)"
         }
