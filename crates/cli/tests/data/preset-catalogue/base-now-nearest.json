@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "base-now-nearest",
+  "name": { "en": "base-now-nearest", "pl": "base-now-nearest (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": "now", "steps": [ { "nearest": "next-feb-29" }, { "nearest": "previous-business-day" }, { "nearest": "nbd" } ] }
+}

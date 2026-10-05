@@ -1,5 +1,6 @@
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.App;
+using ChronoMock.App.Calc;
 using ChronoMock.Protocol;
 
 namespace ChronoMock.App.Tests;
@@ -20,7 +21,39 @@ internal static class PhaseStates
 {
     /// <summary>The setup phase on first contact: nothing chosen, the scenario catalogue loaded.</summary>
     public static SessionViewModel SetupStartup()
-        => new(new InMemorySessionHistoryStore(), presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"));
+        => TestCatalogues.WithShippedScenarios(scenarios => new(new InMemorySessionHistoryStore(), scenarios: scenarios));
+
+    /// <summary>The scenario list as it is before the engine has answered - the panel the moment the window
+    /// opens. Nothing is asked for, so the list is still reading (R4/18).</summary>
+    public static SessionViewModel SetupScenariosReading() => new(new InMemorySessionHistoryStore());
+
+    /// <summary>The scenario list the engine could not give - a missing engine, said with its path.</summary>
+    public static SessionViewModel SetupScenariosFailed()
+    {
+        var model = new SessionViewModel(
+            new InMemorySessionHistoryStore(),
+            scenarios: new ScenarioPicker(new PresetLibrary(FakePresetSource.Failing(
+                "cannot launch 'C:\\Chrono Mock\\core\\x64\\chrono.exe': The system cannot find the file specified. (calc.launch_failed)"))));
+        Assert.True(model.EnsureScenariosAsync().IsCompletedSuccessfully);
+        return model;
+    }
+
+    /// <summary>A catalogue with nothing to offer this panel - said, where the section used to vanish.</summary>
+    public static SessionViewModel SetupScenariosEmpty()
+    {
+        var model = new SessionViewModel(new InMemorySessionHistoryStore());
+        Assert.True(model.EnsureScenariosAsync().IsCompletedSuccessfully);
+        return model;
+    }
+
+    /// <summary>The shipped scenarios with preset files the engine refused beside them (D2 of R4/18).</summary>
+    public static SessionViewModel SetupScenariosWithFilesLeftOut()
+    {
+        var model = new SessionViewModel(
+            new InMemorySessionHistoryStore(), scenarios: TestCatalogues.Picker(TestCatalogues.ShippedWithFilesLeftOut()));
+        Assert.True(model.EnsureScenariosAsync().IsCompletedSuccessfully);
+        return model;
+    }
 
     /// <summary>The scenario catalogue filtered down to nothing.</summary>
     public static SessionViewModel SetupSearchingForNothing()
@@ -67,7 +100,7 @@ internal static class PhaseStates
     public static SessionViewModel SetupElevatedOptionOff() => ElevatedSetup();
 
     private static SessionViewModel ElevatedSetup()
-        => new(new InMemorySessionHistoryStore(), presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"), canReachElevated: true);
+        => TestCatalogues.WithShippedScenarios(scenarios => new(new InMemorySessionHistoryStore(), scenarios: scenarios, canReachElevated: true));
 
     /// <summary>An application chosen and a date that does not exist.</summary>
     /// <summary>A chosen scenario that gave no date (R4-Z2): its sentence under the list, and the footer
@@ -77,8 +110,8 @@ internal static class PhaseStates
     {
         var engine = new FakeCalcEngine(_ => throw new CalcException(
             "chrono calc: step 1 overflows the representable range (calc.overflow)", 1));
-        var model = WithTarget(new SessionViewModel(
-            new InMemorySessionHistoryStore(), calcClient: engine, presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets")));
+        var model = WithTarget(TestCatalogues.WithShippedScenarios(scenarios => new SessionViewModel(
+            new InMemorySessionHistoryStore(), calcClient: engine, scenarios: scenarios)));
         model.SelectedScenario = model.ScenarioPicker.Visible[0];
         return model;
     }

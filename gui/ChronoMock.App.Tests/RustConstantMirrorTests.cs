@@ -119,29 +119,19 @@ public class RustConstantMirrorTests
     }
 
     /// <summary>
-    /// Both readers of the preset catalogue gate on the schema string. If they drift, a preset the
-    /// engine reads fine simply stops appearing in the GUI list - reported to the user as "preset
-    /// not found" rather than "written for a newer schema", which points at the wrong thing (R2-S8).
+    /// The window reads the preset catalogue only through the engine since R4/18, and both sides name the
+    /// schema of that answer. If they drift, the window refuses every catalogue the engine writes and says
+    /// "this window reads chronomock.presets/1" over an empty list - loudly, but for a reason nobody chose.
     /// </summary>
     [Fact]
-    public void The_preset_schema_matches_the_one_the_engine_accepts()
+    public void The_catalogue_schema_matches_the_one_the_engine_writes()
     {
-        // Reads `preset.rs`, where the preset reader moved when `main.rs` was split into modules -
-        // and this test found that move by going red, which is what it is for.
-        //
-        // Still anchored to the reader BY NAME rather than to the file: `main.rs` used to gate two
-        // schemas (the calendar reader has the same shape) and the first version of this test matched
-        // both, which the guard itself caught. The anchor survives the split for the same reason.
-        var preset = ReadRustSource("crates", "cli", "src", "preset.rs");
-        var presetReader = Regex.Match(preset, @"fn parse_preset.*?
-\}", RegexOptions.Singleline);
-        Assert.True(presetReader.Success, "could not find parse_preset in the Rust source");
-        var rust = CaptureOne(presetReader.Value, @"dto\.schema != ""([^""]+)""", "the preset schema check");
+        var catalogue = ReadRustSource("crates", "cli", "src", "preset_catalogue.rs");
+        var rust = CaptureOne(catalogue, @"const PRESETS_SCHEMA: &str = ""([^""]+)"";", "PRESETS_SCHEMA");
 
         Assert.True(
-            rust == PresetCatalog.SupportedSchema,
-            $"the engine accepts preset schema '{rust}' but the GUI reader accepts "
-                + $"'{PresetCatalog.SupportedSchema}' - a preset the engine reads would vanish from the list");
+            rust == PresetCatalogue.SupportedSchema,
+            $"the engine writes catalogue schema '{rust}' but the window reads '{PresetCatalogue.SupportedSchema}'");
     }
 
     /// <summary>
@@ -207,35 +197,64 @@ public class RustConstantMirrorTests
         }
     }
 
+    /// <summary>The quoted words a Rust function returns from its match arms - <c>X => "word",</c>.</summary>
+    private static List<string> ArmWords(string source, string function)
+    {
+        var body = CaptureOne(source, $@"(?s)fn {function}\([^)]*\) -> &'static str \{{(.*?)\n\}}", $"the body of {function}");
+        return [.. Regex.Matches(body, @"=> ""([^""]+)""").Select(m => m.Groups[1].Value)];
+    }
+
     /// <summary>
-    /// A preset's market picks the calendar its business days are counted in - in the panel's scenario
-    /// list here, and in <c>chrono run --preset</c> since R4-S12, where the run used to count in none. The
-    /// same preset has to land on the same day in both, so the two tables must hold the same pairs.
+    /// The catalogue hands the window every unit, snap target and nearest target as the code the engine's
+    /// grammar writes (<c>unit_code</c>, <c>snap_code</c>, <c>nearest_code</c>), and the window maps each code
+    /// to an option of its step builder - which sends it straight back as a flag. A code with no option would
+    /// leave a scenario's step on whatever the builder selected first (R4-S22 was the same fault from the
+    /// other side: a word the window's own table did not know). Both directions: every code has an option,
+    /// and every option is a code the engine reads.
     /// </summary>
     [Fact]
-    public void A_market_picks_the_same_calendar_in_the_panel_and_in_chrono_run()
+    public void The_builders_words_are_the_codes_the_engine_writes_in_the_catalogue()
     {
-        var source = ReadRustSource("crates", "cli", "src", "preset.rs");
-        var body = CaptureOne(
-            source,
-            @"(?s)fn calendar_for_market\(market: Option<&str>\) -> Option<&'static str> \{(.*?)\n\}",
-            "the body of calendar_for_market");
-        var rust = Regex.Matches(body, @"""([^""]+)"" => Some\(""([^""]+)""\)")
-            .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value);
+        var grammar = ReadRustSource("crates", "cli", "src", "grammar.rs");
+        var vm = new CalculatorViewModel(new CalcClient(() => "chrono"));
 
-        var panel = ReadRustSource("gui", "ChronoMock.App", "Calc", "PresetCatalog.cs");
-        var switchBody = CaptureOne(
-            panel,
-            @"(?s)CalendarIdForMarket\(string\? market\) => market switch\s*\{(.*?)\};",
-            "the body of CalendarIdForMarket");
-        var markets = Regex.Matches(switchBody, @"""([^""]+)"" =>").Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(ArmWords(grammar, "unit_code").Order(), vm.Units.Select(u => u.Token).Order());
+        Assert.Equal(ArmWords(grammar, "snap_code").Order(), vm.SnapTargets.Select(t => t.Token).Order());
+        Assert.Equal(ArmWords(grammar, "nearest_code").Order(), vm.NearestTargets.Select(t => t.Token).Order());
+    }
 
-        Assert.True(rust.Count >= 2, $"expected the market pairs in calendar_for_market, found {rust.Count}");
-        Assert.Equal(markets.Order(), rust.Keys.Order());
-        foreach (var (market, calendar) in rust)
+    /// <summary>
+    /// Keys the engine writes and the window turns into text: the labels of a variant parameter's choices
+    /// (<c>VARIANTS</c>, shown as <c>calc.variant.*</c>), the readings of a pasted date
+    /// (<c>DateReading::key</c>, <c>calc.reading.*</c>) and the landmarks a date lands on
+    /// (<c>Significance::key</c>, <c>calc.sig.*</c>). A key without its text shows as the raw key - the two
+    /// epoch readings did, in both languages, until R4-S23.
+    /// </summary>
+    [Fact]
+    public void Every_label_the_engine_writes_has_its_text_in_both_languages()
+    {
+        var preset = ReadRustSource("crates", "cli", "src", "preset.rs");
+        var calc = ReadRustSource("crates", "core", "src", "calc.rs");
+        var variants = Regex.Matches(
+                CaptureOne(preset, @"const VARIANTS: \[\(&str, i64\); \d+\] = \[(.*?)\];", "VARIANTS"),
+                @"\(""([^""]+)"", -?\d+\)")
+            .Select(m => $"calc.variant.{m.Groups[1].Value}");
+        var readings = Regex.Matches(
+                CaptureOne(calc, @"(?s)impl DateReading \{.*?pub fn key\(&self\) -> &'static str \{(.*?)\n    \}", "DateReading::key"),
+                @"=> ""([^""]+)""")
+            .Select(m => $"calc.reading.{m.Groups[1].Value}");
+        var landmarks = Regex.Matches(
+                CaptureOne(calc, @"(?s)impl Significance \{.*?pub fn key\(&self\) -> &'static str \{(.*?)\n    \}", "Significance::key"),
+                @"=> ""([^""]+)""")
+            .Select(m => $"calc.sig.{m.Groups[1].Value}");
+        var keys = variants.Concat(readings).Concat(landmarks).ToList();
+        Assert.True(keys.Count >= 3 + 5 + 13, $"read only {keys.Count} keys - the guard went blind");
+
+        foreach (var language in new[] { "en", "pl" })
         {
-            Assert.Equal(calendar, PresetInfo.CalendarIdForMarket(market));
+            var strings = ReadRustSource("gui", "ChronoMock.App", "Localization", $"Strings.{language}.json");
+            var missing = keys.Where(k => !strings.Contains($"\"{k}\":", StringComparison.Ordinal)).ToList();
+            Assert.True(missing.Count == 0, $"Strings.{language}.json has no text for: {string.Join(", ", missing)}");
         }
-        Assert.Null(PresetInfo.CalendarIdForMarket(null));
     }
 }

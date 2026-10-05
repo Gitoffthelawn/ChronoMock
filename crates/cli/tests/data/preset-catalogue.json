@@ -1,0 +1,936 @@
+{
+  "schema": "chronomock.presets/1",
+  "dir": "tests/data/preset-catalogue",
+  "presets": [
+    {
+      "file": "base-absolute-set-time.json",
+      "id": "base-absolute-set-time",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "base-absolute-set-time",
+        "pl": "base-absolute-set-time (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "absolute",
+          "at": "2030-01-01T07:05:00"
+        },
+        "steps": [
+          {
+            "kind": "set_time",
+            "time": "07:05:00"
+          }
+        ]
+      }
+    },
+    {
+      "file": "base-now-nearest.json",
+      "id": "base-now-nearest",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "base-now-nearest",
+        "pl": "base-now-nearest (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "now"
+        },
+        "steps": [
+          {
+            "kind": "nearest",
+            "target": "next-leap-day"
+          },
+          {
+            "kind": "nearest",
+            "target": "pbd"
+          },
+          {
+            "kind": "nearest",
+            "target": "nbd"
+          }
+        ]
+      }
+    },
+    {
+      "file": "base-today-snap.json",
+      "id": "base-today-snap",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "base-today-snap",
+        "pl": "base-today-snap (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "today"
+        },
+        "steps": [
+          {
+            "kind": "snap",
+            "target": "eom"
+          },
+          {
+            "kind": "snap",
+            "target": "soq"
+          }
+        ]
+      }
+    },
+    {
+      "file": "base-utc-zone.json",
+      "id": "base-utc-zone",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "base-utc-zone",
+        "pl": "base-utc-zone (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "absolute_utc",
+          "at": "1970-01-01T00:00:00"
+        },
+        "steps": [
+          {
+            "kind": "zone",
+            "offset": "+05:45"
+          },
+          {
+            "kind": "zone",
+            "offset": "-03:00"
+          }
+        ]
+      }
+    },
+    {
+      "file": "date-default-negative-year.json",
+      "id": "date-default-negative-year",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "date-default-negative-year",
+        "pl": "date-default-negative-year (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [
+        {
+          "id": "start",
+          "type": "date",
+          "default": "-0044-03-15T00:00:00",
+          "default_hint": null
+        }
+      ],
+      "moment": {
+        "base": {
+          "kind": "parameter",
+          "parameter": "start"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "date-default-null.json",
+      "id": "date-default-null",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "date-default-null",
+        "pl": "date-default-null (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [
+        {
+          "id": "start",
+          "type": "date",
+          "default": null,
+          "default_hint": null
+        }
+      ],
+      "moment": {
+        "base": {
+          "kind": "parameter",
+          "parameter": "start"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "date-default-with-time.json",
+      "id": "date-default-with-time",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "date-default-with-time",
+        "pl": "date-default-with-time (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [
+        {
+          "id": "start",
+          "type": "date",
+          "default": "2026-03-01T12:30:00",
+          "default_hint": null
+        }
+      ],
+      "moment": {
+        "base": {
+          "kind": "parameter",
+          "parameter": "start"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "ID-Case-Differs.json",
+      "id": "id-case-differs",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "id-case-differs",
+        "pl": "id-case-differs (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "absolute",
+          "at": "2026-01-31T00:00:00"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "market-pl.json",
+      "id": "market-pl",
+      "applies_to": "calculator",
+      "market": "pl",
+      "calendar": "pl",
+      "name": {
+        "en": "market-pl",
+        "pl": "market-pl (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "absolute",
+          "at": "2026-01-31T00:00:00"
+        },
+        "steps": [
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 3,
+            "unit": "bd"
+          }
+        ]
+      }
+    },
+    {
+      "file": "market-unknown.json",
+      "id": "market-unknown",
+      "applies_to": "both",
+      "market": "zz",
+      "calendar": null,
+      "name": {
+        "en": "market-unknown",
+        "pl": "market-unknown (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "absolute",
+          "at": "2026-01-31T00:00:00"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "params-every-type.json",
+      "id": "params-every-type",
+      "applies_to": "calculator",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "params-every-type",
+        "pl": "params-every-type (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [
+        {
+          "id": "start",
+          "type": "date",
+          "default": "2026-03-01T00:00:00",
+          "default_hint": null
+        },
+        {
+          "id": "length",
+          "type": "duration",
+          "default": {
+            "amount": 2,
+            "unit": "mo"
+          },
+          "default_hint": null
+        },
+        {
+          "id": "boundary",
+          "type": "variant",
+          "default": "on_day",
+          "default_hint": null,
+          "choices": [
+            {
+              "label": "day_before",
+              "days": -1
+            },
+            {
+              "label": "on_day",
+              "days": 0
+            },
+            {
+              "label": "day_after",
+              "days": 1
+            }
+          ]
+        }
+      ],
+      "moment": {
+        "base": {
+          "kind": "parameter",
+          "parameter": "start"
+        },
+        "steps": [
+          {
+            "kind": "shift",
+            "sign": "-",
+            "parameter": "length"
+          },
+          {
+            "kind": "shift",
+            "parameter": "boundary"
+          }
+        ]
+      }
+    },
+    {
+      "file": "params-without-defaults.json",
+      "id": "params-without-defaults",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "params-without-defaults",
+        "pl": "params-without-defaults (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [
+        {
+          "id": "start",
+          "type": "date",
+          "default": null,
+          "default_hint": "target_file_creation"
+        },
+        {
+          "id": "length",
+          "type": "duration",
+          "default": null,
+          "default_hint": null
+        },
+        {
+          "id": "boundary",
+          "type": "variant",
+          "default": null,
+          "default_hint": null,
+          "choices": [
+            {
+              "label": "day_before",
+              "days": -1
+            },
+            {
+              "label": "on_day",
+              "days": 0
+            },
+            {
+              "label": "day_after",
+              "days": 1
+            }
+          ]
+        }
+      ],
+      "moment": {
+        "base": {
+          "kind": "parameter",
+          "parameter": "start"
+        },
+        "steps": [
+          {
+            "kind": "shift",
+            "sign": "+",
+            "parameter": "length"
+          },
+          {
+            "kind": "shift",
+            "parameter": "boundary"
+          }
+        ]
+      }
+    },
+    {
+      "file": "texts-many-languages.json",
+      "id": "texts-many-languages",
+      "applies_to": "both",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "de": "Viele Sprachen",
+        "en": "Many languages",
+        "pl": "Wiele języków"
+      },
+      "explains": {
+        "en": "Every text language is handed on, a non-text one is left out.",
+        "pl": "Każdy język tekstu idzie dalej."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "today"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "time-mode-x60.json",
+      "id": "time-mode-x60",
+      "applies_to": "substitution",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "time-mode-x60",
+        "pl": "time-mode-x60 (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 60,
+        "scale_duration_clock": true
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "now"
+        },
+        "steps": []
+      }
+    },
+    {
+      "file": "units-every-alias.json",
+      "id": "units-every-alias",
+      "applies_to": "calculator",
+      "market": "us",
+      "calendar": "us-banking",
+      "name": {
+        "en": "units-every-alias",
+        "pl": "units-every-alias (pl)"
+      },
+      "explains": {
+        "en": "A test case of the catalogue.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [],
+      "moment": {
+        "base": {
+          "kind": "absolute",
+          "at": "2026-01-31T00:00:00"
+        },
+        "steps": [
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "s"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "s"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "s"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "s"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "m"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "m"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "m"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "m"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "h"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "h"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "h"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "h"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "d"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "d"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "d"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "w"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "w"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "w"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "mo"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "mo"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "mo"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "q"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "q"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "q"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "y"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "y"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "y"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "y"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "y"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "bd"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "bd"
+          },
+          {
+            "kind": "shift",
+            "sign": "+",
+            "amount": 1,
+            "unit": "bd"
+          }
+        ]
+      }
+    }
+  ],
+  "refused": [
+    {
+      "file": "applies-to-missing.json",
+      "id": "applies-to-missing",
+      "reason": "preset 'applies-to-missing': bad preset JSON: missing field `applies_to` at line 9 column 1 (in tests/data/preset-catalogue\\applies-to-missing.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "applies-to-unknown.json",
+      "id": "applies-to-unknown",
+      "reason": "preset 'applies-to-unknown': applies_to must be calculator, substitution or both, got 'everywhere' (in tests/data/preset-catalogue\\applies-to-unknown.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "base-impossible-date.json",
+      "id": "base-impossible-date",
+      "reason": "day 31 out of range for month 2 in '2026-02-31T00:00:00'",
+      "exit_code": 1
+    },
+    {
+      "file": "base-keyword-unknown.json",
+      "id": "base-keyword-unknown",
+      "reason": "unknown preset base 'tomorrow' (use today, now, or an absolute/absolute_utc/parameter object)",
+      "exit_code": 1
+    },
+    {
+      "file": "base-parameter-is-duration.json",
+      "id": "base-parameter-is-duration",
+      "reason": "base parameter 'length' must be a date, not a duration",
+      "exit_code": 1
+    },
+    {
+      "file": "base-utc-with-offset.json",
+      "id": "base-utc-with-offset",
+      "reason": "preset base 'absolute_utc' carries an offset ('1970-01-01T00:00:00+02:00') - it is already UTC, so write it without one (a trailing 'Z' is allowed)",
+      "exit_code": 1
+    },
+    {
+      "file": "date-default-impossible.json",
+      "id": "date-default-impossible",
+      "reason": "preset 'date-default-impossible': day 31 out of range for month 2 in '2026-02-31T00:00:00' (in tests/data/preset-catalogue\\date-default-impossible.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "default-amount-overflow.json",
+      "id": "default-amount-overflow",
+      "reason": "preset 'default-amount-overflow': parameter 'n' default must be { amount, unit } (in tests/data/preset-catalogue\\default-amount-overflow.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "default-fraction.json",
+      "id": "default-fraction",
+      "reason": "preset 'default-fraction': parameter 'n' default must be { amount, unit } (in tests/data/preset-catalogue\\default-fraction.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "default-negative.json",
+      "id": "default-negative",
+      "reason": "preset 'default-negative': parameter 'n' amount must be non-negative (in tests/data/preset-catalogue\\default-negative.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "default-unknown-unit.json",
+      "id": "default-unknown-unit",
+      "reason": "preset 'default-unknown-unit': parameter 'n': unknown unit 'fortnights' (in tests/data/preset-catalogue\\default-unknown-unit.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "default-without-unit.json",
+      "id": "default-without-unit",
+      "reason": "preset 'default-without-unit': parameter 'n' default must be { amount, unit } (in tests/data/preset-catalogue\\default-without-unit.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "encoded-utf16.json",
+      "id": "encoded-utf16",
+      "reason": "cannot read tests/data/preset-catalogue\\encoded-utf16.json: it is not UTF-8 text (invalid utf-8 sequence of 1 bytes from index 0)",
+      "exit_code": 1
+    },
+    {
+      "file": "id-differs-from-file.json",
+      "id": "id-differs-from-file",
+      "reason": "tests/data/preset-catalogue\\id-differs-from-file.json declares the preset id 'id-differs', but it is found as 'id-differs-from-file' - a preset's id has to match its file name",
+      "exit_code": 1
+    },
+    {
+      "file": "moment-without-base.json",
+      "id": "moment-without-base",
+      "reason": "preset 'moment-without-base': bad preset JSON: missing field `base` at line 8 column 27 (in tests/data/preset-catalogue\\moment-without-base.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "multiplier-zero.json",
+      "id": "multiplier-zero",
+      "reason": "preset 'multiplier-zero': time_mode multiplier must be >= 1, got 0 (in tests/data/preset-catalogue\\multiplier-zero.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "name with space.json",
+      "id": null,
+      "reason": "'name with space.json' cannot be named by --preset - a preset's file name is its id, made of letters, digits, '-' and '_'",
+      "exit_code": 1
+    },
+    {
+      "file": "not-json.json",
+      "id": "not-json",
+      "reason": "preset 'not-json': bad preset JSON: EOF while parsing a value at line 1 column 34 (in tests/data/preset-catalogue\\not-json.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "param-without-type.json",
+      "id": "param-without-type",
+      "reason": "preset 'param-without-type': bad preset JSON: missing field `type` at line 7 column 31 (in tests/data/preset-catalogue\\param-without-type.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "set-time-out-of-range.json",
+      "id": "set-time-out-of-range",
+      "reason": "set_time 25:00:00 is not a time of day (00:00:00 to 23:59:59)",
+      "exit_code": 1
+    },
+    {
+      "file": "shift-amount-negative.json",
+      "id": "shift-amount-negative",
+      "reason": "shift amount must be non-negative (the sign carries direction)",
+      "exit_code": 1
+    },
+    {
+      "file": "shift-parameter-is-date.json",
+      "id": "shift-parameter-is-date",
+      "reason": "shift parameter 'start' must be a duration or variant, not a date",
+      "exit_code": 1
+    },
+    {
+      "file": "shift-sign-missing.json",
+      "id": "shift-sign-missing",
+      "reason": "shift needs a sign (+ or -)",
+      "exit_code": 1
+    },
+    {
+      "file": "snap-unknown.json",
+      "id": "snap-unknown",
+      "reason": "unknown snap target 'end-of-week' (use start-of/end-of month|quarter|year)",
+      "exit_code": 1
+    },
+    {
+      "file": "step-to-zone.json",
+      "id": "step-to-zone",
+      "reason": "preset 'step-to-zone': bad preset JSON: unknown variant `to_zone`, expected one of `shift`, `set_time`, `snap`, `nearest`, `zone` at line 8 column 83 (in tests/data/preset-catalogue\\step-to-zone.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "step-two-keys.json",
+      "id": "step-two-keys",
+      "reason": "preset 'step-two-keys': bad preset JSON: expected value at line 8 column 127 (in tests/data/preset-catalogue\\step-two-keys.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "type-int.json",
+      "id": "type-int",
+      "reason": "preset 'type-int': parameter 'k' has type 'int', which calc does not resolve yet (built: date, duration, variant) (in tests/data/preset-catalogue\\type-int.json)",
+      "exit_code": 5
+    },
+    {
+      "file": "unit-wrong-case.json",
+      "id": "unit-wrong-case",
+      "reason": "unknown unit 'Days' in shift",
+      "exit_code": 1
+    },
+    {
+      "file": "variant-default-object.json",
+      "id": "variant-default-object",
+      "reason": "preset 'variant-default-object': parameter 'v' default must be a variant label (in tests/data/preset-catalogue\\variant-default-object.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "variant-unknown-default.json",
+      "id": "variant-unknown-default",
+      "reason": "preset 'variant-unknown-default': parameter 'v': unknown variant 'week_before' (day_before, on_day, day_after) (in tests/data/preset-catalogue\\variant-unknown-default.json)",
+      "exit_code": 1
+    }
+  ]
+}

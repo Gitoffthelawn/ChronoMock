@@ -420,6 +420,24 @@
         </StackPanel>
       </Border>
 
+      <!-- ============ Scenario list status ============ -->
+      <TextBlock Text="Scenario list status" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
+
+      <Border Style="{StaticResource PartCard}" Margin="{StaticResource StackGapSm}">
+        <StackPanel>
+          <TextBlock Style="{StaticResource PartCaption}"
+                     Text="What stands in a scenario list's place until it has rows, the same in the calculator and in the panel: being read, could not be read (the reason, then the engine's own sentence), read and empty. Under a list that was read, the count of preset files the engine left out, each file and its reason on the tooltip. A failure is shown with a reason longer than any real one, and the count with more files than fit a tooltip." />
+          <controls:CatalogueStatusView Margin="{StaticResource StackGapSm}"
+                                        DataContext="{Binding SampleListReading, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+          <controls:CatalogueStatusView Margin="{StaticResource StackGapSm}"
+                                        DataContext="{Binding SampleListFailed, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+          <controls:CatalogueStatusView Margin="{StaticResource StackGapSm}"
+                                        DataContext="{Binding SampleListEmpty, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+          <controls:CatalogueLeftOutNote Margin="{StaticResource StackGapSm}"
+                                         DataContext="{Binding SampleListLeftOut, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+        </StackPanel>
+      </Border>
+
       <!-- ============ Clock ============ -->
       <TextBlock Text="Clock" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
 

@@ -118,6 +118,15 @@ public class StateSheetTests
             // refuses Start with the reason - before, Start went ahead with the date from before the choice.
             total += RenderSetup("setup-scenario-failed", PhaseStates.SetupWithFailedScenario(), "ScenarioSection").Count;
 
+            // R4/18: the list read by the engine after the window is shown, in every state it passes through -
+            // folded (the header says it) and open (the body says it). The section no longer vanishes.
+            total += Shows(RenderSetup("setup-scenarios-reading-folded", PhaseStates.SetupScenariosReading()), "scenario.list_reading");
+            total += Shows(RenderSetup("setup-scenarios-reading", PhaseStates.SetupScenariosReading(), "ScenarioSection"), "scenario.list_reading");
+            total += Shows(RenderSetup("setup-scenarios-failed-folded", PhaseStates.SetupScenariosFailed()), "setup.scenario_unavailable");
+            total += Shows(RenderSetup("setup-scenarios-failed", PhaseStates.SetupScenariosFailed(), "ScenarioSection"), "scenario.list_failed");
+            total += Shows(RenderSetup("setup-scenarios-empty", PhaseStates.SetupScenariosEmpty(), "ScenarioSection"), "scenario.list_empty");
+            total += Shows(RenderSetup("setup-scenarios-left-out", PhaseStates.SetupScenariosWithFilesLeftOut(), "ScenarioSection"), "scenario.left_out_before");
+
             total += RenderSetup("setup-configured", PhaseStates.SetupConfigured()).Count;
 
             // The form Set up again lands on, with the note about the one field it could not fill. The
@@ -381,7 +390,7 @@ public class StateSheetTests
         var written = await WpfTestHost.RunAsync(async () =>
         {
             var total = 0;
-            var vm = new CalculatorViewModel(new FakeCalcEngine(CalculatorSheetEngine.Answer), Path.Combine(TestPaths.RepoRoot(), "presets"));
+            var vm = new CalculatorViewModel(new FakeCalcEngine(CalculatorSheetEngine.Answer), TestCatalogues.Library(TestCatalogues.Shipped()));
             var view = new CalculatorView { DataContext = vm };
             await vm.EnsureComputedAsync();
             vm.AddStep();
@@ -406,6 +415,49 @@ public class StateSheetTests
             vm.AnalyzeText = "31/31/2031";
             await CalculatorAnswerTests.Until(() => vm.AnalyzeHasError && !vm.IsAnalysisStale, "the analysis refusal");
             total += Rendered("calculator-analysis-refused", view);
+
+            // R4-S23: a pasted number - two instants, each with its time, and the zone they are shown in.
+            vm.AnalyzeText = "1740607200";
+            await CalculatorAnswerTests.Until(() => vm.HasAnalysisZoneLine && !vm.IsAnalysisStale, "the epoch readings");
+            total += Rendered("calculator-analysis-epoch", view);
+            return total;
+        });
+
+        Assert.True(written > 0);
+    }
+
+    /// <summary>
+    /// The calculator's scenario list in the states the engine's catalogue passes through (R4/18): still
+    /// being read, could not be read, read with files left out, and a scenario waiting for parameters that
+    /// have no default - the inputs empty rather than filled with a value nobody entered (R4-S22).
+    /// </summary>
+    [Fact]
+    public async Task The_calculators_scenario_list_renders_in_every_state_of_the_catalogue()
+    {
+        var written = await WpfTestHost.RunAsync(async () =>
+        {
+            var total = 0;
+
+            async Task<CalculatorView> Calculator(PresetLibrary library)
+            {
+                var vm = new CalculatorViewModel(new FakeCalcEngine(CalculatorSheetEngine.Answer), library);
+                var view = new CalculatorView { DataContext = vm };
+                await vm.EnsureComputedAsync();
+                return view;
+            }
+
+            var reading = await Calculator(new PresetLibrary(new HangingPresetSource()));
+            total += Rendered("calculator-presets-reading", reading);
+            total += Rendered("calculator-presets-failed", await Calculator(new PresetLibrary(FakePresetSource.Failing(
+                "cannot launch 'C:\\Chrono Mock\\core\\x64\\chrono.exe': The system cannot find the file specified. (calc.launch_failed)"))));
+
+            var leftOut = await Calculator(TestCatalogues.Library(TestCatalogues.ShippedWithFilesLeftOut()));
+            total += Rendered("calculator-presets-left-out", leftOut);
+
+            var waiting = await Calculator(TestCatalogues.Library(TestCatalogues.TestCatalogue()));
+            var model = (CalculatorViewModel)waiting.DataContext;
+            model.SelectedPreset = model.Presets.Single(p => p.Info.Id == "params-without-defaults");
+            total += Rendered("calculator-preset-without-defaults", waiting);
             return total;
         });
 

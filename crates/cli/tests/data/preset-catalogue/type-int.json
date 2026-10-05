@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "type-int",
+  "name": { "en": "type-int", "pl": "type-int (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "k", "type": "int", "default": 3 } ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [  ] }
+}

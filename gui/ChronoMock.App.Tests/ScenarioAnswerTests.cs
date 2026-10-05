@@ -117,11 +117,11 @@ public class ScenarioAnswerTests
         // A launch held up long enough (a scanner on the engine, say) outlasts Start's wait. Going ahead then
         // would start with the date from before the choice - the fault the wait is for - and say nothing.
         var engine = new FakeCalcEngine();
-        var vm = new SessionViewModel(
+        var vm = TestCatalogues.WithShippedScenarios(scenarios => new SessionViewModel(
             new InMemorySessionHistoryStore(),
             calcClient: engine,
-            presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"),
-            momentWait: TimeSpan.FromMilliseconds(200));
+            scenarios: scenarios,
+            momentWait: TimeSpan.FromMilliseconds(200)));
         var target = NotAnExecutable();
         try
         {
@@ -255,7 +255,7 @@ public class ScenarioAnswerTests
     }
 
     private static SessionViewModel NewSession(ICalcEngine engine)
-        => new(new InMemorySessionHistoryStore(), calcClient: engine, presetsDir: Path.Combine(TestPaths.RepoRoot(), "presets"));
+        => TestCatalogues.WithShippedScenarios(scenarios => new(new InMemorySessionHistoryStore(), calcClient: engine, scenarios: scenarios));
 
     /// <summary>A target the plan refuses before any core is spawned, so Start can be driven without one.</summary>
     private static string NotAnExecutable()

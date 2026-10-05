@@ -30,7 +30,12 @@ internal static class CalcErrorText
 {
     /// <summary>The prefixes the CLI puts in front of its own diagnostics. They belong to a command line,
     /// not to a window, so they come off either way.</summary>
-    private static readonly string[] Prefixes = ["chrono calc: ", "chrono: "];
+    private static readonly string[] Prefixes = ["chrono calc: ", "chrono presets: ", "chrono: "];
+
+    /// <summary>The key families an engine sentence can end in: the calculator's, and since R4/18 the preset
+    /// catalogue's (<c>chrono presets</c>), which the window asks the same engine for and translates the same
+    /// way - <c>family.something</c> to <c>family.err.something</c>.</summary>
+    private static readonly string[] Families = ["calc.", "presets."];
 
     /// <summary>
     /// The interface text for an engine failure: the translation of its stable key when it has one, else
@@ -46,7 +51,8 @@ internal static class CalcErrorText
 
         if (KeyOf(raw) is { } key)
         {
-            var translationKey = $"calc.err.{key["calc.".Length..]}";
+            var dot = key.IndexOf('.', StringComparison.Ordinal);
+            var translationKey = $"{key[..dot]}.err.{key[(dot + 1)..]}";
             var text = translate(translationKey);
             // A resolver returns the key when it has no string for it, so an unmapped engine key must not
             // put "calc.err.something" on the panel - that is the jargon this exists to remove.
@@ -95,13 +101,16 @@ internal static class CalcErrorText
         }
 
         var key = text[(open + 1)..^1];
-        return key.StartsWith("calc.", StringComparison.Ordinal) && IsKeyShaped(key) ? key : null;
+        return Families.FirstOrDefault(f => key.StartsWith(f, StringComparison.Ordinal)) is { } family
+               && IsKeyShaped(key, family)
+            ? key
+            : null;
     }
 
     /// <summary>A key is lowercase words joined by dots and underscores - the same shape the Rust-side
     /// guard checks. This is what keeps a parenthesised English aside from reading as a key.</summary>
-    private static bool IsKeyShaped(string key)
-        => key.Length > "calc.".Length
+    private static bool IsKeyShaped(string key, string family)
+        => key.Length > family.Length
            && key.All(c => c is '.' or '_' or (>= 'a' and <= 'z'));
 
     private static string WithoutKeySuffix(string message)

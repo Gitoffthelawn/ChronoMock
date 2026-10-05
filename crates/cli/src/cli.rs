@@ -235,6 +235,7 @@ pub(crate) fn print_usage() {
     diag!("       --cwd starts the target in that directory; without it the target inherits ours, and a directory that does not exist stops the session rather than looking like a broken target");
     diag!("       (--preset supplies the moment and mode from presets/<id>.json, exclusive of --at/--mode/--scale-duration; --param fills its parameters, a trial start_date defaults to the target's file date)");
     print_calc_usage();
+    print_presets_usage();
     diag!("usage: chrono version   (also --version, -V)   the build, which core it is, and the protocol it speaks");
     diag!("usage: chrono license [--components]   (also --license)   the licence, the warranty disclaimer, and every bundled component with its version");
 }
@@ -253,17 +254,23 @@ pub(crate) fn asks_for_help(rest: &[String]) -> bool {
 /// The usage a command was asked for, and exit 0 - it is an answer, not a refusal. `calc --help`
 /// used to say "unknown flag" and exit 1 while `chrono --help` beside it exited 0.
 pub(crate) fn print_help_for(command: &str) -> i32 {
-    if command == "calc" {
-        print_calc_usage();
-    } else {
-        print_usage();
+    match command {
+        "calc" => print_calc_usage(),
+        "presets" => print_presets_usage(),
+        _ => print_usage(),
     }
     0
 }
 
+pub(crate) fn print_presets_usage() {
+    diag!("usage: chrono presets [--dir <folder>] [--json]   every preset in the catalogue the way --preset reads it, and every file it would refuse, with the reason");
+    diag!("       without --dir it reads the folder --preset looks in (<exe>/presets, else ./presets)");
+    diag!("       --json emits machine output (chronomock.presets/1)");
+}
+
 pub(crate) fn print_calc_usage() {
     diag!("usage: chrono calc [--base <today|now|YYYY-MM-DDTHH:MM:SS>] [--base-utc <YYYY-MM-DDTHH:MM:SS[Z]>] [--shift <±N<unit>>]... [--set-time <HH:MM:SS>] [--snap <target>] [--nearest <target>] [--to-zone <+HH:MM>] [--zone <+HH:MM>] [--calendar <us-banking|us-federal|pl>] [--format <mask>] [--json]");
-    diag!("       or: chrono calc --preset <id> [--param id=value]...   (named moment, e.g. month-end, trial-first-day-after)");
+    diag!("       or: chrono calc --preset <id> [--param id=value]...   (named moment, e.g. month-end, trial-first-day-after - a preset with a market counts business days in that market's calendar unless --calendar names another)");
     diag!("       or: chrono calc --analyze <pasted-date>   (interpret a date, e.g. 04/08/2008 - shows both readings when ambiguous)");
     diag!("       --json emits machine output (chronomock.calc/1) for any of the above");
     diag!("       units: s m h d w mo q y bd (minute=m, month=mo)");

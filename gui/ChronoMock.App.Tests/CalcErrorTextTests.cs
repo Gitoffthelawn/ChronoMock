@@ -28,6 +28,25 @@ public sealed class CalcErrorTextTests
         => Assert.Equal($"[{expectedKey}]", CalcErrorText.Describe(stderr, Translator(expectedKey)));
 
     /// <summary>
+    /// R4/18: the window asks the same engine for the preset catalogue, so a catalogue refusal ends in a key
+    /// of its own family and translates the same way, <c>presets.x</c> to <c>presets.err.x</c>. Without the
+    /// family the sentence went on the panel in English with its key, the jargon this mapping removes.
+    /// </summary>
+    [Theory]
+    [InlineData("chrono presets: no preset folder (C:/Install/presets) (presets.folder_missing)", "presets.err.folder_missing")]
+    [InlineData("chrono presets: cannot read C:/Install/presets: Access is denied. (os error 5) (presets.folder_unreadable)", "presets.err.folder_unreadable")]
+    public void A_catalogue_key_becomes_its_translation_and_its_sentence_the_detail(string stderr, string expectedKey)
+    {
+        Assert.Equal($"[{expectedKey}]", CalcErrorText.Describe(stderr, Translator(expectedKey)));
+
+        // The detail keeps the folder the reader has to go and look at, and loses the command line around it.
+        var detail = CalcErrorText.Detail(stderr);
+        Assert.Contains("C:/Install/presets", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("chrono presets", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("(presets.", detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// R4-S26: an engine that is not there - quarantined, or an archive extracted in part - is said in the
     /// interface's language, and the detail beneath keeps the path. It used to be one English sentence with
     /// no key, the only calculator failure a Polish window could not translate at all.

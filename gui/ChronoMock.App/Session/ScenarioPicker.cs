@@ -1,3 +1,6 @@
+using ChronoMock.App.Calc;
+using ChronoMock.Protocol;
+
 namespace ChronoMock.App;
 
 /// <summary>
@@ -23,21 +26,57 @@ namespace ChronoMock.App;
 /// </remarks>
 public sealed class ScenarioPicker : ObservableObject
 {
+    private readonly PresetLibrary _library;
     private ScenarioCatalogue _catalogue = ScenarioCatalogue.Empty;
     private IReadOnlyList<ScenarioItem> _visible = [];
     private string _filter = string.Empty;
+    private bool _chosen;
+
+    /// <summary>A picker over the given catalogue - the window's, shared with the calculator.</summary>
+    public ScenarioPicker(PresetLibrary library) => _library = library ?? throw new ArgumentNullException(nameof(library));
+
+    /// <summary>A picker with no catalogue, which reads as an empty one. Its own constructor rather than a
+    /// default argument, so a caller that wants none does not carry the library type in its signature - the
+    /// session's coupling ceiling counts it (gui/CodeMetricsConfig.txt).</summary>
+    public ScenarioPicker() => _library = new PresetLibrary(null);
+
+    /// <summary>Where the list stands - reading, failed, empty, or read with files left out. Said in the
+    /// section's header and in its body, so a list that is not there yet never looks like an empty one.</summary>
+    public CatalogueStatus Status { get; } = new();
 
     /// <summary>
-    /// Read the substitution side of the shared preset catalogue.
+    /// Read the substitution side of the shared preset catalogue, through the engine (R4/18).
     /// </summary>
     /// <remarks>
-    /// File I/O only. Evaluating a scenario spawns the engine, and that happens on a click, never here -
-    /// a window built in a test must start nothing.
+    /// Asked for by the window once it is shown, never in a constructor: reading spawns the engine, and a
+    /// window built in a test must start nothing. Shares one read with the calculator (<see cref="PresetLibrary"/>).
+    /// Here rather than on the session, whose coupling ceiling the library, the translation and the readiness
+    /// would each have raised - the picker already owns the list, and now how it arrives.
     /// </remarks>
-    public void Load(string presetsDir)
+    public async Task LoadAsync()
     {
-        _catalogue = ScenarioCatalog.Load(presetsDir);
+        Status.Reading();
+        RaisePropertyChanged(nameof(ShowsCount));
+        PresetCatalogue catalogue;
+        try
+        {
+            catalogue = await _library.ReadAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            return; // the window is closing
+        }
+        catch (CalcException e)
+        {
+            Status.Failed(e.Message, TranslationKeyConverter.Resolve);
+            RaisePropertyChanged(nameof(ShowsCount));
+            return;
+        }
+
+        _catalogue = ScenarioCatalog.From(catalogue.Presets.Select(PresetInfo.From));
+        Status.Ready(_catalogue.Ready.Count, catalogue.Refused);
         Narrow();
+        RaisePropertyChanged(nameof(ShowsCount));
         RaisePropertyChanged(nameof(HasScenarios));
         RaisePropertyChanged(nameof(Available));
         RaisePropertyChanged(nameof(NeedingParameters));
@@ -61,8 +100,29 @@ public sealed class ScenarioPicker : ObservableObject
     /// <summary>The scenarios to show right now: the whole catalogue, or what the filter matched.</summary>
     public IReadOnlyList<ScenarioItem> Visible => _visible;
 
-    /// <summary>True when the catalogue offered at least one scenario - a portable install with no
-    /// presets folder shows no empty box, it shows nothing at all.</summary>
+    /// <summary>
+    /// Whether the folded section's header shows the number on offer: the list read, and nothing chosen.
+    /// </summary>
+    /// <remarks>
+    /// The header shows the chosen scenario, the number on offer, or why there is no list yet - one at a
+    /// time, in one cell. The picker holds no selection (see the class remarks), so the session tells it
+    /// only THAT one exists (<see cref="SetChosen"/>), which is all this line needs.
+    /// </remarks>
+    public bool ShowsCount => Status.IsReady && !_chosen;
+
+    /// <summary>The session's word that a scenario is or is no longer chosen - for the header alone.</summary>
+    public void SetChosen(bool chosen)
+    {
+        if (_chosen != chosen)
+        {
+            _chosen = chosen;
+            RaisePropertyChanged(nameof(ShowsCount));
+        }
+    }
+
+    /// <summary>True when the catalogue offered at least one scenario. The section shows either way since
+    /// R4/18 - it used to vanish without a word when there were none, and with the list read after the
+    /// window is shown it would have appeared under the reader's eyes and pushed everything below it down.</summary>
     public bool HasScenarios => _catalogue.Ready.Count > 0;
 
     /// <summary>

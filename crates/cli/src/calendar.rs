@@ -216,6 +216,26 @@ pub(crate) fn find_catalogue_in(exe_dir: Option<&std::path::Path>, cwd: &std::pa
     local.is_file().then_some(local)
 }
 
+/// The `<kind>` directory a lookup by id would read from, by the same rule as [`find_catalogue_in`]:
+/// the one beside the executable when it exists, which then answers for itself, else the working
+/// directory's. `None` when neither exists. The preset catalogue lists this directory, so a file it
+/// lists is one `--preset` finds.
+pub(crate) fn find_catalogue_dir_in(exe_dir: Option<&std::path::Path>, cwd: &std::path::Path, kind: &str) -> Option<std::path::PathBuf> {
+    if let Some(installed) = exe_dir.map(|dir| dir.join(kind)).filter(|dir| dir.is_dir()) {
+        return Some(installed);
+    }
+    let local = cwd.join(kind);
+    local.is_dir().then_some(local)
+}
+
+/// [`find_catalogue_dir_in`] against this process's real executable and working directory.
+pub(crate) fn find_catalogue_dir(kind: &str) -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok();
+    let exe_dir = exe.as_ref().and_then(|e| e.parent());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    find_catalogue_dir_in(exe_dir, &cwd, kind)
+}
+
 /// [`find_catalogue_in`] against this process's real executable and working directory.
 pub(crate) fn find_catalogue_file(kind: &str, id: &str) -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok();
@@ -726,6 +746,38 @@ mod tests {
             find_catalogue_in(Some(&bare), &cwd, "calendars", "us-banking"),
             Some(cwd.join("calendars").join("us-banking.json"))
         );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The folder the preset catalogue lists is the folder a lookup by id reads, by the same rule - so
+    /// `chrono presets` never lists a file that `--preset` would not find, and never leaves out one it
+    /// would.
+    #[test]
+    fn the_catalogue_folder_is_the_one_a_lookup_by_id_reads() {
+        let root = std::env::temp_dir().join(format!("chrono-catalogue-dir-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let exe_dir = root.join("app");
+        let cwd = root.join("elsewhere");
+        let bare = root.join("bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        std::fs::create_dir_all(cwd.join("presets")).unwrap();
+        std::fs::write(cwd.join("presets").join("month-end.json"), "{}").unwrap();
+
+        // No folder beside the executable: the working directory's, the one a lookup falls back to.
+        assert_eq!(find_catalogue_dir_in(Some(&bare), &cwd, "presets"), Some(cwd.join("presets")));
+        assert_eq!(
+            find_catalogue_in(Some(&bare), &cwd, "presets", "month-end"),
+            Some(cwd.join("presets").join("month-end.json"))
+        );
+
+        // An installed folder, even an empty one, answers for itself - the lookup does not fall back.
+        std::fs::create_dir_all(exe_dir.join("presets")).unwrap();
+        assert_eq!(find_catalogue_dir_in(Some(&exe_dir), &cwd, "presets"), Some(exe_dir.join("presets")));
+        assert_eq!(find_catalogue_in(Some(&exe_dir), &cwd, "presets", "month-end"), None);
+
+        // Neither: no folder at all, not an empty catalogue.
+        assert_eq!(find_catalogue_dir_in(Some(&bare), &bare, "presets"), None);
 
         let _ = std::fs::remove_dir_all(&root);
     }

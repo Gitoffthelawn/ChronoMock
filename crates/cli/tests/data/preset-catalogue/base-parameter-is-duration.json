@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "base-parameter-is-duration",
+  "name": { "en": "base-parameter-is-duration", "pl": "base-parameter-is-duration (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "length", "type": "duration", "default": { "amount": 1, "unit": "days" } } ],
+  "moment": { "base": { "parameter": "length" }, "steps": [] }
+}

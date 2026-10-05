@@ -264,19 +264,25 @@ fn gui_calc_keys(root: &Path) -> BTreeSet<String> {
     keys
 }
 
+/// The key families an engine sentence can end in, as the window's `CalcErrorText` reads them: the
+/// calculator's, and since R4/18 the preset catalogue's (`chrono presets`), translated the same way.
+const ENGINE_KEY_FAMILIES: [&str; 2] = ["(calc.", "(presets."];
+
 fn collect_calc_keys(text: &str, keys: &mut BTreeSet<String>) {
-    let mut rest = text;
-    while let Some(open) = rest.find("(calc.") {
-        let after = &rest[open + 1..];
-        match after.find(')') {
-            Some(close) => {
-                let candidate = &after[..close];
-                if is_key_shaped(candidate) {
-                    keys.insert(candidate.to_string());
+    for family in ENGINE_KEY_FAMILIES {
+        let mut rest = text;
+        while let Some(open) = rest.find(family) {
+            let after = &rest[open + 1..];
+            match after.find(')') {
+                Some(close) => {
+                    let candidate = &after[..close];
+                    if is_key_shaped(candidate) {
+                        keys.insert(candidate.to_string());
+                    }
+                    rest = &after[close..];
                 }
-                rest = &after[close..];
+                None => break,
             }
-            None => break,
         }
     }
 }
@@ -381,9 +387,18 @@ fn every_calculator_key_has_both_translations() {
     let en = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.en.json"));
     let pl = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.pl.json"));
 
+    // `family.something` -> `family.err.something`, the mapping `CalcErrorText.Describe` makes. The
+    // catalogue's family has to be found too, or this guard would hold half of what it claims.
+    assert!(
+        keys.iter().any(|k| k.starts_with("presets.")),
+        "no `presets.` key was found - the catalogue's refusals are no longer scanned"
+    );
     let missing: Vec<String> = keys
         .iter()
-        .map(|k| format!("calc.err.{}", &k["calc.".len()..]))
+        .map(|k| {
+            let (family, rest) = k.split_once('.').expect("a key has a family");
+            format!("{family}.err.{rest}")
+        })
         .filter(|k| !en.contains(k) || !pl.contains(k))
         .collect();
 

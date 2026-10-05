@@ -91,6 +91,30 @@ public partial class ComponentCatalogue : UserControl
         TimeText = "03:14:07",
     };
 
+    /// <summary>A scenario list still being read - where every list starts.</summary>
+    public Calc.CatalogueStatus SampleListReading { get; } = new();
+
+    /// <summary>A scenario list the engine could not give, with a reason past any real one's length.</summary>
+    public Calc.CatalogueStatus SampleListFailed { get; } = Sample(s => s.Failed(
+        "chrono presets: cannot read the preset folder C:\\An\\Install\\Folder\\Whose\\Path\\Runs\\Far\\Past\\The\\Width\\Of\\Any\\Column\\presets: Access is denied. (os error 5) (presets.folder_unreadable)",
+        TranslationKeyConverter.Resolve));
+
+    /// <summary>A scenario list read with nothing in it for this screen.</summary>
+    public Calc.CatalogueStatus SampleListEmpty { get; } = Sample(s => s.Ready(0, []));
+
+    /// <summary>A list read with files left out - more of them than a tooltip comfortably holds.</summary>
+    public Calc.CatalogueStatus SampleListLeftOut { get; } = Sample(s => s.Ready(
+        14,
+        [.. Enumerable.Range(1, 40).Select(i => new Protocol.RefusedPresetFile(
+            $"hand-written-{i}.json", "parameter 'n': unknown unit 'fortnights' (in presets\\hand-written.json)"))]));
+
+    private static Calc.CatalogueStatus Sample(Action<Calc.CatalogueStatus> state)
+    {
+        var status = new Calc.CatalogueStatus();
+        state(status);
+        return status;
+    }
+
     /// <summary>See <see cref="SampleFakeClock"/>.</summary>
     public ClockView SampleRealClock { get; } = new("clock.real")
     {

@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "date-default-with-time",
+  "name": { "en": "date-default-with-time", "pl": "date-default-with-time (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "start", "type": "date", "default": "2026-03-01T12:30:00" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [] }
+}

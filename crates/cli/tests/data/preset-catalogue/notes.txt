@@ -1,0 +1,1 @@
+Not a preset - the catalogue reads .json files only.

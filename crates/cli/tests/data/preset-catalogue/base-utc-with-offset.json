@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "base-utc-with-offset",
+  "name": { "en": "base-utc-with-offset", "pl": "base-utc-with-offset (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": { "absolute_utc": "1970-01-01T00:00:00+02:00" }, "steps": [] }
+}

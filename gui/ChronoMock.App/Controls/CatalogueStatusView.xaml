@@ -1,0 +1,22 @@
+<UserControl x:Class="ChronoMock.App.Controls.CatalogueStatusView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Where a scenario list stands, said IN THE LIST'S PLACE: still being read, could not be read (with
+       the reason and the engine's own sentence under it, the pair the calculator shows for its own
+       failures), or read and empty. Every line collapses when its state is not the current one, so a list
+       that was read and has rows shows nothing here at all (R4/18). One part for both lists, the
+       calculator's and the substitution panel's (GUI rules 2 and 5), bound to a CatalogueStatus. The
+       count of files the engine left out stands under the list instead, in CatalogueLeftOutNote. -->
+  <StackPanel>
+    <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource scenario.list_reading}"
+               Visibility="{Binding IsReading, Converter={StaticResource BoolToVis}}" />
+    <TextBlock Style="{StaticResource PartErrorNote}" Text="{Binding Failure}"
+               Visibility="{Binding HasFailed, Converter={StaticResource BoolToVis}}" />
+    <TextBlock Style="{StaticResource PartNote}" Text="{Binding FailureReason}" Margin="{StaticResource StackGapSm}"
+               Visibility="{Binding HasFailed, Converter={StaticResource BoolToVis}}" />
+    <TextBlock Style="{StaticResource PartCaption}" Text="{Binding FailureDetail}" Margin="{StaticResource StackGapSm}"
+               Visibility="{Binding HasFailureDetail, Converter={StaticResource BoolToVis}}" />
+    <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource scenario.list_empty}"
+               Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}" />
+  </StackPanel>
+</UserControl>

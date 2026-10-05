@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "base-absolute-set-time",
+  "name": { "en": "base-absolute-set-time", "pl": "base-absolute-set-time (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2030-01-01 07:05:00" }, "steps": [ { "set_time": "7:5:0" } ] }
+}

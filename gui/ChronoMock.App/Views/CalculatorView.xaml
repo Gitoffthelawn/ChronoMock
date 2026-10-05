@@ -68,6 +68,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
           <TextBlock Style="{StaticResource PartGroupHeading}" Grid.Row="0" Text="{DynamicResource calc.presets_header}" Margin="{StaticResource SpaceXs}" />
           <TextBox Grid.Row="1" x:Name="PresetFilterBox" Margin="{StaticResource SpaceXs}"
@@ -84,7 +85,12 @@
                the column so a long catalogue scrolls inside instead of overflowing. The filter above stays
                put, and the space under a short list is plain card, not a bordered empty box. -->
           <Grid Grid.Row="2" x:Name="ListArea">
+            <!-- In the list's place until it has rows: reading, could not be read, empty (R4/18). The list is
+                 collapsed meanwhile, so an empty bordered strip never stands over the sentence. -->
+            <controls:CatalogueStatusView DataContext="{Binding PresetStatus}" VerticalAlignment="Top"
+                                          Margin="{StaticResource SpaceXs}" />
             <ListBox x:Name="PresetList" ItemsSource="{Binding Presets}"
+                     Visibility="{Binding PresetStatus.ShowsList, Converter={StaticResource BoolToVis}}"
                      SelectedItem="{Binding SelectedPreset}"
                      ItemTemplate="{StaticResource ScenarioRow}"
                      ItemContainerStyle="{StaticResource ScenarioRowContainer}"
@@ -92,7 +98,9 @@
                      MaxHeight="{Binding ActualHeight, ElementName=ListArea}"
                      Margin="{StaticResource SpaceXs}" />
           </Grid>
-          <TextBlock Grid.Row="3" Text="{DynamicResource calc.preset_note}" TextWrapping="Wrap"
+          <!-- How many preset files the engine left out (R4/18, D2) - the same part as under the panel's list. -->
+          <controls:CatalogueLeftOutNote Grid.Row="3" DataContext="{Binding PresetStatus}" Margin="{StaticResource SpaceXs}" />
+          <TextBlock Grid.Row="4" Text="{DynamicResource calc.preset_note}" TextWrapping="Wrap"
                      Margin="{StaticResource SpaceXs}"
                      FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
         </Grid>
@@ -316,6 +324,10 @@
                            Visibility="{Binding AnalyzeHasError, Converter={StaticResource BoolToVis}}" />
                 <TextBlock Style="{StaticResource PartCaption}" Text="{Binding AnalyzeErrorDetail}" Margin="{StaticResource StackGapSm}"
                            Visibility="{Binding HasAnalyzeErrorDetail, Converter={StaticResource BoolToVis}}" />
+                <!-- A pasted number is an instant, and an instant has a wall clock only in some zone - the zone
+                     chosen in the builder above, named here as the CLI names it above the same readings (R4-S23). -->
+                <TextBlock Style="{StaticResource PartCaption}" Text="{Binding AnalysisZoneLine}" Margin="{StaticResource StackGapSm}"
+                           Visibility="{Binding HasAnalysisZoneLine, Converter={StaticResource BoolToVis}}" />
                 <controls:TextNamedItems ItemsSource="{Binding Readings}" Margin="{StaticResource StackGapSm}">
                   <controls:TextNamedItems.ItemTemplate>
                     <DataTemplate>
@@ -323,7 +335,7 @@
                         <TextBlock Style="{StaticResource PartCaption}" Text="{Binding ReadingLabelKey, Converter={StaticResource KeyToText}}" />
                         <StackPanel Orientation="Horizontal">
                           <TextBlock VerticalAlignment="Center"
-                                     FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}"><Run Text="{Binding WeekdayKey, Converter={StaticResource KeyToText}, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Date, Mode=OneWay}" /></TextBlock>
+                                     FontSize="{StaticResource FontSizeBody}" Foreground="{DynamicResource BrushTextPrimary}"><Run Text="{Binding WeekdayKey, Converter={StaticResource KeyToText}, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Date, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding Time, Mode=OneWay}" /></TextBlock>
                           <controls:TextNamedItems ItemsSource="{Binding Significance}" VerticalAlignment="Center" Margin="{StaticResource SpaceSm}">
                             <controls:TextNamedItems.ItemsPanel>
                               <ItemsPanelTemplate>
@@ -417,10 +429,12 @@
                   </controls:TextNamedItems>
                 </StackPanel>
 
-                <TextBlock Text="{DynamicResource calc.preset_needs_params}" TextWrapping="Wrap"
+                <!-- "Fill in the parameters" while one has no value, or - a defence after R4/18 - that the
+                     preset is in a shape this build cannot read. One line, keyed by the view model. -->
+                <TextBlock Text="{Binding ActiveNoteKey, Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
                            Margin="{StaticResource SpaceXs}"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}"
-                           Visibility="{Binding ActiveNeedsParameters, Converter={StaticResource BoolToVis}}" />
+                           Visibility="{Binding HasActiveNote, Converter={StaticResource BoolToVis}}" />
               </StackPanel>
             </Border>
 

@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "market-pl",
+  "name": { "en": "market-pl", "pl": "market-pl (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "calculator", "market": "pl",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "shift": { "sign": "+", "amount": 3, "unit": "bd" } } ] }
+}

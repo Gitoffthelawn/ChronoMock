@@ -6,23 +6,24 @@ namespace ChronoMock.App;
 
 public partial class MainWindow : FluentWindow
 {
+    // ONE preset catalogue for the window, read through the engine (R4/18) and shared by both modules - the
+    // panel's scenario list and the calculator's. Same layout seam as everything else, resolved in AppPaths.
+    private readonly PresetLibrary _presets = new(AppPaths.PresetCatalogue);
+
     // The panel is a second consumer of the calculator engine and of the shared preset catalogue: the
-    // scenario list turns a named preset into a date (7.1 pt 2). Same layout seam as everything else,
-    // resolved in AppPaths.
-    private readonly SessionViewModel _session = new(
-        FileSessionHistoryStore.ForApp(), FileDiagnosticsLog.ForApp(), AppPaths.CalcClient, AppPaths.PresetsDir,
-        ProcessElevation.IsElevated);
-    private readonly CalculatorViewModel _calculator = CreateCalculator();
-
-
-    // The calculator is a client of the same engine (ADR-6) - it reads the shared preset catalogue and the
-    // calendars from the portable install beside the exe, or from the cargo outputs in a dev checkout - the
-    // layout seam lives in AppPaths, not here.
-    private static CalculatorViewModel CreateCalculator()
-        => new(AppPaths.CalcClient, AppPaths.PresetsDir);
+    // scenario list turns a named preset into a date (7.1 pt 2).
+    private readonly SessionViewModel _session;
+    private readonly CalculatorViewModel _calculator;
 
     public MainWindow()
     {
+        _session = new(
+            FileSessionHistoryStore.ForApp(), FileDiagnosticsLog.ForApp(), AppPaths.CalcClient, new ScenarioPicker(_presets),
+            ProcessElevation.IsElevated);
+
+        // The calculator is a client of the same engine (ADR-6), with the calendars from the portable install
+        // beside the exe or from the cargo outputs in a dev checkout - the layout seam lives in AppPaths.
+        _calculator = new(AppPaths.CalcClient, _presets);
         InitializeComponent();
         DataContext = _session;
         CalculatorContainer.DataContext = _calculator;
@@ -47,6 +48,10 @@ public partial class MainWindow : FluentWindow
         // Closing the window ends the session: the core is stopped, and the hook self-detaches so the
         // target reverts to real time on its own (slice 10) - we never kill it.
         Closing += OnWindowClosing;
+
+        // The scenario list is read once the window is SHOWN, not built: reading runs the engine, and a window
+        // built in a test must start nothing. Loaded is raised only for a window that is shown.
+        Loaded += (_, _) => _ = _session.EnsureScenariosAsync();
     }
 
     /// <summary>How long a window closed during a session waits for it to end before it closes anyway
@@ -87,6 +92,7 @@ public partial class MainWindow : FluentWindow
         }
 
         _calculator.Abandon();
+        _presets.Abandon();
         if (_closeStage == CloseStage.Finishing)
         {
             e.Cancel = true;

@@ -19,6 +19,24 @@ internal static class CalculatorSheetEngine
         var question = new FakeCalcEngine.Question(args);
         if (question.ValueOf("--analyze") is { } pasted)
         {
+            if (pasted == "1740607200")
+            {
+                // The engine's own answer for this number with this machine at +02:00 (measured with
+                // `chrono calc --analyze 1740607200 --json`, R4/18): two instants, each with its time.
+                var metadata = new CalcMetadata("Thursday", 2025, 9, 9, 58, 1, false, -585, null, null);
+                return new CalcResult(
+                    "chronomock.calc/1",
+                    null,
+                    new CalcAnalysis(
+                        pasted,
+                        true,
+                        [
+                            new CalcReading("epoch_seconds", "2025-02-27T00:00:00", [], metadata, Instant: true, Time: "00:00:00"),
+                            new CalcReading("epoch_millis", "1970-01-21T05:30:07", [], metadata with { Weekday = "Wednesday" }, Instant: true, Time: "05:30:07"),
+                        ],
+                        ZoneBiasMin: -120));
+            }
+
             return pasted.StartsWith("31/31", StringComparison.Ordinal)
                 ? throw new CalcException($"chrono calc: '{pasted}' is not a date this analyser reads (calc.analyze_unrecognized)", 1)
                 : CalcResults.Analysis("2008-04-08T00:00:00", "2008-08-04T00:00:00");

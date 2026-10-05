@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "step-to-zone",
+  "name": { "en": "step-to-zone", "pl": "step-to-zone (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [  ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "to_zone": "+05:45" } ] }
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "default-negative",
+  "name": { "en": "default-negative", "pl": "default-negative (pl)" },
+  "explains": { "en": "A test case of the catalogue.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "both",
+  "parameters": [ { "id": "n", "type": "duration", "default": { "amount": -3, "unit": "days" } } ],
+  "moment": { "base": { "absolute": "2026-01-31T00:00:00" }, "steps": [ { "shift": { "sign": "+", "parameter": "n" } } ] }
+}

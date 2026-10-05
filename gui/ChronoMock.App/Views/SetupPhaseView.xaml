@@ -347,25 +347,33 @@
       -->
       <!-- Named so the state sheet can open it. A folded section's contents are a state of the screen
            like any other, and one that can only be reached by clicking is one nobody reviews. -->
+      <!-- 🔴 ALWAYS SHOWN since R4/18. It used to collapse when the catalogue offered nothing - a setup
+           problem said by silence - and with the list now read by the engine after the window is shown, a
+           section appearing a moment later would push every section below it down under the reader's eyes. -->
       <Expander x:Name="ScenarioSection"
                 Style="{StaticResource PartSection}" Margin="{StaticResource StackGapXl}"
-                IsEnabled="{Binding CanEditTime}"
-                Visibility="{Binding ScenarioPicker.HasScenarios, Converter={StaticResource BoolToVis}}">
+                IsEnabled="{Binding CanEditTime}">
         <Expander.Header>
           <TextBlock Style="{StaticResource PartHeading}" Text="{DynamicResource setup.section_scenario}" />
         </Expander.Header>
         <Expander.Tag>
           <Grid>
-            <!-- Which one was chosen, or how many there are to choose from - never both, and never
-                 nothing. -->
+            <!-- Which one was chosen, how many there are to choose from, or why there is no list yet -
+                 one at a time, and never nothing. -->
             <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                        TextTrimming="CharacterEllipsis"
                        Text="{Binding SelectedScenario.DisplayName}"
                        Visibility="{Binding HasSelectedScenario, Converter={StaticResource BoolToVis}}" />
             <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
-                       Visibility="{Binding HasNoSelectedScenario, Converter={StaticResource BoolToVis}}">
+                       Visibility="{Binding ScenarioPicker.ShowsCount, Converter={StaticResource BoolToVis}}">
               <Run Text="{DynamicResource setup.scenario_available}" /><Run Text=" " /><Run Text="{Binding ScenarioPicker.Available, Mode=OneWay}" />
             </TextBlock>
+            <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                       Text="{DynamicResource scenario.list_reading}"
+                       Visibility="{Binding ScenarioPicker.Status.IsReading, Converter={StaticResource BoolToVis}}" />
+            <TextBlock Style="{StaticResource PartCaption}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                       Text="{DynamicResource setup.scenario_unavailable}"
+                       Visibility="{Binding ScenarioPicker.Status.HasFailed, Converter={StaticResource BoolToVis}}" />
           </Grid>
         </Expander.Tag>
 
@@ -390,6 +398,10 @@
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        Text="{DynamicResource scenario.no_matches}"
                        Visibility="{Binding ScenarioPicker.HasNoMatches, Converter={StaticResource BoolToVis}}" />
+            <!-- The same idea for a list that is not there: reading, could not be read, empty - in the well,
+                 where the list would be (R4/18). The part the calculator shows in its list's place. -->
+            <controls:CatalogueStatusView DataContext="{Binding ScenarioPicker.Status}"
+                                          Margin="{StaticResource SpaceMd}" VerticalAlignment="Center" />
           </Grid>
 
           <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
@@ -402,6 +414,8 @@
                      Visibility="{Binding ScenarioPicker.ShowsParametricNote, Converter={StaticResource BoolToVis}}">
             <Run Text="{Binding ScenarioPicker.NeedingParameters, Mode=OneWay}" /><Run Text=" " /><Run Text="{DynamicResource setup.scenario_parametric}" />
           </TextBlock>
+          <!-- How many preset files the engine left out (R4/18, D2) - the same part as under the calculator's list. -->
+          <controls:CatalogueLeftOutNote DataContext="{Binding ScenarioPicker.Status}" Margin="{StaticResource StackGapSm}" />
         </StackPanel>
       </Expander>
 

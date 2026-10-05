@@ -1,4 +1,3 @@
-using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.App;
 using ChronoMock.App.Calc;
 
@@ -7,16 +6,27 @@ namespace ChronoMock.App.Tests;
 /// <summary>
 /// The substitution panel's scenario list (chrono-mock 7.1 pt 2): which presets it offers, which it says
 /// it cannot offer, and how a chosen scenario relates to the date field. Evaluating one spawns the engine,
-/// so that path is proven live rather than here - everything around it is pure and asserted.
+/// so that path is proven live rather than here - everything around it is pure and asserted. The list is
+/// the engine's answer for the shipped catalogue (<see cref="TestCatalogues.Shipped"/>), as it is in the app.
 /// </summary>
 public class ScenarioTests
 {
-    private static string PresetsDir() => Path.Combine(TestPaths.RepoRoot(), "presets");
+    private static ScenarioCatalogue Shipped()
+        => ScenarioCatalog.From(TestCatalogues.Shipped().Presets.Select(PresetInfo.From));
+
+    /// <summary>A panel over the shipped catalogue, read as the window reads it once it is shown.</summary>
+    private static async Task<SessionViewModel> Panel()
+    {
+        var vm = new SessionViewModel(
+            new InMemorySessionHistoryStore(), scenarios: TestCatalogues.Picker(TestCatalogues.Shipped()));
+        await vm.EnsureScenariosAsync();
+        return vm;
+    }
 
     [Fact]
     public void The_list_offers_substitution_presets_and_never_calculator_only_ones()
     {
-        var catalogue = ScenarioCatalog.Load(PresetsDir());
+        var catalogue = Shipped();
 
         // year-rollover is substitution-only: the panel MUST still offer it, which is the whole reason a
         // scenario is evaluated through unpacked steps rather than through `calc --preset` (that path
@@ -30,7 +40,7 @@ public class ScenarioTests
     [Fact]
     public void A_parametric_preset_is_counted_rather_than_silently_dropped()
     {
-        var catalogue = ScenarioCatalog.Load(PresetsDir());
+        var catalogue = Shipped();
 
         // trial-first-day-after applies to substitution but takes parameters, so it cannot be one click.
         Assert.DoesNotContain(catalogue.Ready, s => s.Id == "trial-first-day-after");
@@ -41,25 +51,30 @@ public class ScenarioTests
     [Fact]
     public void Scenarios_are_ordered_invariantly_so_the_list_is_the_same_on_every_machine()
     {
-        var names = ScenarioCatalog.Load(PresetsDir()).Ready.Select(s => s.DisplayName).ToList();
+        var names = Shipped().Ready.Select(s => s.DisplayName).ToList();
         Assert.Equal(names.OrderBy(n => n, StringComparer.InvariantCulture), names);
     }
 
     [Fact]
-    public void A_view_model_with_no_preset_directory_offers_nothing_and_reads_no_files()
+    public async Task A_view_model_with_no_catalogue_offers_nothing_and_says_the_list_is_empty()
     {
         var vm = new SessionViewModel();
+
+        // Nothing is read until the window asks - a view model built in a test starts nothing.
+        Assert.True(vm.ScenarioPicker.Status.IsReading);
+        await vm.EnsureScenariosAsync();
 
         Assert.Empty(vm.ScenarioPicker.Visible);
         Assert.False(vm.ScenarioPicker.HasScenarios);
         Assert.False(vm.ScenarioPicker.HasNeedingParameters);
+        Assert.True(vm.ScenarioPicker.Status.IsEmpty, "no scenarios is said, not hidden (R4/18)");
     }
 
     [Fact]
-    public void Editing_the_date_by_hand_drops_the_scenario_selection()
+    public async Task Editing_the_date_by_hand_drops_the_scenario_selection()
     {
         // Otherwise the panel would keep naming a scenario whose moment is no longer in the field.
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = await Panel();
         var scenario = vm.ScenarioPicker.Visible.First(s => s.Id == "year-rollover");
 
         vm.SelectedScenario = scenario;
@@ -73,39 +88,46 @@ public class ScenarioTests
     }
 
     /// <summary>
-    /// The folded catalogue's header shows the chosen scenario or the number on offer, and the two share
-    /// one cell - so the state has to say both halves out loud. A header that went blank would be the one
-    /// thing a folded section may not do.
+    /// The folded catalogue's header shows the chosen scenario, the number on offer, or why there is no list
+    /// yet - one at a time, in one cell - so the state has to say each half out loud. A header that went
+    /// blank, or showed two of them over each other, would be the one thing a folded section may not do.
     /// </summary>
     [Fact]
-    public void The_scenario_selection_says_both_halves_and_announces_both()
+    public async Task The_scenario_header_shows_the_choice_or_the_count_and_announces_both()
     {
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = new SessionViewModel(
+            new InMemorySessionHistoryStore(), scenarios: TestCatalogues.Picker(TestCatalogues.Shipped()));
         var announced = new List<string>();
-        vm.PropertyChanged += (_, e) => announced.Add(e.PropertyName ?? string.Empty);
+        vm.ScenarioPicker.PropertyChanged += (_, e) => announced.Add(e.PropertyName ?? string.Empty);
 
+        // Not read yet: neither the choice nor a count - the "reading" line has the cell.
         Assert.False(vm.HasSelectedScenario);
-        Assert.True(vm.HasNoSelectedScenario);
+        Assert.False(vm.ScenarioPicker.ShowsCount);
 
+        await vm.EnsureScenariosAsync();
+        Assert.True(vm.ScenarioPicker.ShowsCount);
+        Assert.Contains(nameof(ScenarioPicker.ShowsCount), announced);
+
+        announced.Clear();
         vm.SelectedScenario = vm.ScenarioPicker.Visible.First(s => s.Id == "year-rollover");
 
         Assert.True(vm.HasSelectedScenario);
-        Assert.False(vm.HasNoSelectedScenario);
-        Assert.Contains(nameof(SessionViewModel.HasNoSelectedScenario), announced);
+        Assert.False(vm.ScenarioPicker.ShowsCount);
+        Assert.Contains(nameof(ScenarioPicker.ShowsCount), announced);
 
         // And back, through the path that clears it rather than the setter.
         announced.Clear();
         vm.Moment.LoadCanonical("2030-01-01T00:00:00");
 
-        Assert.True(vm.HasNoSelectedScenario);
-        Assert.Contains(nameof(SessionViewModel.HasNoSelectedScenario), announced);
+        Assert.True(vm.ScenarioPicker.ShowsCount);
+        Assert.Contains(nameof(ScenarioPicker.ShowsCount), announced);
     }
 
     [Fact]
-    public void A_scenario_says_so_when_the_engine_is_not_available()
+    public async Task A_scenario_says_so_when_the_engine_is_not_available()
     {
         // No CalcClient injected: the panel reports it instead of leaving the old date and going quiet.
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = await Panel();
 
         vm.SelectedScenario = vm.ScenarioPicker.Visible.First();
 
@@ -114,9 +136,9 @@ public class ScenarioTests
     }
 
     [Fact]
-    public void Choosing_a_scenario_never_starts_a_session_nor_changes_the_time_mode()
+    public async Task Choosing_a_scenario_never_starts_a_session_nor_changes_the_time_mode()
     {
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = await Panel();
         var mode = vm.SelectedMode;
 
         vm.SelectedScenario = vm.ScenarioPicker.Visible.First();
@@ -126,9 +148,9 @@ public class ScenarioTests
     }
 
     [Fact]
-    public void Pressing_enter_in_the_filter_chooses_the_first_scenario_it_left_standing()
+    public async Task Pressing_enter_in_the_filter_chooses_the_first_scenario_it_left_standing()
     {
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = await Panel();
         var wholeCatalogueFirst = vm.ScenarioPicker.Visible[0];
 
         // Narrow so the first STANDING hit is not the first of the whole list, or the test could not tell
@@ -144,11 +166,11 @@ public class ScenarioTests
     }
 
     [Fact]
-    public void Choosing_the_first_hit_takes_the_same_path_a_click_does()
+    public async Task Choosing_the_first_hit_takes_the_same_path_a_click_does()
     {
         // It goes through SelectedScenario, so it fills the explanation line and starts nothing (rule 7) -
         // the keyboard and the mouse must not be two different ways of choosing.
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = await Panel();
         var first = vm.ScenarioPicker.Visible[0];
 
         vm.ChooseFirstScenario();
@@ -159,12 +181,12 @@ public class ScenarioTests
     }
 
     [Fact]
-    public void Pressing_enter_on_an_empty_result_leaves_a_chosen_scenario_standing()
+    public async Task Pressing_enter_on_an_empty_result_leaves_a_chosen_scenario_standing()
     {
         // The filter is deliberately allowed to leave a choice standing (ScenarioPicker), so Enter on a
         // list showing nothing must not undo it - a search box that silently changed what the target is
         // about to see would be the exact fault the picker's design avoids.
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), presetsDir: PresetsDir());
+        var vm = await Panel();
         vm.SelectedScenario = vm.ScenarioPicker.Visible.First(s => s.Id == "year-rollover");
         var chosen = vm.SelectedScenario;
 
@@ -179,7 +201,7 @@ public class ScenarioTests
     [Fact]
     public void A_scenario_is_computed_in_the_session_zone_and_not_through_the_preset_flag()
     {
-        var scenario = ScenarioCatalog.Load(PresetsDir()).Ready.First(s => s.Id == "year-rollover");
+        var scenario = Shipped().Ready.First(s => s.Id == "year-rollover");
 
         var args = ScenarioMoment.BuildArgs(scenario, zoneBiasMinutes: 300); // UTC-05:00
 
@@ -207,17 +229,16 @@ public class ScenarioTests
     {
         // "The start of the month in +05:45": the zone step decides where the snap counts. The engine
         // answers in the last zone named, so without a step back the session got the +05:45 wall clock
-        // read in its own zone - 5 h 45 min away from the preset's instant (R4-S12).
-        using var moment = System.Text.Json.JsonDocument.Parse(
-            """{ "base": "today", "steps": [ { "zone": "+05:45" }, { "snap": "start-of-month" } ] }""");
-        var info = new PresetInfo(
-            "zone-probe",
-            new Dictionary<string, string>(),
-            new Dictionary<string, string>(),
-            "substitution",
-            Market: null,
-            [],
-            moment.RootElement.Clone());
+        // read in its own zone - 5 h 45 min away from the preset's instant (R4-S12). No shipped preset has
+        // a zone step, so this one is written as the engine writes it.
+        var catalogue = TestCatalogues.With(
+            """
+            { "id": "zone-probe", "applies_to": "substitution", "market": null, "calendar": null,
+              "name": { "en": "zone-probe" }, "explains": { "en": "zone-probe" }, "parameters": [],
+              "moment": { "base": { "kind": "today" },
+                          "steps": [ { "kind": "zone", "offset": "+05:45" }, { "kind": "snap", "target": "som" } ] } }
+            """);
+        var info = PresetInfo.From(catalogue.Presets[0]);
         var scenario = new ScenarioItem("zone-probe", "zone-probe", "zone-probe", info);
 
         var args = ScenarioMoment.BuildArgs(scenario, zoneBiasMinutes: 300).ToList(); // UTC-05:00

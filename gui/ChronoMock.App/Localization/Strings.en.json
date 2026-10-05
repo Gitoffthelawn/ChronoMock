@@ -38,6 +38,13 @@
   "scenario.filter_placeholder": "Search scenarios",
   "scenario.no_matches": "No scenario matches that. Clear the box to see them all.",
   "scenario.clear_filter": "Clear search",
+  "scenario.list_reading": "Reading the scenarios…",
+  "scenario.list_failed": "The scenario list could not be read.",
+  "scenario.list_empty": "There are no scenarios to choose from.",
+  "scenario.left_out_before": "Preset files left out:",
+  "scenario.left_out_after": "- run chrono presets to see why.",
+  "presets.err.folder_missing": "The preset folder is missing - the installation may be incomplete. Extract the package again.",
+  "presets.err.folder_unreadable": "The preset folder could not be read - check that Windows lets this account open it.",
 
   // The rebuilt setup screen: one thing always visible and the rest folded away behind a header that keeps
   // saying what is set inside it. The chips are deliberately short - they sit in a section header beside a
@@ -153,6 +160,7 @@
   // Fits after a number, like the shipped one. It names the button to press rather than quoting it in
   // passing, because a reader who has never opened the calculator cannot tell a quotation from a label.
   "setup.scenario_parametric": "more need a value you choose. Build one in the calculator, then press “Use this date” there.",
+  "setup.scenario_unavailable": "the list could not be read",
 
   // The shipped tooltip says the ready-made moments are in the list ABOVE, which stopped being true when
   // the field moved to the top of its section. Same text, one word honest again, and shorter.
@@ -702,6 +710,9 @@
   "calc.reading.iso": "ISO 8601 (unambiguous)",
   "calc.reading.us_month_day": "US reading (MM/DD/YYYY)",
   "calc.reading.pl_day_month": "PL reading (DD/MM/YYYY)",
+  "calc.reading.epoch_seconds": "Unix time in seconds",
+  "calc.reading.epoch_millis": "Unix time in milliseconds",
+  "calc.analyze_zone": "A number is a moment, not a date - shown in {0}, the time zone chosen above.",
 
   // Calculator builder (G3b): base kinds, shift units, calendars, and the significance markers.
   "calc.base.today": "Today",

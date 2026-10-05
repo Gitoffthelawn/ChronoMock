@@ -1,0 +1,12 @@
+<UserControl x:Class="ChronoMock.App.Controls.CatalogueLeftOutNote"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Visibility="{Binding HasLeftOut, Converter={StaticResource BoolToVis}}">
+  <!-- Under a scenario list that was read: how many preset files the engine left out of the catalogue,
+       with each file and the engine's reason on the tooltip (R4/18, owner's decision D2). A tester who
+       wrote a preset and does not see it learns that it was read and refused, and where to ask why.
+       Bound to a CatalogueStatus, under both lists. The PART collapses when nothing was left out, not
+       the text inside it: a part left standing kept the margin the views give it under every list, and a
+       screen reader still found it, named after the hidden text ("Preset files left out: 0"). -->
+  <TextBlock Style="{StaticResource PartCaption}" ToolTip="{Binding LeftOutFiles}"><Run Text="{DynamicResource scenario.left_out_before}" /><Run Text=" " /><Run Text="{Binding LeftOut, Mode=OneWay}" /><Run Text=" " /><Run Text="{DynamicResource scenario.left_out_after}" /></TextBlock>
+</UserControl>

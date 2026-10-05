@@ -39,6 +39,13 @@
   "scenario.filter_placeholder": "Szukaj scenariuszy",
   "scenario.no_matches": "Żaden scenariusz nie pasuje. Wyczyść pole, żeby zobaczyć wszystkie.",
   "scenario.clear_filter": "Wyczyść wyszukiwanie",
+  "scenario.list_reading": "Wczytywanie scenariuszy…",
+  "scenario.list_failed": "Nie udało się wczytać listy scenariuszy.",
+  "scenario.list_empty": "Nie ma scenariuszy do wyboru.",
+  "scenario.left_out_before": "Pominięte pliki presetów:",
+  "scenario.left_out_after": "- powód podaje polecenie chrono presets.",
+  "presets.err.folder_missing": "Brakuje folderu presetów - instalacja może być niekompletna. Rozpakuj paczkę ponownie.",
+  "presets.err.folder_unreadable": "Nie udało się odczytać folderu presetów - sprawdź, czy Windows pozwala temu kontu go otworzyć.",
 
   // The rebuilt setup screen: one thing always visible and the rest folded away behind a header that keeps
   // saying what is set inside it. The chips are deliberately short - they sit in a section header beside a
@@ -153,6 +160,7 @@
   // Fits after a number, like the shipped one. It names the button to press rather than quoting it in
   // passing, because a reader who has never opened the calculator cannot tell a quotation from a label.
   "setup.scenario_parametric": "kolejnych wymaga wartości, którą wybierasz. Zbuduj taki w kalkulatorze, potem naciśnij tam „Użyj tej daty”.",
+  "setup.scenario_unavailable": "nie udało się wczytać listy",
 
   // The shipped tooltip says the ready-made moments are in the list ABOVE, which stopped being true when
   // the field moved to the top of its section. Same text, one word honest again, and shorter.
@@ -671,6 +679,9 @@
   "calc.reading.iso": "ISO 8601 (jednoznaczne)",
   "calc.reading.us_month_day": "Odczyt US (MM/DD/RRRR)",
   "calc.reading.pl_day_month": "Odczyt PL (DD/MM/RRRR)",
+  "calc.reading.epoch_seconds": "Czas uniksowy w sekundach",
+  "calc.reading.epoch_millis": "Czas uniksowy w milisekundach",
+  "calc.analyze_zone": "Liczba to chwila, nie data - pokazana w strefie {0}, wybranej powyżej.",
 
   // Calculator builder (G3b): base kinds, shift units, calendars, and the significance markers.
   "calc.base.today": "Dziś",

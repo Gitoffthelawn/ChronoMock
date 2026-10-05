@@ -316,16 +316,12 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "the window launches the core process, exactly as the command line does",
     ),
     (
-        "gui/ChronoMock.Protocol/CalcClient.cs",
+        "gui/ChronoMock.Protocol/OneShotEngine.cs",
         "spawn",
-        "the same launch for a one-shot calculator query",
-    ),
-    (
-        "gui/ChronoMock.Protocol/LicenseClient.cs",
-        "spawn",
-        "the About window asking the core what is inside this build, by running `chrono license \
-         --components`. The same launch the calculator makes, for a register the core carries compiled \
-         in - a second copy of that list in C# would be the thing that drifts",
+        "the same launch for a one-shot question to the core: a calculation, the preset catalogue \
+         (`chrono presets`) and the About window's component register (`chrono license --components`). \
+         One place since R4/18 - the calculator and the licence query each wrote it out, and the copies \
+         had already parted once (R4-N50)",
     ),
     (
         "gui/ChronoMock.App/ExternalLinks.cs",

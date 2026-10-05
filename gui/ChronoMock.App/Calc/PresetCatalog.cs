@@ -1,25 +1,19 @@
-using System.IO;
-using System.Text.Json;
 using ChronoMock.App.Localization;
+using ChronoMock.Protocol;
 
 namespace ChronoMock.App.Calc;
 
-/// <summary>One preset parameter (docs/04 4.2): its id, type (<c>date</c> or <c>duration</c>), the file
-/// default (a duration's amount and unit), and the default hint (e.g. <c>target_file_creation</c>, which is
-/// resolvable only in substitution where a target exists - never in the calculator).</summary>
-public sealed record PresetParameter(
-    string Id,
-    string Type,
-    long? DefaultAmount, // i64, matching the CLI/core contract (docs/04 4.2) - not Int32 (RELEASE-011)
-    string? DefaultUnit,
-    string? DefaultHint,
-    string? DefaultVariant = null); // a variant parameter's default label (day_before/on_day/day_after)
-
 /// <summary>
-/// One preset from the shared catalogue (docs/04 4.2, schema <c>chronomock.preset/1</c>), as the calculator
-/// needs it: identity, the localized framing, which module it applies to, its parameters, and its moment
-/// (base + steps). The moment stays as raw JSON and is interpreted when the preset is unpacked into the
-/// builder (slice G4-1b). Name and explains are DATA locales ({en, pl}), not interface keys.
+/// One preset from the shared catalogue (docs/04 4.2), as the engine hands it to the window
+/// (<c>chrono presets</c>, <see cref="PresetCatalogue"/>): identity, the localized framing, which module it
+/// applies to, the calendar its market implies, its parameters and its moment - all in canonical form. Name
+/// and explains are DATA locales ({en, pl, ...}), not interface keys.
+/// <para>
+/// 🔴 The window does not read preset files. It did, with its own copy of the step grammar, and the copy
+/// drifted from the engine's: a default of one <c>month</c> became one day, an unknown variant became
+/// <c>day_before</c>, a step the engine refuses was computed (R4-S22). The engine is the one reader now, so
+/// a preset is here exactly when <c>calc --preset</c> and <c>run --preset</c> accept it.
+/// </para>
 /// </summary>
 public sealed record PresetInfo(
     string Id,
@@ -27,9 +21,19 @@ public sealed record PresetInfo(
     IReadOnlyDictionary<string, string> Explains,
     string AppliesTo,
     string? Market,
-    IReadOnlyList<PresetParameter> Parameters,
-    JsonElement Moment)
+    string? Calendar,
+    IReadOnlyList<CatalogueParameter> Parameters,
+    CatalogueMoment Moment)
 {
+    /// <summary>The preset as the catalogue gives it.</summary>
+    public static PresetInfo From(CataloguePreset preset)
+    {
+        ArgumentNullException.ThrowIfNull(preset);
+        return new PresetInfo(
+            preset.Id, preset.Name, preset.Explains, preset.AppliesTo, preset.Market, preset.Calendar,
+            preset.Parameters, preset.Moment);
+    }
+
     /// <summary>Whether this preset is offered by the calculator module (<c>calculator</c> or <c>both</c>).</summary>
     public bool ForCalculator => AppliesTo is "calculator" or "both";
 
@@ -37,17 +41,8 @@ public sealed record PresetInfo(
     /// mirroring the gate <c>chrono run --preset</c> applies (docs/04 4.2).</summary>
     public bool ForSubstitution => AppliesTo is "substitution" or "both";
 
-    /// <summary>Whether this preset takes parameters (its moment refers to them by id).</summary>
+    /// <summary>Whether this preset takes parameters.</summary>
     public bool IsParametric => Parameters.Count > 0;
-
-    /// <summary>The calendar this preset's market implies, or null for a market-neutral preset. Shared by
-    /// the calculator and the substitution panel so one preset never resolves to two calendars.</summary>
-    public static string? CalendarIdForMarket(string? market) => market switch
-    {
-        "us" => "us-banking",
-        "pl" => "pl",
-        _ => null,
-    };
 
     /// <summary>The name in the given culture, falling back to the default culture (English).</summary>
     public string LocalizedName(string culture) => Localized(Name, culture);
@@ -62,178 +57,39 @@ public sealed record PresetInfo(
 }
 
 /// <summary>
-/// Reads the shared preset catalogue from disk. A preset is a named moment expression (docs/04 4.2) - the
-/// calculator is a consumer of that contract, mirroring only what the list and the builder need. A file
-/// that fails to parse is skipped rather than taking down the whole list (rule 6 - an honest partial list
-/// beats a crash), and a missing directory yields an empty catalogue.
+/// The preset catalogue for one window, read once through the engine and shared by the calculator and the
+/// substitution panel - two readers of the same list used to read the folder twice, each on its own terms.
+/// <para>
+/// Asked for, never read in a constructor: reading spawns the engine, and a window built in a test must start
+/// nothing. A read that failed is not kept, so the next screen that asks tries again - an engine quarantined
+/// for a moment does not leave the lists empty for the life of the window. A read in flight is shared.
+/// </para>
 /// </summary>
-public static class PresetCatalog
+public sealed class PresetLibrary(IPresetSource? source)
 {
-    /// <summary>The only preset schema this build reads, mirroring the engine's <c>parse_preset</c> check
-    /// exactly (R2-S8). The keys of that schema are a public contract (untouchable rule 17), so a file
-    /// written to a later version has to be refused HERE - listing it and letting it fail inside the engine
-    /// would answer a schema question with a date error.</summary>
-    internal const string SupportedSchema = "chronomock.preset/1";
+    private readonly CancellationTokenSource _life = new();
+    private Task<PresetCatalogue>? _read;
 
-    public static IReadOnlyList<PresetInfo> Load(string presetsDir)
+    /// <summary>
+    /// The catalogue, read on the first call and shared after that. With no source (a test, a build with no
+    /// catalogue at all) it is the empty catalogue. Throws what <see cref="IPresetSource.ReadAsync"/> throws.
+    /// </summary>
+    public Task<PresetCatalogue> ReadAsync()
     {
-        if (!Directory.Exists(presetsDir))
+        if (source is null)
         {
-            return [];
+            return Task.FromResult(new PresetCatalogue(PresetCatalogue.SupportedSchema, [], []));
         }
 
-        var presets = new List<PresetInfo>();
-        try
+        if (_read is null || _read.IsFaulted || _read.IsCanceled)
         {
-            foreach (var file in Directory.EnumerateFiles(presetsDir, "*.json"))
-            {
-                if (TryParse(file, out var info))
-                {
-                    presets.Add(info);
-                }
-            }
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // The directory became unreadable mid-enumeration (permissions, a race with a delete) - return
-            // what parsed so far rather than crash the calculator screen on reveal (L-15, rule 6). Per-file
-            // parse errors are already swallowed inside TryParse.
+            _read = source.ReadAsync(_life.Token);
         }
 
-        return presets;
+        return _read;
     }
 
-    private static bool TryParse(string file, out PresetInfo info)
-    {
-        info = null!;
-        try
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(file));
-            var root = doc.RootElement;
-
-            // The schema gates the file before anything else is read, like the engine does.
-            var schema = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schema", out var sc)
-                         && sc.ValueKind == JsonValueKind.String
-                ? sc.GetString()
-                : null;
-            if (schema != SupportedSchema)
-            {
-                return false;
-            }
-
-            var id = root.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-            if (string.IsNullOrEmpty(id))
-            {
-                return false;
-            }
-
-            // A file is found by its name and the engine refuses one whose id says otherwise (R4-N37, the
-            // owner's decision R4-D14), so the list leaves it out too - both surfaces show one catalogue.
-            // Without case, because that is how Windows matches the name, and how the engine compares.
-            if (!string.Equals(id, Path.GetFileNameWithoutExtension(file), StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            var appliesTo = root.TryGetProperty("applies_to", out var a) ? a.GetString() ?? "both" : "both";
-            string? market = root.TryGetProperty("market", out var m) && m.ValueKind == JsonValueKind.String
-                ? m.GetString()
-                : null;
-
-            // Clone the moment so it outlives the disposed JsonDocument (used by the unpack in G4-1b).
-            var moment = root.TryGetProperty("moment", out var mo) ? mo.Clone() : default;
-            var parameters = ReadParameters(root);
-
-            // A preset that says two things at once is refused by the engine (R4-N33): two parameters with
-            // one id, or a moment naming the same thing twice. Left out here for the same reason.
-            if (parameters.GroupBy(p => p.Id, StringComparer.Ordinal).Any(g => g.Count() > 1)
-                || PresetUnpack.HasContradiction(moment, parameters))
-            {
-                return false;
-            }
-
-            info = new PresetInfo(id, ReadLocalized(root, "name"), ReadLocalized(root, "explains"),
-                appliesTo, market, parameters, moment);
-            return true;
-        }
-        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException
-                                      or InvalidOperationException or FormatException or OverflowException)
-        {
-            // Skip one malformed file rather than take down the whole list (rule 6). FormatException /
-            // OverflowException are defensive: a numeric accessor on an unexpected node could throw them, so
-            // a hostile preset in a shared catalogue cannot crash the calculator's preset list (RELEASE-011).
-            // A file this user may not read is skipped the same way: unnamed here, its exception reached the
-            // loop's own catch in Load and ended the enumeration, so every file after it was gone (R4-N45).
-            return false;
-        }
-    }
-
-    private static IReadOnlyList<PresetParameter> ReadParameters(JsonElement root)
-    {
-        var list = new List<PresetParameter>();
-        if (root.TryGetProperty("parameters", out var arr) && arr.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var p in arr.EnumerateArray())
-            {
-                var id = p.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
-                var type = p.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
-                if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(type))
-                {
-                    continue;
-                }
-
-                long? defaultAmount = null;
-                string? defaultUnit = null;
-                string? defaultVariant = null;
-                if (p.TryGetProperty("default", out var def))
-                {
-                    if (def.ValueKind == JsonValueKind.Object)
-                    {
-                        // Read as i64 to match the contract (the CLI and core read amount as i64) and to never
-                        // throw: TryGetInt64 returns false for a fractional or out-of-range number, leaving the
-                        // default unset instead of crashing the whole catalogue on one bad file (RELEASE-011).
-                        if (def.TryGetProperty("amount", out var amount) && amount.ValueKind == JsonValueKind.Number
-                            && amount.TryGetInt64(out var amt))
-                        {
-                            defaultAmount = amt;
-                        }
-
-                        if (def.TryGetProperty("unit", out var unit) && unit.ValueKind == JsonValueKind.String)
-                        {
-                            defaultUnit = unit.GetString();
-                        }
-                    }
-                    else if (def.ValueKind == JsonValueKind.String)
-                    {
-                        // A variant parameter's default is its label (day_before/on_day/day_after), not an object.
-                        defaultVariant = def.GetString();
-                    }
-                }
-
-                var hint = p.TryGetProperty("default_hint", out var dh) && dh.ValueKind == JsonValueKind.String
-                    ? dh.GetString()
-                    : null;
-                list.Add(new PresetParameter(id, type, defaultAmount, defaultUnit, hint, defaultVariant));
-            }
-        }
-
-        return list;
-    }
-
-    private static IReadOnlyDictionary<string, string> ReadLocalized(JsonElement root, string property)
-    {
-        var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (root.TryGetProperty(property, out var el) && el.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var member in el.EnumerateObject())
-            {
-                if (member.Value.ValueKind == JsonValueKind.String)
-                {
-                    map[member.Name] = member.Value.GetString()!;
-                }
-            }
-        }
-
-        return map;
-    }
+    /// <summary>Stop a read still in flight because the window is closing - the engine behind it is stopped
+    /// rather than left to finish after the window has gone (the pattern of R4/13).</summary>
+    public void Abandon() => _life.Cancel();
 }

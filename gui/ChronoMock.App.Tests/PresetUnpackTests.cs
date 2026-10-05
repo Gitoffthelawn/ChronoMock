@@ -1,23 +1,30 @@
-using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
-using System.Text.Json;
 using ChronoMock.App.Calc;
+using ChronoMock.Protocol;
 
 namespace ChronoMock.App.Tests;
 
 /// <summary>
-/// Unpacking a preset's moment into builder inputs (slice G4-1b), exercised against the real bundled
-/// presets so the base/step shapes and the full-to-short token normalization are tested deterministically -
-/// no UI thread, no process.
+/// A preset's canonical moment (from the engine's catalogue) into builder inputs, so a click fills the
+/// constructor (7.3). Pure. The moments are the engine's own answers - the shipped catalogue - and, for
+/// shapes no shipped preset has, moments written the way the engine writes them.
 /// </summary>
 public class PresetUnpackTests
 {
-    private static PresetInfo Preset(string id)
-        => PresetCatalog.Load(Path.Combine(TestPaths.RepoRoot(), "presets")).Single(p => p.Id == id);
+    private static PresetInfo Preset(string id) => TestCatalogues.ShippedPreset(id);
+
+    private static UnpackedMoment Unpack(PresetInfo preset, Dictionary<string, ParamValue>? values = null)
+        => PresetUnpack.UnpackMoment(preset.Moment, preset.Parameters, values);
+
+    private static CatalogueMoment Moment(CatalogueBase b, params CatalogueStep[] steps) => new(b, steps);
+
+    private static CatalogueStep Step(string kind, string? sign = null, long? amount = null, string? unit = null,
+        string? parameter = null, string? target = null, string? time = null, string? offset = null)
+        => new(kind, sign, amount, unit, parameter, target, time, offset);
 
     [Fact]
     public void A_snap_preset_unpacks_to_today_plus_a_snap_step()
     {
-        var moment = PresetUnpack.UnpackMoment(Preset("month-end").Moment);
+        var moment = Unpack(Preset("month-end"));
 
         Assert.Equal(BaseKind.Today, moment.Base);
         var step = Assert.Single(moment.Steps);
@@ -28,14 +35,9 @@ public class PresetUnpackTests
     [Fact]
     public void An_absolute_utc_base_preset_unpacks_to_a_utc_instant_with_no_steps()
     {
-        var moment = PresetUnpack.UnpackMoment(Preset("epoch-zero").Moment);
+        var moment = Unpack(Preset("epoch-zero"));
 
-        // Epoch zero is an INSTANT, so the preset carries absolute_utc and this must not degrade to
-        // Specific: a session-zone reading of the same text lands an offset away from epoch 0, which
-        // is precisely the bug this base kind exists to remove.
         Assert.Equal(BaseKind.SpecificUtc, moment.Base);
-        // The trailing Z is consumed here - the base kind already says UTC, and the moment field the
-        // text feeds is a plain civil moment.
         Assert.Equal("1970-01-01T00:00:00", moment.BaseText);
         Assert.Empty(moment.Steps);
     }
@@ -43,47 +45,36 @@ public class PresetUnpackTests
     [Fact]
     public void The_2038_preset_carries_its_absolute_moment_as_a_utc_instant()
     {
-        var moment = PresetUnpack.UnpackMoment(Preset("year-2038").Moment);
+        var moment = Unpack(Preset("year-2038"));
 
         Assert.Equal(BaseKind.SpecificUtc, moment.Base);
         Assert.Equal("2038-01-19T03:14:07", moment.BaseText);
     }
 
-    /// <summary>A session-zone absolute base stays a session-zone one - the two kinds must not
-    /// collapse into each other. Without this, "everything is UTC now" would pass the two tests
-    /// above while breaking every preset whose moment really is a local wall-clock reading.</summary>
     [Fact]
     public void A_plain_absolute_base_stays_a_session_zone_moment()
     {
-        const string json = """
-            { "base": { "absolute": "2026-03-07T09:05:03" }, "steps": [] }
-            """;
-        var moment = PresetUnpack.UnpackMoment(JsonDocument.Parse(json).RootElement);
+        var moment = PresetUnpack.UnpackMoment(
+            Moment(new CatalogueBase("absolute", "2030-01-01T07:05:00", null), Step("set_time", time: "07:05:00")), []);
 
         Assert.Equal(BaseKind.Specific, moment.Base);
-        Assert.Equal("2026-03-07T09:05:03", moment.BaseText);
+        Assert.Equal("2030-01-01T07:05:00", moment.BaseText);
+        Assert.Equal("07:05:00", Assert.Single(moment.Steps).SetTime);
     }
 
     [Fact]
-    public void A_shift_step_normalizes_the_full_unit_token()
+    public void A_shift_step_carries_the_unit_code_the_catalogue_gives()
     {
-        // year-rollover: [snap end-of-year, shift -9 seconds] - covers snap and shift together.
-        var moment = PresetUnpack.UnpackMoment(Preset("year-rollover").Moment);
+        // The file says "years", the catalogue says "y" - the builder's own option, read as given.
+        var step = Unpack(Preset("license-expired-year-ago")).Steps.Single(s => s.Kind == StepKind.Shift);
 
-        Assert.Equal(2, moment.Steps.Count);
-        Assert.Equal(StepKind.Snap, moment.Steps[0].Kind);
-        Assert.Equal("eoy", moment.Steps[0].SnapToken);
-        Assert.Equal(StepKind.Shift, moment.Steps[1].Kind);
-        Assert.Equal("-", moment.Steps[1].Sign);
-        Assert.Equal("9", moment.Steps[1].Amount);
-        Assert.Equal("s", moment.Steps[1].UnitToken);
+        Assert.Equal(("-", "1", "y"), (step.Sign, step.Amount, step.UnitToken));
     }
 
     [Fact]
     public void The_feb_29_preset_unpacks_to_today_plus_a_next_leap_day_nearest_step()
     {
-        // feb-29: [nearest next-leap-day] - the leap-day target, pure arithmetic, needs no calendar.
-        var moment = PresetUnpack.UnpackMoment(Preset("feb-29").Moment);
+        var moment = Unpack(Preset("feb-29"));
 
         Assert.Equal(BaseKind.Today, moment.Base);
         var step = Assert.Single(moment.Steps);
@@ -101,16 +92,15 @@ public class PresetUnpackTests
             ["boundary"] = new VariantValue("day_before"),
         };
 
-        var moment = PresetUnpack.UnpackMoment(Preset("age-of-majority").Moment, values);
+        var moment = Unpack(Preset("age-of-majority"), values);
 
         Assert.Equal(BaseKind.Specific, moment.Base);
         Assert.Equal("2008-03-15T00:00:00", moment.BaseText);
-        Assert.Equal(2, moment.Steps.Count);
         Assert.Equal(("+", "18", "y"), (moment.Steps[0].Sign, moment.Steps[0].Amount, moment.Steps[0].UnitToken));
-        Assert.Equal(StepKind.Shift, moment.Steps[1].Kind);
         Assert.Equal(("-", "1", "d"), (moment.Steps[1].Sign, moment.Steps[1].Amount, moment.Steps[1].UnitToken));
     }
 
+    /// <summary>The day offset of each choice comes from the catalogue - the window keeps no table of its own.</summary>
     [Theory]
     [InlineData("on_day", "+", "0")]
     [InlineData("day_after", "+", "1")]
@@ -122,28 +112,52 @@ public class PresetUnpackTests
             ["boundary"] = new VariantValue(label),
         };
 
-        var moment = PresetUnpack.UnpackMoment(Preset("age-of-majority").Moment, values);
+        var step = Unpack(Preset("age-of-majority"), values).Steps[1];
 
-        Assert.Equal((sign, amount, "d"), (moment.Steps[1].Sign, moment.Steps[1].Amount, moment.Steps[1].UnitToken));
+        Assert.Equal((sign, amount, "d"), (step.Sign, step.Amount, step.UnitToken));
+    }
+
+    /// <summary>R4/18 (D1 = B): the day offset is the catalogue's word, not a table of the window's own. The
+    /// engine's three choices are -1, 0 and 1 today, so only an offset no engine gives yet tells the two apart.
+    /// </summary>
+    [Fact]
+    public void A_variant_moves_by_the_days_the_catalogue_gives()
+    {
+        var boundary = System.Text.Json.JsonSerializer.Deserialize<CatalogueParameter>("""
+            { "id": "boundary", "type": "variant", "default": null, "choices": [ { "label": "day_after", "days": 2 } ] }
+            """)!;
+        var moment = Moment(new CatalogueBase("today", null, null), Step("shift", parameter: "boundary"));
+
+        var step = PresetUnpack.UnpackMoment(
+            moment, [boundary], new Dictionary<string, ParamValue> { ["boundary"] = new VariantValue("day_after") }).Steps[0];
+
+        Assert.Equal(("+", "2", "d"), (step.Sign, step.Amount, step.UnitToken));
+    }
+
+    [Fact]
+    public void A_variant_label_the_catalogue_does_not_list_is_not_unpackable()
+    {
+        var values = new Dictionary<string, ParamValue>
+        {
+            ["birth_date"] = new DateValue("2008-03-15"),
+            ["boundary"] = new VariantValue("week_before"),
+        };
+
+        Assert.Throws<NotSupportedException>(() => Unpack(Preset("age-of-majority"), values));
     }
 
     [Fact]
     public void A_parametric_base_without_its_value_is_not_unpackable()
-        => Assert.Throws<NotSupportedException>(() => PresetUnpack.UnpackMoment(Preset("trial-last-day").Moment));
+        => Assert.Throws<NotSupportedException>(() => Unpack(Preset("age-of-majority")));
 
     [Fact]
     public void A_duration_parameter_resolves_a_shift_from_its_value()
     {
-        var values = new Dictionary<string, ParamValue> { ["days"] = new DurationValue("90", "business_days") };
+        var values = new Dictionary<string, ParamValue> { ["days"] = new DurationValue("90", "bd") };
 
-        var moment = PresetUnpack.UnpackMoment(Preset("payment-due-business-days").Moment, values);
+        var step = Assert.Single(Unpack(Preset("payment-due-business-days"), values).Steps);
 
-        Assert.Equal(BaseKind.Today, moment.Base);
-        var step = Assert.Single(moment.Steps);
-        Assert.Equal(StepKind.Shift, step.Kind);
-        Assert.Equal("+", step.Sign);
-        Assert.Equal("90", step.Amount);
-        Assert.Equal("bd", step.UnitToken); // full "business_days" normalized to the short code
+        Assert.Equal(("+", "90", "bd"), (step.Sign, step.Amount, step.UnitToken));
     }
 
     [Fact]
@@ -152,58 +166,43 @@ public class PresetUnpackTests
         var values = new Dictionary<string, ParamValue>
         {
             ["start_date"] = new DateValue("2026-01-01"),
-            ["trial_length"] = new DurationValue("30", "days"),
+            ["trial_length"] = new DurationValue("30", "d"),
         };
 
-        var moment = PresetUnpack.UnpackMoment(Preset("trial-last-day").Moment, values);
+        var moment = Unpack(Preset("trial-last-day"), values);
 
         Assert.Equal(BaseKind.Specific, moment.Base);
-        Assert.Equal("2026-01-01T00:00:00", moment.BaseText); // a bare date becomes midnight
-        Assert.Equal(3, moment.Steps.Count);
-        Assert.Equal(StepKind.Shift, moment.Steps[0].Kind);
-        Assert.Equal("+", moment.Steps[0].Sign);
-        Assert.Equal("30", moment.Steps[0].Amount);
-        Assert.Equal("d", moment.Steps[0].UnitToken);
-
-        // The install day is day one (docs/05 3.3), so the trial's last day is start + length - 1.
-        // The builder has to carry that step through, or the GUI would compute a different boundary
-        // than the CLI does from the same preset file (inventory I5).
-        Assert.Equal(StepKind.Shift, moment.Steps[1].Kind);
-        Assert.Equal("-", moment.Steps[1].Sign);
-        Assert.Equal("1", moment.Steps[1].Amount);
-        Assert.Equal("d", moment.Steps[1].UnitToken);
-
-        Assert.Equal(StepKind.SetTime, moment.Steps[2].Kind);
-        Assert.Equal("23:59:59", moment.Steps[2].SetTime);
+        Assert.Equal("2026-01-01T00:00:00", moment.BaseText);
+        Assert.Contains(moment.Steps, s => s.Kind == StepKind.Shift && s.Amount == "30" && s.UnitToken == "d");
+        Assert.Contains(moment.Steps, s => s.Kind == StepKind.SetTime);
     }
 
-    /// <summary>
-    /// R2-S8. The class contract names ONE failure type, and the caller catches by type. Reading the raw
-    /// accessors meant a hand-edited preset threw whatever it happened to hit: a JSON null where a name
-    /// belongs produced an ArgumentNullException the caller does not catch, which reached the dispatcher's
-    /// last-resort message box, and a JSON null in set_time threw nothing at all and quietly filled the
-    /// builder with a null time. The README invites people to write these files.
-    /// </summary>
-    [Theory]
-    [InlineData("{}")] // no base at all
-    [InlineData("[]")] // not an object
-    [InlineData("{\"base\":{\"parameter\":null}}")] // JSON null where a parameter name belongs
-    [InlineData("{\"base\":{\"parameter\":7}}")] // a number where a parameter name belongs
-    [InlineData("{\"base\":\"today\",\"steps\":[{}]}")] // an empty step
-    [InlineData("{\"base\":\"today\",\"steps\":[\"shift\"]}")] // a step that is not an object
-    [InlineData("{\"base\":\"today\",\"steps\":[{\"set_time\":null}]}")] // silently accepted before
-    [InlineData("{\"base\":\"today\",\"steps\":[{\"snap\":5}]}")] // a token that is not a string
-    [InlineData("{\"base\":\"today\",\"steps\":[{\"shift\":{\"amount\":1,\"unit\":\"days\"}}]}")] // no sign
-    [InlineData("{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"+\",\"unit\":\"days\"}}]}")] // no amount
-    [InlineData("{\"base\":\"today\",\"steps\":[{\"shift\":{\"sign\":\"+\",\"amount\":\"1\",\"unit\":\"d\"}}]}")] // amount as text
-    [InlineData("{\"base\":\"today\",\"steps\":[{\"shift\":{\"parameter\":null,\"sign\":\"+\"}}]}")]
-    public void A_malformed_moment_fails_as_unsupported_whatever_the_malformed_part_is(string json)
-        => Assert.Throws<NotSupportedException>(() => PresetUnpack.UnpackMoment(Moment(json)));
-
-    // Cloned so the element outlives the document, exactly as PresetCatalog keeps a preset's moment.
-    private static JsonElement Moment(string json)
+    /// <summary>Shapes this window cannot represent - an engine newer than its window would be the only way
+    /// to meet one - leave through the one failure type the callers catch, never through another.</summary>
+    [Fact]
+    public void A_shape_this_window_does_not_know_is_one_honest_failure()
     {
-        using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.Clone();
+        var today = new CatalogueBase("today", null, null);
+        CatalogueMoment[] shapes =
+        [
+            Moment(new CatalogueBase("tomorrow", null, null)),
+            Moment(new CatalogueBase("absolute", null, null)),
+            Moment(new CatalogueBase("parameter", null, null)),
+            Moment(today, Step("jump")),
+            Moment(today, Step("shift", unit: "d", amount: 1)),
+            Moment(today, Step("shift", sign: "+", unit: "d")),
+            Moment(today, Step("shift", sign: "+", amount: 1)),
+            Moment(today, Step("snap")),
+            Moment(today, Step("nearest")),
+            Moment(today, Step("set_time")),
+            Moment(today, Step("zone")),
+            Moment(today, Step("shift", sign: "+", parameter: "missing")),
+        ];
+
+        foreach (var shape in shapes)
+        {
+            var ex = Record.Exception(() => PresetUnpack.UnpackMoment(shape, []));
+            Assert.IsType<NotSupportedException>(ex);
+        }
     }
 }

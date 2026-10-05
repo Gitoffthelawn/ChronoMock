@@ -145,15 +145,15 @@ public class CalculatorAnswerTests
     [Fact]
     public async Task A_preset_waiting_for_a_parameter_shows_no_result_and_a_pending_edit_does_not_land_under_it()
     {
-        var presets = Path.Combine(TestPaths.RepoRoot(), "presets");
+        var presets = TestCatalogues.Library(TestCatalogues.Shipped());
         var engine = new FakeCalcEngine(NewYearShifted);
         var vm = await CalculatorWithOneStepAsync(engine, presets);
 
         vm.Steps[0].Amount = "30"; // schedules a run a quarter of a second from now
-        vm.ApplyPreset(PresetCatalog.Load(presets).Single(p => p.Id == "age-of-majority"));
+        vm.ApplyPreset(TestCatalogues.ShippedPreset("age-of-majority"));
         var asked = engine.Count;
 
-        Assert.True(vm.ActiveNeedsParameters);
+        Assert.Equal("calc.preset_needs_params", vm.ActiveNoteKey);
         Assert.Equal("-", vm.ResultDate);
         Assert.False(vm.CanUseInSubstitution);
         Assert.False(vm.IsResultStale); // nothing is coming - the preset is waiting for the tester
@@ -269,7 +269,7 @@ public class CalculatorAnswerTests
     }
 
     /// <summary>A calculator past its first reveal with one "+1 d" step and that step's result on screen.</summary>
-    private static async Task<CalculatorViewModel> CalculatorWithOneStepAsync(FakeCalcEngine engine, string? presets = null)
+    private static async Task<CalculatorViewModel> CalculatorWithOneStepAsync(FakeCalcEngine engine, PresetLibrary? presets = null)
     {
         var vm = new CalculatorViewModel(engine, presets);
         await vm.EnsureComputedAsync();
