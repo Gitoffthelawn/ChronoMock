@@ -89,8 +89,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   date showed an hour off in summer, and nothing said so. Each page and worker is now put on the
   session's offset through the engine's own zone override, and checks the offset it reads. A page that
   read another zone at some point is reported (`chromium.zone_is_host`, and `embedded.zone_is_host`,
-  which used to compare today's offsets and is now said only when a page read another zone). The zone
-  is taken away with the clock when a session lets the pages go.
+  which used to compare today's offsets and is now said only when a page read another zone). When a
+  session ends and the application lives on, its pages are put back on this machine's own time zone,
+  as the system names it, so a date on either side of daylight saving shows this machine's offset
+  again. When the system does not name it, the report says the pages keep the session's zone
+  (`embedded.zone_kept`).
 - **A console application's output goes to `chrono run`'s standard error.** The application writes
   its output and errors there, and reads the terminal's input when `chrono run` runs in a terminal
   with a window, or empty input otherwise, as in CI. Standard output carries the report and nothing

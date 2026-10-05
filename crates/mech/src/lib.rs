@@ -18,6 +18,7 @@ mod batch;
 mod ending;
 mod environment;
 mod family;
+mod host_zone;
 mod job;
 mod listeners;
 mod loader;
@@ -31,6 +32,7 @@ pub use batch::{batch_launch_problem, is_batch_script};
 pub use ending::FamilyEnd;
 pub use environment::{current_environment, environment_block};
 pub use family::FamilyMember;
+pub use host_zone::host_zone_name;
 pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
 pub use policy_value::{

@@ -220,8 +220,8 @@ impl Attacher {
     }
 
     /// An attacher over a client already connected and armed - what [`Attacher::connect`] builds once
-    /// the endpoint answered, and what a test builds over a socket of its own.
-    fn over(client: cdp::CdpClient, port: u16) -> Attacher {
+    /// the endpoint answered, and what a test builds over a socket of its own, here and in the bridge.
+    pub(crate) fn over(client: cdp::CdpClient, port: u16) -> Attacher {
         Attacher {
             client,
             port,
@@ -532,16 +532,28 @@ impl Attacher {
     /// session's (CodeRabbit on #89). A context let go no longer checks its zone ([`cdp::release_expr`]),
     /// and the last counts after this wait for the same deadline (`EmbeddedBridge::finish`), so a count
     /// still in flight when it passed is never read.
-    pub(crate) fn release(&mut self, expr: &str, origin: ShimOrigin, next_index: &mut u32, deadline: Instant) -> u32 {
+    ///
+    /// The pages go back on `machine_zone`, this machine's zone as the system names it (ADR-21). Taking
+    /// the override away gives the page of an embedded engine nothing back: its renderer keeps the last
+    /// zone it was given, also once the connection closes (measured on WebView2 154 in a hooked
+    /// application, 2026-10-05 - the browser of a Chromium session, which is not hooked, did go back to
+    /// the machine's zone). A named zone given last stays, with the machine's offsets on both sides of
+    /// daylight saving. With no name the override is taken away all the same, and the caller says that
+    /// the pages keep the session's zone (rule 6).
+    pub(crate) fn release(
+        &mut self,
+        expr: &str,
+        machine_zone: Option<&str>,
+        origin: ShimOrigin,
+        next_index: &mut u32,
+        deadline: Instant,
+    ) -> u32 {
         self.ending = true;
         self.requests.request_counts(&mut self.client);
         self.requests.start_release(expr, &mut self.client);
         self.wait_until(deadline, origin, next_index, |r| r.release_settled() && r.counts_settled());
-        // Measured on WebView2 154 (2026-10-05): taking the override away does not give a page the
-        // host's zone back. The renderer keeps the last zone it was given, also once the connection
-        // closes, so a page that outlives the session goes on reading the session's zone.
         if self.zone.is_some() {
-            self.requests.send_zone("", &mut self.client);
+            self.requests.send_zone(machine_zone.unwrap_or(""), &mut self.client);
         }
         self.requests.unreleased()
     }
@@ -693,9 +705,9 @@ mod tests {
 
     /// CodeRabbit on #89: two pages share one renderer and its zone override, and the protocol does not
     /// order commands across sessions. Here the second page's renderer is busy and runs its last count
-    /// only when its release arrives, reading the host's zone if the override was taken away before.
-    /// The release takes the zone away after the answers, so the count reads the session's zone, and
-    /// the override is still taken away from both.
+    /// only when its release arrives, reading another zone if the session's was replaced before. The
+    /// release replaces the zone after the answers, so the count reads the session's zone, and both
+    /// pages are then put on the machine's zone by its name (ADR-21).
     #[test]
     fn the_release_takes_the_zone_away_only_after_the_last_counts() {
         let mut reset = false;
@@ -716,7 +728,7 @@ mod tests {
                 }
                 "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
                 "Emulation.setTimezoneOverride" => {
-                    reset |= request["params"]["timezoneId"] == "";
+                    reset |= request["params"]["timezoneId"] != "GMT+05:30";
                     vec![(id, json!({}))]
                 }
                 "Runtime.evaluate" if expr == cdp::COUNTS_EXPR && session == "S2" => {
@@ -745,15 +757,16 @@ mod tests {
         let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
         let mut next = 0;
         assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 2);
-        let unreleased = attacher.release(&cdp::release_expr(), origin, &mut next, Instant::now() + Duration::from_secs(2));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let unreleased = attacher.release(&cdp::release_expr(), Some("Europe/Warsaw"), origin, &mut next, deadline);
         assert_eq!(unreleased, 0, "both pages confirmed they were let go");
         assert_eq!(attacher.zone_missed(), 0, "the busy page's last count read the session's zone");
         drop(attacher);
         let log = browser.join().unwrap();
-        let resets: Vec<usize> = (0..log.len())
-            .filter(|&i| log[i]["method"] == "Emulation.setTimezoneOverride" && log[i]["params"]["timezoneId"] == "")
-            .collect();
-        assert_eq!(resets.len(), 2, "the override is taken away from both pages");
+        let zone_of = |r: &serde_json::Value| r["method"] == "Emulation.setTimezoneOverride" && r["params"]["timezoneId"] != "GMT+05:30";
+        let resets: Vec<usize> = (0..log.len()).filter(|&i| zone_of(&log[i])).collect();
+        assert_eq!(resets.len(), 2, "both pages are given another zone");
+        assert!(resets.iter().all(|&i| log[i]["params"]["timezoneId"] == "Europe/Warsaw"), "the machine's, by its name");
         let last_release = log.iter().rposition(|r| r["params"]["expression"] == cdp::release_expr());
         assert!(last_release.is_some_and(|r| resets.iter().all(|&i| i > r)), "the zone goes after the releases");
     }

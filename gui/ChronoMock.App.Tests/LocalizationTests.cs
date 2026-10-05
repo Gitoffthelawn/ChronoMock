@@ -56,7 +56,7 @@ public class LocalizationTests
         // The embedded-engine channel (docs/09 section 12): the pages inside the application.
         "embedded.web_engine_reached", "embedded.debug_port_open", "embedded.engine_unreachable",
         "embedded.discovery_unavailable", "embedded.qt_port_taken", "embedded.zone_is_host",
-        "embedded.registry_arguments_hidden", "embedded.pages_not_released",
+        "embedded.registry_arguments_hidden", "embedded.pages_not_released", "embedded.zone_kept",
         "embedded.webview2_not_reached", "embedded.elevated_host",
         // The one WebView2 value a session may write to the machine registry for an application that runs
         // as administrator (docs/09 section 12.19), and what became of it.

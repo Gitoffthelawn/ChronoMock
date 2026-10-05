@@ -461,6 +461,9 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "embedded.pages_not_released" => {
             "a page inside the application did not confirm it was handed back to the real clock when the session ended, so it may keep the session date until it is reloaded or closed"
         }
+        "embedded.zone_kept" => {
+            "the application outlived the session, and its pages keep the session's time zone until it restarts - the system did not name this machine's zone, so the pages could not be put back on it"
+        }
         "inheritance.child_not_injected" => {
             "a child process could not be covered and ran on the REAL clock - usually a child of the other bitness; the process count below is short by that many"
         }

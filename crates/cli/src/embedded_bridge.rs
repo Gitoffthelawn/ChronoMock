@@ -68,6 +68,9 @@ pub(crate) const KEY_REGISTRY_ARGUMENTS_HIDDEN: &str = "embedded.registry_argume
 /// A page still open when the session ended did not confirm it was let go, so it may keep the session
 /// clock until it is reloaded or closed.
 const KEY_PAGES_NOT_RELEASED: &str = "embedded.pages_not_released";
+/// The pages of an application that outlived the session keep the session's zone until it restarts:
+/// the system did not name this machine's zone, so they could not be put back on it (ADR-21).
+const KEY_ZONE_KEPT: &str = "embedded.zone_kept";
 /// The application loaded WebView2 and the session never reached its web engine, for whatever reason
 /// no other key names - so its pages may have run on the real clock (docs/09 section 12.12).
 pub(crate) const KEY_WEBVIEW2_NOT_REACHED: &str = "embedded.webview2_not_reached";
@@ -706,12 +709,25 @@ impl EmbeddedBridge {
     ///
     /// Waits until `end_by` at the latest - the same deadline as [`EmbeddedBridge::finish`], because
     /// a GUI gives the core two seconds after `end` and both have to fit in them (ADR-20).
+    ///
+    /// The pages go back on this machine's zone as the system names it, read once here, at the end, so
+    /// a zone changed during the session is the one they get (ADR-21).
     pub(crate) fn release_pages(&mut self, origin: ShimOrigin, end_by: Instant) {
+        self.release_pages_to(chrono_mech::host_zone_name().as_deref(), origin, end_by);
+    }
+
+    /// [`EmbeddedBridge::release_pages`] onto `machine_zone`, so a test names the zone, or none.
+    fn release_pages_to(&mut self, machine_zone: Option<&str>, origin: ShimOrigin, end_by: Instant) {
         let expr = cdp_release_expr();
+        let pages = self.attachers.iter().any(|a| !a.contexts().is_empty());
         let next_index = &mut self.next_index;
-        let unconfirmed: u32 = self.attachers.iter_mut().map(|a| a.release(&expr, origin, next_index, end_by)).sum();
+        let unconfirmed: u32 =
+            self.attachers.iter_mut().map(|a| a.release(&expr, machine_zone, origin, next_index, end_by)).sum();
         if unconfirmed > 0 {
             self.warn(KEY_PAGES_NOT_RELEASED);
+        }
+        if pages && machine_zone.is_none() {
+            self.warn(KEY_ZONE_KEPT);
         }
     }
 
@@ -1180,5 +1196,68 @@ mod tests {
         assert_eq!(looked_in, [1, 51], "50 left the tree: the family is the known pid and what the tree shows");
         assert_eq!(bridge.family.len(), 1, "the family that only grows was not given the tree's pids");
         assert!(bridge.tree_pids().contains(&51) && !bridge.tree_pids().contains(&50));
+    }
+
+    /// A bridge holding one engine with one page on the session's zone, over a scripted browser that
+    /// answers every release `ok`. The log of what the session asked comes back when the bridge is gone.
+    fn bridge_with_a_page() -> (EmbeddedBridge, thread::JoinHandle<Vec<serde_json::Value>>) {
+        let (port, browser) = cdp::fake_browser_holding(|request| {
+            let id = request["id"].clone();
+            let reply = match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => serde_json::json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }] }),
+                "Target.attachToTarget" => serde_json::json!({ "sessionId": "S1" }),
+                "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({ "identifier": "h" }),
+                "Runtime.evaluate" if request["params"]["expression"] == cdp::release_expr() => {
+                    serde_json::json!({ "result": { "value": "ok" } })
+                }
+                _ => serde_json::json!({}),
+            };
+            vec![(id, reply)]
+        });
+        let ws = cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        attacher.set_zone(-330);
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut bridge = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
+        assert_eq!(attacher.attach_existing(origin, &mut bridge.next_index, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        bridge.attachers.push(attacher);
+        (bridge, browser)
+    }
+
+    /// ADR-21: the pages of an application that outlives the session go back on this machine's zone by
+    /// its name, because an engine keeps the last zone it was given. With no name the session says the
+    /// pages keep its zone - and says nothing when there were no pages to keep it.
+    #[test]
+    fn the_pages_let_go_are_put_on_the_machines_zone_or_it_is_said_that_they_keep_the_sessions() {
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let end_by = || Instant::now() + Duration::from_secs(2);
+        let last_zone = |log: &[serde_json::Value]| {
+            log.iter().rev().find(|r| r["method"] == "Emulation.setTimezoneOverride").map(|r| r["params"]["timezoneId"].clone())
+        };
+
+        let (mut named, browser) = bridge_with_a_page();
+        named.release_pages_to(Some("Europe/Warsaw"), origin, end_by());
+        assert!(!named.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", named.warnings);
+        drop(named);
+        assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!("Europe/Warsaw")));
+
+        let (mut unnamed, browser) = bridge_with_a_page();
+        unnamed.release_pages_to(None, origin, end_by());
+        assert!(unnamed.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", unnamed.warnings);
+        drop(unnamed);
+        assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!("")), "taken away all the same");
+
+        let mut empty = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
+        empty.release_pages_to(None, origin, end_by());
+        assert!(!empty.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "no page kept anything");
+
+        // The session's own call asks the system, which names this machine's zone here and on CI.
+        let machine = chrono_mech::host_zone_name().expect("the system names this machine's zone");
+        let (mut session, browser) = bridge_with_a_page();
+        session.release_pages(origin, end_by());
+        assert!(!session.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", session.warnings);
+        drop(session);
+        assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!(machine)));
     }
 }
