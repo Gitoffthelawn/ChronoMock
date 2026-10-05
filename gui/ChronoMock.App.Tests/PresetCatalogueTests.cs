@@ -224,6 +224,41 @@ public class PresetCatalogueTests
         Assert.DoesNotContain(vm.Presets, p => p.Info.Id == "time-mode-x60"); // substitution only
     }
 
+    /// <summary>
+    /// D2: the line counting the files left out is there only when some were, and when none were it is
+    /// gone WHOLE. Measured on the part, not read off the binding (GUI rule 10): only the text inside used
+    /// to collapse, so the part kept its margin under every list and a screen reader still found it,
+    /// named "Preset files left out: 0" - read on the live window with the shipped catalogue.
+    /// </summary>
+    [Fact]
+    public void The_left_out_line_is_gone_whole_when_no_file_was_left_out()
+    {
+        // Built in one pass and measured in the next, so every binding has its value before the measure.
+        var (clean, refused) = WpfTestHost.InvokeSettled(() =>
+        {
+            var nothing = new CatalogueStatus();
+            nothing.Ready(14, []);
+            var something = new CatalogueStatus();
+            something.Ready(14, [new RefusedPresetFile("hand-written.json", "parameter 'n': unknown unit 'fortnights'")]);
+            return (Note(nothing), Note(something));
+        });
+        var (none, some) = WpfTestHost.InvokeSettled(() => (Laid(clean), Laid(refused)));
+
+        Assert.Equal((System.Windows.Visibility.Collapsed, 0.0), none);
+        Assert.Equal(System.Windows.Visibility.Visible, some.Visibility);
+        Assert.True(some.Height > 0, "not vacuous: with a file left out the line takes room");
+
+        // A margin like the views give it, so a part that stays while its text collapses shows as height.
+        static Controls.CatalogueLeftOutNote Note(CatalogueStatus status)
+            => new() { DataContext = status, Margin = new System.Windows.Thickness(4) };
+
+        static (System.Windows.Visibility Visibility, double Height) Laid(Controls.CatalogueLeftOutNote note)
+        {
+            note.Measure(new System.Windows.Size(400, 400));
+            return (note.Visibility, note.DesiredSize.Height);
+        }
+    }
+
     [Fact]
     public void A_list_that_could_not_be_read_says_why_and_shows_nothing()
     {
