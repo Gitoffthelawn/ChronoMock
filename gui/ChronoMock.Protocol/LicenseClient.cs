@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
-using System.Text;
 
 namespace ChronoMock.Protocol;
 
@@ -22,8 +20,6 @@ namespace ChronoMock.Protocol;
 /// </summary>
 public sealed class LicenseClient
 {
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
-
     /// <summary>
     /// How long the query may take before the child is killed.
     /// </summary>
@@ -88,56 +84,20 @@ public sealed class LicenseClient
     /// </remarks>
     public async Task<string?> TryReadComponentsAsync(CancellationToken ct = default)
     {
-        var exe = _chronoPath();
-        var psi = new ProcessStartInfo
-        {
-            FileName = exe,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Utf8NoBom,
-            StandardErrorEncoding = Utf8NoBom,
-        };
-        psi.ArgumentList.Add("license");
-        psi.ArgumentList.Add("--components");
-
-        using var process = new Process { StartInfo = psi };
         try
         {
-            process.Start();
+            // Both pipes are read to the end while the core runs (OneShotEngine): this output runs to a few
+            // kilobytes and a pipe buffer is about four, and stderr was once redirected without being read,
+            // so a core that wrote more than a buffer there stopped until the limit killed it (R4-N50).
+            var run = await OneShotEngine.RunAsync(_chronoPath(), ["license", "--components"], null, QueryTimeout, ct)
+                .ConfigureAwait(false);
+            return run.ExitCode == 0 && run.Stdout.Trim().Length > 0 ? run.Stdout : null;
         }
-        catch (Exception failure) when (failure is System.ComponentModel.Win32Exception
-            or InvalidOperationException or ObjectDisposedException or PlatformNotSupportedException)
+        catch (Exception failure) when (failure is EngineLaunchException or EngineTimeoutException
+                                            or OperationCanceledException or IOException)
         {
-            return null;
-        }
-
-        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        attempt.CancelAfter(QueryTimeout);
-
-        // Read to EOF BEFORE waiting for exit. This output runs to a few kilobytes and a pipe buffer is
-        // about four, so a wait-then-read would be a deadlock that only shows up once the register grows
-        // past the buffer - which is to say, on somebody else's machine, later. On the attempt's token, so
-        // the readers stop with the limit too.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(attempt.Token);
-
-        // The same holds for stderr, and it was redirected without being read: a core that wrote more than
-        // a buffer there stopped on the write until the limit below killed it, and the window then said the
-        // core could not be asked (R4-N50). Nothing shows it, so it is read only to keep the pipe moving.
-        var stderrTask = process.StandardError.ReadToEndAsync(attempt.Token);
-        try
-        {
-            var stdout = await stdoutTask.WaitAsync(attempt.Token).ConfigureAwait(false);
-            await process.WaitForExitAsync(attempt.Token).ConfigureAwait(false);
-            await stderrTask.WaitAsync(attempt.Token).ConfigureAwait(false);
-            return process.ExitCode == 0 && stdout.Trim().Length > 0 ? stdout : null;
-        }
-        catch (Exception failure) when (failure is OperationCanceledException or IOException)
-        {
-            // Whether the kill took does not change the answer: the register could not be read either way.
-            _ = ChildProcesses.KillQuietly(process);
-            await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
+            // Whether the core could not start, ran out of time or was let go, the register could not be
+            // read - and the caller says so rather than showing an empty list.
             return null;
         }
     }
