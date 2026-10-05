@@ -336,9 +336,17 @@ pub(crate) struct AnalysisJson {
 
 #[derive(serde::Serialize)]
 pub(crate) struct ReadingJson {
-    /// Stable reading token (DateReading::key): iso / us_month_day / pl_day_month.
+    /// Stable reading token (DateReading::key): iso / us_month_day / pl_day_month / epoch_seconds /
+    /// epoch_millis.
     reading: &'static str,
     iso: String,
+    /// Whether the reading is an instant (a number of seconds or milliseconds since 1970) - its wall
+    /// clock is the analysis zone's, which a date written as fields is not. Additive (R4-S23).
+    instant: bool,
+    /// The time of day the reading has to show, `HH:MM:SS`, or null - the rule the text output follows
+    /// (`reading_shows_time`), so a client shows what the CLI shows instead of deciding it again from
+    /// `iso`, where every date reads as midnight. Additive (R4-S23).
+    time: Option<String>,
     significance: Vec<&'static str>,
     metadata: MetadataJson,
 }
@@ -470,12 +478,16 @@ pub(crate) fn calc_analysis_json(
     calendar: Option<&chrono_core::calendar::Calendar>,
 ) -> String {
     let bias = zone_bias_min.unwrap_or(0);
+    let written = time_written(input);
     let readings = analysis
         .readings
         .iter()
         .map(|(reading, civil)| ReadingJson {
             reading: reading.key(),
             iso: civil.to_iso(),
+            instant: reading.is_instant(),
+            time: reading_shows_time(*reading, written)
+                .then(|| format!("{:02}:{:02}:{:02}", civil.hour, civil.minute, civil.second)),
             significance: significance_keys(civil, bias, calendar),
             metadata: metadata_json(civil, now, calendar),
         })
@@ -903,15 +915,13 @@ pub(crate) fn render_analysis(
             format_bias(bias)
         ));
     }
-    // Whether the input wrote a time of day, read the way `analyze_date` reads it. A time written as
-    // midnight is still a time someone wrote, and the reading repeats it rather than dropping it.
-    let time_written = input.trim().contains(['T', ' ']);
+    let written = time_written(input);
     for (reading, civil) in &analysis.readings {
         let weekday = chrono_core::calc::metadata(civil, now).weekday;
         out.push_str(&format!(
             "  {}:  {}  ({weekday})\n",
             reading.label(),
-            reading_text(*reading, civil, time_written)
+            reading_text(*reading, civil, written)
         ));
         for m in chrono_core::calc::significance(civil, bias, calendar) {
             out.push_str(&format!("      {}\n", m.label()));
@@ -933,14 +943,26 @@ fn reading_text(
     time_written: bool,
 ) -> String {
     let iso = civil.to_iso();
-    let with_time = match reading {
-        chrono_core::calc::DateReading::Iso => time_written,
-        _ => reading.is_instant(),
-    };
-    if with_time {
+    if reading_shows_time(reading, time_written) {
         return iso;
     }
     iso.split('T').next().unwrap_or(&iso).to_string()
+}
+
+/// Whether the input wrote a time of day, read the way `analyze_date` reads it. A time written as
+/// midnight is still a time someone wrote, and the reading repeats it rather than dropping it.
+fn time_written(input: &str) -> bool {
+    input.trim().contains(['T', ' '])
+}
+
+/// Whether a reading has a time of day to show: always for an epoch reading, which names an instant
+/// down to the second, and for an ISO reading when the input wrote a time. One rule for the text output
+/// and for the `time` field of the JSON one, which the window shows.
+fn reading_shows_time(reading: chrono_core::calc::DateReading, time_written: bool) -> bool {
+    match reading {
+        chrono_core::calc::DateReading::Iso => time_written,
+        _ => reading.is_instant(),
+    }
 }
 
 /// Render the metadata for the result (7.3): weekday, ISO and US week numbers side by side
@@ -1575,5 +1597,35 @@ mod tests {
             serde_json::from_str(&calc_analysis_json(&analysis, "0", &now, Some(-120), None)).unwrap();
         assert_eq!(v["analysis"]["zone_bias_min"], -120);
         assert_eq!(v["analysis"]["readings"][0]["iso"], "1970-01-01T02:00:00");
+    }
+
+    /// R4-S23: the window cut every reading to its date, so an epoch reading lost the time it names and
+    /// nothing said it was an instant. Each reading now says both, by the rule the text output prints by.
+    #[test]
+    fn each_reading_says_whether_it_is_an_instant_and_which_time_to_show() {
+        let now = chrono_core::calc::CivilDateTime { year: 2026, month: 1, day: 1, hour: 0, minute: 0, second: 0 };
+        let readings = |input: &str| {
+            let analysis = chrono_core::calc::analyze_date(input, -120).unwrap();
+            let v: serde_json::Value =
+                serde_json::from_str(&calc_analysis_json(&analysis, input, &now, Some(-120), None)).unwrap();
+            v["analysis"]["readings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| (r["reading"].as_str().unwrap().to_string(), r["instant"].clone(), r["time"].clone()))
+                .collect::<Vec<_>>()
+        };
+        let instant = |key: &str, time: &str| (key.to_string(), serde_json::json!(true), serde_json::json!(time));
+        let date = |key: &str| (key.to_string(), serde_json::json!(false), serde_json::Value::Null);
+
+        assert_eq!(
+            readings("1740607200"),
+            [instant("epoch_seconds", "00:00:00"), instant("epoch_millis", "05:30:07")],
+            "an instant always shows its time, midnight included"
+        );
+        assert_eq!(readings("2026-01-31T13:45:00"), [("iso".to_string(), serde_json::json!(false), serde_json::json!("13:45:00"))]);
+        assert_eq!(readings("2026-01-31T00:00:00"), [("iso".to_string(), serde_json::json!(false), serde_json::json!("00:00:00"))]);
+        assert_eq!(readings("2026-01-31"), [date("iso")]);
+        assert_eq!(readings("04/08/2008"), [date("us_month_day"), date("pl_day_month")]);
     }
 }
