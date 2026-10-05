@@ -38,7 +38,9 @@ pub use policy::webview2_arguments_policy_present;
 pub use policy_value::{
     recover_stale, set_for_session, stale_value_present, PolicyRemoval, PolicySet, PolicyValue, Recovery,
 };
-pub use process_facts::{process_elevated, process_has_module, process_image_name, process_image_path, ModuleProbe};
+pub use process_facts::{
+    process_elevated, process_has_any_module, process_has_module, process_image_name, process_image_path, ModuleProbe,
+};
 pub use stdio::TargetStdio;
 pub use tree::{descendants_of, family_of};
 

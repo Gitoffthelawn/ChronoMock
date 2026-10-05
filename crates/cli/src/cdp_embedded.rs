@@ -96,8 +96,10 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
     };
     let origin = ShimOrigin { fake0: fake, real0: real, mult: args.multiplier, dur: args.multiplier, scheduled: None };
 
-    // The host: launched with the engine variables (the session's future behaviour), or given.
+    // The host: launched with the engine variables (the session's future behaviour), or given. A host
+    // this probe launched has its Qt port reserved, and discovery asks that port as a session does.
     let launched;
+    let mut reserved = None;
     let root = match &args.host {
         Host::Launch { path, args: host_args } => {
             let qt_port = match cdp::free_loopback_port() {
@@ -107,6 +109,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
                     return 2;
                 }
             };
+            reserved = Some(qt_port);
             let env = engine_env(&chrono_mech::current_environment(), qt_port, false);
             for (name, value) in &env {
                 outln!("env {name}={value}");
@@ -145,7 +148,7 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
     let family = family_of(root);
     // `launched`, when there is one, terminates its host on every way out of this function - the
     // early returns below included - because PlainChild does that on drop.
-    let discovery = match Discovery::start(family, None) {
+    let discovery = match Discovery::start(family, reserved) {
         Ok(d) => d,
         Err(e) => {
             diag!("chrono: discovery thread did not start: {e}");

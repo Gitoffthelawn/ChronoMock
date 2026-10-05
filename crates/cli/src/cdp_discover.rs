@@ -5,8 +5,8 @@
 //! a minute after the host started, and a Qt host opens the port inside itself. So this is a thread
 //! that keeps looking, in the spirit of ADR-10: every second it reads the machine's listening
 //! sockets (mech), keeps the loopback ones owned by a pid in the family where an engine can be - the
-//! port reserved for Qt, or a process whose executable sits beside the Chromium runtime (R4-N29) -
-//! and asks each new one whether it is a DevTools endpoint (`/json/version` names a browser
+//! port reserved for Qt, a process whose executable sits beside the Chromium runtime (R4-N29), or one
+//! with Qt WebEngine loaded - and asks each new one whether it is a DevTools endpoint (`/json/version` names a browser
 //! WebSocket URL). The application's other servers are not sent the HTTP request. A yes goes to
 //! the caller as [`Discovered`]. A no is remembered, with a few retries spaced out - an endpoint
 //! bound a moment ago may not answer HTTP yet - and forgotten once the socket leaves the table, so a
@@ -124,8 +124,8 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, reserved: Option<u16
         }
         // Asked only where an engine can be (R4-N29): the request below is HTTP, and the application's
         // own servers in the family may speak something else. Checked on every sweep rather than kept
-        // per pid - one query and one file lookup per listener a second, and a pid the system hands to
-        // another process of the family is judged afresh.
+        // per pid - one query, one file lookup and, away from the runtime, one module list per listener
+        // a second - and a pid the system hands to another process of the family is judged afresh.
         let candidates = memory
             .due(candidates(&table, &family), now)
             .into_iter()
@@ -162,16 +162,30 @@ fn worth_asking(l: &chrono_mech::Listener, reserved: Option<u16>, may_be_engine:
     reserved == Some(l.port) || may_be_engine(l.pid)
 }
 
-/// Whether the process `pid` can be a Chromium engine: its executable sits beside the ICU data file
-/// every Chromium build ships (`icudtl.dat` - the WebView2 runtime, CEF and Chromium itself, measured on
-/// this machine's WebView2 runtime folder), or the system would not say where its executable is. That
-/// case is asked rather than skipped: a page left unreached would be coverage given up without a word
-/// (rule 27), a request too many is what every listener got before.
+/// The library of Qt WebEngine's Chromium, in Qt 6 and Qt 5, release and debug builds. Qt runs the
+/// engine's browser inside the application's own process and keeps its ICU data in a folder of its own
+/// (`resources`), so a Qt host has no `icudtl.dat` beside its executable, and a Qt engine on any port
+/// but the reserved one - set by the application itself, or found by a probe that reserved nothing -
+/// went unasked (R4/16 review round, measured on a Qt WebEngine host).
+const QT_WEBENGINE_LIBRARIES: [&str; 4] =
+    ["Qt6WebEngineCore.dll", "Qt5WebEngineCore.dll", "Qt6WebEngineCored.dll", "Qt5WebEngineCored.dll"];
+
+/// Whether the process `pid` can be a Chromium engine (see [`engine_signs`]).
 fn may_be_engine(pid: u32) -> bool {
-    match chrono_mech::process_image_path(pid) {
-        Some(path) => path.parent().is_some_and(|dir| dir.join("icudtl.dat").exists()),
-        None => true,
-    }
+    engine_signs(chrono_mech::process_image_path(pid), || chrono_mech::process_has_any_module(pid, &QT_WEBENGINE_LIBRARIES))
+}
+
+/// Whether a process started from `image` can be a Chromium engine: its executable sits beside the ICU
+/// data file every Chromium build ships (`icudtl.dat` - the WebView2 runtime, CEF and Chromium itself,
+/// measured on this machine's WebView2 runtime folder), or it has Qt WebEngine loaded (`qt`, asked only
+/// when the file is not there). A question the system would not answer - no image path, a module list
+/// it would not give - is taken as a yes: a page left unreached would be coverage given up without a
+/// word (rule 27), a request too many is what every listener got before. Pure over the two answers.
+fn engine_signs(image: Option<std::path::PathBuf>, qt: impl FnOnce() -> chrono_mech::ModuleProbe) -> bool {
+    let Some(path) = image else {
+        return true;
+    };
+    path.parent().is_some_and(|dir| dir.join("icudtl.dat").exists()) || qt() != chrono_mech::ModuleProbe::NotLoaded
 }
 
 /// Whether the port reserved for a Qt engine is held by something that is not its DevTools endpoint:
@@ -393,6 +407,27 @@ mod tests {
     fn an_engine_is_told_by_the_file_beside_its_executable() {
         assert!(!may_be_engine(std::process::id()));
         assert!(may_be_engine(u32::MAX - 3), "a process that cannot be asked is not skipped");
+    }
+
+    /// A Qt WebEngine host has no ICU data beside its executable, and is an engine by the library it
+    /// loaded (R4/16 review round). The module list is asked only away from the runtime, and a list the
+    /// system would not give is a yes, like a path it would not give.
+    #[test]
+    fn a_qt_engine_is_told_by_the_library_it_loaded() {
+        use chrono_mech::ModuleProbe;
+        let dir = std::env::temp_dir().join(format!("chrono-engine-signs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let host = dir.join("host.exe");
+        let not_asked = || -> ModuleProbe { panic!("the module list is not asked beside the runtime") };
+
+        assert!(!engine_signs(Some(host.clone()), || ModuleProbe::NotLoaded), "no runtime, no Qt: not an engine");
+        assert!(engine_signs(Some(host.clone()), || ModuleProbe::Loaded), "Qt WebEngine loaded");
+        assert!(engine_signs(Some(host.clone()), || ModuleProbe::Unknown), "a list the system would not give");
+        assert!(engine_signs(None, not_asked), "a path the system would not give");
+        std::fs::write(dir.join("icudtl.dat"), b"").expect("a marker file");
+        assert!(engine_signs(Some(host), not_asked), "beside the runtime");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(QT_WEBENGINE_LIBRARIES.contains(&"Qt6WebEngineCore.dll") && QT_WEBENGINE_LIBRARIES.contains(&"Qt5WebEngineCore.dll"));
     }
 
     #[test]
