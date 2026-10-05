@@ -163,6 +163,11 @@ Chrono Mock - date calculator
     RFC 1123      Sat, 03 Oct 2026 22:00:00 GMT
 ```
 
+The named scenarios both commands take with `--preset` are listed by `chrono presets`, which also
+names every preset file it left out and why - the reason `--preset` would give for it. The window's
+scenario and preset lists come from the same command, so a file is offered there exactly when the
+command line accepts it.
+
 Every command speaks `--json` as well, and exits with a code your pipeline can branch on. Every flag
 and every exit code of both commands is listed in the
 [CLI reference](https://chronomock.donislawdev.com/cli-reference/).

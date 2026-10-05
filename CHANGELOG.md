@@ -8,6 +8,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **`chrono presets` lists the preset catalogue as `--preset` reads it.** Every preset file in the
+  folder comes back either as a preset, written in the words the calculator's grammar reads, or as
+  a file left out, with the reason `--preset` would give for it. `--json` writes the schema
+  `chronomock.presets/1`, and `--dir` names another folder. A file is listed exactly when
+  `chrono calc --preset` and `chrono run --preset` accept it. The window now takes its scenarios and
+  its calculator presets from this command instead of reading the files itself.
 - **Timers keep the session speed in a hidden window, when asked.** A Chromium engine runs the timers
   of a minimized or hidden window about once a second, so with time sped up a hidden window lost the
   speed-up - measured at x60, a page's timer ran about 16 times in 15 seconds once its window was
@@ -82,6 +88,14 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **`chrono calc --preset` counts business days in the calendar of the preset's market**, as
+  `chrono run --preset` does, and names that calendar above the result. A market preset
+  such as `payment-due-business-days` used to stop with exit 5 and ask for `--calendar`, while the
+  calculator window counted the same preset in the market's calendar. A `--calendar` given on the
+  command line still wins.
+- **A preset file whose `applies_to` is not `calculator`, `substitution` or `both` is refused when
+  it is read**, with exit 1 and the path of the file. Each command used to refuse it on its own, in
+  its own words, and only when it was used.
 - **The pages of a Chromium or Electron application, and the web pages inside an application, read
   the session's time zone.** They read this machine's zone before, so a local time they showed could
   be an hour or more away from the session's - also when the session ran in this machine's own zone,
@@ -161,6 +175,23 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The window reads every preset exactly as the command line does.** It read the preset files
+  with a grammar of its own, and where the command line refused, the window made a value up: a
+  default of one month counted as one day, a duration or a choice with no default was filled in
+  with one day or "day before", a date default was left out, a step the command line refuses was
+  computed, and a preset with no parameters asked for them. A file saved as UTF-16, or named with a
+  space, was listed while `--preset` refused it. The window now gets the list from the engine, so
+  it lists what `--preset` accepts and nothing else, an input with no default stays empty until it
+  is filled in, and a preset the window cannot show says so instead of asking for parameters. The
+  files the engine left out are counted under the list, each with its reason in the tooltip, and a
+  list that could not be read says why, where it used to stay empty without a word.
+- **"Analyze a pasted date" shows the time of a pasted number, and the zone it is shown in.** A
+  number of seconds or milliseconds since 1970 is a moment, and the window showed its date alone,
+  under a label that was a raw key, read in this machine's zone without saying so. The reading now
+  carries its time, a line above it names the zone, and that zone is the one chosen for the
+  calculator, as `--zone` is for `chrono calc --analyze`. Changing the zone reads the number again.
+  Each reading in the JSON analysis says whether it is such a moment (`instant`) and which time it
+  shows (`time`).
 - **The session sends far fewer HTTP requests to the application's own servers.** While looking
   for a web engine inside the application, the session asked every local port the application
   listened on whether it was a debugging endpoint - up to four HTTP requests to each, also to a server
