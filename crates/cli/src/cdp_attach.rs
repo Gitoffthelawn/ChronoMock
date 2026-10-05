@@ -524,18 +524,25 @@ impl Attacher {
     /// the session comes up with no shim), but the connection outlives the release by the last look at
     /// the host's tree, and a page that navigated then loaded its next document on the session clock
     /// again and kept it after the session with no warning (R4-W5).
+    ///
+    /// The zone override goes last, once every answer is in or the deadline has passed. One context
+    /// holds it for its whole renderer process, and the protocol does not order commands across
+    /// sessions, so a reset sent with the last counts could reach the renderer before the count of
+    /// another context, which then read the host's zone and was reported as having missed the
+    /// session's (CodeRabbit on #89). A context let go no longer checks its zone ([`cdp::release_expr`]),
+    /// and the last counts after this wait for the same deadline (`EmbeddedBridge::finish`), so a count
+    /// still in flight when it passed is never read.
     pub(crate) fn release(&mut self, expr: &str, origin: ShimOrigin, next_index: &mut u32, deadline: Instant) -> u32 {
         self.ending = true;
         self.requests.request_counts(&mut self.client);
-        // The zone goes with the clock, after the last counts were asked for, so their check still
-        // reads the session's zone. A page that outlives the session reads the host's zone again, as it
-        // reads the real clock - the connection closing would take the override away too, but only once
-        // it closes.
+        self.requests.start_release(expr, &mut self.client);
+        self.wait_until(deadline, origin, next_index, |r| r.release_settled() && r.counts_settled());
+        // Measured on WebView2 154 (2026-10-05): taking the override away does not give a page the
+        // host's zone back. The renderer keeps the last zone it was given, also once the connection
+        // closes, so a page that outlives the session goes on reading the session's zone.
         if self.zone.is_some() {
             self.requests.send_zone("", &mut self.client);
         }
-        self.requests.start_release(expr, &mut self.client);
-        self.wait_until(deadline, origin, next_index, |r| r.release_settled() && r.counts_settled());
         self.requests.unreleased()
     }
 
@@ -682,6 +689,73 @@ mod tests {
         };
         assert_eq!(zone_to("S1"), 1, "the page that went away is not asked again");
         assert_eq!(zone_to("S2"), 2, "the one left is given the zone again, once");
+    }
+
+    /// CodeRabbit on #89: two pages share one renderer and its zone override, and the protocol does not
+    /// order commands across sessions. Here the second page's renderer is busy and runs its last count
+    /// only when its release arrives, reading the host's zone if the override was taken away before.
+    /// The release takes the zone away after the answers, so the count reads the session's zone, and
+    /// the override is still taken away from both.
+    #[test]
+    fn the_release_takes_the_zone_away_only_after_the_last_counts() {
+        let mut reset = false;
+        let mut held: Option<serde_json::Value> = None;
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let session = request["sessionId"].as_str().unwrap_or("");
+            let expr = request["params"]["expression"].as_str().unwrap_or("");
+            let count = |reset: bool| json!({ "result": { "value": { "now": 1, "zone": u8::from(reset) } } });
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(
+                    id,
+                    json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }, { "targetId": "T2", "type": "page" }] }),
+                )],
+                "Target.attachToTarget" => {
+                    let target = request["params"]["targetId"].as_str().unwrap_or("");
+                    vec![(id, json!({ "sessionId": target.replace('T', "S") }))]
+                }
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                "Emulation.setTimezoneOverride" => {
+                    reset |= request["params"]["timezoneId"] == "";
+                    vec![(id, json!({}))]
+                }
+                "Runtime.evaluate" if expr == cdp::COUNTS_EXPR && session == "S2" => {
+                    held = Some(id);
+                    Vec::new()
+                }
+                "Runtime.evaluate" if expr == cdp::COUNTS_EXPR => vec![(id, count(reset))],
+                "Runtime.evaluate" if expr == cdp::release_expr() => {
+                    let mut out = Vec::new();
+                    if session == "S2"
+                        && let Some(count_id) = held.take()
+                    {
+                        out.push((count_id, count(reset)));
+                    }
+                    out.push((id, json!({ "result": { "value": "ok" } })));
+                    out
+                }
+                "Runtime.evaluate" => vec![(id, json!({ "result": {} }))],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        attacher.set_zone(-330);
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 2);
+        let unreleased = attacher.release(&cdp::release_expr(), origin, &mut next, Instant::now() + Duration::from_secs(2));
+        assert_eq!(unreleased, 0, "both pages confirmed they were let go");
+        assert_eq!(attacher.zone_missed(), 0, "the busy page's last count read the session's zone");
+        drop(attacher);
+        let log = browser.join().unwrap();
+        let resets: Vec<usize> = (0..log.len())
+            .filter(|&i| log[i]["method"] == "Emulation.setTimezoneOverride" && log[i]["params"]["timezoneId"] == "")
+            .collect();
+        assert_eq!(resets.len(), 2, "the override is taken away from both pages");
+        let last_release = log.iter().rposition(|r| r["params"]["expression"] == cdp::release_expr());
+        assert!(last_release.is_some_and(|r| resets.iter().all(|&i| i > r)), "the zone goes after the releases");
     }
 
     /// R4-S14: a turn takes everything that is already here, not one message - and reports what

@@ -315,10 +315,11 @@ pub(crate) fn cdp_schedule_expr(next: ScheduledRate) -> String {
 
 /// The JS that lets a page go when the session ends and the application lives on: the wall back on the
 /// real clock and the duration axis on from where it stands at rate 1, the same thing the hook does for
-/// the host once its core is gone. Nothing stays scheduled. The origin is `0` on both sides on
-/// purpose: with the rate at 1, any instant where fake equals real puts the wall on the real clock.
+/// the host once its core is gone. Nothing stays scheduled, and the zone is no longer checked
+/// ([`cdp::release_expr`]). The origin is `0` on both sides on purpose: with the rate at 1, any
+/// instant where fake equals real puts the wall on the real clock.
 pub(crate) fn cdp_release_expr() -> String {
-    cdp_set_expr(ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None })
+    cdp::release_expr()
 }
 
 /// Resolve a CDP jump target to a fake epoch-ms instant: an absolute moment in the zone it names (the
@@ -522,14 +523,15 @@ mod tests {
     }
 
     /// The expressions only call the shim's own methods, so the clock logic lives in one place
-    /// (ADR-9 R4/14b). The release puts the wall on the real clock at rate 1 with nothing scheduled.
+    /// (ADR-9 R4/14b). The release puts the wall on the real clock at rate 1 with nothing scheduled, and
+    /// the shim stops checking the zone, which is no longer the session's to judge (CodeRabbit on #89).
     #[test]
     fn the_expressions_call_the_shims_own_methods() {
         let next = ScheduledRate { at_ms: 9, mult: 0, dur: 0 };
         assert!(cdp_schedule_expr(next).contains("if(!S)return 'no-shim';return S.schedule(9,0,1);"));
         let o = ShimOrigin { fake0: 1, real0: 2, mult: 3, dur: 0, scheduled: Some(next) };
         assert!(cdp_set_expr(o).contains("return S.set(1,2,3,1,{ at: 9, M: 0, D: 1 });"), "{}", cdp_set_expr(o));
-        assert!(cdp_release_expr().contains("if(!S)return 'no-shim';return S.set(0,0,1,1,null);"));
+        assert!(cdp_release_expr().contains("if(!S)return 'no-shim';S.Z=null;return S.set(0,0,1,1,null);"));
     }
 
     #[test]

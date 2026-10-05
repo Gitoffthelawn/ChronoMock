@@ -308,8 +308,19 @@ pub fn scheduled_js(scheduled: Option<ScheduledRate>) -> String {
 /// 1 - the release. `no-shim` from a document the shim is not in. The one place this call is written,
 /// for the session's clock moves and for taking back an injection that failed.
 pub fn set_expr(fake0: i64, real0: i64, mult: i64, dur: i64, scheduled: Option<ScheduledRate>) -> String {
+    set_call("", fake0, real0, mult, dur, scheduled)
+}
+
+/// The release: the clock of [`set_expr`] on `(0, 0, 1, 1)`, and the shim stops judging the zone it
+/// reads. What a page reads after the session is no evidence about the session's zone, so a count
+/// asked after the release cannot report that zone as missed (CodeRabbit on #89).
+pub fn release_expr() -> String {
+    set_call("S.Z=null;", 0, 0, 1, 1, None)
+}
+
+fn set_call(before: &str, fake0: i64, real0: i64, mult: i64, dur: i64, scheduled: Option<ScheduledRate>) -> String {
     format!(
-        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';return S.set({},{},{},{},{});}})()",
+        "(function(){{var S=globalThis.__chronomock;if(!S)return 'no-shim';{before}return S.set({},{},{},{},{});}})()",
         fake0,
         real0,
         mult,
