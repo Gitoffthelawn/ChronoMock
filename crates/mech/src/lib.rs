@@ -36,7 +36,7 @@ pub use policy::webview2_arguments_policy_present;
 pub use policy_value::{
     recover_stale, set_for_session, stale_value_present, PolicyRemoval, PolicySet, PolicyValue, Recovery,
 };
-pub use process_facts::{process_elevated, process_has_module, process_image_name, ModuleProbe};
+pub use process_facts::{process_elevated, process_has_module, process_image_name, process_image_path, ModuleProbe};
 pub use stdio::TargetStdio;
 pub use tree::{descendants_of, family_of};
 
@@ -247,12 +247,18 @@ fn describe_process(pid: u32) -> (Option<String>, Option<String>) {
 /// # Safety
 /// `h` must be an open process handle with at least limited query access.
 unsafe fn image_name_of(h: HANDLE) -> Option<String> { unsafe {
+    let full = image_path_of(h)?;
+    let name = full.rsplit(['\\', '/']).next().unwrap_or(&full);
+    Some(name.to_string())
+}}
+
+/// # Safety
+/// `h` must be an open process handle with at least limited query access.
+unsafe fn image_path_of(h: HANDLE) -> Option<String> { unsafe {
     let mut buf = [0u16; 1024];
     let mut len = buf.len() as u32;
     QueryFullProcessImageNameW(h, PROCESS_NAME_FORMAT(0), PWSTR(buf.as_mut_ptr()), &mut len).ok()?;
-    let full = String::from_utf16_lossy(&buf[..len as usize]);
-    let name = full.rsplit(['\\', '/']).next().unwrap_or(&full);
-    Some(name.to_string())
+    Some(String::from_utf16_lossy(&buf[..len as usize]))
 }}
 
 /// `NtQueryInformationProcess` as ntdll exports it. Resolved by name at the call, like the hook

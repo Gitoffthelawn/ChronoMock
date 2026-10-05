@@ -4,8 +4,10 @@
 //! not when - a WebView2 host creates its browser process when it first shows a page, which can be
 //! a minute after the host started, and a Qt host opens the port inside itself. So this is a thread
 //! that keeps looking, in the spirit of ADR-10: every second it reads the machine's listening
-//! sockets (mech), keeps the loopback ones owned by a pid in the family, and asks each new one
-//! whether it is a DevTools endpoint (`/json/version` names a browser WebSocket URL). A yes goes to
+//! sockets (mech), keeps the loopback ones owned by a pid in the family where an engine can be - the
+//! port reserved for Qt, or a process whose executable sits beside the Chromium runtime (R4-N29) -
+//! and asks each new one whether it is a DevTools endpoint (`/json/version` names a browser
+//! WebSocket URL). The application's other servers are not sent the HTTP request. A yes goes to
 //! the caller as [`Discovered`]. A no is remembered, with a few retries spaced out - an endpoint
 //! bound a moment ago may not answer HTTP yet - and forgotten once the socket leaves the table, so a
 //! port reused later starts fresh.
@@ -120,7 +122,14 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, reserved: Option<u16
                 return;
             }
         }
-        let candidates = memory.due(candidates(&table, &family), now);
+        // Asked only where an engine can be (R4-N29): the request below is HTTP, and the application's
+        // own servers in the family may speak something else. Checked on every sweep rather than kept
+        // per pid - one query and one file lookup per listener a second, and a pid the system hands to
+        // another process of the family is judged afresh.
+        let candidates = memory
+            .due(candidates(&table, &family), now)
+            .into_iter()
+            .filter(|l| worth_asking(l, reserved, may_be_engine));
         for candidate in candidates {
             let host = candidate.loopback_host();
             match probe(host, candidate.port) {
@@ -142,6 +151,27 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, reserved: Option<u16
 /// table, so the join is tested on a made-up machine.
 fn candidates(table: &[chrono_mech::Listener], family: &HashSet<u32>) -> Vec<chrono_mech::Listener> {
     table.iter().filter(|l| l.loopback && family.contains(&l.pid)).copied().collect()
+}
+
+/// Whether a listener of the family is worth an HTTP request: it is on the port reserved for a Qt
+/// engine, whose browser runs inside the application's own process, or `may_be_engine` says its process
+/// can be a Chromium engine. Every family listener used to be asked, up to four times - a request a
+/// server of the application that speaks another protocol than HTTP may take badly (R4-N29). Pure, so
+/// the rule is tested on a made-up machine.
+fn worth_asking(l: &chrono_mech::Listener, reserved: Option<u16>, may_be_engine: impl Fn(u32) -> bool) -> bool {
+    reserved == Some(l.port) || may_be_engine(l.pid)
+}
+
+/// Whether the process `pid` can be a Chromium engine: its executable sits beside the ICU data file
+/// every Chromium build ships (`icudtl.dat` - the WebView2 runtime, CEF and Chromium itself, measured on
+/// this machine's WebView2 runtime folder), or the system would not say where its executable is. That
+/// case is asked rather than skipped: a page left unreached would be coverage given up without a word
+/// (rule 27), a request too many is what every listener got before.
+fn may_be_engine(pid: u32) -> bool {
+    match chrono_mech::process_image_path(pid) {
+        Some(path) => path.parent().is_some_and(|dir| dir.join("icudtl.dat").exists()),
+        None => true,
+    }
 }
 
 /// Whether the port reserved for a Qt engine is held by something that is not its DevTools endpoint:
@@ -319,6 +349,50 @@ mod tests {
         assert!(memory.due(vec![], t0).is_empty());
         // Gone from the table for one sweep, then back: a new engine on a reused port.
         assert_eq!(memory.due(vec![one], t0), vec![one]);
+    }
+
+    /// Only a listener where an engine can be is asked (R4-N29): the Qt port whoever holds it, and the
+    /// listeners of a process beside the Chromium runtime. The application's own server elsewhere in
+    /// the family is left alone.
+    #[test]
+    fn only_a_listener_where_an_engine_can_be_is_asked() {
+        let engine = |pid: u32| pid == 20;
+        assert!(worth_asking(&listener(20, 9222, true), None, engine), "a process beside the runtime");
+        assert!(!worth_asking(&listener(10, 9222, true), None, engine), "the application's own server");
+        assert!(worth_asking(&listener(10, 40000, true), Some(40000), engine), "the Qt port, held by the host itself");
+        assert!(!worth_asking(&listener(10, 40001, true), Some(40000), engine), "the host's other ports");
+    }
+
+    /// The thread end to end, on a listener of this test's own process, which sits beside no Chromium
+    /// runtime: it is the application's own server, and gets no HTTP request (R4-N29). The control is
+    /// the same port announced as the one reserved for Qt, which is asked - so the silence is the rule,
+    /// not a listener the thread could not see.
+    #[test]
+    fn the_applications_own_server_is_not_asked_and_the_qt_port_is() {
+        let asked = |reserved: bool| {
+            let server = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+            server.set_nonblocking(true).expect("non-blocking accept");
+            let port = server.local_addr().expect("its address").port();
+            let discovery = Discovery::start(vec![std::process::id()], reserved.then_some(port)).expect("the thread starts");
+            let until = Instant::now() + Duration::from_millis(1500);
+            let mut asked = false;
+            while !asked && Instant::now() < until {
+                asked = server.accept().is_ok();
+                thread::sleep(Duration::from_millis(20));
+            }
+            drop(discovery);
+            asked
+        };
+        assert!(!asked(false), "the application's own server is left alone");
+        assert!(asked(true), "the Qt port is asked, whoever holds it");
+    }
+
+    /// The executable of this test sits beside no ICU data, so it is no engine. A pid nobody holds
+    /// cannot be asked where its executable is, and is then asked about its port rather than skipped.
+    #[test]
+    fn an_engine_is_told_by_the_file_beside_its_executable() {
+        assert!(!may_be_engine(std::process::id()));
+        assert!(may_be_engine(u32::MAX - 3), "a process that cannot be asked is not skipped");
     }
 
     #[test]

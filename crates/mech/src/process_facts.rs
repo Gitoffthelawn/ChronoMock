@@ -129,6 +129,19 @@ pub fn process_image_name(pid: u32) -> Option<String> {
     }
 }
 
+/// The full path of the executable a running process was started from, or `None` when it cannot be
+/// asked (the process is gone, or does not grant even a limited query). The caller decides what an
+/// unanswered question means - asking it never assumes.
+pub fn process_image_path(pid: u32) -> Option<std::path::PathBuf> {
+    // SAFETY: the handle is closed on every path out, and nothing is borrowed from the caller.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let path = crate::image_path_of(process);
+        let _ = CloseHandle(process);
+        path.map(std::path::PathBuf::from)
+    }
+}
+
 /// Whether the token of the process `pid` is elevated, or `None` when it cannot be read (the process
 /// is gone, or does not grant the question). Only `Some(true)` is ever said to a tester as a fact: a
 /// token that could not be read is not a token that is not elevated.

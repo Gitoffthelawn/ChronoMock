@@ -105,8 +105,8 @@ fn has_debugging_switch(switches: &str) -> bool {
 }
 
 /// Whether a `/json/version` reply is a Chromium DevTools endpoint's: it names the WebSocket URL
-/// of its browser target. Any listener the family holds gets asked, and an application's own HTTP
-/// server answering with something else is not an engine.
+/// of its browser target. A listener where an engine can be gets asked (`cdp_discover`), and an
+/// application's own HTTP server there answering with something else is not an engine.
 pub(crate) fn is_devtools_version(reply: &serde_json::Value) -> bool {
     reply.get("webSocketDebuggerUrl").and_then(serde_json::Value::as_str).is_some_and(|u| !u.is_empty())
 }
