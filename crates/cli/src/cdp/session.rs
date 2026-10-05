@@ -311,11 +311,22 @@ pub fn set_expr(fake0: i64, real0: i64, mult: i64, dur: i64, scheduled: Option<S
     set_call("", fake0, real0, mult, dur, scheduled)
 }
 
-/// The release: the clock of [`set_expr`] on `(0, 0, 1, 1)`, and the shim stops judging the zone it
-/// reads. What a page reads after the session is no evidence about the session's zone, so a count
-/// asked after the release cannot report that zone as missed (CodeRabbit on #89).
+/// The release: the clock of [`set_expr`] on `(0, 0, 1, 1)`, the shim stops judging the zone it reads,
+/// and its audit starts over. What a page reads after the session is no evidence about the session's
+/// zone, so a count asked after the release cannot report that zone as missed (CodeRabbit on #89). And
+/// a page let go keeps its shim, so a session that reaches it later would take this session's zone
+/// miss, hidden-window fact and calls for its own (CodeRabbit on #89, second review): they are zeroed
+/// here, after this session read them - the counts asked with the release run first in the same
+/// context, and the session keeps the highest count it was told.
 pub fn release_expr() -> String {
-    set_call("S.Z=null;", 0, 0, 1, 1, None)
+    set_call(
+        "S.Z=null;S.zoneMissed=0;S.hiddenFast=0;for(var k in S.counts){S.counts[k]=0;}",
+        0,
+        0,
+        1,
+        1,
+        None,
+    )
 }
 
 fn set_call(before: &str, fake0: i64, real0: i64, mult: i64, dur: i64, scheduled: Option<ScheduledRate>) -> String {
