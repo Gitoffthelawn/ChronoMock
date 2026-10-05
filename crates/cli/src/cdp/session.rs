@@ -6,7 +6,8 @@
 //! What the shim covers: `setInterval`/`setTimeout` scaling (the acceleration), `Date.now`,
 //! `performance.now`, the `Date` constructor and its function form (`new Date()`, `Date()`, and a
 //! subclass of `Date`, which stays an instance of itself), and `Intl.DateTimeFormat` formatting "now".
-//! The zone is the host's - the instant is faked, not the local-time getters.
+//! The zone is not the shim's: the engine's own zone override (`Emulation.setTimezoneOverride`) puts
+//! every context on the session's fixed offset, and the shim only checks that its context reads it.
 
 use super::CdpClient;
 use serde_json::{json, Value};
@@ -55,6 +56,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
        covered - said as a failure rather than reported shimmed (untouchable rule 4). */
     if (typeof O.set !== 'function') { throw new Error('__chronomock is held by something else'); }
     O.wallMax = __WALL_MAX__;
+    O.Z = __ZONE__;
     O.set(__FAKE_START__, __REAL_START__, __MULT__, __DUR__, __SCHEDULED__);
     return 'already';
   }
@@ -71,6 +73,8 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     realStart: __REAL_START__,
     scheduled: __SCHEDULED__,       /* the one rate change waiting for its instant, { at, M, D } (R4-S17) */
     wallMax: __WALL_MAX__,          /* the last instant the session clock can hold - it stands there */
+    Z: __ZONE__,                    /* getTimezoneOffset() of the session's zone, null when it sets none */
+    zoneMissed: 0,                  /* 1 once this context has read another zone */
     perfBase: _perf ? _perf() : 0,  /* where performance.now stood when the shim arrived (R4-S16) */
     perfAnchorReal: _perf ? _perf() : 0,
     perfRead: 0,                    /* the real reading behind the last performance.now handed out */
@@ -181,13 +185,46 @@ const SHIM_TEMPLATE: &str = r#"(function(){
       return S.perfBase + (p - S.perfAnchorReal) * rate;
     };
   }
+
+  /* Whether this context reads the session's zone. The override belongs to the renderer PROCESS and
+     has one holder there: a second page in the process reads it without holding it, and goes back to
+     the host's zone without a word when the holder closes (measured). So the answer to the override
+     proves nothing, and the reading is checked here, at install and on every audit. */
+  function checkZone(){
+    if (S.Z === null) { return; }
+    try { if (new _OrigDate(fakeNow()).getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; } } catch (e) {}
+  }
+  /* What the session reads once a second: the call counts, and the facts the end report draws on. */
+  S.audit = function(){
+    checkZone();
+    var o = {};
+    for (var k in S.counts) { o[k] = S.counts[k]; }
+    o.zone = S.zoneMissed;
+    return o;
+  };
+  checkZone();
   return 'installed';
 })()"#;
 
-/// Read a context's per-API call counts (or `null` if the shim is not installed there). The counts
-/// make an honest "covered means the app actually called it" report, the same way the native audit
-/// counts channel queries - an override that was installed but never exercised is not "covered".
-pub const COUNTS_EXPR: &str = "(globalThis.__chronomock && globalThis.__chronomock.counts) || null";
+/// Read a context's per-API call counts and its audit facts (or `null` if the shim is not installed
+/// there). The counts make an honest "covered means the app actually called it" report, the same way
+/// the native audit counts channel queries - an override that was installed but never exercised is not
+/// "covered". A shim without `audit` (left in a page by an older build) still answers its counts.
+pub const COUNTS_EXPR: &str =
+    "(globalThis.__chronomock && (globalThis.__chronomock.audit ? globalThis.__chronomock.audit() : globalThis.__chronomock.counts)) || null";
+
+/// The session's zone as the engine's zone override names it: the fixed offset `GMT+HH:MM` or
+/// `GMT-HH:MM`, from the session's bias in Windows' sense (minutes west of UTC, so `+02:00` is -120).
+/// A fixed offset, like the zone the native hook hands an application - no daylight saving. Measured on
+/// an Electron page and its worker: `GMT+05:30`, `GMT+05:45`, `GMT+14:00`, `GMT-12:00` and
+/// `GMT+00:00` (read back as `UTC`) all take, and read back the offset they name in January and July
+/// alike.
+pub fn zone_id(bias_min: i32) -> String {
+    let east = -i64::from(bias_min);
+    let sign = if east < 0 { '-' } else { '+' };
+    let minutes = east.unsigned_abs();
+    format!("GMT{sign}{:02}:{:02}", minutes / 60, minutes % 60)
+}
 
 /// The APIs the shim counts, as (the name the report gives them, the key in the shim's `counts`).
 /// `new Date` counts every read of the clock through the constructor, `new Date()` and `Date()` alike -
@@ -214,6 +251,9 @@ pub const COUNTED_APIS: [(&str, &str); 6] = [
 /// `wall_max_ms` is the last instant the wall may show. The page's clock stands there, as the native
 /// hook's does, instead of running on past what the session can name (R4-S8). A parameter rather than
 /// a constant of this module, because this transport client knows nothing of the session's range.
+///
+/// `zone_bias_min` is the session's zone bias (minutes west of UTC), the offset the shim checks its
+/// context reads - `None` when the session sets no zone, and then nothing is checked.
 pub fn build_shim(
     fake_start_ms: i64,
     real_start_ms: i64,
@@ -221,6 +261,7 @@ pub fn build_shim(
     dur: i64,
     scheduled: Option<ScheduledRate>,
     wall_max_ms: i64,
+    zone_bias_min: Option<i32>,
 ) -> String {
     SHIM_TEMPLATE
         .replace("__MULT__", &mult.to_string())
@@ -229,6 +270,7 @@ pub fn build_shim(
         .replace("__REAL_START__", &real_start_ms.to_string())
         .replace("__SCHEDULED__", &scheduled_js(scheduled))
         .replace("__WALL_MAX__", &wall_max_ms.to_string())
+        .replace("__ZONE__", &zone_bias_min.map_or_else(|| "null".to_string(), |z| z.to_string()))
 }
 
 /// A rate change scheduled for one instant, the same for the panel and every context (R4-S17): from
@@ -313,7 +355,12 @@ pub struct Injected {
 /// auto-attach and the release stay one after another, after the shim: the auto-attach is the
 /// browser's and the release the renderer's, and the order of those two is not documented. The
 /// release itself is not waited for: nothing follows it here, and its answer changes nothing.
-pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<Injected> {
+///
+/// The zone override, when the session sets one, goes first of all, so the page's own first script
+/// already reads the session's zone. Not waited for either: whether it took is read in the page by the
+/// shim (see [`set_zone`]).
+pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, zone: Option<&str>, deadline: Instant) -> io::Result<Injected> {
+    set_zone(client, session_id, zone)?;
     client.send("Page.enable", json!({}), Some(session_id))?;
     let hook = client.send("Page.addScriptToEvaluateOnNewDocument", json!({ "source": shim }), Some(session_id))?;
     let shimmed = send_shim(client, session_id, shim)?;
@@ -351,8 +398,12 @@ fn take_back(client: &mut CdpClient, session_id: &str, script: Option<&str>) {
 /// (waitForDebuggerOnStart), or immediately for a worker that is already alive but has not yet armed a
 /// timer. Then release a paused worker so it proceeds with the overridden globals in place. A worker
 /// has no new-document hook - one started later is a new target, shimmed from the clock of then. One
-/// deadline for the sequence, as for a page.
-pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<Injected> {
+/// deadline for the sequence, as for a page. The zone override goes first here too: a worker reads its
+/// process's override, and one in a process no page holds one in - a service worker, say - takes it
+/// from its own session (measured: a dedicated worker's session answers "already in effect" while its
+/// page holds the process's override, and reads it).
+pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, zone: Option<&str>, deadline: Instant) -> io::Result<Injected> {
+    set_zone(client, session_id, zone)?;
     if let Err(e) = evaluate_shim(client, session_id, shim, deadline) {
         take_back(client, session_id, None);
         return Err(e);
@@ -363,6 +414,18 @@ pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, deadl
     let children = auto_attach_children(client, session_id, deadline);
     let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
     Ok(Injected { script: None, children })
+}
+
+/// Put a context on the session's zone, without waiting: `zone` is a [`zone_id`], `None` for a session
+/// that sets none, and an empty string takes the override away (the release). The override is the
+/// renderer process's, held by the first context that sets it, so the answer - `ok`, or "already in
+/// effect" - says nothing about what this context reads, and is not read. The shim reads the offset in
+/// the context instead.
+fn set_zone(client: &mut CdpClient, session_id: &str, zone: Option<&str>) -> io::Result<()> {
+    if let Some(zone) = zone {
+        client.send("Emulation.setTimezoneOverride", json!({ "timezoneId": zone }), Some(session_id))?;
+    }
+    Ok(())
 }
 
 /// Ask a context to attach the workers it starts, paused for the shim. `false` when it answered with
@@ -442,7 +505,7 @@ mod tests {
 
     #[test]
     fn shim_substitutes_its_parameters() {
-        let s = build_shim(1_700_000_000_000, 1_600_000_000_000, 60, 60, None, 900_000_000_000_000);
+        let s = build_shim(1_700_000_000_000, 1_600_000_000_000, 60, 60, None, 900_000_000_000_000, None);
         assert!(s.contains("M: 60,"));
         assert!(s.contains("D: 60,"));
         assert!(s.contains("fakeStart: 1700000000000,"));
@@ -458,7 +521,7 @@ mod tests {
         assert!(s.contains("Math.min(S.fakeStart + (_now() - S.realStart) * S.M, S.wallMax)"), "{s}");
 
         let next = ScheduledRate { at_ms: 1_600_000_000_250, mult: 1, dur: 1 };
-        let s = build_shim(1_700_000_000_000, 1_600_000_000_000, 60, 60, Some(next), 900_000_000_000_000);
+        let s = build_shim(1_700_000_000_000, 1_600_000_000_000, 60, 60, Some(next), 900_000_000_000_000, None);
         assert!(s.contains("scheduled: { at: 1600000000250, M: 1, D: 1 },"), "{s}");
     }
 
@@ -476,14 +539,14 @@ mod tests {
     /// (untouchable rule 3), so the duration rate is floored at 1 whatever the caller passes.
     #[test]
     fn the_wall_rate_and_the_duration_rate_are_filled_in_separately() {
-        let s = build_shim(0, 0, 60, 1, None, 0);
+        let s = build_shim(0, 0, 60, 1, None, 0, None);
         assert!(s.contains("M: 60,"), "{s}");
         assert!(s.contains("D: 1,"), "{s}");
         assert!(s.contains("function durationRate(){ if (S.scheduled) { S.settle(); } return S.D || 1; }"));
         assert_eq!(s.matches("(d || 0) / durationRate()").count(), 2, "both timers read the duration rate");
         assert!(!s.contains("/ (S.M || 1)"), "no timer divides by the wall rate any more");
 
-        let frozen = build_shim(0, 0, 0, 0, None, 0);
+        let frozen = build_shim(0, 0, 0, 0, None, 0, None);
         assert!(frozen.contains("M: 0,"), "{frozen}");
         assert!(frozen.contains("D: 1,"), "a frozen wall keeps timers at real speed: {frozen}");
     }
@@ -496,7 +559,7 @@ mod tests {
     #[test]
     fn a_second_run_sets_the_clock_it_carries() {
         let next = ScheduledRate { at_ms: 2_500, mult: 60, dur: 60 };
-        let s = build_shim(1_000, 2_000, 1, 1, Some(next), 3_000);
+        let s = build_shim(1_000, 2_000, 1, 1, Some(next), 3_000, None);
         let guard = &s[..s.find("return 'already';").expect("the guard returns early")];
         assert!(guard.contains("O.wallMax = 3000;"), "{guard}");
         assert!(guard.contains("O.set(1000, 2000, 1, 1, { at: 2500, M: 60, D: 60 });"), "{guard}");
@@ -510,7 +573,7 @@ mod tests {
     /// the source.
     #[test]
     fn a_scheduled_change_takes_effect_at_its_instant_whoever_reads_first() {
-        let s = build_shim(0, 0, 60, 60, None, 0);
+        let s = build_shim(0, 0, 60, 60, None, 0, None);
         let settle = &s[s.find("S.settle = function(){").expect("settle")..s.find("S.schedule =").expect("schedule")];
         assert!(settle.contains("if (t < c.at) { return; }"), "{settle}");
         assert!(settle.contains("S.fakeStart = Math.min(S.fakeStart + (c.at - S.realStart) * S.M, S.wallMax);"));
@@ -549,7 +612,7 @@ mod tests {
     /// behaviour is measured in Node and on a live page (tools/probes/r4-14) - this pins the source.
     #[test]
     fn the_date_replacement_keeps_subclasses_and_the_clock_it_reports() {
-        let s = build_shim(0, 0, 60, 60, None, 0);
+        let s = build_shim(0, 0, 60, 60, None, 0, None);
         assert!(s.contains("Reflect.construct(_OrigDate, arguments, new.target)"), "a subclass keeps its prototype");
         assert!(s.contains("if (!new.target) { S.counts.date++; return _dateString.call(new _OrigDate(fakeNow())); }"));
         assert!(s.contains("Object.defineProperty(_OrigDate.prototype, 'constructor', { value: CMDate"));
@@ -598,9 +661,9 @@ mod tests {
         let ws = super::super::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
         let mut client = CdpClient::from_ws(ws);
         let soon = || Instant::now() + Duration::from_millis(300);
-        assert!(inject_page(&mut client, "P", "SHIM", soon()).is_err());
-        assert!(inject_page(&mut client, "Q", "SHIM", soon()).is_err());
-        assert!(inject_worker(&mut client, "W", "SHIM", soon()).is_err());
+        assert!(inject_page(&mut client, "P", "SHIM", None, soon()).is_err());
+        assert!(inject_page(&mut client, "Q", "SHIM", None, soon()).is_err());
+        assert!(inject_worker(&mut client, "W", "SHIM", None, soon()).is_err());
         drop(client);
         let log = browser.join().unwrap();
         let steps = |session: &str| -> Vec<String> {
@@ -665,7 +728,7 @@ mod tests {
         });
         let ws = super::super::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
         let mut client = CdpClient::from_ws(ws);
-        let injected = inject_page(&mut client, "P", "SHIM", Instant::now() + Duration::from_secs(2)).expect("the page took the shim");
+        let injected = inject_page(&mut client, "P", "SHIM", None, Instant::now() + Duration::from_secs(2)).expect("the page took the shim");
         assert_eq!(injected.script.as_deref(), Some("h1"), "the hook answered after the shim is still the page's hook");
         assert!(injected.children);
         drop(client);
@@ -681,5 +744,78 @@ mod tests {
                 "Runtime.runIfWaitingForDebugger",
             ]
         );
+    }
+
+    /// The methods a page and a worker are sent when the session sets a zone, against a browser that
+    /// answers everything at once - the zone answer included, which is not waited for.
+    fn methods_sent(worker: bool, zone: Option<&str>) -> Vec<(String, Value)> {
+        use std::time::Duration;
+        let (port, browser) = super::super::ws::tests::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h1" }))],
+                "Runtime.evaluate" => vec![(id, json!({ "result": {} }))],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = super::super::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut client = CdpClient::from_ws(ws);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let injected = if worker {
+            inject_worker(&mut client, "W", "SHIM", zone, deadline)
+        } else {
+            inject_page(&mut client, "P", "SHIM", zone, deadline)
+        };
+        assert!(injected.is_ok(), "the context took the shim");
+        drop(client);
+        browser
+            .join()
+            .unwrap()
+            .iter()
+            .map(|r| (r["method"].as_str().unwrap_or("").to_string(), r["params"].clone()))
+            .collect()
+    }
+
+    /// The session's zone goes to a page and to a worker before anything else, so their first script
+    /// already reads it, and with the session's offset in the engine's own spelling. A session that
+    /// sets no zone sends none.
+    #[test]
+    fn the_zone_override_goes_out_first_to_a_page_and_to_a_worker() {
+        for worker in [false, true] {
+            let sent = methods_sent(worker, Some("GMT+05:30"));
+            assert_eq!(sent[0].0, "Emulation.setTimezoneOverride", "worker: {worker}");
+            assert_eq!(sent[0].1["timezoneId"], "GMT+05:30");
+            assert_eq!(sent.iter().filter(|(m, _)| m == "Emulation.setTimezoneOverride").count(), 1);
+            let none = methods_sent(worker, None);
+            assert!(none.iter().all(|(m, _)| m != "Emulation.setTimezoneOverride"), "worker: {worker}");
+        }
+    }
+
+    /// The zone the override names is the session's fixed offset, from a bias in Windows' sense.
+    #[test]
+    fn the_zone_is_named_as_a_fixed_offset_from_the_bias() {
+        assert_eq!(zone_id(-120), "GMT+02:00");
+        assert_eq!(zone_id(-330), "GMT+05:30");
+        assert_eq!(zone_id(-345), "GMT+05:45");
+        assert_eq!(zone_id(180), "GMT-03:00");
+        assert_eq!(zone_id(720), "GMT-12:00");
+        assert_eq!(zone_id(-840), "GMT+14:00");
+        assert_eq!(zone_id(0), "GMT+00:00");
+        assert_eq!(zone_id(30), "GMT-00:30", "a negative offset under an hour keeps its sign");
+    }
+
+    /// The shim carries the offset it checks its context reads, and checks it at install and on every
+    /// audit - the answer to the override is no proof (a second page in a process reads the holder's
+    /// override and loses it with the holder). A session with no zone checks nothing.
+    #[test]
+    fn the_shim_checks_the_zone_its_context_reads() {
+        let s = build_shim(0, 0, 1, 1, None, 0, Some(-330));
+        assert!(s.contains("Z: -330,"), "{s}");
+        assert!(s.contains("O.Z = -330;"), "a second install carries the zone too");
+        assert!(s.contains("getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; }"));
+        assert!(s.contains("S.audit = function(){\n    checkZone();"));
+        assert!(s.contains("  checkZone();\n  return 'installed';"));
+        assert!(build_shim(0, 0, 1, 1, None, 0, None).contains("Z: null,"));
+        assert!(COUNTS_EXPR.contains("__chronomock.audit()"));
     }
 }

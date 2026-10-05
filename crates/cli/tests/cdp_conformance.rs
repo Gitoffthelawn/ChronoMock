@@ -101,6 +101,75 @@ fn a_closed_window_does_not_erase_what_the_session_covered() {
     assert!(!stdout.contains("handing the application over"), "and the report does not say it did:\n{stdout}");
 }
 
+/// The pages read the session's zone (R4/16). Every context is put on it through the engine's zone
+/// override, and the shim in each checks the offset it reads - so a session in `+05:30`, which no host
+/// in this project's measurements is in, would say `chromium.zone_is_host` if any page or worker read
+/// the machine's zone. Before R4/16 the pages always read the machine's.
+///
+/// The page is also asked directly, by a second DevTools client while the session runs: a session that
+/// set no zone at all would check none, and say nothing either.
+#[test]
+#[ignore = "opt-in: set CHRONO_CDP_TARGET to a permissive Chromium/Electron exe; it launches that app"]
+fn the_pages_read_the_session_zone() {
+    let Ok(target) = std::env::var("CHRONO_CDP_TARGET") else {
+        eprintln!("CHRONO_CDP_TARGET not set - skipping");
+        return;
+    };
+    let child = Command::new(env!("CARGO_BIN_EXE_chrono"))
+        .args(["run", &target, "--at", "2038-01-19T03:14:07", "--zone", "+05:30", "--json", "--ticks", "10"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run chrono");
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    let read = page_reads("new Date(Date.UTC(2038,0,19,3,14,7)).getTimezoneOffset()");
+    let out = child.wait_with_output().expect("collect chrono output");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if stdout.contains("target.launch_failed") || stdout.contains("target.attach_failed") {
+        eprintln!("the target refused the debug port - skipping: {stdout}");
+        return;
+    }
+    assert_eq!(read.trim(), "-330", "the page reads +05:30, the session's zone:\n{stdout}");
+    assert!(stdout.contains("\"chromium.contexts_covered\""), "the session covered the pages:\n{stdout}");
+    assert!(!stdout.contains("chromium.zone_is_host"), "every page and worker read the session's zone:\n{stdout}");
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+}
+
+/// What the first page of the running session's browser evaluates `expr` to, asked by a second
+/// DevTools client - the browser takes several. The port comes from the session profile's
+/// `DevToolsActivePort`, under TMP or TEMP (they differ on some machines, and the core reads TMP),
+/// and the client speaks only to the loopback address. Windows PowerShell, which every Windows has.
+fn page_reads(expr: &str) -> String {
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'Stop'
+$file = @($env:TMP, $env:TEMP) | Select-Object -Unique | ForEach-Object {{ Get-ChildItem -Path $_ -Filter 'chrono-cdp-*' -Directory -ErrorAction SilentlyContinue }} |
+    ForEach-Object {{ Join-Path $_.FullName 'DevToolsActivePort' }} | Where-Object {{ Test-Path $_ }} |
+    Sort-Object {{ (Get-Item $_).LastWriteTime }} -Descending | Select-Object -First 1
+$port = [int](Get-Content $file | Select-Object -First 1)
+$page = (Invoke-RestMethod "http://127.0.0.1:$port/json/list") | Where-Object {{ $_.type -eq 'page' }} | Select-Object -First 1
+$ws = New-Object System.Net.WebSockets.ClientWebSocket
+$cts = New-Object System.Threading.CancellationTokenSource 10000
+$ws.ConnectAsync([Uri]$page.webSocketDebuggerUrl, $cts.Token).Wait()
+$msg = @{{ id = 7; method = 'Runtime.evaluate'; params = @{{ expression = '{expr}'; returnByValue = $true }} }} | ConvertTo-Json -Compress -Depth 5
+$bytes = [Text.Encoding]::UTF8.GetBytes($msg)
+$ws.SendAsync((New-Object ArraySegment[byte] -ArgumentList (,$bytes)), 'Text', $true, $cts.Token).Wait()
+$buf = New-Object byte[] 65536
+while ($true) {{
+    $text = ''
+    do {{
+        $r = $ws.ReceiveAsync((New-Object ArraySegment[byte] -ArgumentList (,$buf)), $cts.Token).Result
+        $text += [Text.Encoding]::UTF8.GetString($buf, 0, $r.Count)
+    }} while (-not $r.EndOfMessage)
+    $reply = $text | ConvertFrom-Json
+    if ($reply.id -eq 7) {{ $reply.result.result.value; break }}
+}}
+"#
+    );
+    let out = Command::new("powershell.exe").args(["-NoProfile", "-Command", &script]).output().expect("run powershell");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 /// R4-S18 end to end: a target that starts the browser and exits - a launcher - must not end the
 /// session. Before the fix the session ended with the launcher in about 0.4 s, with no verdict, and
 /// took the browser with it.

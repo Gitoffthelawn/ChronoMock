@@ -54,9 +54,10 @@ pub(crate) struct ShimOrigin {
 }
 
 impl ShimOrigin {
-    /// The shim source that puts a context on this clock.
-    fn shim(&self) -> String {
-        cdp::build_shim(self.fake0, self.real0, self.mult, self.dur, self.scheduled, WALL_MAX_MS)
+    /// The shim source that puts a context on this clock, checking that it reads the zone `zone`
+    /// (the session's bias, `None` for no check).
+    fn shim(&self, zone: Option<i32>) -> String {
+        cdp::build_shim(self.fake0, self.real0, self.mult, self.dur, self.scheduled, WALL_MAX_MS, zone)
     }
 }
 
@@ -162,6 +163,8 @@ pub(crate) struct AttacherOutcome {
     pub(crate) overflow: usize,
     /// How many pages missed a clock move (`chromium.clock_move_missed`).
     pub(crate) moves_missed: usize,
+    /// How many contexts read a zone other than the session's at some point.
+    pub(crate) zone_missed: usize,
 }
 
 pub(crate) struct Attacher {
@@ -188,6 +191,13 @@ pub(crate) struct Attacher {
     /// The session is ending: a context that attaches now is let go without a shim. It would get a
     /// clock nobody moves or releases any more, and shimming it would hold the end for an attach.
     ending: bool,
+    /// The session's zone bias (minutes west of UTC), which every context is put on through the
+    /// engine's zone override. `None` sets no zone and checks none.
+    zone: Option<i32>,
+    /// A context went away since the zone was last given to the rest. The override is held by one
+    /// context per renderer process, and the others in that process lose it with the holder, so the
+    /// rest are given it again - once per turn, however many went away in it.
+    zone_dirty: bool,
 }
 
 impl Attacher {
@@ -204,7 +214,13 @@ impl Attacher {
             None,
             deadline,
         )?;
-        Ok(Attacher {
+        Ok(Attacher::over(client, port))
+    }
+
+    /// An attacher over a client already connected and armed - what [`Attacher::connect`] builds once
+    /// the endpoint answered, and what a test builds over a socket of its own.
+    fn over(client: cdp::CdpClient, port: u16) -> Attacher {
+        Attacher {
             client,
             port,
             probe_clock: false,
@@ -216,11 +232,26 @@ impl Attacher {
             refused: HashSet::new(),
             index_by_target: HashMap::new(),
             ending: false,
-        })
+            zone: None,
+            zone_dirty: false,
+        }
     }
 
     pub(crate) fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Put every context this attacher shims from now on in the session's zone, `bias_min` minutes
+    /// west of UTC as Windows counts it, and check that each one reads it. Called before the first
+    /// attach, so no context is shimmed without it.
+    pub(crate) fn set_zone(&mut self, bias_min: i32) {
+        self.zone = Some(bias_min);
+    }
+
+    /// How many contexts read a zone other than the session's at some point - the override did not
+    /// reach them, or their process lost it.
+    pub(crate) fn zone_missed(&self) -> usize {
+        self.requests.zone_missed()
     }
 
     /// Shorten the client's poll interval and call deadline - see `CdpClient::set_budgets`. For an
@@ -242,12 +273,14 @@ impl Attacher {
     /// Hand over what this attacher covered. The connection closes with it.
     pub(crate) fn into_outcome(self) -> AttacherOutcome {
         let moves_missed = self.requests.moves_missed();
+        let zone_missed = self.requests.zone_missed();
         AttacherOutcome {
             seen: self.seen,
             counts: self.requests.into_counts(),
             failed: self.failed,
             overflow: self.overflow,
             moves_missed,
+            zone_missed,
         }
     }
 
@@ -284,10 +317,26 @@ impl Attacher {
         let polled = self.client.poll();
         let started = Instant::now();
         let first = self.handle(polled, origin, next_index);
-        drain_turn(first, || started.elapsed() < TURN_BUDGET, || match self.client.poll_ready() {
+        let turn = drain_turn(first, || started.elapsed() < TURN_BUDGET, || match self.client.poll_ready() {
             Ok(None) => None,
             ready => Some(self.handle(ready, origin, next_index)),
-        })
+        });
+        self.give_zone_again();
+        turn
+    }
+
+    /// Give the session's zone again to every live context once one went away (see `zone_dirty`).
+    /// Measured: a second page in a renderer process reads the holder's override, and goes back to the
+    /// host's zone when the holder closes - asked again, it takes the override itself. Not while the
+    /// session is ending, when the release takes the zone away.
+    fn give_zone_again(&mut self) {
+        if !self.zone_dirty || self.ending {
+            return;
+        }
+        self.zone_dirty = false;
+        if let Some(bias) = self.zone {
+            self.requests.send_zone(&cdp::zone_id(bias), &mut self.client);
+        }
     }
 
     /// Act on one polled message. Every answer goes to the request table, whatever it answers and
@@ -323,7 +372,13 @@ impl Attacher {
             {
                 let sid = params["sessionId"].as_str().unwrap_or("");
                 let tid = params["targetId"].as_str().unwrap_or("");
-                if self.requests.forget(sid, tid) { Pumped::Detached } else { Pumped::Idle }
+                if self.requests.forget(sid, tid) {
+                    // It may have held its process's zone override for the others (see `zone_dirty`).
+                    self.zone_dirty = self.zone.is_some();
+                    Pumped::Detached
+                } else {
+                    Pumped::Idle
+                }
             }
             Ok(_) => Pumped::Idle,
             Err(_) => Pumped::Closed,
@@ -379,11 +434,12 @@ impl Attacher {
             self.resume(&sid);
             return;
         }
-        let shim = origin.shim();
+        let shim = origin.shim(self.zone);
+        let zone = self.zone.map(cdp::zone_id);
         let injected = if cdp::is_worker(&ty) {
-            cdp::inject_worker(&mut self.client, &sid, &shim, deadline)
+            cdp::inject_worker(&mut self.client, &sid, &shim, zone.as_deref(), deadline)
         } else {
-            cdp::inject_page(&mut self.client, &sid, &shim, deadline)
+            cdp::inject_page(&mut self.client, &sid, &shim, zone.as_deref(), deadline)
         };
         match injected {
             Ok(cdp::Injected { script, children }) => {
@@ -437,7 +493,7 @@ impl Attacher {
     /// A page that answers later still gets its move. Whether a page missed the move is read from its
     /// answers whenever they come, and handed over at the end ([`Attacher::moves_missed`]).
     pub(crate) fn move_clock(&mut self, expr: &str, origin: ShimOrigin, next_index: &mut u32) {
-        let shim = origin.shim();
+        let shim = origin.shim(self.zone);
         let hooks = self.requests.start_move(expr, &shim, &mut self.client);
         let deadline = Instant::now() + Duration::from_millis(MOVE_WAIT_MS);
         self.wait_until(deadline, origin, next_index, |r| r.answered(&hooks));
@@ -461,6 +517,13 @@ impl Attacher {
     pub(crate) fn release(&mut self, expr: &str, origin: ShimOrigin, next_index: &mut u32, deadline: Instant) -> u32 {
         self.ending = true;
         self.requests.request_counts(&mut self.client);
+        // The zone goes with the clock, after the last counts were asked for, so their check still
+        // reads the session's zone. A page that outlives the session reads the host's zone again, as it
+        // reads the real clock - the connection closing would take the override away too, but only once
+        // it closes.
+        if self.zone.is_some() {
+            self.requests.send_zone("", &mut self.client);
+        }
         self.requests.start_release(expr, &mut self.client);
         self.wait_until(deadline, origin, next_index, |r| r.release_settled() && r.counts_settled());
         self.requests.unreleased()
@@ -558,6 +621,58 @@ fn new_targets(reply: &serde_json::Value, known: &HashMap<String, u32>) -> Vec<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Measured on Chromium: a second page in a renderer process reads the zone override the first
+    /// one holds, and goes back to the host's zone when the holder closes. So when a context goes away,
+    /// every one left is given the zone again - once, in the turn that saw it go - and the one that
+    /// went is not.
+    #[test]
+    fn a_context_that_goes_away_has_the_zone_given_again_to_the_rest() {
+        let mut detach_sent = false;
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let session = request["sessionId"].as_str().unwrap_or("");
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(
+                    id,
+                    json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }, { "targetId": "T2", "type": "page" }] }),
+                )],
+                "Target.attachToTarget" => {
+                    let target = request["params"]["targetId"].as_str().unwrap_or("");
+                    vec![(id, json!({ "sessionId": target.replace('T', "S") }))]
+                }
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                "Runtime.evaluate" => vec![(id, json!({ "result": {} }))],
+                // The second page is in: the first one closes.
+                "Runtime.runIfWaitingForDebugger" if session == "S2" && !detach_sent => {
+                    detach_sent = true;
+                    let gone = json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "S1", "targetId": "T1" } });
+                    vec![(id, json!({})), (serde_json::Value::Null, gone)]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        attacher.set_zone(-330);
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 2);
+        let detached = (0..50).any(|_| attacher.pump(origin, &mut next) == Pumped::Detached);
+        assert!(detached, "the fake browser said the first page went away");
+        attacher.pump(origin, &mut next);
+        drop(attacher);
+        let log = browser.join().unwrap();
+        let zone_to = |session: &str| {
+            log.iter()
+                .filter(|r| r["method"] == "Emulation.setTimezoneOverride" && r["sessionId"] == session)
+                .inspect(|r| assert_eq!(r["params"]["timezoneId"], "GMT+05:30"))
+                .count()
+        };
+        assert_eq!(zone_to("S1"), 1, "the page that went away is not asked again");
+        assert_eq!(zone_to("S2"), 2, "the one left is given the zone again, once");
+    }
 
     /// R4-S14: a turn takes everything that is already here, not one message - and reports what
     /// mattered most in it, so an attach in the middle of a burst of other events is not lost.

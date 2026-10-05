@@ -60,7 +60,8 @@ pub(crate) const KEY_ENGINE_UNREACHABLE: &str = "embedded.engine_unreachable";
 pub(crate) const KEY_DISCOVERY_UNAVAILABLE: &str = "embedded.discovery_unavailable";
 /// The port reserved for a Qt engine was held by something else when the engine would have bound it.
 pub(crate) const KEY_QT_PORT_TAKEN: &str = "embedded.qt_port_taken";
-/// The pages read the host machine's time zone, not the session's (ADR-8) - said when they differ.
+/// A page read the host machine's time zone instead of the session's at some point - its engine's zone
+/// override did not reach it, or its process lost the override with the page that held it (R4/16).
 pub(crate) const KEY_ZONE_IS_HOST: &str = "embedded.zone_is_host";
 /// A WebView2 policy value in the registry was hidden by the session's variable for its duration.
 pub(crate) const KEY_REGISTRY_ARGUMENTS_HIDDEN: &str = "embedded.registry_arguments_hidden";
@@ -272,6 +273,8 @@ pub(crate) struct Outcome {
     /// How many processes of an elevated host's engine the process tree turned up that nobody else
     /// had named (docs/09 section 12.19). Named ones are in the session's list, this is the count.
     pub(crate) tree_found: u32,
+    /// How many pages and workers read a zone other than the session's at some point (R4/16).
+    zone_missed: usize,
 }
 
 impl Outcome {
@@ -290,9 +293,11 @@ impl Outcome {
     }
 
     /// The warnings the session verdict carries for this channel, each said only when it happened.
-    /// `zone_differs` is whether the session zone is not the host machine's: the pages read the
-    /// host's (ADR-8), which is a fact to say only when it makes a difference.
-    pub(crate) fn session_warnings(&self, zone_differs: bool) -> Vec<String> {
+    /// The zone is said when a page or worker READ another zone than the session's - every one is put
+    /// on the session's zone, and the shim in it checks what it reads. This used to compare the
+    /// session's bias with the host's bias of today, which said nothing about a fake date across a
+    /// daylight-saving change: a January date showed an hour off with both biases equal in summer.
+    pub(crate) fn session_warnings(&self) -> Vec<String> {
         let mut out = self.warnings.clone();
         out.extend(self.unreached_warnings());
         let pages = !self.seen.is_empty();
@@ -305,7 +310,7 @@ impl Outcome {
         if self.rate_changed && pages {
             out.push("chromium.rate_change_affects_running_timers".to_string());
         }
-        if pages && zone_differs {
+        if pages && self.zone_missed > 0 {
             out.push(KEY_ZONE_IS_HOST.to_string());
         }
         out
@@ -333,6 +338,9 @@ pub(crate) fn reconcile_engine_warnings(warnings: &mut [String], pages_reached: 
 
 pub(crate) struct EmbeddedBridge {
     scale_duration: bool,
+    /// The session's zone bias, which every page and worker the bridge reaches is put on - the zone the
+    /// hook hands the rest of the application.
+    zone: i32,
     discovery: Option<Discovery>,
     connects_tx: Sender<(Discovered, io::Result<Attacher>)>,
     connects: Receiver<(Discovered, io::Result<Attacher>)>,
@@ -371,10 +379,11 @@ pub(crate) struct EmbeddedBridge {
 impl EmbeddedBridge {
     /// Start looking for engines in a family, or stand inert when the channel is off or could not be
     /// set up - saying so in the latter case. Never fails: the session goes on either way.
-    pub(crate) fn start(launch: &Launch, family: Vec<u32>, scale_duration: bool) -> EmbeddedBridge {
+    pub(crate) fn start(launch: &Launch, family: Vec<u32>, scale_duration: bool, zone_bias_min: i32) -> EmbeddedBridge {
         let (connects_tx, connects) = mpsc::channel();
         let mut bridge = EmbeddedBridge {
             scale_duration,
+            zone: zone_bias_min,
             discovery: None,
             connects_tx,
             connects,
@@ -604,6 +613,7 @@ impl EmbeddedBridge {
                     // already covers from being shimmed a second time.
                     attacher.set_budgets(POLL, CALL);
                     attacher.probe_clock_before_shim();
+                    attacher.set_zone(self.zone);
                     if self.pushed.is_none() {
                         self.pushed = Some(origin);
                     }
@@ -731,6 +741,7 @@ impl EmbeddedBridge {
             channel_on: self.channel_on,
             reach: self.reach,
             tree_found: self.tree.total(),
+            zone_missed: 0,
         };
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
@@ -743,6 +754,7 @@ impl EmbeddedBridge {
             outcome.counts.extend(part.counts);
             outcome.failed += part.failed;
             outcome.overflow += part.overflow;
+            outcome.zone_missed += part.zone_missed;
         }
         outcome
     }
@@ -875,19 +887,25 @@ mod tests {
             channel_on: true,
             reach: Reach::default(),
             tree_found: 0,
+            zone_missed: 0,
         }
     }
 
     /// Each warning only when it happened: the open port once an engine was reached, the ceiling
     /// once a page was refused past it, the running-timers caveat once the rate changed WITH pages
-    /// to feel it, the zone once there are pages AND the zones differ. What the bridge noted along
-    /// the way (an unreachable engine, say) comes first, in the order it was noted.
+    /// to feel it, the zone once there are pages AND one of them read another zone than the
+    /// session's. What the bridge noted along the way (an unreachable engine, say) comes first, in the
+    /// order it was noted.
     #[test]
     fn the_session_warnings_say_only_what_happened() {
-        assert!(outcome(false, &[], 0, false, &[]).session_warnings(true).is_empty());
-        assert_eq!(outcome(true, &[], 0, true, &[]).session_warnings(true), vec![KEY_DEBUG_PORT_OPEN]);
+        let missed_zone = |mut o: Outcome| {
+            o.zone_missed = 1;
+            o
+        };
+        assert!(missed_zone(outcome(false, &[], 0, false, &[])).session_warnings().is_empty());
+        assert_eq!(missed_zone(outcome(true, &[], 0, true, &[])).session_warnings(), vec![KEY_DEBUG_PORT_OPEN]);
         assert_eq!(
-            outcome(true, &[1], 1, true, &[KEY_ENGINE_UNREACHABLE]).session_warnings(true),
+            missed_zone(outcome(true, &[1], 1, true, &[KEY_ENGINE_UNREACHABLE])).session_warnings(),
             vec![
                 KEY_ENGINE_UNREACHABLE,
                 KEY_DEBUG_PORT_OPEN,
@@ -896,7 +914,11 @@ mod tests {
                 KEY_ZONE_IS_HOST,
             ]
         );
-        assert_eq!(outcome(true, &[1], 0, false, &[]).session_warnings(false), vec![KEY_DEBUG_PORT_OPEN]);
+        assert_eq!(
+            outcome(true, &[1], 0, false, &[]).session_warnings(),
+            vec![KEY_DEBUG_PORT_OPEN],
+            "pages that read the session's zone are not said to read the host's"
+        );
     }
 
     fn host(elevated: Option<bool>) -> Option<WebView2Host> {
@@ -981,7 +1003,7 @@ mod tests {
         assert!(!with_host(false, &[KEY_DISCOVERY_UNAVAILABLE], host(None)).engine_missed());
         assert!(with_host(false, &[KEY_QT_PORT_TAKEN], host(None)).engine_missed());
         assert_eq!(
-            with_host(false, &[], host(Some(true))).session_warnings(false),
+            with_host(false, &[], host(Some(true))).session_warnings(),
             vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]
         );
     }
@@ -989,7 +1011,7 @@ mod tests {
     /// A bridge with the channel on and no discovery to start: nothing is reserved and no thread runs.
     fn looking_bridge() -> EmbeddedBridge {
         let launch = Launch { enabled: true, unavailable: true, ..Launch::off() };
-        EmbeddedBridge::start(&launch, vec![1], false)
+        EmbeddedBridge::start(&launch, vec![1], false, -120)
     }
 
     /// The three answers of a test: which pid has the library, its token, its file. The question about the
@@ -1019,7 +1041,7 @@ mod tests {
         let asked = Cell::new(0u32);
         let t0 = Instant::now();
 
-        let mut off = EmbeddedBridge::start(&Launch::off(), vec![1], false);
+        let mut off = EmbeddedBridge::start(&Launch::off(), vec![1], false, -120);
         off.look_with(&[1, 2], true, t0, probes(&asked, 2));
         assert_eq!(asked.get(), 2, "a channel that is off still asks");
         assert_eq!(off.host, Some(WebView2Host { pid: 2, elevated: Some(true), image: Some("p2.exe".into()) }));
@@ -1061,7 +1083,7 @@ mod tests {
     /// A bridge that has seen a host, for the tests of the tree below.
     fn bridge_with_host(elevated_core: bool) -> EmbeddedBridge {
         let launch = Launch { enabled: true, unavailable: true, reach: Reach::of(elevated_core), ..Launch::off() };
-        let mut bridge = EmbeddedBridge::start(&launch, vec![1], false);
+        let mut bridge = EmbeddedBridge::start(&launch, vec![1], false, -120);
         bridge.host = host(Some(elevated_core));
         bridge
     }

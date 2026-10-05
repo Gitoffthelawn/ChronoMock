@@ -525,8 +525,19 @@ pub(crate) mod tests {
         fake_browser_holding(move |request| answer(request).map(|result| vec![(request["id"].clone(), result)]).unwrap_or_default())
     }
 
+    /// One message of the scripted browser: a reply to `id`, or - with a `null` id - an event, whose
+    /// whole text is `result`.
+    fn scripted_message(id: serde_json::Value, result: serde_json::Value) -> String {
+        if id.is_null() {
+            result.to_string()
+        } else {
+            serde_json::json!({ "id": id, "result": result }).to_string()
+        }
+    }
+
     /// The same, but `answer` may hold a reply back and give it with a later request: it returns the
-    /// replies to write now, each an id and a result - like a renderer busy until a later command.
+    /// replies to write now, each an id and a result - like a renderer busy until a later command. An
+    /// entry whose id is `null` is an event: its "result" is written as the whole message.
     pub(crate) fn fake_browser_holding(
         mut answer: impl FnMut(&serde_json::Value) -> Vec<(serde_json::Value, serde_json::Value)> + Send + 'static,
     ) -> (u16, std::thread::JoinHandle<Vec<serde_json::Value>>) {
@@ -545,8 +556,7 @@ pub(crate) mod tests {
                         continue;
                     };
                     for (id, result) in answer(&request) {
-                        let reply = serde_json::json!({ "id": id, "result": result }).to_string();
-                        s.write_all(&server_frame(reply.as_bytes(), true)).unwrap();
+                        s.write_all(&server_frame(scripted_message(id, result).as_bytes(), true)).unwrap();
                     }
                     log.push(request);
                 }

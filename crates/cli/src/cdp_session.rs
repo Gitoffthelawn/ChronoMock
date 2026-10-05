@@ -105,9 +105,12 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     // is the belt for an engine where it does not. Any failure is one honest error here, as before.
     // One deadline for all of it: no heartbeat beats in here (R4-N26).
     let start_by = Instant::now() + cdp::CONNECT_DEADLINE;
-    let mut attacher = match Attacher::connect("127.0.0.1", launched.port, start_by)
-        .and_then(|mut a| a.attach_existing(clock.shim_origin(), &mut next_index, start_by).map(|_| a))
-    {
+    // Every context goes on the session's zone, set before the first attach. The bias was checked when
+    // the clock was built, so it is the zone the panel's fake wall is in.
+    let mut attacher = match Attacher::connect("127.0.0.1", launched.port, start_by).and_then(|mut a| {
+        a.set_zone(bias);
+        a.attach_existing(clock.shim_origin(), &mut next_index, start_by).map(|_| a)
+    }) {
         Ok(a) => a,
         Err(e) => {
             let residue = launched.shutdown_with_residue();
@@ -189,6 +192,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     // its own warning so the reader learns WHY, not just that some were missed.
     let failed = attacher.failed();
     let past_ceiling = attacher.overflow();
+    let zone_missed = attacher.zone_missed();
     let counts = attacher.into_counts();
     let audited = !counts.is_empty();
 
@@ -205,6 +209,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
         context_ceiling_reached: past_ceiling > 0,
         clock_clamped: clock.reached_range_end(now_epoch_ms()),
         followed_browser: followed.is_some(),
+        zone_missed: zone_missed > 0,
     };
     for event in coverage_events(&seen, &covered, session_warnings(&facts)) {
         emit(&event);

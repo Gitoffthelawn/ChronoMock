@@ -337,8 +337,10 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "embedded.qt_port_taken" => {
             "the port reserved for a Qt WebEngine debugging endpoint was held by something else by the time the engine would have bound it, so its pages could not be reached and ran on the real clock"
         }
+        // Said only when a page READ another zone: every page is put on the session's zone, and the
+        // shim in it checks the offset it reads (R4/16).
         "embedded.zone_is_host" => {
-            "the pages inside this application use this machine's time zone rather than the session's, so a local time they show can differ from the session's local time (the rest of the application reads the session zone)"
+            "a page inside this application read this machine's time zone instead of the session's at some point, so a local time it showed could differ from the rest of the application, which reads the session zone"
         }
         "embedded.registry_arguments_hidden" => {
             "a WebView2 AdditionalBrowserArguments policy value for this application exists in the registry, and the session's environment variable hid it for the session - any flags it carried (a debugging port of your own, say) were not applied"
@@ -440,6 +442,9 @@ pub(crate) fn describe_warning(key: &str) -> String {
         // A session that outlives the program the tester named is a surprise unless it is explained
         // (R4-S18). Unlike `session.followed_family`, nothing but the debugging connection holds this
         // session, so the text makes no claim about helpers keeping it open.
+        "chromium.zone_is_host" => {
+            "a page or worker of the app read this machine's time zone instead of the session's at some point, so a local time it showed could be off by the zone offset - the instant it read was still the session's"
+        }
         "chromium.followed_browser" => {
             "the target closed after handing the application over to another program, so the session went on with that program instead of ending with the target"
         }

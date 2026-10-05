@@ -86,6 +86,11 @@ pub(crate) fn verdict_keys(verdict: &Verdict) -> (&'static str, &'static str) {
 /// here.
 pub(crate) const KEY_FOLLOWED_BROWSER: &str = "chromium.followed_browser";
 
+/// A page or worker read a zone other than the session's at some point: the engine's zone override did
+/// not reach it, or its renderer process lost the override with the page that held it (R4/16). Its
+/// clock was the session's, its local time was not.
+pub(crate) const KEY_ZONE_IS_HOST: &str = "chromium.zone_is_host";
+
 /// What a finished CDP session observed about itself, each fact under its name. Named fields rather
 /// than a row of booleans, because a call site with seven `true`/`false` in a row cannot be read and
 /// two of them swapped still compiles.
@@ -105,6 +110,8 @@ pub(crate) struct SessionFacts {
     pub(crate) clock_clamped: bool,
     /// The target ended and the session went on with the browser it handed the application to.
     pub(crate) followed_browser: bool,
+    /// A context read a zone other than the session's at some point.
+    pub(crate) zone_missed: bool,
 }
 
 /// What a finished CDP session has to say about itself beyond the coverage numbers.
@@ -139,6 +146,11 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
         // the real clock and have no row in the audit - the verdict already counts them as uncovered,
         // and this says why (rule 4).
         warnings.push("chromium.context_ceiling_reached".to_string());
+    }
+    if facts.zone_missed {
+        // The shim in a context read an offset other than the session's (rule 4: the zone is said to
+        // be the session's only where it was read to be).
+        warnings.push(KEY_ZONE_IS_HOST.to_string());
     }
     if facts.clock_clamped {
         // The same key the native session uses (R4-S8): the wall reached the last instant it can hold
@@ -403,6 +415,11 @@ mod tests {
             session_warnings(&SessionFacts { followed_browser: true, ..audited }),
             vec!["chromium.launched_with_debug_port", KEY_FOLLOWED_BROWSER],
             "a session that went on after its target handed the application over says so (R4-S18)"
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { zone_missed: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", KEY_ZONE_IS_HOST],
+            "a context that read another zone says so"
         );
     }
 }
