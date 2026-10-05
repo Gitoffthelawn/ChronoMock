@@ -457,7 +457,7 @@
   "embedded.policy_not_written": "Chrono Mock nie mógł ustawić opcji WebView2, dzięki której sesja dociera do stron aplikacji działającej jako administrator, więc strony działały na realnym zegarze.",
   "embedded.policy_name_mismatch": "Chrono Mock ustawił opcję WebView2 dla programu, który uruchomił, ale WebView2 załadował inny program, którego opcja nie obejmuje. Uruchom bezpośrednio ten program, żeby dotrzeć do jego stron.",
   "embedded.pages_not_released": "Strona wewnątrz tej aplikacji nie potwierdziła powrotu na prawdziwy zegar, gdy sesja się skończyła, więc może trzymać datę sesji, dopóki jej nie odświeżysz albo nie zamkniesz.",
-  "embedded.zone_kept": "Aplikacja przeżyła sesję, a jej strony zostają w strefie czasowej sesji do ponownego uruchomienia - system nie podał strefy tego komputera, więc nie dało się ich na nią przestawić.",
+  "embedded.zone_kept": "Aplikacja przeżyła sesję, a część jej stron może nadal być w strefie czasowej sesji - zapytane po sesji, nie pokazały strefy tego komputera. Pokazany przez nie czas lokalny może różnić się od reszty aplikacji o przesunięcie strefy, dopóki aplikacja nie zostanie uruchomiona ponownie.",
   "embedded.web_engine_processes_uncovered": "Są wśród nich procesy osadzonego silnika web (WebView2 albo Qt WebEngine), więc część tego silnika działała na prawdziwym zegarze. Czy jego strony też - nie da się ustalić: wśród nazwanych procesów nie było renderera.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.

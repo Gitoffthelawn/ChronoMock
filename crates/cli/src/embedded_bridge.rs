@@ -25,7 +25,8 @@ use chrono_mech::{ModuleProbe, UncoveredChild};
 use chrono_proto::{ReachedEngine, TargetSpec};
 
 use crate::cdp;
-use crate::cdp_attach::{Attacher, AttacherOutcome, Pumped, ShimOrigin};
+use crate::cdp_attach::{Attacher, AttacherOutcome, MachineZone, Pumped, ShimOrigin};
+use crate::cdp_requests::ZoneTally;
 use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED};
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
@@ -68,8 +69,9 @@ pub(crate) const KEY_REGISTRY_ARGUMENTS_HIDDEN: &str = "embedded.registry_argume
 /// A page still open when the session ended did not confirm it was let go, so it may keep the session
 /// clock until it is reloaded or closed.
 const KEY_PAGES_NOT_RELEASED: &str = "embedded.pages_not_released";
-/// The pages of an application that outlived the session keep the session's zone until it restarts:
-/// the system did not name this machine's zone, so they could not be put back on it (ADR-21).
+/// Some pages of an application that outlived the session may still be on the session's zone: asked
+/// after this machine's zone was given back, they still showed the session's, or did not answer
+/// (ADR-21). An engine keeps the last zone it was given until the application restarts.
 const KEY_ZONE_KEPT: &str = "embedded.zone_kept";
 /// The application loaded WebView2 and the session never reached its web engine, for whatever reason
 /// no other key names - so its pages may have run on the real clock (docs/09 section 12.12).
@@ -178,6 +180,26 @@ impl Probes<(), (), ()> {
             image: chrono_mech::process_image_name,
         }
     }
+}
+
+/// This machine's zone as the release gives it back and checks it: the name the system gives it, and the
+/// instants and offsets of the system's own sample - the offsets are what a page reading the session's
+/// offset all year is judged against (ADR-21).
+fn machine_zone<'a>(name: Option<&'a str>, sample: &chrono_mech::ZoneSample) -> MachineZone<'a> {
+    MachineZone { name, at_ms: sample.at_ms, offsets: sample.offsets }
+}
+
+/// The line for the diagnostics stream when some pages cannot be said to be back on this machine's zone
+/// after the session (ADR-21): how many showed what, and what they were judged against, so a report that
+/// says the pages may keep the session's zone can be followed up.
+fn zone_back_line(zone: &ZoneTally, machine: &MachineZone<'_>, session: i32) -> String {
+    let name = machine.name.map_or_else(|| "not named by the system, the override was taken away".to_string(), |n| format!("named {n}"));
+    let offsets = machine.offsets.map_or_else(|| "unknown".to_string(), |[a, b]| format!("{a}/{b} min"));
+    format!(
+        "pages let go of: {} back on this machine's zone, {} still on the session's, {} not answering the zone read \
+         (this machine's zone {name}, its offsets {offsets}, the session's {session} min)",
+        zone.back, zone.kept, zone.unanswered
+    )
 }
 
 /// What a native start needs from the channel before the target launches: the variables that make
@@ -711,22 +733,30 @@ impl EmbeddedBridge {
     /// a GUI gives the core two seconds after `end` and both have to fit in them (ADR-20).
     ///
     /// The pages go back on this machine's zone as the system names it, read once here, at the end, so
-    /// a zone changed during the session is the one they get (ADR-21).
+    /// a zone changed during the session is the one they get (ADR-21) - and what each page then shows is
+    /// checked against this machine's offsets, read from the system at the same moment.
     pub(crate) fn release_pages(&mut self, origin: ShimOrigin, end_by: Instant) {
-        self.release_pages_to(chrono_mech::host_zone_name().as_deref(), origin, end_by);
+        let name = chrono_mech::host_zone_name();
+        let sample = chrono_mech::host_zone_sample();
+        self.release_pages_to(&machine_zone(name.as_deref(), &sample), origin, end_by);
     }
 
-    /// [`EmbeddedBridge::release_pages`] onto `machine_zone`, so a test names the zone, or none.
-    fn release_pages_to(&mut self, machine_zone: Option<&str>, origin: ShimOrigin, end_by: Instant) {
+    /// [`EmbeddedBridge::release_pages`] onto `machine`, so a test names the zone and its offsets.
+    fn release_pages_to(&mut self, machine: &MachineZone<'_>, origin: ShimOrigin, end_by: Instant) {
         let expr = cdp_release_expr();
-        let pages = self.attachers.iter().any(|a| !a.contexts().is_empty());
         let next_index = &mut self.next_index;
-        let unconfirmed: u32 =
-            self.attachers.iter_mut().map(|a| a.release(&expr, machine_zone, origin, next_index, end_by)).sum();
+        let mut unconfirmed = 0u32;
+        let mut zone = ZoneTally::default();
+        for attacher in &mut self.attachers {
+            let released = attacher.release(&expr, machine, origin, next_index, end_by);
+            unconfirmed = unconfirmed.saturating_add(released.unconfirmed);
+            zone.add(released.zone);
+        }
         if unconfirmed > 0 {
             self.warn(KEY_PAGES_NOT_RELEASED);
         }
-        if pages && machine_zone.is_none() {
+        if zone.any_not_back() {
+            diag!("chrono core: {}", zone_back_line(&zone, machine, self.zone));
             self.warn(KEY_ZONE_KEPT);
         }
     }
@@ -1199,17 +1229,18 @@ mod tests {
     }
 
     /// A bridge holding one engine with one page on the session's zone, over a scripted browser that
-    /// answers every release `ok`. The log of what the session asked comes back when the bridge is gone.
-    fn bridge_with_a_page() -> (EmbeddedBridge, thread::JoinHandle<Vec<serde_json::Value>>) {
-        let (port, browser) = cdp::fake_browser_holding(|request| {
+    /// answers every release `ok` and the zone read with `shows` - what the page shows at the two instants
+    /// after the release. The log of what the session asked comes back when the bridge is gone.
+    fn bridge_with_a_page(shows: [i32; 2]) -> (EmbeddedBridge, thread::JoinHandle<Vec<serde_json::Value>>) {
+        let (port, browser) = cdp::fake_browser_holding(move |request| {
             let id = request["id"].clone();
+            let expr = request["params"]["expression"].as_str().unwrap_or("");
             let reply = match request["method"].as_str().unwrap_or("") {
                 "Target.getTargets" => serde_json::json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }] }),
                 "Target.attachToTarget" => serde_json::json!({ "sessionId": "S1" }),
                 "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({ "identifier": "h" }),
-                "Runtime.evaluate" if request["params"]["expression"] == cdp::release_expr() => {
-                    serde_json::json!({ "result": { "value": "ok" } })
-                }
+                "Runtime.evaluate" if expr == cdp::release_expr() => serde_json::json!({ "result": { "value": "ok" } }),
+                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => serde_json::json!({ "result": { "value": shows } }),
                 _ => serde_json::json!({}),
             };
             vec![(id, reply)]
@@ -1226,38 +1257,75 @@ mod tests {
     }
 
     /// ADR-21: the pages of an application that outlives the session go back on this machine's zone by
-    /// its name, because an engine keeps the last zone it was given. With no name the session says the
-    /// pages keep its zone - and says nothing when there were no pages to keep it.
+    /// its name, because an engine keeps the last zone it was given - and what each then shows decides
+    /// the report, not the name. A page that still shows the session's zone is said, with a name or
+    /// without, and a page that shows the machine's is not, also when the system named no zone and the
+    /// override was only taken away. Nothing is said when there were no pages to keep anything.
     #[test]
-    fn the_pages_let_go_are_put_on_the_machines_zone_or_it_is_said_that_they_keep_the_sessions() {
+    fn the_pages_let_go_are_put_on_the_machines_zone_and_the_ones_still_on_the_sessions_are_said() {
         let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
         let end_by = || Instant::now() + Duration::from_secs(2);
         let last_zone = |log: &[serde_json::Value]| {
             log.iter().rev().find(|r| r["method"] == "Emulation.setTimezoneOverride").map(|r| r["params"]["timezoneId"].clone())
         };
+        let warsaw = |name| MachineZone { name, at_ms: [1_768_478_400_000, 1_784_116_800_000], offsets: Some([-60, -120]) };
+        let kept = |bridge: &EmbeddedBridge| bridge.warnings.iter().any(|w| w == KEY_ZONE_KEPT);
 
-        let (mut named, browser) = bridge_with_a_page();
-        named.release_pages_to(Some("Europe/Warsaw"), origin, end_by());
-        assert!(!named.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", named.warnings);
+        let (mut named, browser) = bridge_with_a_page([-60, -120]);
+        named.release_pages_to(&warsaw(Some("Europe/Warsaw")), origin, end_by());
+        assert!(!kept(&named), "{:?}", named.warnings);
         drop(named);
         assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!("Europe/Warsaw")));
 
-        let (mut unnamed, browser) = bridge_with_a_page();
-        unnamed.release_pages_to(None, origin, end_by());
-        assert!(unnamed.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", unnamed.warnings);
-        drop(unnamed);
+        let (mut unknown_name, _browser) = bridge_with_a_page([-330, -330]);
+        unknown_name.release_pages_to(&warsaw(Some("Europe/Warsaw")), origin, end_by());
+        assert!(kept(&unknown_name), "the engine did not take the name: {:?}", unknown_name.warnings);
+
+        let (mut unnamed_back, browser) = bridge_with_a_page([-60, -120]);
+        unnamed_back.release_pages_to(&warsaw(None), origin, end_by());
+        assert!(!kept(&unnamed_back), "taken away, and the page came back: {:?}", unnamed_back.warnings);
+        drop(unnamed_back);
         assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!("")), "taken away all the same");
 
-        let mut empty = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
-        empty.release_pages_to(None, origin, end_by());
-        assert!(!empty.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "no page kept anything");
+        let (mut unnamed_kept, _browser) = bridge_with_a_page([-330, -330]);
+        unnamed_kept.release_pages_to(&warsaw(None), origin, end_by());
+        assert!(kept(&unnamed_kept), "{:?}", unnamed_kept.warnings);
 
-        // The session's own call asks the system, which names this machine's zone here and on CI.
+        let mut empty = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
+        empty.release_pages_to(&warsaw(None), origin, end_by());
+        assert!(!kept(&empty), "no page kept anything");
+
+        // The session's own call asks the system, which names this machine's zone and converts its offsets
+        // here and on CI - a page that shows those is back.
         let machine = chrono_mech::host_zone_name().expect("the system names this machine's zone");
-        let (mut session, browser) = bridge_with_a_page();
+        let offsets = chrono_mech::host_zone_sample().offsets.expect("the system converts this machine's offsets");
+        let (mut session, browser) = bridge_with_a_page(offsets);
         session.release_pages(origin, end_by());
-        assert!(!session.warnings.iter().any(|w| w == KEY_ZONE_KEPT), "{:?}", session.warnings);
+        assert!(!kept(&session), "{:?}", session.warnings);
         drop(session);
         assert_eq!(last_zone(&browser.join().unwrap()), Some(serde_json::json!(machine)));
+    }
+
+    /// The release judges the pages against the system's own sample, whole: its instants and its offsets.
+    #[test]
+    fn the_machines_zone_is_the_systems_name_and_sample() {
+        let sample = chrono_mech::ZoneSample { at_ms: [1, 2], offsets: Some([-540, -540]) };
+        let machine = machine_zone(Some("Asia/Tokyo"), &sample);
+        assert_eq!((machine.name, machine.at_ms, machine.offsets), (Some("Asia/Tokyo"), [1, 2], Some([-540, -540])));
+        let unconverted = chrono_mech::ZoneSample { at_ms: [1, 2], offsets: None };
+        assert_eq!(machine_zone(None, &unconverted).offsets, None);
+    }
+
+    /// The diagnostics line says how many pages showed what, and against what they were judged.
+    #[test]
+    fn the_zone_line_says_what_the_pages_showed_and_against_what() {
+        let tally = ZoneTally { back: 1, kept: 2, unanswered: 3 };
+        let named = MachineZone { name: Some("Europe/Warsaw"), at_ms: [0, 1], offsets: Some([-60, -120]) };
+        let line = zone_back_line(&tally, &named, -330);
+        assert!(line.contains("1 back") && line.contains("2 still on the session's") && line.contains("3 not answering"), "{line}");
+        assert!(line.contains("named Europe/Warsaw") && line.contains("-60/-120 min") && line.contains("-330 min"), "{line}");
+        let unnamed = MachineZone { name: None, at_ms: [0, 1], offsets: None };
+        let line = zone_back_line(&tally, &unnamed, -330);
+        assert!(line.contains("not named by the system") && line.contains("offsets unknown"), "{line}");
     }
 }

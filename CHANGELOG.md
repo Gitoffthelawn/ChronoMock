@@ -92,8 +92,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   which used to compare today's offsets and is now said only when a page read another zone). When a
   session ends and the application lives on, its pages are put back on this machine's own time zone,
   as the system names it, so a date on either side of daylight saving shows this machine's offset
-  again. When the system does not name it, the report says the pages keep the session's zone
-  (`embedded.zone_kept`).
+  again. Each page is then asked what it shows, because an engine that does not know the name keeps
+  the page where it was: a page that still shows the session's zone, or does not answer, is reported
+  (`embedded.zone_kept`) - also when the system names no zone, and only then.
 - **A console application's output goes to `chrono run`'s standard error.** The application writes
   its output and errors there, and reads the terminal's input when `chrono run` runs in a terminal
   with a window, or empty input otherwise, as in CI. Standard output carries the report and nothing

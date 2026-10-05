@@ -21,7 +21,7 @@ use serde_json::json;
 
 use crate::cdp;
 use crate::cdp_audit::context_index_for;
-use crate::cdp_requests::{CdpContext, Requests};
+use crate::cdp_requests::{CdpContext, Requests, ZoneTally};
 use crate::zone::{now_epoch_ms, WALL_MAX_MS};
 
 /// How long a clock move waits for the pages' new hooks before the command is acknowledged (R4-S10,
@@ -36,6 +36,32 @@ pub(crate) const END_WAIT: Duration = Duration::from_millis(750);
 /// How long one pump turn goes on taking messages that are already here, so a burst of attaches
 /// cannot hold the loop from its heartbeat (R4-S10). The rest is taken on the next turn.
 const TURN_BUDGET: Duration = Duration::from_millis(100);
+
+/// The part of the end's deadline the release keeps for the zone it gives back and the read after it
+/// (ADR-21), when the session set a zone: two round trips over loopback, which take milliseconds in a
+/// page that is not busy - a page busy for this long has not answered the release either.
+const ZONE_STAGE: Duration = Duration::from_millis(250);
+
+/// The part of [`ZONE_STAGE`] kept for the zone read itself, sent at the latest this far before the
+/// deadline whether every zone was answered or not.
+const READ_STAGE: Duration = Duration::from_millis(100);
+
+/// This machine's zone as the release gives it back and checks it: its name (`None` when the system
+/// names none, and the override is then taken away instead), the two instants of the year it is read
+/// at, and this machine's offsets at them (`None` when the system would not convert them).
+pub(crate) struct MachineZone<'a> {
+    pub(crate) name: Option<&'a str>,
+    pub(crate) at_ms: [i64; 2],
+    pub(crate) offsets: Option<[i32; 2]>,
+}
+
+/// What the release of an attacher came to: how many contexts did not confirm they were let go, and
+/// where the contexts stand with their zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Released {
+    pub(crate) unconfirmed: u32,
+    pub(crate) zone: ZoneTally,
+}
 
 /// The clock origin a shim is built from: fake start and real start (both Unix-epoch ms), the wall
 /// rate and the duration rate. A Chromium session runs both rates at the multiplier. A page inside a
@@ -533,29 +559,40 @@ impl Attacher {
     /// and the last counts after this wait for the same deadline (`EmbeddedBridge::finish`), so a count
     /// still in flight when it passed is never read.
     ///
-    /// The pages go back on `machine_zone`, this machine's zone as the system names it (ADR-21). Taking
-    /// the override away gives the page of an embedded engine nothing back: its renderer keeps the last
-    /// zone it was given, also once the connection closes (measured on WebView2 154 in a hooked
-    /// application, 2026-10-05 - the browser of a Chromium session, which is not hooked, did go back to
-    /// the machine's zone). A named zone given last stays, with the machine's offsets on both sides of
-    /// daylight saving. With no name the override is taken away all the same, and the caller says that
-    /// the pages keep the session's zone (rule 6).
+    /// The pages go back on `machine`, this machine's zone as the system names it (ADR-21). Taking the
+    /// override away gives the page of an embedded engine nothing back: its renderer keeps the last zone
+    /// it was given, also once the connection closes (measured on WebView2 154 in a hooked application,
+    /// 2026-10-05 - the browser of a Chromium session, which is not hooked, did go back to the machine's
+    /// zone). A named zone given last stays, with the machine's offsets on both sides of daylight saving.
+    /// With no name the override is taken away all the same.
+    ///
+    /// Neither is taken on trust: an engine that does not know the name keeps the page where it was, and
+    /// the answer to the override proves nothing. Once every context answered the zone, each is asked
+    /// what it shows at two instants of the year, and judged against the session's offset and this
+    /// machine's ([`crate::cdp_requests::zone_back`]) - the caller says the ones it cannot vouch for
+    /// (rule 6). The release keeps [`ZONE_STAGE`] of the deadline for this.
     pub(crate) fn release(
         &mut self,
         expr: &str,
-        machine_zone: Option<&str>,
+        machine: &MachineZone<'_>,
         origin: ShimOrigin,
         next_index: &mut u32,
         deadline: Instant,
-    ) -> u32 {
+    ) -> Released {
         self.ending = true;
         self.requests.request_counts(&mut self.client);
         self.requests.start_release(expr, &mut self.client);
-        self.wait_until(deadline, origin, next_index, |r| r.release_settled() && r.counts_settled());
-        if self.zone.is_some() {
-            self.requests.send_zone(machine_zone.unwrap_or(""), &mut self.client);
-        }
-        self.requests.unreleased()
+        let Some(session) = self.zone else {
+            self.wait_until(deadline, origin, next_index, |r| r.release_settled() && r.counts_settled());
+            return Released { unconfirmed: self.requests.unreleased(), zone: ZoneTally::default() };
+        };
+        self.wait_until(before(deadline, ZONE_STAGE), origin, next_index, |r| r.release_settled() && r.counts_settled());
+        let read = cdp::zone_read_expr(machine.at_ms);
+        self.requests.give_zone_back(machine.name.unwrap_or(""), &read, &mut self.client);
+        self.wait_until(before(deadline, READ_STAGE), origin, next_index, |r| r.zone_reads_sent() || r.zones_settled());
+        self.requests.read_zones_now(&mut self.client);
+        self.wait_until(deadline, origin, next_index, Requests::zone_reads_settled);
+        Released { unconfirmed: self.requests.unreleased(), zone: self.requests.zone_tally(session, machine.offsets) }
     }
 
     /// The end of the session: ask for the last counts and wait for them until `deadline`, then take
@@ -618,6 +655,11 @@ impl Attacher {
 fn attach_deadline(now: Instant, budget: Duration, cap: Option<Instant>) -> Instant {
     let own = now + budget;
     cap.map_or(own, |cap| cap.min(own))
+}
+
+/// The instant `stage` before `deadline`, or the deadline itself where that cannot be written.
+fn before(deadline: Instant, stage: Duration) -> Instant {
+    deadline.checked_sub(stage).unwrap_or(deadline)
 }
 
 /// Whether a context with this index is one too many: the ceiling is on contexts ever seen, so a
@@ -736,6 +778,11 @@ mod tests {
                     Vec::new()
                 }
                 "Runtime.evaluate" if expr == cdp::COUNTS_EXPR => vec![(id, count(reset))],
+                // The zone read: the machine's offsets once the zone was given back, the session's before.
+                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => {
+                    let shown = if reset { json!([-60, -120]) } else { json!([-330, -330]) };
+                    vec![(id, json!({ "result": { "value": shown } }))]
+                }
                 "Runtime.evaluate" if expr == cdp::release_expr() => {
                     let mut out = Vec::new();
                     if session == "S2"
@@ -758,8 +805,10 @@ mod tests {
         let mut next = 0;
         assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 2);
         let deadline = Instant::now() + Duration::from_secs(2);
-        let unreleased = attacher.release(&cdp::release_expr(), Some("Europe/Warsaw"), origin, &mut next, deadline);
-        assert_eq!(unreleased, 0, "both pages confirmed they were let go");
+        let machine = MachineZone { name: Some("Europe/Warsaw"), at_ms: [1_768_478_400_000, 1_784_116_800_000], offsets: Some([-60, -120]) };
+        let released = attacher.release(&cdp::release_expr(), &machine, origin, &mut next, deadline);
+        assert_eq!(released.unconfirmed, 0, "both pages confirmed they were let go");
+        assert_eq!(released.zone, ZoneTally { back: 2, kept: 0, unanswered: 0 }, "both read back the machine's zone");
         assert_eq!(attacher.zone_missed(), 0, "the busy page's last count read the session's zone");
         drop(attacher);
         let log = browser.join().unwrap();
@@ -769,6 +818,103 @@ mod tests {
         assert!(resets.iter().all(|&i| log[i]["params"]["timezoneId"] == "Europe/Warsaw"), "the machine's, by its name");
         let last_release = log.iter().rposition(|r| r["params"]["expression"] == cdp::release_expr());
         assert!(last_release.is_some_and(|r| resets.iter().all(|&i| i > r)), "the zone goes after the releases");
+        let reads: Vec<usize> = (0..log.len())
+            .filter(|&i| log[i]["params"]["expression"] == cdp::zone_read_expr(machine.at_ms).as_str())
+            .collect();
+        assert_eq!(reads.len(), 2, "each page is asked what it shows");
+        assert!(reads.iter().all(|&i| resets.iter().all(|&z| i > z)), "the read goes after the zone");
+    }
+
+    /// Stability of the end: a page busy with its own JS answers neither the release nor anything after
+    /// it, and the release does not wait it out to the deadline before the zone - the zone and its read
+    /// keep their part of the deadline, so the page that is not busy is still found back on the machine's
+    /// zone, and the busy one is counted as one that did not answer.
+    #[test]
+    fn a_busy_page_does_not_take_the_zone_check_from_the_others() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let session = request["sessionId"].as_str().unwrap_or("");
+            let expr = request["params"]["expression"].as_str().unwrap_or("");
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(
+                    id,
+                    json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }, { "targetId": "T2", "type": "page" }] }),
+                )],
+                "Target.attachToTarget" => {
+                    let target = request["params"]["targetId"].as_str().unwrap_or("");
+                    vec![(id, json!({ "sessionId": target.replace('T', "S") }))]
+                }
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                // The second page is busy from the release on: it answers nothing more.
+                "Runtime.evaluate" if session == "S2" && (expr == cdp::release_expr() || expr.contains("getTimezoneOffset()]")) => {
+                    Vec::new()
+                }
+                "Runtime.evaluate" if expr == cdp::release_expr() => vec![(id, json!({ "result": { "value": "ok" } }))],
+                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => {
+                    vec![(id, json!({ "result": { "value": [-60, -120] } }))]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        attacher.set_zone(-330);
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 2);
+        let machine = MachineZone { name: Some("Europe/Warsaw"), at_ms: [0, 1], offsets: Some([-60, -120]) };
+        let started = Instant::now();
+        let released = attacher.release(&cdp::release_expr(), &machine, origin, &mut next, started + END_WAIT);
+        assert!(started.elapsed() < END_WAIT + Duration::from_millis(250), "the end's deadline holds: {:?}", started.elapsed());
+        assert_eq!(released.unconfirmed, 1, "the busy page did not confirm it was let go");
+        assert_eq!(released.zone, ZoneTally { back: 1, kept: 0, unanswered: 1 });
+        drop(attacher);
+        drop(browser.join());
+    }
+
+    /// A page that still shows the session's zone after it was given the machine's - an engine that does
+    /// not know the name keeps it there - is counted as kept, and one that never answers the read as
+    /// unanswered. A session that set no zone gives none back and reads none.
+    #[test]
+    fn a_page_still_on_the_sessions_zone_after_the_release_is_counted() {
+        let release_with = |answer: Option<serde_json::Value>, zone: Option<i32>| {
+            let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+                let id = request["id"].clone();
+                let expr = request["params"]["expression"].as_str().unwrap_or("");
+                match request["method"].as_str().unwrap_or("") {
+                    "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }] }))],
+                    "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
+                    "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                    "Runtime.evaluate" if expr == cdp::release_expr() => vec![(id, json!({ "result": { "value": "ok" } }))],
+                    "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => {
+                        answer.clone().map(|v| vec![(id, json!({ "result": { "value": v } }))]).unwrap_or_default()
+                    }
+                    _ => vec![(id, json!({}))],
+                }
+            });
+            let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+            let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+            attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+            if let Some(bias) = zone {
+                attacher.set_zone(bias);
+            }
+            let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+            let mut next = 0;
+            assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+            let machine = MachineZone { name: Some("Mars/Olympus"), at_ms: [0, 1], offsets: Some([-60, -120]) };
+            let released = attacher.release(&cdp::release_expr(), &machine, origin, &mut next, Instant::now() + Duration::from_millis(750));
+            drop(attacher);
+            (released, browser.join().unwrap())
+        };
+        let (kept, _) = release_with(Some(json!([-330, -330])), Some(-330));
+        assert_eq!(kept.zone, ZoneTally { back: 0, kept: 1, unanswered: 0 });
+        let (silent, _) = release_with(None, Some(-330));
+        assert_eq!(silent.zone, ZoneTally { back: 0, kept: 0, unanswered: 1 });
+        let (none, log) = release_with(Some(json!([-60, -120])), None);
+        assert_eq!(none.zone, ZoneTally::default());
+        assert!(log.iter().all(|r| r["method"] != "Emulation.setTimezoneOverride"), "no zone set, none given back");
+        assert!(log.iter().all(|r| !r["params"]["expression"].as_str().unwrap_or("").contains("getTimezoneOffset()]")));
     }
 
     /// R4-S14: a turn takes everything that is already here, not one message - and reports what
