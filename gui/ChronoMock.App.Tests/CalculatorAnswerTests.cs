@@ -258,7 +258,11 @@ public class CalculatorAnswerTests
         await Until(() => vm.Readings.Count == 2, "the first analysis to land");
 
         vm.AnalyzeText = "empty";
-        await Until(() => vm.AnalyzeHasError, "the empty answer to land");
+        // A test has no window thread, so the answer is shown on a thread of its own, and the error flag is
+        // written before the readings are dropped. The analysis is current only once the whole answer is on
+        // screen (LatestAnswer.Release), so the wait is on that - the flag alone let the asserts below read
+        // the readings of the text before (the same race as the clearing of the result, R4-N43).
+        await Until(() => vm.AnalyzeHasError && !vm.IsAnalysisStale, "the empty answer to land");
 
         Assert.Empty(vm.Readings);
         Assert.False(vm.AnalyzeAmbiguous);
