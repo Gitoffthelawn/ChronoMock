@@ -66,6 +66,13 @@ public sealed record SessionRecord
     /// before this field existed reads as off, which is what it did.</summary>
     [JsonPropertyName("elevated_embedded")] public bool ElevatedEmbedded { get; init; }
 
+    /// <summary>Whether every text this record promises is there. <c>required</c> only says a key was
+    /// present, and an explicit JSON <c>null</c> satisfies it - so a hand-edited or damaged row could carry a
+    /// null that failed only where it was read (R4-N47).</summary>
+    internal bool IsWhole =>
+        TargetPath is not null && MomentLocal is not null && Mode is not null && Verdict is not null
+        && EndedAtUtc is not null && TargetArgs is not null && WorkingFolder is not null;
+
     /// <summary>The target's file name for display - the full path stays in <see cref="TargetPath"/>.</summary>
     [JsonIgnore] public string TargetName => Path.GetFileName(TargetPath);
 

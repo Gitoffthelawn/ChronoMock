@@ -35,13 +35,13 @@ public sealed class SessionCommands
     private readonly RelayCommand _today;
     private readonly RelayCommand _now;
     private readonly RelayCommand _repeat;
-    private readonly RelayCommand _forget;
+    private readonly AsyncRelayCommand _forget;
     private readonly RelayCommand _newSession;
     private readonly RelayCommand _chooseTarget;
     private readonly RelayCommand _browseFolder;
     private readonly RelayCommand _copySummary;
     private readonly RelayCommand _copyDiagnostics;
-    private readonly RelayCommand _clearHistory;
+    private readonly AsyncRelayCommand _clearHistory;
     private readonly RelayCommand _chooseFirstScenario;
     private readonly RelayCommand _jumpToEntered;
     private readonly AsyncRelayCommand _start;
@@ -94,14 +94,8 @@ public sealed class SessionCommands
                 }
             },
             () => session.HasSelectedRecord);
-        _forget = new RelayCommand(
-            () =>
-            {
-                if (session.SelectedRecord is { } record)
-                {
-                    session.RemoveFromHistory(record);
-                }
-            },
+        _forget = new AsyncRelayCommand(
+            () => session.SelectedRecord is { } record ? session.RemoveFromHistoryAsync(record) : Task.CompletedTask,
             () => session.HasSelectedRecord);
 
         // New session returns a finished result to a fresh setup form (the result phase's one step forward),
@@ -147,16 +141,15 @@ public sealed class SessionCommands
                 }
             },
             () => session.HasDiagnostics);
-        _clearHistory = new RelayCommand(
+        _clearHistory = new AsyncRelayCommand(
             () =>
             {
                 // Destructive, so it confirms first with the effect spelled out and the affirmative named
                 // after what it does (zasady/13 section 11).
-                if (_shell is not null
-                    && _shell.Confirm("history.clear_confirm", "history.clear_undone", "history.clear_title"))
-                {
-                    session.ClearHistory();
-                }
+                return _shell is not null
+                       && _shell.Confirm("history.clear_confirm", "history.clear_undone", "history.clear_title")
+                    ? session.ClearHistoryAsync()
+                    : Task.CompletedTask;
             },
             () => session.HasHistory);
 

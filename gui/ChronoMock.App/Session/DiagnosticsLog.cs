@@ -50,7 +50,7 @@ public sealed class FileDiagnosticsLog : IDiagnosticsLog
         var exeLogs = Path.Combine(AppContext.BaseDirectory, "logs");
         var perUser = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", "logs");
-        return new FileDiagnosticsLog(ChooseWritableDir(exeLogs, perUser, IsWritable));
+        return new FileDiagnosticsLog(ChooseWritableDir(exeLogs, perUser, WritableFolder.IsWritable));
     }
 
     /// <summary>Pick <paramref name="preferred"/> when writable, else <paramref name="fallback"/>. The
@@ -59,39 +59,53 @@ public sealed class FileDiagnosticsLog : IDiagnosticsLog
     internal static string ChooseWritableDir(string preferred, string fallback, Func<string, bool> isWritable)
         => isWritable(preferred) ? preferred : fallback;
 
-    /// <summary>Whether a directory can be created and written to, by actually probing it (a real write is
-    /// the only honest test on Windows, where a read-only attribute does not stop file creation).</summary>
-    private static bool IsWritable(string dir)
-    {
-        try
-        {
-            Directory.CreateDirectory(dir);
-            var probe = Path.Combine(dir, ".write-probe");
-            File.WriteAllText(probe, string.Empty);
-            File.Delete(probe);
-            return true;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
+    /// <summary>How many names one save tries before it gives up - the stamp, then the stamp with a suffix.</summary>
+    private const int NameAttempts = 10;
 
-    public string? Save(string content)
+    public string? Save(string content) => Save(content, DateTime.UtcNow);
+
+    /// <summary>The save at a given moment - the clock is a parameter only so a test can make two saves
+    /// land on one stamp, which is the collision two instances produce.</summary>
+    internal string? Save(string content, DateTime utcNow)
     {
         try
         {
             Directory.CreateDirectory(_directory);
             // Sortable, filename-safe timestamp (no ':') - milliseconds keep two fast failures from colliding.
-            var stamp = DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
-            var path = Path.Combine(_directory, $"diagnostics-{stamp}.log");
-            File.WriteAllText(path, content);
+            var stamp = utcNow.ToString("yyyyMMddTHHmmssfffZ", CultureInfo.InvariantCulture);
+            var path = WriteNew(stamp, content);
             Prune();
             return path;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return null; // best-effort: the in-memory copy behind the button still stands (rule 6 met there)
+        }
+    }
+
+    /// <summary>
+    /// Write the block under a name nobody else holds. The stamp alone kept two failures of ONE instance
+    /// apart, and two instances failing in the same millisecond wrote the same file, the second over the
+    /// first (R4/13). Created new, never opened over - a name already taken gets a suffix, which sorts beside
+    /// its own stamp and among no other, so pruning still drops the oldest first.
+    /// </summary>
+    private string WriteNew(string stamp, string content)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var name = attempt == 0 ? $"diagnostics-{stamp}.log" : $"diagnostics-{stamp}-{attempt}.log";
+            var path = Path.Combine(_directory, name);
+            try
+            {
+                using var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                using var writer = new StreamWriter(file);
+                writer.Write(content);
+                return path;
+            }
+            catch (IOException) when (File.Exists(path) && attempt < NameAttempts)
+            {
+                // Taken - by the other instance, or a moment ago by this one. Try the next name.
+            }
         }
     }
 

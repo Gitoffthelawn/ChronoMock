@@ -1,4 +1,3 @@
-using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using System.Windows;
 using Wpf.Ui.Controls;
 using ChronoMock.App.Calc;
@@ -45,26 +44,86 @@ public partial class MainWindow : FluentWindow
             _session.SetTarget(sample);
         }
 
-        // Closing the window ends the session: disposing the client stops the core, and the hook
-        // self-detaches so the target reverts to real time on its own (slice 10) - we never kill it.
-        // Done in Closing, with a bounded wait, rather than as an async-void handler on Closed: WPF does
-        // not await such a handler, so the process could exit mid-shutdown. It survived on the core seeing
-        // EOF on stdin and cleaning up by itself, which is luck, not a design. The wait is bounded because
-        // a window must always close - a core that will not end is killed by the dispose path anyway.
+        // Closing the window ends the session: the core is stopped, and the hook self-detaches so the
+        // target reverts to real time on its own (slice 10) - we never kill it.
         Closing += OnWindowClosing;
     }
 
+    /// <summary>How long a window closed during a session waits for it to end before it closes anyway
+    /// (R4-D1 of R4/13). The longest ordinary end is the core's: two seconds of grace before it is stopped,
+    /// then the reads drained - 6.5 s at the outside - and the history written after it. Typically all of
+    /// it is well under half a second.</summary>
+    private static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>Where closing stands: the window is open, ending its session before it closes, or done.</summary>
+    private CloseStage _closeStage;
+
+    private enum CloseStage
+    {
+        Open,
+        Finishing,
+        Done,
+    }
+
+    /// <summary>
+    /// 🔴 The close waits for the session WITHOUT blocking this thread (R4-S24). It used to block here for up
+    /// to three seconds on a dispose whose end needed this very thread, so the wait always ran out - measured,
+    /// every close during a session took 3.05 s - and the application then exited before the session reached
+    /// the history: zero of three were recorded. Now a close with a session running is put off, the session
+    /// ends as a Stop ends it (the panel says "Stopping"), and the window closes itself once it is over or
+    /// once <see cref="CloseWait"/> has passed. A second close in the meantime changes nothing. A close with
+    /// no session to end is not delayed at all.
+    /// <para>
+    /// Not raised when Windows ends the user's session: the documentation for Closing says logging off
+    /// skips it, and an application shutdown ignores a cancel. A session cut off that way ends as before - the
+    /// core sees its input close, the hook lets go - and is not in the history (R4-D2).
+    /// </para>
+    /// </summary>
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        Closing -= OnWindowClosing;
+        if (_closeStage == CloseStage.Done)
+        {
+            return;
+        }
+
+        _calculator.Abandon();
+        if (_closeStage == CloseStage.Finishing)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var finishing = _session.FinishForCloseAsync(CloseWait);
+        if (finishing.IsCompleted)
+        {
+            _closeStage = CloseStage.Done;
+            return;
+        }
+
+        e.Cancel = true;
+        _closeStage = CloseStage.Finishing;
+        _ = CloseOnceFinishedAsync(finishing);
+    }
+
+    private async Task CloseOnceFinishedAsync(Task<bool> finishing)
+    {
         try
         {
-            _session.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3));
+            await finishing;
         }
-        catch (AggregateException)
+        catch (Exception fault)
         {
-            // The core was already gone, or refused to end - either way the window still closes and the
-            // hook self-detaches, so the target is not left on a fake clock.
+            // The window closes regardless - it must - but the failure is written where every other fault
+            // goes. Left to escape, it became an unobserved task that the exiting process never reported.
+            // No dialog: the window it would sit on is closing, and the process exits right after.
+            FileDiagnosticsLog.ForApp().Save(FaultReports.Record(fault, "window close"));
+        }
+        finally
+        {
+            _closeStage = CloseStage.Done;
+            // Queued, never called from here: Close() while the window is still inside Closing throws, and
+            // nothing guarantees the wait above did not complete before Closing returned.
+            _ = Dispatcher.BeginInvoke(new Action(Close));
         }
     }
 
@@ -114,7 +173,7 @@ public partial class MainWindow : FluentWindow
         e.Handled = true;
     }
 
-    private void OnWindowDrop(object sender, DragEventArgs e)
+    private async void OnWindowDrop(object sender, DragEventArgs e)
     {
         e.Handled = true;
         if (!_session.IsIdle)
@@ -122,34 +181,27 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        if (DroppedExecutable(e) is { } path)
+        // Read the drop NOW: its data lives only as long as this event, and the check below awaits.
+        var path = DroppedExecutable(e);
+        var files = e.Data.GetDataPresent(DataFormats.FileDrop);
+        if (path is not null && await _session.DropTargetAsync(path))
         {
-            _session.SetTarget(path);
             return;
         }
 
         // Say why nothing happened rather than swallowing the drop (rule 6). A dropped .lnk or .bat could
         // only fail later, and failing at the drop is the honest place for it.
-        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        if (files)
         {
             Views.MessageDialog.Tell(this, Text("target.drop_rejected_title"), Text("target.drop_rejected"));
         }
     }
 
-    /// <summary>The single .exe in a drop, or null - several files, a folder or another format is not a target.</summary>
+    /// <summary>The single .exe in a drop, or null - judged by its name only (see <see cref="DroppedTarget"/>).</summary>
     private string? DroppedExecutable(DragEventArgs e)
-    {
-        if (!_session.IsIdle || !e.Data.GetDataPresent(DataFormats.FileDrop))
-        {
-            return null;
-        }
-
-        return e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } paths
-            && paths[0].EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            && File.Exists(paths[0])
-                ? paths[0]
-                : null;
-    }
+        => _session.IsIdle && e.Data.GetDataPresent(DataFormats.FileDrop)
+            ? DroppedTarget.Candidate(e.Data.GetData(DataFormats.FileDrop))
+            : null;
 
     // The support link. The destination is chosen inside ExternalLinks and never here, so this method is
     // not a place where a string could turn into something the shell runs.

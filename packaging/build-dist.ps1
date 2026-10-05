@@ -26,8 +26,10 @@
             LICENSE   THIRD-PARTY-NOTICES.md   README.md
         dist/ChronoMock-cli-win.zip       the same folder, zipped
 
-    The launcher resolves the GUI layout through AppPaths (the x64 core beside it under core/
-    is the portable marker). The native cores are self-contained already (static CRT, ADR-1).
+    The launcher resolves the GUI layout through AppPaths, which reads the layout from the build: the
+    publish below passes ChronoMockLayout=portable and the window carries it as assembly metadata, so a
+    package whose core is missing still knows what it is and says so. The native cores are
+    self-contained already (static CRT, ADR-1).
 
     Run with PowerShell 7 (pwsh). Every missing piece is a hard stop - a half-assembled
     distribution that looks complete is worse than a clear failure (untouchable rule 6).
@@ -75,6 +77,27 @@ function Assert-Exists([string] $path, [string] $why) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "missing '$path' - $why"
     }
+}
+
+# Whether a published window carries the portable layout marker (R4-S26): the assembly metadata
+# ChronoMock.Layout = portable, which -p:ChronoMockLayout=portable writes. Read from the bytes, as the
+# custom attribute blob encodes it - each string length-prefixed, key then value - so nothing is loaded.
+# A publish without it would be packaged as a dev build that looks for a repo root and does not start,
+# and -SkipPublish reuses whatever publish is on disk (review of #87).
+function Test-PortableLayout([string] $dll) {
+    $bytes = [System.IO.File]::ReadAllBytes($dll)
+    $key = [System.Text.Encoding]::ASCII.GetBytes('ChronoMock.Layout')
+    $value = [System.Text.Encoding]::ASCII.GetBytes('portable')
+    $pattern = [byte[]](@([byte]$key.Length) + $key + @([byte]$value.Length) + $value)
+    for ($i = 0; $i -le $bytes.Length - $pattern.Length; $i++) {
+        if ($bytes[$i] -ne $pattern[0]) { continue }
+        $match = $true
+        for ($j = 1; $j -lt $pattern.Length; $j++) {
+            if ($bytes[$i + $j] -ne $pattern[$j]) { $match = $false; break }
+        }
+        if ($match) { return $true }
+    }
+    return $false
 }
 
 # Where the cargo build lands each core and its matching-bitness hook DLL - one directory per target
@@ -161,12 +184,20 @@ Assert-Exists $x86hook 'build the x86 core: cargo build --release --target i686-
 if (-not $SkipPublish) {
     Write-Host '== dotnet publish GUI (Release, self-contained win-x64) =='
     if (Test-Path -LiteralPath $publish) { Remove-Item -LiteralPath $publish -Recurse -Force }
+    # ChronoMockLayout=portable is what tells the window it runs from this layout (R4-S26) - without it the
+    # packaged GUI looks for a repo root and does not start.
     dotnet publish (Join-Path $root 'gui/ChronoMock.App/ChronoMock.App.csproj') `
-        -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $publish --nologo
+        -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:ChronoMockLayout=portable `
+        -o $publish --nologo
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit $LASTEXITCODE" }
 }
 
 Assert-Exists (Join-Path $publish 'ChronoMock.exe') 'run a GUI publish first (do not pass -SkipPublish on a clean tree)'
+if (-not (Test-PortableLayout (Join-Path $publish 'ChronoMock.dll'))) {
+    throw ("the GUI publish under $publish does not carry the portable layout marker " +
+        '(-p:ChronoMockLayout=portable), so the packaged window would look for a repo root and not start - ' +
+        'publish again without -SkipPublish')
+}
 
 # --- 3. Assemble dist/ChronoMock fresh. --------------------------------------------------------
 Write-Host '== assemble dist/ChronoMock =='

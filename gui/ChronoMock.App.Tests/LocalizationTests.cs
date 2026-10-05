@@ -299,4 +299,49 @@ public class LocalizationTests
         Assert.Null(reason);
     }
 
+    /// <summary>
+    /// R4-N51: a culture formats in its default calendar, which for these three is not the Gregorian one -
+    /// measured, 2026 came out as 2569, 1448 and 1405. Any of them can be the interface language (a strings
+    /// file dropped beside the exe), and the moments the window states are the Gregorian dates the core
+    /// works in. The names of days and months stay the culture's own.
+    /// </summary>
+    [Theory]
+    [InlineData("th")]
+    [InlineData("ar-SA")]
+    [InlineData("fa-IR")]
+    [InlineData("pl")]
+    public void A_moment_is_formatted_in_the_gregorian_calendar_whatever_the_language(string tag)
+    {
+        var culture = LocalizationService.FormatCultureFor(tag);
+        var moment = new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Unspecified);
+
+        Assert.Equal("2026", string.Create(culture, $"{moment:yyyy}"));
+        Assert.Equal(
+            System.Globalization.CultureInfo.GetCultureInfo(tag).TextInfo.CultureName,
+            culture.TextInfo.CultureName);
+    }
+
+    [Fact]
+    public void The_window_states_a_moment_through_that_calendar()
+    {
+        // The wiring, not only the helper: a marker for a Buddhist-calendar culture in front of the applied
+        // strings, read through the one formatter every stated moment goes through.
+        var text = WpfTestHost.Invoke(() =>
+        {
+            var merged = Application.Current.Resources.MergedDictionaries;
+            var marker = new ResourceDictionary { [LocalizationService.MarkerKey] = "th" };
+            merged.Insert(0, marker);
+            try
+            {
+                return ClockView.FormatMoment("2026-10-04T12:00:00", "UTC");
+            }
+            finally
+            {
+                merged.Remove(marker);
+            }
+        });
+
+        Assert.Contains("2026", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("2569", text, StringComparison.Ordinal);
+    }
 }

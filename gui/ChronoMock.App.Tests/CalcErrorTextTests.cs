@@ -28,6 +28,27 @@ public sealed class CalcErrorTextTests
         => Assert.Equal($"[{expectedKey}]", CalcErrorText.Describe(stderr, Translator(expectedKey)));
 
     /// <summary>
+    /// R4-S26: an engine that is not there - quarantined, or an archive extracted in part - is said in the
+    /// interface's language, and the detail beneath keeps the path. It used to be one English sentence with
+    /// no key, the only calculator failure a Polish window could not translate at all.
+    /// </summary>
+    [Fact]
+    public async Task A_missing_engine_is_said_in_the_interface_language_and_keeps_its_path()
+    {
+        var exe = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"chrono-missing-{Guid.NewGuid():N}", "core", "x64", "chrono.exe");
+
+        var failure = await Assert.ThrowsAsync<ChronoMock.Protocol.CalcException>(
+            () => new ChronoMock.Protocol.CalcClient(() => exe)
+                .EvaluateAsync(["--base", "2026-01-01"], TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "[calc.err.launch_failed]",
+            CalcErrorText.Describe(failure.Message, Translator("calc.err.launch_failed")));
+        Assert.Contains(exe, CalcErrorText.Detail(failure.Message), StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The key is read off the trailing parenthesis and nothing else. Reading the PROSE instead is the
     /// mistake the missing-calendar check has always avoided, because rewording a sentence must not quietly
     /// unmap it.

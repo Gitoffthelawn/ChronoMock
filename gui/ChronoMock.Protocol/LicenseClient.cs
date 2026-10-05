@@ -113,37 +113,32 @@ public sealed class LicenseClient
             return null;
         }
 
-        // Read to EOF BEFORE waiting for exit. This output runs to a few kilobytes and a pipe buffer is
-        // about four, so a wait-then-read would be a deadlock that only shows up once the register grows
-        // past the buffer - which is to say, on somebody else's machine, later.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
         attempt.CancelAfter(QueryTimeout);
+
+        // Read to EOF BEFORE waiting for exit. This output runs to a few kilobytes and a pipe buffer is
+        // about four, so a wait-then-read would be a deadlock that only shows up once the register grows
+        // past the buffer - which is to say, on somebody else's machine, later. On the attempt's token, so
+        // the readers stop with the limit too.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(attempt.Token);
+
+        // The same holds for stderr, and it was redirected without being read: a core that wrote more than
+        // a buffer there stopped on the write until the limit below killed it, and the window then said the
+        // core could not be asked (R4-N50). Nothing shows it, so it is read only to keep the pipe moving.
+        var stderrTask = process.StandardError.ReadToEndAsync(attempt.Token);
         try
         {
             var stdout = await stdoutTask.WaitAsync(attempt.Token).ConfigureAwait(false);
             await process.WaitForExitAsync(attempt.Token).ConfigureAwait(false);
+            await stderrTask.WaitAsync(attempt.Token).ConfigureAwait(false);
             return process.ExitCode == 0 && stdout.Trim().Length > 0 ? stdout : null;
         }
         catch (Exception failure) when (failure is OperationCanceledException or IOException)
         {
-            KillQuietly(process);
+            // Whether the kill took does not change the answer: the register could not be read either way.
+            _ = ChildProcesses.KillQuietly(process);
+            await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
             return null;
-        }
-    }
-
-    /// <summary>Kill the child and its tree, ignoring the races that make it moot.</summary>
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        catch (Exception failure) when (failure is InvalidOperationException or NotSupportedException
-            or System.ComponentModel.Win32Exception)
-        {
-            // Already gone, or the OS refused - either way there is nothing left to do about it.
         }
     }
 }

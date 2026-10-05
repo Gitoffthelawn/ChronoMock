@@ -205,6 +205,25 @@ internal sealed class LatestAnswer
         }
     }
 
+    /// <summary>
+    /// The screen is going away: whatever is being computed is cancelled now rather than left to finish for
+    /// nobody - the engine client kills its process on cancellation (R4/13, from the review of #86). Nothing
+    /// else changes: the generation stays, so an answer already on its way is refused like any other answer
+    /// to a cancelled run, and the cancelled run finds its source gone from the slot and leaves it, as a
+    /// superseded run does.
+    /// </summary>
+    public void Abandon()
+    {
+        CancellationTokenSource? running;
+        lock (_gate)
+        {
+            running = _running;
+            _running = null;
+        }
+
+        Put(running);
+    }
+
     private void Change(bool answered)
     {
         CancellationTokenSource? previous;

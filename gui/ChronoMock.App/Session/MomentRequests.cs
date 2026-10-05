@@ -143,6 +143,10 @@ internal sealed class MomentRequests
     /// </summary>
     public Task<bool> WhenCurrentAsync() => _answer.WhenCurrentAsync(_startWait);
 
+    /// <summary>The window is closing: cancel the request in flight, so its engine process is stopped rather
+    /// than left to finish after the window has gone (R4/13).</summary>
+    public void Abandon() => _answer.Abandon();
+
     private string? Settle(LatestAnswer.Ticket ticket, string? iso, string? errorKey, bool fromScenario)
     {
         if (!_answer.Accept(ticket))

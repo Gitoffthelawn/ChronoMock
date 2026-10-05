@@ -1,4 +1,6 @@
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
+using System.Security.AccessControl;
+using System.Security.Principal;
 using ChronoMock.App.Calc;
 
 namespace ChronoMock.App.Tests;
@@ -174,6 +176,44 @@ public class PresetCatalogTests
         }
         finally
         {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_file_this_user_may_not_read_does_not_hide_the_files_after_it()
+    {
+        // R4-N45: a denied read throws UnauthorizedAccessException, which the per-file filter did not name,
+        // so it reached the loop's own catch and ended the enumeration - every preset listed after the one
+        // locked file was gone. Named after the order NTFS lists them in, so the locked one comes first.
+        var dir = Path.Combine(Path.GetTempPath(), $"chrono-presets-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var locked = new FileInfo(Path.Combine(dir, "a-locked.json"));
+        var deny = new FileSystemAccessRule(
+            WindowsIdentity.GetCurrent().User!, FileSystemRights.ReadData, AccessControlType.Deny);
+        try
+        {
+            File.WriteAllText(locked.FullName, Preset("a-locked", "5"));
+            File.WriteAllText(Path.Combine(dir, "z-good.json"), Preset("z-good", "5"));
+            var acl = locked.GetAccessControl();
+            acl.AddAccessRule(deny);
+            locked.SetAccessControl(acl);
+            Assert.Throws<UnauthorizedAccessException>(() => File.ReadAllText(locked.FullName));
+            // The order is the file system's, not a promise: NTFS lists names sorted, another volume may not.
+            // Checked rather than assumed, because with the readable file listed first this test would pass
+            // over the very fault it exists for.
+            Assert.Equal(
+                locked.FullName,
+                Directory.EnumerateFiles(dir, "*.json").First(),
+                StringComparer.OrdinalIgnoreCase);
+
+            Assert.Equal("z-good", Assert.Single(PresetCatalog.Load(dir)).Id);
+        }
+        finally
+        {
+            var acl = locked.GetAccessControl();
+            acl.RemoveAccessRule(deny);
+            locked.SetAccessControl(acl);
             Directory.Delete(dir, recursive: true);
         }
     }

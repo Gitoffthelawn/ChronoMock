@@ -83,7 +83,15 @@
 # and 83 in the first draft, whose interpolated string brought its handler type along - so the line is
 # a plain concatenation. What is NOT being granted is headroom - 82 is the measurement, and the
 # tightened copy at 81 still has to fail.
-CA1506: 82
+#
+# 82 to 81 on 2026-10-04 (R4/13), the down door, and again without a carve-out made for the number. The
+# window used to dispose the view model on close and block on it, which is what lost a closing session
+# (R4-S24). It now asks the session to finish instead, so the class is no longer IAsyncDisposable and
+# ValueTask went with it. The new work added nothing here on purpose: removing and clearing history
+# moved off the UI thread through default methods on the store interface, because written as a helper
+# in this class their delegate type alone measured 83. Measured with tools/margin.ps1: 81, then
+# `SessionViewModelTests` and `LayoutGuardTests` at 80, and the tightened copy at 80 has to fail.
+CA1506: 81
 
 # `PresetCatalog.ReadParameters`, a JSON reader that validates each field as it goes. Next are
 # `SessionViewModel.Apply` at 15 and `SessionViewModel`'s event router at 13. The analyzer's default

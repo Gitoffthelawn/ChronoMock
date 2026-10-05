@@ -97,26 +97,38 @@ public sealed class CalcClient : ICalcEngine
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            throw new CalcException($"cannot launch '{exe}': {e.Message}", -1);
+            // Keyed like the timeout below, so a missing or quarantined engine reads in the interface's
+            // language - with the path, which is the part somebody fixing the install needs (R4-S26). The
+            // system's own reason only: the process message repeats the path and adds a working directory,
+            // which on the rendered panel made one sentence of four lines.
+            var reason = e is System.ComponentModel.Win32Exception native
+                ? new System.ComponentModel.Win32Exception(native.NativeErrorCode).Message
+                : e.Message;
+            throw new CalcException($"cannot launch '{exe}': {reason} (calc.launch_failed)", -1);
         }
-
-        // Drain both pipes concurrently before awaiting exit, so a full pipe buffer cannot deadlock.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
 
         // Bounded wait, and the child is killed on the way out either way. `using var process` disposes
         // the managed wrapper, NOT the running process - a cancelled call (every keystroke supersedes the
         // previous one) used to leave chrono.exe running, so a burst of typing left a pile of orphans.
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
         attempt.CancelAfter(CalcTimeout);
+
+        // Drain both pipes concurrently before awaiting exit, so a full pipe buffer cannot deadlock. On the
+        // attempt's token rather than the caller's alone, so the readers stop with the limit too.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(attempt.Token);
+        var stderrTask = process.StandardError.ReadToEndAsync(attempt.Token);
+        string stdout;
+        string stderr;
         try
         {
             await process.WaitForExitAsync(attempt.Token).ConfigureAwait(false);
+            stdout = await stdoutTask.ConfigureAwait(false);
+            stderr = await stderrTask.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            KillQuietly(process);
-            await ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
+            var stopped = ChildProcesses.KillQuietly(process);
+            await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
             if (ct.IsCancellationRequested)
             {
                 throw; // the caller superseded this call - its own concern, not an error
@@ -124,14 +136,13 @@ public sealed class CalcClient : ICalcEngine
 
             // Carries a stable key in the engine's own shape, so the interface can translate this the way
             // it translates the engine's refusals. This library knows nothing about languages and must not
-            // - the key is the seam that keeps it that way (rule 15).
+            // - the key is the seam that keeps it that way (rule 15). The detail says whether the process is
+            // really gone: a kill the system refused leaves it running, and "stopped" would not be true.
+            var outcome = stopped ? "was stopped" : "could not be stopped";
             throw new CalcException(
-                $"calc did not finish within {CalcTimeout.TotalSeconds:0} s and was stopped (calc.timeout)",
+                $"calc did not finish within {CalcTimeout.TotalSeconds:0} s and {outcome} (calc.timeout)",
                 -1);
         }
-
-        var stdout = await stdoutTask.ConfigureAwait(false);
-        var stderr = await stderrTask.ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {
@@ -151,34 +162,5 @@ public sealed class CalcClient : ICalcEngine
         }
 
         return result ?? throw new CalcException("calc produced no JSON output", 0);
-    }
-
-    /// <summary>Kill the child and its tree, ignoring the races that make it moot (it exited on its own
-    /// between the timeout and here, or was never started).</summary>
-    private static void KillQuietly(Process process)
-    {
-        try
-        {
-            process.Kill(entireProcessTree: true);
-        }
-        catch (Exception e) when (e is InvalidOperationException or NotSupportedException
-                                      or System.ComponentModel.Win32Exception)
-        {
-            // Already gone, or the OS refused - either way there is nothing left to do about it.
-        }
-    }
-
-    /// <summary>Await the two pipe readers so neither becomes an unobserved faulted task. Their outcome
-    /// is worthless here (the call already failed), so every result and fault is discarded.</summary>
-    private static async Task ObserveQuietly(Task<string> stdout, Task<string> stderr)
-    {
-        try
-        {
-            await Task.WhenAll(stdout, stderr).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Cancelled or faulted with the killed process - immaterial, but must not go unobserved.
-        }
     }
 }

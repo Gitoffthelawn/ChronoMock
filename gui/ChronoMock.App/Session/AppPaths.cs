@@ -12,15 +12,32 @@ namespace ChronoMock.App;
 /// </summary>
 internal static class AppPaths
 {
+    /// <summary>The assembly metadata key the packaging script sets, and the one value that means portable.</summary>
+    internal const string LayoutKey = "ChronoMock.Layout";
+
+    internal const string PortableLayout = "portable";
+
     /// <summary>
-    /// The shipped layout's marker: the x64 core sits at &lt;exe&gt;/core/x64/chrono.exe. A dev checkout
-    /// builds the GUI into gui/.../bin/... with no core/ beside it, so this is false there and we use the
-    /// cargo outputs. The x64 core is always present in a shipped build (the host is x64), so it is a
-    /// reliable marker even for an x86 target (whose core lives under core/x86/). Also used to suppress
-    /// dev-only scaffolding (the pre-selected sample target) in a shipped build.
+    /// Whether this build is the shipped portable layout, as the BUILD says - <c>packaging/build-dist.ps1</c>
+    /// publishes with <c>ChronoMockLayout=portable</c>, which the project turns into assembly metadata. A dev
+    /// build has none and uses the cargo outputs. Also used to suppress dev-only scaffolding (the pre-selected
+    /// sample target) in a shipped build. Read once, so the layout cannot change under a running window.
+    /// <para>
+    /// 🔴 It used to be the presence of the x64 core beside the exe (R4-S26). An antivirus quarantining that
+    /// file, or an archive extracted in part, turned the shipped build into a dev one: it looked for the repo
+    /// root and stopped at start with "could not find the repo root (a parent with Cargo.toml)" - measured
+    /// on the packaged build. A core that vanished while the window was open made the next Start blame the
+    /// TARGET. Now a missing core is what it is: Start says the installation may be incomplete and names the
+    /// path, and the calculator says the same in the interface's language.
+    /// </para>
     /// </summary>
-    internal static bool IsPortable
-        => File.Exists(Path.Combine(AppContext.BaseDirectory, "core", "x64", "chrono.exe"));
+    internal static bool IsPortable { get; } = IsPortableBuild(typeof(AppPaths).Assembly);
+
+    /// <summary>The layout an assembly was built for - separate so a test can ask it of an assembly it made.</summary>
+    internal static bool IsPortableBuild(System.Reflection.Assembly assembly)
+        => assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), inherit: false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>()
+            .Any(a => a.Key == LayoutKey && a.Value == PortableLayout);
 
     /// <summary>Root holding calendars/ and presets/ (and, when portable, core/).</summary>
     public static string DataRoot => IsPortable ? AppContext.BaseDirectory : DevPaths.RepoRoot();

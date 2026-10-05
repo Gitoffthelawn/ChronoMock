@@ -229,23 +229,48 @@ fn has_arm(bodies: &str, key: &str) -> bool {
 fn calc_keys(root: &Path) -> BTreeSet<String> {
     let mut keys = BTreeSet::new();
     for path in rust_sources_under(&root.join("crates/cli/src")) {
-        let text = production_source(&path);
-        let mut rest = text.as_str();
-        while let Some(open) = rest.find("(calc.") {
-            let after = &rest[open + 1..];
-            match after.find(')') {
-                Some(close) => {
-                    let candidate = &after[..close];
-                    if is_key_shaped(candidate) {
-                        keys.insert(candidate.to_string());
-                    }
-                    rest = &after[close..];
-                }
-                None => break,
-            }
+        collect_calc_keys(&production_source(&path), &mut keys);
+    }
+    keys
+}
+
+/// The calculator keys the GUI's own client writes, in the same `(calc.something)` shape.
+///
+/// Two failures are born on that side of the process boundary, not in the engine: the engine that
+/// could not be started at all, and the one that ran past the client's limit. `CalcErrorText` reads
+/// them exactly like an engine key, and the scan above never saw them, so `calc.timeout` showed a
+/// Polish window an English sentence for as long as it existed (R4/13).
+fn gui_calc_keys(root: &Path) -> BTreeSet<String> {
+    let dir = root.join("gui/ChronoMock.Protocol");
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+    let mut keys = BTreeSet::new();
+    for entry in entries {
+        let path = entry.expect("directory entry").path();
+        if path.extension().is_some_and(|e| e == "cs") {
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+            collect_calc_keys(&text, &mut keys);
         }
     }
     keys
+}
+
+fn collect_calc_keys(text: &str, keys: &mut BTreeSet<String>) {
+    let mut rest = text;
+    while let Some(open) = rest.find("(calc.") {
+        let after = &rest[open + 1..];
+        match after.find(')') {
+            Some(close) => {
+                let candidate = &after[..close];
+                if is_key_shaped(candidate) {
+                    keys.insert(candidate.to_string());
+                }
+                rest = &after[close..];
+            }
+            None => break,
+        }
+    }
 }
 
 /// Top-level key names present in a translation file. Parsed rather than substring-matched so a
@@ -327,7 +352,7 @@ fn the_gui_mirror_lists_every_emitted_key() {
 #[test]
 fn every_calculator_key_has_both_translations() {
     let root = repo_root();
-    let keys = calc_keys(&root);
+    let mut keys = calc_keys(&root);
     // A literal, not a count derived from the list this checks: a scan that stops finding keys looks
     // exactly like a codebase with none. Nine were measured on 2026-09-09, and the number only grows.
     assert!(
@@ -336,6 +361,14 @@ fn every_calculator_key_has_both_translations() {
          guard went blind",
         keys.len()
     );
+    // The same canary for the client's own two, measured on 2026-10-04.
+    let client = gui_calc_keys(&root);
+    assert!(
+        client.len() >= 2,
+        "the scan of the GUI's calculator client found only {} keys ({client:?}) - it went blind",
+        client.len()
+    );
+    keys.extend(client);
 
     let en = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.en.json"));
     let pl = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.pl.json"));

@@ -936,6 +936,16 @@ public sealed class CalculatorViewModel : ObservableObject
 
     private void OnStepChanged(object? sender, PropertyChangedEventArgs e) => TriggerRecompute();
 
+    /// <summary>The window is closing: cancel the result and the analysis being computed, so their engine
+    /// processes are stopped rather than left to finish after the window has gone (R4/13, from the review
+    /// of #86). A recompute still waiting out its quiet period needs nothing - it resumes on the window's
+    /// thread, which is gone by then.</summary>
+    public void Abandon()
+    {
+        _result.Abandon();
+        _analysis.Abandon();
+    }
+
     /// <summary>Compute once when the screen is first shown (never from the constructor, so building the
     /// window in a test spawns no process).</summary>
     public Task EnsureComputedAsync()
