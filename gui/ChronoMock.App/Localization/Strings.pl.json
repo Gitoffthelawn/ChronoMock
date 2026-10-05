@@ -491,6 +491,7 @@
   "chromium.no_contexts": "Nie udało się objąć żadnego kontekstu JS.",
   "chromium.launched_with_debug_port": "Aplikacja Electron/Chromium: uruchomiona z portem zdalnego debugowania i czystym izolowanym profilem, nie Twoim prawdziwym. Dopóki sesja trwa, dowolny inny lokalny proces może przez ten port sterować aplikacją.",
   "chromium.app_closed_before_audit": "Aplikacja zamknęła się, zanim audyt zdążył odczytać końcowe liczniki wywołań - pokrycie może być niepełne.",
+  "chromium.followed_browser": "Program wybrany do sesji zakończył się po przekazaniu aplikacji innemu programowi, więc sesja trwała dalej z tym programem, zamiast skończyć się razem z nim.",
   "chromium.context_ceiling_reached": "Aplikacja otworzyła więcej stron i workerów, niż jedna sesja potrafi objąć fałszywym zegarem (256). Te ponad limit czytały prawdziwy zegar i nie ma ich w audycie.",
   "chromium.rate_change_affects_running_timers": "Prędkość zmieniła się w locie: nowe timery i zegar odzwierciedlają ją od razu, ale już działający setInterval zachowuje stare tempo.",
   "chromium.clock_move_missed": "Strona internetowa przyjęła zmianę prędkości albo skok z opóźnieniem albo wcale, zwykle dlatego, że była zajęta, więc jej zegar odbiega od zegara sesji do następnego skoku, a jej przeładowanie może przywrócić starszy.",

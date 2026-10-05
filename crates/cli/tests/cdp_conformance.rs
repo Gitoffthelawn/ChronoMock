@@ -95,6 +95,54 @@ fn a_closed_window_does_not_erase_what_the_session_covered() {
     );
     assert_eq!(out.status.code(), Some(0), "a covered session must not exit as a failure:
 {stdout}");
+    // The browser it launched closed: that ends the session, and is not a handover to another program
+    // (R4-S18). Its connection drops within milliseconds of the exit, inside the margin.
+    assert!(!stdout.contains("followed:"), "a browser that closed handed nothing over:\n{stdout}");
+    assert!(!stdout.contains("handing the application over"), "and the report does not say it did:\n{stdout}");
+}
+
+/// R4-S18 end to end: a target that starts the browser and exits - a launcher - must not end the
+/// session. Before the fix the session ended with the launcher in about 0.4 s, with no verdict, and
+/// took the browser with it.
+///
+/// The launcher is a script beside empty runtime files, so the folder reads as a Chromium target, and
+/// it hands the session's own arguments (profile and debugging port) to the real target with `start`.
+#[test]
+#[ignore = "opt-in: set CHRONO_CDP_TARGET to a permissive Chromium/Electron exe; it launches that app through a script"]
+fn a_launcher_that_hands_the_app_over_does_not_end_the_session() {
+    let Ok(target) = std::env::var("CHRONO_CDP_TARGET") else {
+        eprintln!("CHRONO_CDP_TARGET not set - skipping");
+        return;
+    };
+    let stand = std::env::temp_dir().join(format!("chrono-s18-launcher-{}", std::process::id()));
+    std::fs::create_dir_all(&stand).expect("stand folder");
+    for runtime in ["icudtl.dat", "snapshot_blob.bin"] {
+        std::fs::write(stand.join(runtime), b"").expect("runtime marker");
+    }
+    let launcher = stand.join("launcher.cmd");
+    std::fs::write(&launcher, format!("@echo off\r\nstart \"\" \"{target}\" %*\r\n")).expect("launcher script");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_chrono"))
+        .args(["run", &launcher.display().to_string(), "--at", "2038-01-19T03:14:07", "--json", "--ticks", "6"])
+        .output()
+        .expect("run chrono");
+    let _ = std::fs::remove_dir_all(&stand);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    if stdout.contains("target.launch_failed") || stdout.contains("target.attach_failed") {
+        eprintln!("the target refused the debug port - skipping: {stdout}");
+        return;
+    }
+    let states = stdout.lines().filter(|l| l.contains("\"type\":\"state\"")).count();
+    assert!(states >= 6, "the session ran to its ticks rather than ending with the launcher ({states} states):\n{stdout}");
+    assert!(stdout.contains("\"chromium.followed_browser\""), "the report says why the session outlived its target:\n{stdout}");
+    let image = std::path::Path::new(&target).file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let verdict = stdout.lines().find(|l| l.contains("\"type\":\"session_verdict\"")).unwrap_or_default();
+    assert!(
+        verdict.to_ascii_lowercase().contains(&format!("\"image\":\"{}\"", image.to_ascii_lowercase())),
+        "the browser the session went on with is named in `followed`:\n{verdict}"
+    );
+    assert_eq!(out.status.code(), Some(0), "a covered session exits 0:\n{stdout}");
 }
 
 /// Ask every window of that executable to close, the way a user would - not a kill, which tears the

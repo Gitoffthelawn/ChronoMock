@@ -315,6 +315,12 @@ fn session_block(p: &Plan) -> String {
     out.push_str(&line(
         "session",
         &match p.ra.ticks {
+            // A Chromium session lives on its debugging connection, so it ends when the browser does,
+            // and a launcher that hands the application over and exits does not end it (R4-S18). The
+            // ADR-16 line below is the native rule, which the Chromium path does not follow.
+            0 if p.chromium => {
+                "runs until the application closes - a target that hands the application over to another program and exits does not end it".to_string()
+            }
             // The target and whatever it started on the session clock (ADR-16): a launcher that ends
             // at once does not end the session.
             0 => "runs until the target, and whatever it started on the session clock, has exited".to_string(),
@@ -770,6 +776,34 @@ mod tests {
         plan_for(&["notepad"], |plan| {
             assert!(mechanism_text(plan).contains("not decided"), "{}", mechanism_text(plan));
         });
+    }
+
+    /// How the session would end is said for the mechanism that would run it. The native line is the
+    /// ADR-16 rule, which the Chromium path does not follow - it ends with its browser, and a launcher
+    /// that hands over and exits does not end it (R4-S18). The plan used to promise the native rule
+    /// for both.
+    #[test]
+    fn the_session_line_is_the_rule_of_the_mechanism_that_would_run() {
+        let dir = crate::testutil::unique_temp_dir("chrono-plan-chromium");
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        for runtime in ["icudtl.dat", "snapshot_blob.bin"] {
+            std::fs::write(dir.join(runtime), b"").expect("runtime marker");
+        }
+        let launcher = dir.join("launcher.cmd");
+        std::fs::write(&launcher, "@echo off\r\n").expect("batch file");
+        plan_for(&[&launcher.display().to_string()], |plan| {
+            assert!(plan.chromium, "the folder carries the Chromium runtime");
+            let text = render_plan(plan);
+            assert!(text.contains("runs until the application closes - a target that hands the application over"), "{text}");
+            assert!(!text.contains("whatever it started on the session clock"), "{text}");
+        });
+        let exe = std::env::current_exe().expect("this test has an executable").display().to_string();
+        plan_for(&[&exe], |plan| {
+            assert!(!plan.chromium);
+            let text = render_plan(plan);
+            assert!(text.contains("runs until the target, and whatever it started on the session clock, has exited"), "{text}");
+        });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A batch script is started through the command interpreter, so that is what the plan says the

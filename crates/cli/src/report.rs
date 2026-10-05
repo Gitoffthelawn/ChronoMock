@@ -437,6 +437,12 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "chromium.app_closed_before_audit" => {
             "the app closed before the audit could read final call counts - the coverage below may be incomplete"
         }
+        // A session that outlives the program the tester named is a surprise unless it is explained
+        // (R4-S18). Unlike `session.followed_family`, nothing but the debugging connection holds this
+        // session, so the text makes no claim about helpers keeping it open.
+        "chromium.followed_browser" => {
+            "the target closed after handing the application over to another program, so the session went on with that program instead of ending with the target"
+        }
         "chromium.rate_change_affects_running_timers" => {
             "the speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence"
         }

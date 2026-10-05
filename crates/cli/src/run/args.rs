@@ -35,7 +35,8 @@ pub(crate) struct RunArgs {
     /// duration and removes it. Off by default and exclusive of `--no-embedded`.
     pub(super) elevated_embedded: bool,
     /// How many `state` heartbeats to stream before ending. 0 = no cut: the session lasts until the
-    /// target, and whatever it started on the session clock, has exited (ADR-16).
+    /// target, and whatever it started on the session clock, has exited (ADR-16) - or, on the
+    /// Chromium path, until the browser closes its debugging connection (R4-S18).
     pub(super) ticks: u64,
     /// After the Nth state heartbeat, send set_multiplier M (in-flight speed change).
     pub(super) set_after: Option<(u64, i64)>,

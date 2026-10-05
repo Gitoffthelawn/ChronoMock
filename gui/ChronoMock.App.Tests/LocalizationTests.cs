@@ -71,6 +71,9 @@ public class LocalizationTests
         "chromium.rate_change_affects_running_timers", "chromium.context_ceiling_reached",
         // A page that took a speed change or a jump late or not at all (R4-S17).
         "chromium.clock_move_missed",
+        // The target handed the application over to another program and the session went on with it
+        // (R4-S18).
+        "chromium.followed_browser",
         // Runtime detection warnings the driver appends to coverage (B1): a Python/.NET/Java target whose
         // monotonic/elapsed clock stands on QPC and does not scale.
         // Not a QPC-axis caution like the four below: a clock that is out of reach entirely.

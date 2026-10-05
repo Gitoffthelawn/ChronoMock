@@ -129,6 +129,14 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A Chromium or Electron application started through a launcher no longer ends its session at
+  once.** A target that starts the browser and exits - a script beside the application, or a
+  Chromium browser started from its runtime folder, which hands over to a process of its own - ended
+  the session within a second, with no verdict, and the session's cleanup closed the browser it had
+  handed the application to. The session now lasts as long as the browser's debugging connection,
+  and the report says that the target handed the application over and names the program the session
+  went on with (`chromium.followed_browser`, `session_verdict.followed`). `--dry-run` says how a
+  Chromium session ends instead of promising the rule of the native mechanism.
 - **Closing the window during a session no longer freezes it for three seconds, and the session is
   recorded.** The window waited for the session to end on the same thread the end needed, so every
   close during a session took three seconds and the application quit before the session reached the
