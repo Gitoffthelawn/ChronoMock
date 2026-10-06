@@ -184,13 +184,27 @@
        spacing guard read the setup phase - the literal guard accepts any value that has a name. -->
   <Thickness x:Key="OptionNoteGap">28,4,0,0</Thickness>
 
-  <!-- The three fields of the "relative to now" shift, which is one idea spread over three controls and
-       therefore needs its widths named together rather than each guessed where it stands. The sign holds
-       one character and a chevron, the amount holds a number nobody will type four digits into, and the
-       unit holds the longest word in the unit list plus its chevron. -->
+  <!-- The fields of an amount and its unit (AmountUnitInput), which is one idea spread over two or three
+       controls and therefore needs its widths named together rather than each guessed where it stands.
+       The sign holds one character and a chevron, the amount holds a number nobody will type four digits
+       into.
+
+       🔴 THE UNIT LIST HAS NO WIDTH OF ITS OWN. It was 128, picked to hold "the longest word in the unit
+       list plus its chevron", and the longest word grew past it: "business days" needs 85 and the list
+       left 78, so the window read "90 business day" in the builder and in a scenario's parameter, at every
+       window size. The input now sizes the list from its own labels, in the language the window shows,
+       and adds DropDownChrome - what the drop-down draws around its text: the edge and the padding on the
+       left (1 + 12), and on the right the padding, the chevron and the gap after it plus the edge
+       (12 + 12 + 12 + 1), all from ControlPadding, ChevronSize, ChevronGap and StrokeThinEdge. A guard
+       selects every unit in every language and fails on a label the list cuts. -->
   <sys:Double x:Key="ShiftSignWidth">64</sys:Double>
   <sys:Double x:Key="ShiftAmountWidth">72</sys:Double>
-  <sys:Double x:Key="ShiftUnitWidth">128</sys:Double>
+  <Thickness x:Key="DropDownChrome">13,0,37,0</Thickness>
+
+  <!-- The session's box for a speed of the tester's own. It borrowed the unit list's width until that list
+       started sizing itself, and it is wide enough for its own prompt rather than for its content: a box
+       sized for three digits cannot show the words that say what it is for. -->
+  <sys:Double x:Key="CustomSpeedFieldWidth">128</sys:Double>
 
   <!-- The shared moment input's two fields (MomentInput), named together because they set one moment and
        sized so the DEFAULT value fits with room. The time holds "HH:MM:SS" - EIGHT characters, not five:
@@ -210,7 +224,10 @@
        rounding never wraps the row. Below that floor the time field drops under the date, which is the
        layout this floor exists to forbid. It was 380, picked by eye, and the row still wrapped at it
        because the margins around the row ate what the number had spared. The other two are the widths
-       their content needs: a scenario row with its second line, a FILETIME without breaking mid digit.
+       their content needs: a scenario row with its second line, and a format value on one line under its
+       name - the longest is RFC 1123, 29 characters and 191 px, in the 196 the row leaves beside its Copy
+       button (FormatRowTests measures every format at this floor, in every language). This comment said
+       "a FILETIME without breaking mid digit" while the label column beside the value made that false.
        Their sum with the card margins has to fit the window's own MinWidth. -->
   <sys:Double x:Key="CalcScenariosColumnMinWidth">240</sys:Double>
   <sys:Double x:Key="CalcBuilderColumnMinWidth">368</sys:Double>
@@ -358,13 +375,14 @@
 
   <!-- Directional right gap between a value and the copy button trailing it. Right-only: a uniform margin
        would drop the value below the button beside it, and the value and its button read as one row. It
-       keeps a long value (a full ISO datetime) from butting straight against the button when it wraps. -->
+       keeps a long value (a full ISO datetime) from butting straight against the button. -->
   <Thickness x:Key="CopyValueGap">0,0,8,0</Thickness>
 
-  <!-- The label column of the calculator's format rows, so every value starts at the same x. Wide enough for
-       its longest label in one line ("RFC 1123 (GMT)"), which the row keeps unwrapped so a value never moves
-       down a line. A GridLength because a column width is one (see GroupChannelWidth). -->
-  <GridLength x:Key="FormatLabelColumnWidth">104</GridLength>
+  <!-- 🔴 NO LABEL COLUMN FOR THE FORMAT ROWS. FormatLabelColumnWidth (104) stood here and put each format's
+       name beside its value, which left the value 92 px at the calculator's floor and at the window's default
+       size - ISO datetime, FILETIME and RFC 1123 broke in the middle of the value. The name stands over the
+       value now, so the value has the row less its Copy button (FormatRowTests). -->
+
 
   <!-- The application box caps here so a deeply nested path cannot stretch the setup row across the
        window - the name is what identifies the application, and the full path is in the tooltip. -->

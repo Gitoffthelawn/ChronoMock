@@ -493,7 +493,8 @@ fn an_arm_is_a_match_pattern_not_a_mention() {
 // whether a text that EXISTS is used, so a text whose control was taken away stayed behind in both
 // languages - and went on being translated, reviewed and reworded. R4/21 found four by a one-off
 // script, and this guard's first run found eighteen more, all from the move to three phases
-// (e0bbbae). One of them was not dead text but a lost feature (`UNREACHED` below).
+// (e0bbbae). One of them was not dead text but a lost feature, the "(missing)" mark on the
+// recent-application list, held in `UNREACHED` below until PR B put it back on the row.
 
 /// Every production file with this extension under `dir`, build output left out. The canary is part of
 /// it, as for the Rust walk: a walk that finds nothing looks like a window with no texts.
@@ -700,12 +701,7 @@ const BUILT: [Built; 4] = [
 
 /// Texts nothing reaches today that stay in the files, each with why and what makes it go. Checked from
 /// both ends: an entry that is reached again, or is no longer in the files, has to come out. Only shrinks.
-const UNREACHED: [(&str, &str); 1] = [(
-    "target.missing",
-    "the recent-application list lost its (missing) marker in the move to three phases (e0bbbae) - \
-     RecentTarget.IsMissing is still computed and tested, and nothing shows it. Goes with the owner's \
-     decision: the marker back on the row, or the text and IsMissing out",
-)];
+const UNREACHED: [(&str, &str); 0] = [];
 
 /// Every key the window or the core can put on the screen, by every road this guard knows.
 fn reached_keys(root: &Path) -> BTreeSet<String> {

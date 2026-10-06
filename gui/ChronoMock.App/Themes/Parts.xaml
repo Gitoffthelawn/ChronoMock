@@ -857,8 +857,15 @@
     the form. Two lines make the list browsable. The second line WRAPS to its full text rather than being
     trimmed to an ellipsis: a description cut to "Does the app apply the age-of..." says nothing, and the
     tooltip that carried the rest needed a hover to reach. The row grows to fit its text and the list
-    scrolls. The name still trims, because a name is short and a wrapped one would read as a second
-    sentence.
+    scrolls.
+
+    🔴 THE NAME WRAPS TOO, for the same reason. It trimmed, on the argument that a name is short and a
+    wrapped one would read as a second sentence - and the first time the size sweep saw the list filled,
+    "Payment due, +N business days" was cut to "Payment due, +N business..." at the window's minimum width,
+    with a tooltip that showed the description and not the name. A wrapped name does not run into the
+    description: the name is in the primary ink and the description under it in the secondary one, which
+    is the whole of the difference between them on the render (owner's decision, 2026-10-06,
+    FilledScreenSweepTests).
   -->
   <Style x:Key="ScenarioRowContainer" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
     <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
@@ -866,9 +873,61 @@
 
   <DataTemplate x:Key="ScenarioRow">
     <StackPanel ToolTip="{Binding DisplayExplains}">
-      <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
+      <TextBlock Text="{Binding DisplayName}" TextWrapping="Wrap" />
       <TextBlock Style="{StaticResource PartNote}" Text="{Binding DisplayExplains}" />
     </StackPanel>
+  </DataTemplate>
+
+  <!--
+    ============================ Recent application row ============================
+
+    One application run before, in the setup's drop-down. 🔴 The FULL path on the row, because a file name
+    does not identify a build: an x64 and an x86 output are both called the same thing, and choosing the
+    wrong one is a session that proves nothing about the binary somebody meant. The name leads, the folder
+    follows it dimmed in the open list (the closed box reads as the plain name), and a file that is gone
+    says "(missing)" in both - the list never goes quiet about why a choice will not start (rule 6). The
+    three were on this row before the move to three phases and were lost in it (e0bbbae).
+  -->
+  <Style x:Key="RecentTargetRow" TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+    <Setter Property="AutomationProperties.Name" Value="{Binding FullPath}" />
+    <Style.Triggers>
+      <!-- A file that is gone says so to a screen reader as well as on the row: as the item's status, which
+           is what the property is for, and after the path in its name. -->
+      <DataTrigger Binding="{Binding IsMissing}" Value="True">
+        <Setter Property="AutomationProperties.ItemStatus" Value="{DynamicResource target.missing}" />
+        <Setter Property="AutomationProperties.Name">
+          <Setter.Value>
+            <MultiBinding StringFormat="{}{0} {1}">
+              <Binding Path="FullPath" />
+              <Binding Path="(AutomationProperties.ItemStatus)" RelativeSource="{RelativeSource Self}" />
+            </MultiBinding>
+          </Setter.Value>
+        </Setter>
+      </DataTrigger>
+    </Style.Triggers>
+  </Style>
+
+  <DataTemplate x:Key="RecentTargetRowTemplate">
+    <!-- Packed to the left, the name last so it is the one that gives way: in the closed box, which has a
+         ceiling, the name trims to an ellipsis and the mark beside it stays whole. The two docked to the
+         right stand after the name because the panel is only as wide as what it holds. -->
+    <DockPanel ToolTip="{Binding FullPath}" HorizontalAlignment="Left" LastChildFill="True">
+      <TextBlock DockPanel.Dock="Right" Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
+                 Foreground="{DynamicResource BrushStatusPartial}" VerticalAlignment="Center"
+                 Text="{DynamicResource target.missing}"
+                 Visibility="{Binding IsMissing, Converter={StaticResource BoolToVis}}" />
+      <TextBlock x:Name="Folder" DockPanel.Dock="Right" Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
+                 Text="{Binding Directory}" Margin="{StaticResource InlineControlGap}" VerticalAlignment="Center" />
+      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                 Margin="{StaticResource InlineControlGap}" VerticalAlignment="Center" />
+    </DockPanel>
+    <DataTemplate.Triggers>
+      <!-- The closed box draws the chosen item with this template too, outside any item. -->
+      <DataTrigger Value="{x:Null}"
+                   Binding="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ComboBoxItem}}}">
+        <Setter TargetName="Folder" Property="Visibility" Value="Collapsed" />
+      </DataTrigger>
+    </DataTemplate.Triggers>
   </DataTemplate>
 
   <!--

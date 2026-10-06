@@ -117,13 +117,7 @@ public sealed class ParameterRowLayoutTests
     /// makes it go. Listed for the owner to decide rather than fixed inside the instrument's own change, and
     /// checked from both ends: a defect gone from the screen has to come off the list. Only shrinks.
     /// </summary>
-    private static readonly (string Scenario, string Shows, string Reason)[] KnownDefects =
-    [
-        ("payment-due-business-days", "TextBlock \"business days\"",
-         "the unit list is ShiftUnitWidth wide with 78 px for its text, and \"business days\" needs 85, so the "
-         + "window reads \"90 business day\" - in the builder and in the parameter row, at every window width. "
-         + "Goes with the amount and unit component (PR B, finding (c))"),
-    ];
+    private static readonly (string Scenario, string Shows, string Reason)[] KnownDefects = [];
 
     private static bool IsKnown(string complaint, (string Scenario, string Shows, string Reason) defect)
         => complaint.StartsWith($"{defect.Scenario}: {defect.Shows} at ", StringComparison.Ordinal)

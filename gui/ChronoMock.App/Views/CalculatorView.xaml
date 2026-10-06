@@ -124,14 +124,8 @@
                  so the date and the time stay on one line rather than being fitted by hand. -->
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.start_point}" />
             <ComboBox x:Name="BaseKindBox" ItemsSource="{Binding BaseKinds}" SelectedItem="{Binding SelectedBase}"
-                      ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                      ToolTip="{DynamicResource tip.base_kind}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate>
-                  <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
+                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                      ToolTip="{DynamicResource tip.base_kind}" />
             <!-- Specific date: the shared moment input (ISO box plus a calendar popup, locale-safe, rule 2),
                  the same control the substitution panel uses. Its DataContext is the base MomentField, so
                  Visibility binds to the view model through the CalculatorView, not the field. -->
@@ -189,13 +183,7 @@
 
                       <!-- Kind picker: swaps which editor below it is visible. -->
                       <ComboBox Grid.Row="0" Grid.Column="0" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}"
-                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" Margin="{StaticResource CopyValueGap}">
-                        <ComboBox.ItemTemplate>
-                          <DataTemplate>
-                            <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                          </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                      </ComboBox>
+                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}" Margin="{StaticResource CopyValueGap}" />
 
                       <Button Grid.Row="0" Grid.Column="1" Content="✕" Click="OnRemoveStepClick" Tag="{Binding}"
                               VerticalAlignment="Center"
@@ -203,48 +191,22 @@
                               FontSize="{StaticResource FontSizeCaption}" />
 
                       <!-- Shift editor: sign, amount, unit. -->
-                      <WrapPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="{StaticResource StackGapSm}"
-                                 Visibility="{Binding IsShift, Converter={StaticResource BoolToVis}}">
-                        <ComboBox ItemsSource="{Binding Signs}" SelectedItem="{Binding Sign}"
-                                  Width="{StaticResource ShiftSignWidth}" Margin="{StaticResource ControlRowGap}" VerticalAlignment="Center" />
-                        <TextBox Text="{Binding Amount, UpdateSourceTrigger=LostFocus}"
-                                 Width="{StaticResource ShiftAmountWidth}" Margin="{StaticResource ControlRowGap}" VerticalAlignment="Center"
-                                 FontFamily="{StaticResource FontFamilyMono}" />
-                        <ComboBox ItemsSource="{Binding Units}" SelectedItem="{Binding Unit}"
-                                  ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                                  Width="{StaticResource ShiftUnitWidth}" Margin="{StaticResource ControlRowGap}" VerticalAlignment="Center">
-                          <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                              <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                            </DataTemplate>
-                          </ComboBox.ItemTemplate>
-                        </ComboBox>
-                      </WrapPanel>
+                      <controls:AmountUnitInput Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" HasSign="True"
+                                                HorizontalAlignment="Left" Margin="{StaticResource StackGapSm}"
+                                                Visibility="{Binding IsShift, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Snap editor: a period boundary target. One control, so it takes the row. -->
                       <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="{StaticResource StackGapSm}"
                                 ItemsSource="{Binding SnapTargets}" SelectedItem="{Binding SnapTarget}"
-                                ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                                Visibility="{Binding IsSnap, Converter={StaticResource BoolToVis}}">
-                        <ComboBox.ItemTemplate>
-                          <DataTemplate>
-                            <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                          </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                      </ComboBox>
+                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                                Visibility="{Binding IsSnap, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Nearest editor: roll to the nearest business day in a direction (needs a calendar -
                            without one the engine returns an honest calendar error, surfaced as the result error). -->
                       <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="{StaticResource StackGapSm}"
                                 ItemsSource="{Binding NearestTargets}" SelectedItem="{Binding NearestTarget}"
-                                ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                                Visibility="{Binding IsNearest, Converter={StaticResource BoolToVis}}">
-                        <ComboBox.ItemTemplate>
-                          <DataTemplate>
-                            <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                          </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                      </ComboBox>
+                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                                Visibility="{Binding IsNearest, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Set-time editor: a wall-clock HH:MM:SS, the width the time field has everywhere
                            else. The engine validates the range, so a bad time surfaces as an honest result
@@ -280,15 +242,9 @@
                  turning it on never moves the row. -->
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.field_calendar}" />
             <ComboBox x:Name="CalendarBox" ItemsSource="{Binding Calendars}" SelectedItem="{Binding SelectedCalendar}"
-                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ToolTip="{DynamicResource tip.calc_calendar}"
+                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}" ToolTip="{DynamicResource tip.calc_calendar}"
                       app:PartState.HasError="{Binding CalendarMissing}"
-                      AutomationProperties.Name="{DynamicResource calc.field_calendar}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate>
-                  <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
+                      AutomationProperties.Name="{DynamicResource calc.field_calendar}" />
 
             <!-- The reverse tool lives here now, under the builder, so the middle column carries both ways
                  of naming a moment - build one up, or read a pasted one - instead of a short form standing
@@ -404,32 +360,12 @@
                           <controls:DateInput HorizontalAlignment="Left"
                                               AccessibleName="{Binding Label}"
                                               Visibility="{Binding IsDate, Converter={StaticResource BoolToVis}}" />
-                          <StackPanel Orientation="Horizontal"
-                                      Visibility="{Binding IsDuration, Converter={StaticResource BoolToVis}}">
-                            <TextBox Text="{Binding Amount, UpdateSourceTrigger=LostFocus}"
-                                     Width="{StaticResource ShiftAmountWidth}" Margin="{StaticResource InlineControlGap}" VerticalAlignment="Center"
-                                     FontFamily="{StaticResource FontFamilyMono}"
-                                     AutomationProperties.Name="{Binding Label}" />
-                            <ComboBox ItemsSource="{Binding Units}" SelectedItem="{Binding Unit}"
-                                      ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                                      Width="{StaticResource ShiftUnitWidth}" VerticalAlignment="Center">
-                              <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                  <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                                </DataTemplate>
-                              </ComboBox.ItemTemplate>
-                            </ComboBox>
-                          </StackPanel>
+                          <controls:AmountUnitInput HorizontalAlignment="Left" AccessibleName="{Binding Label}"
+                                                    Visibility="{Binding IsDuration, Converter={StaticResource BoolToVis}}" />
                           <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding Variant}"
-                                    ItemContainerStyle="{StaticResource LabelKeyComboItem}"
+                                    ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
                                     AutomationProperties.Name="{Binding Label}"
-                                    Visibility="{Binding IsVariant, Converter={StaticResource BoolToVis}}">
-                            <ComboBox.ItemTemplate>
-                              <DataTemplate>
-                                <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                              </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                          </ComboBox>
+                                    Visibility="{Binding IsVariant, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                       </DataTemplate>
                     </controls:TextNamedItems.ItemTemplate>
@@ -508,17 +444,23 @@
               <controls:TextNamedItems x:Name="FormatList" ItemsSource="{Binding Formats}" Margin="{StaticResource SpaceXs}">
                 <controls:TextNamedItems.ItemTemplate>
                   <DataTemplate>
+                    <!-- 🔴 The name OVER its value, the value beside its Copy. With the name in a column of its
+                         own the value had 92 px at the default window size and the longest formats broke in
+                         the middle - "2026-01-01T00" over ":00:00+00:00" reads as two values, and one of them
+                         is what Copy hands over. A value to copy is one line (FormatRowTests). -->
                     <Grid Margin="{StaticResource SpaceXs}">
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
                       <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="{StaticResource FormatLabelColumnWidth}" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                       </Grid.ColumnDefinitions>
-                      <!-- One line, as before: a label that wrapped would push its value down a row. -->
-                      <TextBlock Grid.Column="0" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}" />
-                      <TextBlock Grid.Column="1" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
-                                 Margin="{StaticResource CopyValueGap}" />
-                      <Button Grid.Column="2" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
+                      <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}" />
+                      <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
+                                 VerticalAlignment="Center" Margin="{StaticResource CopyValueGap}" />
+                      <Button Grid.Row="1" Grid.Column="1" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
                               Tag="{Binding}" IsEnabled="{Binding HasValue}" MinWidth="{StaticResource CopyButtonMinWidth}"
                               FontSize="{StaticResource FontSizeCaption}" />
                     </Grid>

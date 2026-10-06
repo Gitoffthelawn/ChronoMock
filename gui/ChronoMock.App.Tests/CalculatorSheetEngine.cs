@@ -43,7 +43,7 @@ internal static class CalculatorSheetEngine
         }
 
         var shift = question.ValueOf("--shift");
-        var days = shift is null ? 0 : long.Parse(shift[1..^1], CultureInfo.InvariantCulture);
+        var days = shift is null ? 0 : ShiftDays(shift);
         if (days > 100_000)
         {
             throw new CalcException("chrono calc: step 1 overflows the representable range (calc.overflow)", 1);
@@ -75,5 +75,17 @@ internal static class CalculatorSheetEngine
                 null,
                 null),
             null);
+    }
+
+    /// <summary>
+    /// The shift's number, as days whatever its unit, so a sheet answers every step the builder can send.
+    /// It read a one-letter unit only, so "+90bd" from a business-day scenario came back as a parse failure
+    /// in place of a result, and every screen measured over such a scenario was measured without one.
+    /// </summary>
+    private static long ShiftDays(string shift)
+    {
+        var digits = new string([.. shift.Skip(1).TakeWhile(char.IsAsciiDigit)]);
+        var amount = long.Parse(digits, CultureInfo.InvariantCulture);
+        return shift[0] == '-' ? -amount : amount;
     }
 }

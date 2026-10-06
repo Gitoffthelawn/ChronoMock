@@ -157,7 +157,7 @@
                      digits cannot show the words that say what it is for, and a placeholder clipped to
                      "any…" explains nothing. Measured on the first render of this row. -->
                 <!-- The same gap as the buttons before it, so the row follows one rule rather than three. -->
-                <TextBox x:Name="CustomSpeedBox" Width="{StaticResource ShiftUnitWidth}"
+                <TextBox x:Name="CustomSpeedBox" Width="{StaticResource CustomSpeedFieldWidth}"
                          Margin="{StaticResource ControlRowGap}" VerticalAlignment="Center"
                          FontFamily="{StaticResource FontFamilyMono}"
                          app:PartState.Placeholder="{DynamicResource session.rate_placeholder}"
