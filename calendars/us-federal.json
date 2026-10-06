@@ -10,6 +10,9 @@
   },
   "weekend": ["saturday", "sunday"],
   "observed": "sat_to_fri_sun_to_mon",
+  "valid_from": 1960,
+  "law_as_of": "2026-10-06",
+  "source": "Range from 1960, the first full year of both observance rules: a holiday on Saturday is observed on the preceding Friday by employees whose basic workweek is Monday through Friday from Public Law 86-362 of 22 September 1959 (5 U.S.C. 6103(b)), and a holiday on Sunday on the following Monday from Executive Order 10358 of 9 June 1952 (Executive Order 11582 from 1971). Holidays: the legal public holidays of 5 U.S.C. 6103(a) and the laws it derives from (United States Code, 2024 edition, with its historical notes). Not in it: Inauguration Day, a holiday only around Washington, and days off given by executive order",
   "holidays": [
     {
       "id": "new_years_day",
@@ -41,7 +44,7 @@
       "rule": { "type": "fixed", "month": 2, "day": 22 },
       "valid_from": null,
       "valid_to": 1970,
-      "source": "5 U.S.C. 6103 as it read before Public Law 90-363 substituted the third Monday in February with effect from 1971-01-01. The first year is left unclaimed rather than guessed"
+      "source": "5 U.S.C. 6103 as it read before Public Law 90-363 substituted the third Monday in February with effect from 1971-01-01, on 22 February for the whole of the calendar's range before that"
     },
     {
       "id": "memorial_day",
@@ -57,7 +60,7 @@
       "rule": { "type": "fixed", "month": 5, "day": 30 },
       "valid_from": null,
       "valid_to": 1970,
-      "source": "5 U.S.C. 6103 as it read before Public Law 90-363 substituted the last Monday in May with effect from 1971-01-01. The first year is left unclaimed rather than guessed"
+      "source": "5 U.S.C. 6103 as it read before Public Law 90-363 substituted the last Monday in May with effect from 1971-01-01, on 30 May for the whole of the calendar's range before that"
     },
     {
       "id": "juneteenth",
@@ -81,7 +84,7 @@
       "rule": { "type": "nth_weekday", "month": 9, "weekday": "monday", "order": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "5 U.S.C. 6103 (federal holidays)"
+      "source": "5 U.S.C. 6103, derived from the Act of 28 June 1894 (28 Stat. 96)"
     },
     {
       "id": "columbus_day",
@@ -113,7 +116,7 @@
       "rule": { "type": "fixed", "month": 11, "day": 11 },
       "valid_from": null,
       "valid_to": 1970,
-      "source": "5 U.S.C. 6103 as it read before Public Law 90-363 moved this holiday to the fourth Monday in October with effect from 1971-01-01. The first year is left unclaimed rather than guessed"
+      "source": "5 U.S.C. 6103 as it read before Public Law 90-363 moved this holiday to the fourth Monday in October with effect from 1971-01-01. A holiday on 11 November from the Act of 13 May 1938 (52 Stat. 351), named Veterans Day by the Act of 1 June 1954 (68 Stat. 168)"
     },
     {
       "id": "thanksgiving_day",
@@ -121,7 +124,7 @@
       "rule": { "type": "nth_weekday", "month": 11, "weekday": "thursday", "order": 4 },
       "valid_from": null,
       "valid_to": null,
-      "source": "5 U.S.C. 6103 (federal holidays)"
+      "source": "5 U.S.C. 6103, the fourth Thursday in November from the Act of 26 December 1941 (55 Stat. 862), first applied in 1942"
     },
     {
       "id": "christmas_day",

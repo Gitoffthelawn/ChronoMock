@@ -425,6 +425,48 @@ fn a_preset_counts_business_days_in_its_markets_calendar() {
     assert!(said.contains("calc.needs_calendar") && !said.contains("pass --calendar"), "{said}");
 }
 
+/// R4/20, the owner's case on the session side: a preset that counts business days in its market's
+/// calendar, where that calendar was checked against the law long before today, says so on stderr -
+/// a session has no marks to carry it. A calendar whose check is not older than a year says nothing.
+#[test]
+fn a_preset_counted_in_an_old_calendar_says_a_holiday_may_be_missing() {
+    let moment = r#"{"base":{"absolute":"2030-01-01T00:00:00"},"steps":[{"shift":{"sign":"+","amount":1,"unit":"bd"}}]}"#;
+    let said_with = |law_as_of: &str| {
+        let dir = catalogue_with(&format!("bd-law-{}", &law_as_of[..4]), r#""us""#, moment, 1);
+        let banking = dir.join("calendars").join("us-banking.json");
+        let text = std::fs::read_to_string(&banking).expect("the copied calendar");
+        // Whatever day the shipped file was last checked on, this copy says another.
+        let key = r#""law_as_of": ""#;
+        let at = text.find(key).expect("the shipped calendar has a check date") + key.len();
+        let text = format!("{}{law_as_of}{}", &text[..at], &text[at + "YYYY-MM-DD".len()..]);
+        std::fs::write(&banking, text).expect("the calendar with another check date");
+        let out = preset_plan(&dir, &format!("bd-law-{}", &law_as_of[..4]));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(planned_moment(&out), "2030-01-02T00:00:00");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let old = said_with("2020-01-01");
+    assert!(old.contains("(calendar_outdated)") && old.contains("us-banking"), "{old}");
+    let fresh = said_with("2999-01-01");
+    assert!(!fresh.contains("calendar_outdated"), "{fresh}");
+}
+
+/// R4-S20 on the session side: a preset that counts business days back past the first year of its
+/// market's calendar is refused, with the year, and with a way out a session has - `--at` - rather than
+/// the calculator's "another calendar", which `chrono run` cannot pick (the same class as R4-S12).
+#[test]
+fn a_preset_that_walks_before_its_calendar_is_refused_with_a_way_out() {
+    let moment = r#"{"base":{"absolute":"2002-01-02T00:00:00"},"steps":[{"shift":{"sign":"-","amount":1,"unit":"bd"}}]}"#;
+    let dir = catalogue_with("bd-before-pl", r#""pl""#, moment, 1);
+    let out = preset_plan(&dir, "bd-before-pl");
+    let _ = std::fs::remove_dir_all(&dir);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(said.contains("(calc.before_calendar)") && said.contains("2002") && said.contains("--at"), "{said}");
+    assert!(!said.contains("another calendar"), "{said}");
+}
+
 /// A zone step moves where a later step counts, not the instant the session starts at (R4-S12). "The
 /// start of the month in +05:45" is 2029-12-31T18:15 in UTC, and the plan used to carry 2030-01-01
 /// 00:00 - the Kathmandu wall clock, read as UTC.

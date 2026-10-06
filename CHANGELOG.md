@@ -88,6 +88,25 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A holiday calendar says which years it answers for, and counts no business day outside them.**
+  A calendar file now has three more required fields: `valid_from`, the first year every rule in it
+  has a source for (holidays, weekend and observance), `law_as_of`, the day its holidays were checked
+  against the law, and `source`, where the range, the weekend and the observance come from. The
+  shipped calendars answer from 2002 (`pl`, the first full year of the five-day working week in the
+  Polish Labour Code), from 1960 (`us-federal`, the first full year of both observance rules) and
+  from 2008 (`us-banking`, the oldest Federal Reserve holiday schedule read). A business-day step or
+  a `--nearest` business day that reaches a day before that year is refused with exit 1
+  (`calc.before_calendar`). A date before it keeps its formats and its other marks, and its business
+  day and holiday are not judged: the text says so, the JSON has `business_day` and `holiday` null,
+  and the marks hold `before_calendar`. The JSON gives `metadata.calendar_valid_from` and
+  `metadata.calendar_law_as_of`. A calendar file written for an earlier version is refused with the
+  missing field named, and an earlier version refuses a calendar file from this one.
+- **A calendar older than a year says that a holiday may be missing.** When a calendar was checked
+  against the law more than a year before today, and it judged a later day - the result, or a day a
+  business-day step walked over - the result carries the mark `calendar_outdated`, and `chrono run
+  --preset` says it on stderr. A package updated in one year and used two years later would
+  otherwise count on as if no holiday had been added since. The text output names the day of the
+  check under the marks of every calendar read from a file.
 - **`chrono calc --preset` counts business days in the calendar of the preset's market**, as
   `chrono run --preset` does, and names that calendar above the result. A market preset
   such as `payment-due-business-days` used to stop with exit 5 and ask for `--calendar`, while the
@@ -175,6 +194,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **Old dates are no longer counted with today's holidays.** The Polish calendar answered for every
+  year with today's list: 3 May came out a day off before 1990, 11 November and 15 August before
+  1989, 22 July (a day off until 1989) never, and Saturday a weekend day in years when it was a
+  working day. The American calendars put Thanksgiving on the fourth Thursday also before 1942. Those
+  years are now outside the calendars, so they are refused or not judged instead of answered wrongly.
+- **12 November 2018 is a day off in the Polish calendar.** It was made one by its own act, and the
+  calendar counted it as a working day.
 - **The window reads every preset exactly as the command line does.** It read the preset files
   with a grammar of its own, and where the command line refused, the window made a value up: a
   default of one month counted as one day, a duration or a choice with no default was filled in

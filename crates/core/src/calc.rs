@@ -179,6 +179,18 @@ impl Step {
             Step::Zone(_) => "zone",
         }
     }
+
+    /// Whether this step asks the calendar about days: a business-day shift, or `nearest` to a
+    /// business day. The leap-day target is arithmetic and asks it nothing.
+    fn judges_business_days(&self) -> bool {
+        match self {
+            Step::Shift { unit, .. } => *unit == Unit::BusinessDays,
+            Step::Nearest(target) => {
+                matches!(target, NearestTarget::NextBusinessDay | NearestTarget::PrevBusinessDay)
+            }
+            Step::SetTime { .. } | Step::Snap(_) | Step::Zone(_) => false,
+        }
+    }
 }
 
 /// Where an expression starts before its steps apply.
@@ -238,6 +250,12 @@ pub struct EvalOutcome {
     /// date they are about to act on. Reported by the engine rather than inferred by each caller from
     /// the day changing, so the two halves of the product cannot disagree about one shift.
     pub clamped: Vec<(usize, u32)>,
+    /// The latest day a business-day step or a business-day `nearest` judged against the calendar, or
+    /// `None` when no step used it. With the result, which the metadata judges, it is everything the
+    /// calendar decided in this evaluation - what [`crate::calendar::outdated`] is asked about. For a
+    /// walk backwards it is the day the walk started from, one day later than the first day it judged,
+    /// so the answer errs towards saying the data may be old.
+    pub calendar_reach: Option<CivilDateTime>,
 }
 
 impl EvalOutcome {
@@ -299,6 +317,11 @@ pub enum EvalError {
     /// build sets, not an arithmetic one: it used to travel as `Overflow`, so `+2000000bd` was answered
     /// with a sentence about the size of numbers while the number was fine (R4-N35).
     TooManyBusinessDays { index: usize },
+    /// A business-day step reached a day before the calendar's first year
+    /// ([`crate::calendar::Calendar::valid_from`], carried here as `first_year`), where the calendar
+    /// has no rules. Counted on with today's holidays and weekend, it gave answers like a Polish
+    /// Constitution Day off in 1985, five years before that day off was restored (R4-S20).
+    BeforeCalendar { index: usize, first_year: i64 },
 }
 
 /// Parse a civil date-time in "YYYY-MM-DDTHH:MM:SS" form (a space may replace the `T`). The core's
@@ -371,6 +394,7 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
     let mut cur_bias = ctx.zone_bias_min;
     let mut after_each = Vec::with_capacity(expr.steps.len());
     let mut clamped: Vec<(usize, u32)> = Vec::new();
+    let mut calendar_reach: Option<CivilDateTime> = None;
     for (i, step) in expr.steps.iter().enumerate() {
         // A `zone` step re-expresses the running moment in another fixed-offset zone (same
         // instant, new wall-clock and bias). It is the only step that changes the zone, so it is
@@ -385,6 +409,11 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
             if let Some(day) = clamped_day {
                 clamped.push((i, day));
             }
+            if step.judges_business_days() {
+                // The days a calendar step judged lie between where it started and where it landed.
+                let latest = later(cur, next);
+                calendar_reach = Some(calendar_reach.map_or(latest, |reach| later(reach, latest)));
+            }
             cur = next;
         }
         // Checked after EVERY step, not only after the ones that obviously move years. A snap keeps
@@ -396,7 +425,13 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
         }
         after_each.push(cur);
     }
-    Ok(EvalOutcome { base, after_each, result_bias: cur_bias, clamped })
+    Ok(EvalOutcome { base, after_each, result_bias: cur_bias, clamped, calendar_reach })
+}
+
+/// The later of two civil moments of the same zone (field order is date order).
+fn later(a: CivilDateTime, b: CivilDateTime) -> CivilDateTime {
+    let key = |c: &CivilDateTime| (c.year, c.month, c.day, c.hour, c.minute, c.second);
+    if key(&b) > key(&a) { b } else { a }
 }
 
 /// Whether a `set_time` step names a time of day that exists: 00:00:00 to 23:59:59.
@@ -482,8 +517,26 @@ fn apply_nearest(
     index: usize,
 ) -> Result<CivilDateTime, EvalError> {
     let forward = matches!(target, NearestTarget::NextBusinessDay);
-    crate::calendar::nearest_business_day(&cur, forward, cal)
-        .ok_or(EvalError::DegenerateCalendar { index })
+    crate::calendar::nearest_business_day(&cur, forward, cal).map_err(|limit| business_day_error(limit, cal, index))
+}
+
+/// The evaluation error for a business-day walk that produced no answer, shared by `bd` and `nearest`
+/// so the two calendar steps cannot describe one cause two ways.
+fn business_day_error(
+    limit: crate::calendar::BusinessDayLimit,
+    cal: &crate::calendar::Calendar,
+    index: usize,
+) -> EvalError {
+    match limit {
+        // The request is past the limit - the calendar is fine, and nothing overflowed.
+        crate::calendar::BusinessDayLimit::TooManyDays => EvalError::TooManyBusinessDays { index },
+        // The calendar is the problem, and the message has to say so.
+        crate::calendar::BusinessDayLimit::DegenerateCalendar => EvalError::DegenerateCalendar { index },
+        // `valid_from` is always set when the walk can stop here - it is the only thing that stops it.
+        crate::calendar::BusinessDayLimit::BeforeCalendar => {
+            EvalError::BeforeCalendar { index, first_year: cal.valid_from.unwrap_or_default() }
+        }
+    }
 }
 
 /// Jump to the next 29 February on or after `cur` (itself if `cur` is already a leap day). The year
@@ -565,14 +618,7 @@ fn apply_shift(
         Unit::BusinessDays => match calendar {
             Some(cal) => crate::calendar::add_business_days(&cur, signed, cal)
                 .map(|c| (c, None))
-                .map_err(|limit| match limit {
-                    // The request is past the limit - the calendar is fine, and nothing overflowed.
-                    crate::calendar::BusinessDayLimit::TooManyDays => EvalError::TooManyBusinessDays { index },
-                    // The calendar is the problem, and the message has to say so.
-                    crate::calendar::BusinessDayLimit::DegenerateCalendar => {
-                        EvalError::DegenerateCalendar { index }
-                    }
-                }),
+                .map_err(|limit| business_day_error(limit, cal, index)),
             None => Err(EvalError::NeedsCalendar { index }),
         },
     }
@@ -1135,6 +1181,14 @@ pub enum Significance {
     /// A weekday that is a day off because a holiday is OBSERVED on it - its actual date fell on a
     /// weekend and shifted here. Explains a "not a business day, yet not a holiday" date.
     ObservedHoliday,
+    /// The date is before the calendar's first year, so the calendar judges nothing about it - no
+    /// weekend, holiday or business-day mark, rather than today's rules applied to a year they did not
+    /// hold in (R4-S20). Stands where those three would.
+    BeforeCalendar,
+    /// The calendar judged a date after the day its holidays were checked against the law, and that
+    /// check is more than a year old (`calendar::outdated`): a holiday added since may be missing. Not
+    /// produced by [`significance`], which has no "today" - the caller that has one adds it (R4/20).
+    CalendarOutdated,
 }
 
 impl Significance {
@@ -1155,6 +1209,8 @@ impl Significance {
             Significance::Weekend => "weekend",
             Significance::PublicHoliday => "public_holiday",
             Significance::ObservedHoliday => "observed_holiday",
+            Significance::BeforeCalendar => "before_calendar",
+            Significance::CalendarOutdated => "calendar_outdated",
         }
     }
 
@@ -1180,6 +1236,12 @@ impl Significance {
             Significance::PublicHoliday => "public holiday",
             Significance::ObservedHoliday => {
                 "observed public holiday - a day off shifted here from a weekend holiday"
+            }
+            Significance::BeforeCalendar => {
+                "before the years the calendar covers - no weekend, holiday or business-day judgement"
+            }
+            Significance::CalendarOutdated => {
+                "the calendar was checked against the law more than a year ago - a holiday added since may be missing"
             }
         }
     }
@@ -1246,18 +1308,24 @@ pub fn significance(
     // Calendar-dependent markers: only when a calendar is supplied. Derived from the existing engine
     // predicates, so a weekend holiday reports both, while a non-business weekday that is not the
     // holiday's own date can only be an observed (shifted) holiday.
-    if let Some(cal) = calendar {
-        let is_weekend = cal.weekend.contains(&(day_of_week(civil) as u32));
-        let is_holiday = crate::calendar::holiday_on(civil, cal).is_some();
-        if is_weekend {
-            out.push(Significance::Weekend);
+    // A date before the calendar's first year gets one mark saying it was not judged - the weekend is
+    // one of the rules the calendar has no source for there, so even "weekend" would be a guess.
+    match calendar {
+        Some(cal) if !cal.judges_year(civil.year) => out.push(Significance::BeforeCalendar),
+        Some(cal) => {
+            let is_weekend = cal.weekend.contains(&(day_of_week(civil) as u32));
+            let is_holiday = crate::calendar::holiday_on(civil, cal).is_some();
+            if is_weekend {
+                out.push(Significance::Weekend);
+            }
+            if is_holiday {
+                out.push(Significance::PublicHoliday);
+            }
+            if !is_weekend && !is_holiday && !crate::calendar::is_business_day(civil, cal) {
+                out.push(Significance::ObservedHoliday);
+            }
         }
-        if is_holiday {
-            out.push(Significance::PublicHoliday);
-        }
-        if !is_weekend && !is_holiday && !crate::calendar::is_business_day(civil, cal) {
-            out.push(Significance::ObservedHoliday);
-        }
+        None => {}
     }
 
     out
@@ -1695,7 +1763,7 @@ mod tests {
             country: "US".into(),
             weekend: vec![0, 6],
             observed: Observed::None,
-            holidays: vec![],
+            valid_from: None, law_as_of: None, holidays: vec![],
         };
         // 2026-07-10 is a Friday - +1 business day is Monday 2026-07-13, time of day kept.
         let expr = MomentExpr {
@@ -1706,6 +1774,72 @@ mod tests {
             eval(&expr, &EvalContext { now: dt(2000, 1, 1, 0, 0, 0), zone_bias_min: 0, calendar: Some(&cal) })
                 .unwrap();
         assert_eq!(out.result(), dt(2026, 7, 13, 9, 0, 0));
+    }
+
+    /// R4-S20 and R4/20, at the evaluation: a step that walks before the calendar's first year is
+    /// refused with that year, and every calendar step leaves how far it judged - the later end of its
+    /// walk - so the caller can ask whether the calendar was old for it.
+    #[test]
+    fn calendar_steps_report_their_reach_and_refuse_a_walk_before_the_first_year() {
+        use crate::calendar::{Calendar, Observed};
+        let cal = Calendar {
+            id: "t".into(),
+            country: "US".into(),
+            weekend: vec![0, 6],
+            observed: Observed::None,
+            valid_from: Some(2026),
+            law_as_of: None,
+            holidays: vec![],
+        };
+        let run = |base: CivilDateTime, steps: Vec<Step>| {
+            eval(
+                &MomentExpr { base: abs(base), steps },
+                &EvalContext { now: dt(2000, 1, 1, 0, 0, 0), zone_bias_min: 0, calendar: Some(&cal) },
+            )
+        };
+        // Forward: the walk ends latest. 2026-07-10 is a Friday.
+        let out = run(dt(2026, 7, 10, 9, 0, 0), vec![shift(Sign::Plus, 1, Unit::BusinessDays)]).unwrap();
+        assert_eq!(out.calendar_reach, Some(dt(2026, 7, 13, 9, 0, 0)));
+        // Backward: it started latest. A later step that does not ask the calendar leaves the reach alone.
+        let out = run(
+            dt(2026, 7, 13, 9, 0, 0),
+            vec![shift(Sign::Minus, 1, Unit::BusinessDays), shift(Sign::Plus, 30, Unit::Days)],
+        )
+        .unwrap();
+        assert_eq!(out.calendar_reach, Some(dt(2026, 7, 13, 9, 0, 0)));
+        assert_eq!(out.result(), dt(2026, 8, 9, 9, 0, 0));
+        // No calendar step, no reach.
+        let out = run(dt(2026, 7, 10, 9, 0, 0), vec![shift(Sign::Plus, 1, Unit::Days)]).unwrap();
+        assert_eq!(out.calendar_reach, None);
+        // Out of the range: refused, with the first year, on the step that walked out.
+        assert_eq!(
+            run(dt(2026, 1, 2, 9, 0, 0), vec![shift(Sign::Plus, 1, Unit::Days), shift(Sign::Minus, 3, Unit::BusinessDays)]),
+            Err(EvalError::BeforeCalendar { index: 1, first_year: 2026 })
+        );
+        assert_eq!(
+            run(dt(2026, 1, 3, 9, 0, 0), vec![Step::Nearest(NearestTarget::PrevBusinessDay)]),
+            Ok(EvalOutcome {
+                base: dt(2026, 1, 3, 9, 0, 0),
+                after_each: vec![dt(2026, 1, 2, 9, 0, 0)],
+                result_bias: 0,
+                clamped: vec![],
+                calendar_reach: Some(dt(2026, 1, 3, 9, 0, 0)),
+            })
+        );
+        assert_eq!(
+            run(dt(2026, 1, 1, 9, 0, 0), vec![Step::Nearest(NearestTarget::PrevBusinessDay)]),
+            Ok(EvalOutcome {
+                base: dt(2026, 1, 1, 9, 0, 0),
+                after_each: vec![dt(2026, 1, 1, 9, 0, 0)],
+                result_bias: 0,
+                clamped: vec![],
+                calendar_reach: Some(dt(2026, 1, 1, 9, 0, 0)),
+            })
+        );
+        assert_eq!(
+            run(dt(2026, 1, 4, 9, 0, 0), vec![shift(Sign::Minus, 3, Unit::BusinessDays)]),
+            Err(EvalError::BeforeCalendar { index: 0, first_year: 2026 })
+        );
     }
 
     #[test]
@@ -1785,7 +1919,7 @@ mod tests {
             country: "US".into(),
             weekend: vec![0, 6],
             observed: Observed::None,
-            holidays: vec![],
+            valid_from: None, law_as_of: None, holidays: vec![],
         };
         // 2026-07-04 is a Saturday - the next business day is Monday 2026-07-06.
         let expr = MomentExpr {
@@ -2024,6 +2158,8 @@ mod tests {
         assert_eq!(Significance::LeapDay.key(), "leap_day");
         assert_eq!(Significance::UnixEpoch.key(), "unix_epoch");
         assert_eq!(Significance::ObservedHoliday.key(), "observed_holiday");
+        assert_eq!(Significance::BeforeCalendar.key(), "before_calendar");
+        assert_eq!(Significance::CalendarOutdated.key(), "calendar_outdated");
         assert_eq!(DateReading::Iso.key(), "iso");
         assert_eq!(DateReading::UsMonthDay.key(), "us_month_day");
         assert_eq!(DateReading::PlDayMonth.key(), "pl_day_month");
@@ -2301,8 +2437,31 @@ mod tests {
             country: "US".into(),
             weekend: vec![0, 6],
             observed,
-            holidays: vec![h("new_year", 1, 1), h("independence", 7, 4)],
+            valid_from: None, law_as_of: None, holidays: vec![h("new_year", 1, 1), h("independence", 7, 4)],
         }
+    }
+
+    /// R4-S20: a date before the calendar's first year gets one honest mark instead of weekend and
+    /// holiday marks judged with rules that did not hold then. The civil marks stay - they need no
+    /// calendar.
+    #[test]
+    fn significance_before_the_calendar_says_so_instead_of_judging() {
+        let limited = crate::calendar::Calendar {
+            valid_from: Some(2027),
+            ..cal_us(crate::calendar::Observed::SatToFriSunToMon)
+        };
+        // 2026-07-04: a Saturday and Independence Day - neither is claimed for a year the calendar does not cover.
+        assert_eq!(significance(&dt(2026, 7, 4, 0, 0, 0), 0, Some(&limited)), vec![Significance::BeforeCalendar]);
+        // 2026-12-31 keeps its year-end mark, which is arithmetic.
+        assert_eq!(
+            significance(&dt(2026, 12, 31, 0, 0, 0), 0, Some(&limited)),
+            vec![Significance::EndOfYear, Significance::BeforeCalendar]
+        );
+        // From the first year on the calendar judges as before.
+        assert_eq!(
+            significance(&dt(2027, 7, 5, 0, 0, 0), 0, Some(&limited)),
+            vec![Significance::ObservedHoliday]
+        );
     }
 
     #[test]
@@ -2551,7 +2710,7 @@ mod tests {
     fn a_business_day_step_past_the_limit_names_the_limit() {
         use crate::calendar::{Calendar, Observed, MAX_BUSINESS_DAYS};
         let cal =
-            Calendar { id: "t".into(), country: "US".into(), weekend: vec![0, 6], observed: Observed::None, holidays: vec![] };
+            Calendar { id: "t".into(), country: "US".into(), weekend: vec![0, 6], observed: Observed::None, valid_from: None, law_as_of: None, holidays: vec![] };
         let step = |amount: i64| {
             let expr = MomentExpr {
                 base: abs(dt(2026, 7, 6, 0, 0, 0)),

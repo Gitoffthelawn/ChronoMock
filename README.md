@@ -260,7 +260,9 @@ speaks in QA terms rather than arithmetic:
 - **Reverse direction** - paste a date from a log and get *"3 days before quarter end"*, *"Saturday,
   not a business day"*. When the format is ambiguous, both readings are shown rather than one guessed
 - **Business days and holidays** - United States and Poland at launch, including the US rule where a
-  holiday landing on a Saturday is observed on the preceding Friday
+  holiday landing on a Saturday is observed on the preceding Friday. Each calendar answers only for
+  the years its sources cover (Poland from 2002, US federal from 1960, US banking from 2008) and
+  says when it was last checked against the law
 
 Any calculated date goes straight into a time-shift session with one click.
 

@@ -112,7 +112,7 @@ fn calc_in(dir: &std::path::Path, args: &[&str]) -> Output {
 fn a_catalogue_file_loads_as_saved_and_is_named_when_refused() {
     let calendar = |id: &str| {
         format!(
-            r#"{{"schema":"chronomock.calendar/1","id":"{id}","country":"XX","weekend":["saturday","sunday"],"observed":"none","holidays":[]}}"#
+            r#"{{"schema":"chronomock.calendar/1","id":"{id}","country":"XX","weekend":["saturday","sunday"],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[]}}"#
         )
         .into_bytes()
     };
@@ -186,7 +186,7 @@ fn a_market_preset_counts_in_its_markets_calendar_unless_another_is_named() {
     // not. Friday 2026-07-03 plus one business day is then Monday in one and Saturday in the other.
     let calendar = |id: &str, weekend: &str| {
         format!(
-            r#"{{"schema":"chronomock.calendar/1","id":"{id}","country":"XX","weekend":[{weekend}],"observed":"none","holidays":[]}}"#
+            r#"{{"schema":"chronomock.calendar/1","id":"{id}","country":"XX","weekend":[{weekend}],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[]}}"#
         )
         .into_bytes()
     };
@@ -228,4 +228,62 @@ fn a_market_preset_counts_in_its_markets_calendar_unless_another_is_named() {
     assert!(stderr(&out).contains("calc.needs_calendar"), "{}", stderr(&out));
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// R4-S20 and R4/20 as a user meets them. The shipped Polish calendar refuses a business-day step that
+/// walks into 2001 (exit 1, with the year), answers for a date before 2002 without judging it (no
+/// business day, no holiday, the `before_calendar` mark), and a calendar checked against the law long
+/// before today marks a later result `calendar_outdated` - the case of a package updated once and used
+/// for years. The old check date is 2020, so the last condition holds on any machine whose clock is
+/// past 2021.
+#[test]
+fn a_calendar_answers_only_for_its_years_and_says_when_it_is_old() {
+    let shipped = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../calendars/pl.json")).expect("the shipped pl");
+    let old = old_polish_calendar(&shipped);
+    let dir = catalogue("range", &[("calendars/pl.json", shipped.into_bytes()), ("calendars/old.json", old.into_bytes())]);
+
+    let out = calc_in(&dir, &["--calendar", "pl", "--base", "2002-01-02T00:00:00", "--shift", "-1bd"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("(calc.before_calendar)") && stderr(&out).contains("2002"), "{}", stderr(&out));
+
+    let out = calc_in(&dir, &["--calendar", "pl", "--base", "1985-05-03T00:00:00", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("calc --json is JSON");
+    let metadata = &doc["moment"]["metadata"];
+    assert!(metadata["business_day"].is_null() && metadata["holiday"].is_null(), "{doc}");
+    assert_eq!(metadata["calendar_valid_from"], 2002, "{doc}");
+    assert_eq!(doc["moment"]["significance"], serde_json::json!(["before_calendar"]), "{doc}");
+
+    let out = calc_in(&dir, &["--calendar", "old", "--base", "2026-07-01T12:00:00", "--shift", "+1bd", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("calc --json is JSON");
+    assert!(doc["moment"]["significance"].as_array().is_some_and(|marks| marks.contains(&serde_json::json!("calendar_outdated"))), "{doc}");
+    assert_eq!(doc["moment"]["metadata"]["calendar_law_as_of"], "2020-01-01", "{doc}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// R4/20: a walk back from a date after the check can end before it and still have judged days the
+/// check never saw - the mark follows the days the step walked over, not only where it landed.
+#[test]
+fn a_walk_over_days_after_an_old_check_is_marked_even_when_it_ends_before_it() {
+    let shipped = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../calendars/pl.json")).expect("the shipped pl");
+    let dir = catalogue("reach", &[("calendars/old.json", old_polish_calendar(&shipped).into_bytes())]);
+    let out = calc_in(&dir, &["--calendar", "old", "--base", "2020-01-10T00:00:00", "--shift", "-10bd", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("calc --json is JSON");
+    assert!(doc["moment"]["iso"].as_str().is_some_and(|iso| iso < "2020-01-01"), "the walk ends before the check: {doc}");
+    assert!(doc["moment"]["significance"].as_array().is_some_and(|marks| marks.contains(&serde_json::json!("calendar_outdated"))), "{doc}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The shipped Polish calendar under the id `old`, checked against the law on 2020-01-01 - whatever day
+/// the shipped file itself was last checked on, so the tests that use it do not move with that date.
+fn old_polish_calendar(shipped: &str) -> String {
+    let renamed = shipped.replacen(r#""id": "pl""#, r#""id": "old""#, 1);
+    let key = r#""law_as_of": ""#;
+    let at = renamed.find(key).expect("the shipped calendar has a check date") + key.len();
+    let old = format!("{}2020-01-01{}", &renamed[..at], &renamed[at + "YYYY-MM-DD".len()..]);
+    assert!(old.contains(r#""id": "old""#) && old != shipped, "the copy has to differ from the shipped file");
+    old
 }

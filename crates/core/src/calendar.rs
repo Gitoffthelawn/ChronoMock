@@ -57,7 +57,8 @@ pub struct Holiday {
     pub source: String,
 }
 
-/// A whole calendar: weekend days, the observance modifier, and the holiday list.
+/// A whole calendar: weekend days, the observance modifier, the holiday list, and the years it answers
+/// for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Calendar {
     pub id: String,
@@ -65,7 +66,31 @@ pub struct Calendar {
     /// Weekend weekdays (0 = Sunday .. 6 = Saturday).
     pub weekend: Vec<u32>,
     pub observed: Observed,
+    /// The first year this calendar answers for (docs/04 section 5): from that year on every rule in it -
+    /// the holidays, the weekend and the observance - has a source. `None` for a calendar built in code,
+    /// which answers for every year. A calendar read from a file always has one.
+    ///
+    /// The holidays alone could not say this. Their own `valid_from` limits one holiday, and a calendar
+    /// whose rules are right only from some year on - Poland before the five-day week, where Saturday was
+    /// a working day - used to answer for every year the calculator computes, the year 1000 included,
+    /// with the same confidence as for this one (R4-S20).
+    pub valid_from: Option<i64>,
+    /// The day the holiday list was last checked against the law, or `None` for a calendar built in
+    /// code. A date after it is the law as it stood that day, carried forward - see [`outdated`].
+    pub law_as_of: Option<CivilDateTime>,
     pub holidays: Vec<Holiday>,
+}
+
+impl Calendar {
+    /// Whether this calendar judges dates of `year` at all - false before its first year.
+    pub fn judges_year(&self, year: i64) -> bool {
+        self.valid_from.is_none_or(|first| year >= first)
+    }
+
+    /// The first day it judges, as a day count since 1970-01-01, or `None` when it judges every day.
+    fn first_day(&self) -> Option<i64> {
+        self.valid_from.map(|year| days(year, 1, 1))
+    }
 }
 
 /// Day of week for a civil date: 0 = Sunday .. 6 = Saturday.
@@ -337,17 +362,28 @@ const DEGENERATE_GAP_DAYS: i64 = 400;
 
 /// The nearest business day to `from` in one direction, INCLUDING `from` itself if it is already a
 /// business day (roll semantics: "adjust to a business day"). `forward` rolls toward later dates,
-/// otherwise earlier. Time of day is kept. `None` only for a degenerate calendar, one with no business
-/// day in `DEGENERATE_GAP_DAYS` days from `from` (e.g. every weekday marked weekend).
-pub fn nearest_business_day(from: &CivilDateTime, forward: bool, cal: &Calendar) -> Option<CivilDateTime> {
+/// otherwise earlier. Time of day is kept. Refused for a degenerate calendar, one with no business day
+/// in `DEGENERATE_GAP_DAYS` days from `from` (e.g. every weekday marked weekend), and for a roll that
+/// has to judge a day before the calendar's first year.
+pub fn nearest_business_day(
+    from: &CivilDateTime,
+    forward: bool,
+    cal: &Calendar,
+) -> Result<CivilDateTime, BusinessDayLimit> {
     let step = if forward { 1 } else { -1 };
     let mut d = days(from.year, from.month, from.day);
+    let first = cal.first_day();
     // One cache for the whole roll, as in `add_business_days`: it was rebuilt for every day looked at.
     let mut off = OffDays::new(cal);
     for _ in 0..DEGENERATE_GAP_DAYS {
+        // Before the weekend test, because the weekend is one of the rules this calendar has no source
+        // for before its first year.
+        if first.is_some_and(|f| d < f) {
+            return Err(BusinessDayLimit::BeforeCalendar);
+        }
         if off.is_business_day(d) {
             let (year, month, day) = crate::civil_from_days(d);
-            return Some(CivilDateTime {
+            return Ok(CivilDateTime {
                 year,
                 month: month as u32,
                 day: day as u32,
@@ -358,7 +394,7 @@ pub fn nearest_business_day(from: &CivilDateTime, forward: bool, cal: &Calendar)
         }
         d += step;
     }
-    None
+    Err(BusinessDayLimit::DegenerateCalendar)
 }
 
 /// Why a business-day walk produced no answer. The two cases used to be one `None`, and the caller
@@ -373,6 +409,34 @@ pub enum BusinessDayLimit {
     /// The walk went `DEGENERATE_GAP_DAYS` days in a row without a business day: this calendar has
     /// (almost) none at all.
     DegenerateCalendar,
+    /// The walk reached a day before the calendar's first year (`Calendar::valid_from`), which it has no
+    /// rules for. Counting on with today's rules there is the wrong answer the calendar was limited to
+    /// stop (R4-S20).
+    BeforeCalendar,
+}
+
+/// How many days `law_as_of` may lie behind today before a date after it is treated as possibly
+/// missing a holiday. A year: a holiday is usually enacted months ahead (Poland's Christmas Eve, in
+/// December 2024 for December 2025), but not always (12 November 2018 was made a day off five days
+/// before), so no lag is safe - and a calendar checked this year should not warn on every date of the
+/// next one. A package older than a year warns exactly where a new holiday could be missing.
+pub const LAW_AS_OF_FRESH_DAYS: i64 = 365;
+
+/// Whether `judged` - a day this calendar decided something about - may be missing a holiday: it lies
+/// after the day the calendar was checked against the law, and that check is more than
+/// [`LAW_AS_OF_FRESH_DAYS`] older than `today`. The owner's case: a package last updated in 2030 and
+/// run in 2032, where a holiday added in 2031 is simply not in the file (R4/20).
+///
+/// False for a calendar built in code (no `law_as_of`), and when `today` is not after the check at all
+/// (a machine whose clock runs behind) - the data is then not older than a year from where the caller
+/// stands.
+pub fn outdated(cal: &Calendar, today: &CivilDateTime, judged: &CivilDateTime) -> bool {
+    let Some(law) = cal.law_as_of else {
+        return false;
+    };
+    let law_day = days(law.year, law.month, law.day);
+    days(judged.year, judged.month, judged.day) > law_day
+        && days(today.year, today.month, today.day) - law_day > LAW_AS_OF_FRESH_DAYS
 }
 
 /// `start` advanced by `n` business days (negative = backward), keeping the time of day. The start
@@ -397,11 +461,18 @@ pub fn add_business_days(
     // a sparse one still walking towards its next (R4-N41, see `DEGENERATE_GAP_DAYS`). It is reported
     // as the same "no result" the caller already handles, rather than hanging.
     let mut days_off_in_a_row = 0;
+    // The start day is not judged (Friday + 1 = Monday), so only the days stepped on are held against
+    // the calendar's first year: `+1bd` from the last day before it is a question the calendar can
+    // answer, `-1bd` from its first working day is not. One comparison of two integers per step.
+    let first = cal.first_day();
     // One cache for the whole walk: it is rebuilt when the walk crosses into another year, so the
     // holiday rules are evaluated about once per 365 steps instead of once per step.
     let mut off = OffDays::new(cal);
     while remaining > 0 {
         d += step;
+        if first.is_some_and(|f| d < f) {
+            return Err(BusinessDayLimit::BeforeCalendar);
+        }
         if off.is_business_day(d) {
             remaining -= 1;
             days_off_in_a_row = 0;
@@ -450,7 +521,7 @@ mod tests {
             country: "US".into(),
             weekend: vec![0, 6],
             observed,
-            holidays: vec![
+            valid_from: None, law_as_of: None, holidays: vec![
                 h("new_year", HolidayRule::Fixed { month: 1, day: 1 }, None),
                 h("independence", HolidayRule::Fixed { month: 7, day: 4 }, None),
                 h("juneteenth", HolidayRule::Fixed { month: 6, day: 19 }, Some(2021)),
@@ -503,7 +574,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 6],
             observed: Observed::SatToFriSunToMon,
-            holidays: vec![h("new_year", HolidayRule::Fixed { month: 1, day: 1 }, None)],
+            valid_from: None, law_as_of: None, holidays: vec![h("new_year", HolidayRule::Fixed { month: 1, day: 1 }, None)],
         };
         assert!(
             !is_business_day(&dt(2021, 12, 31), &cal),
@@ -516,7 +587,7 @@ mod tests {
         // 31 December 2023 is a Sunday, so 1 January 2024 (a Monday) is the day off.
         let nye = Calendar {
             observed: Observed::SunToMon,
-            holidays: vec![h("nye", HolidayRule::Fixed { month: 12, day: 31 }, None)],
+            valid_from: None, law_as_of: None, holidays: vec![h("nye", HolidayRule::Fixed { month: 12, day: 31 }, None)],
             ..cal
         };
         assert!(
@@ -555,7 +626,7 @@ mod tests {
             country: "PL".into(),
             weekend: vec![0, 6],
             observed: Observed::None,
-            holidays: vec![h("easter", HolidayRule::EasterOffset { offset: 0 }, None)],
+            valid_from: None, law_as_of: None, holidays: vec![h("easter", HolidayRule::EasterOffset { offset: 0 }, None)],
         };
         for year in [-100, 0] {
             for month in 1..=12u32 {
@@ -651,7 +722,7 @@ mod tests {
             country: "PL".into(),
             weekend: vec![0, 6],
             observed: Observed::None,
-            holidays: vec![
+            valid_from: None, law_as_of: None, holidays: vec![
                 h("easter_sunday", HolidayRule::EasterOffset { offset: 0 }, None),
                 h("easter_monday", HolidayRule::EasterOffset { offset: 1 }, None),
                 h("pentecost", HolidayRule::EasterOffset { offset: 49 }, None),
@@ -708,13 +779,13 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 6],
             observed: Observed::None,
-            holidays: vec![h("fifth_mon_feb", HolidayRule::NthWeekday { month: 2, weekday: 1, order: 5 }, None)],
+            valid_from: None, law_as_of: None, holidays: vec![h("fifth_mon_feb", HolidayRule::NthWeekday { month: 2, weekday: 1, order: 5 }, None)],
         };
         assert!(holiday_on(&dt(2026, 3, 2), &cal).is_none(), "March 2 is not a February holiday");
         assert!(is_business_day(&dt(2026, 3, 2), &cal), "and it stays a working day");
         // In a month that HAS a fifth, it does occur - this is a capability, not a banned value.
         let cal5 = Calendar {
-            holidays: vec![h("fifth_mon_mar", HolidayRule::NthWeekday { month: 3, weekday: 1, order: 5 }, None)],
+            valid_from: None, law_as_of: None, holidays: vec![h("fifth_mon_mar", HolidayRule::NthWeekday { month: 3, weekday: 1, order: 5 }, None)],
             ..cal
         };
         assert!(holiday_on(&dt(2026, 3, 30), &cal5).is_some(), "a real fifth Monday still fires");
@@ -733,7 +804,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 6],
             observed: Observed::None,
-            holidays: vec![h("leap_day", HolidayRule::Fixed { month: 2, day: 29 }, None)],
+            valid_from: None, law_as_of: None, holidays: vec![h("leap_day", HolidayRule::Fixed { month: 2, day: 29 }, None)],
         };
 
         // 2025 is a common year. March 1 is not the leap-day holiday under any name, and stays a
@@ -773,7 +844,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 1, 2, 3, 4, 5, 6],
             observed: Observed::None,
-            holidays: vec![],
+            valid_from: None, law_as_of: None, holidays: vec![],
         };
         // R2-S10: and it says WHICH limit it hit. A calendar with no business day is a bad FILE,
         // not a number too large - the caller renders each with its own message.
@@ -797,7 +868,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 1, 2, 3, 4, 5],
             observed: Observed::None,
-            holidays: vec![],
+            valid_from: None, law_as_of: None, holidays: vec![],
         };
         // Only Saturday works. 2026-07-06 is a Monday, so +2 business days is the second Saturday.
         assert_eq!(add_business_days(&dt(2026, 7, 6), 2, &cal).unwrap(), dt(2026, 7, 18));
@@ -820,7 +891,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 1, 2, 4, 5, 6],
             observed: Observed::None,
-            holidays,
+            valid_from: None, law_as_of: None, holidays,
         };
         let start = dt(2026, 1, 7);
         let forward = add_business_days(&start, 1000, &cal).expect("a thousand Wednesdays exist");
@@ -853,17 +924,20 @@ mod tests {
                 country: "XX".into(),
                 weekend: vec![0, 1, 2, 3, 4, 5],
                 observed: Observed::None,
-                holidays,
+                valid_from: None, law_as_of: None, holidays,
             }
         };
         let one_year = saturdays(2027);
         // 2027-01-01 is a Friday - the next working Saturday is 1 January 2028, 365 days on.
-        assert_eq!(nearest_business_day(&dt(2027, 1, 1), true, &one_year), Some(dt(2028, 1, 1)));
+        assert_eq!(nearest_business_day(&dt(2027, 1, 1), true, &one_year), Ok(dt(2028, 1, 1)));
         // 26 December 2026 is the last working Saturday before the gap.
         assert_eq!(add_business_days(&dt(2026, 12, 26), 1, &one_year), Ok(dt(2028, 1, 1)));
 
         let two_years = saturdays(2028);
-        assert_eq!(nearest_business_day(&dt(2027, 1, 1), true, &two_years), None);
+        assert_eq!(
+            nearest_business_day(&dt(2027, 1, 1), true, &two_years),
+            Err(BusinessDayLimit::DegenerateCalendar)
+        );
         assert_eq!(
             add_business_days(&dt(2026, 12, 26), 1, &two_years),
             Err(BusinessDayLimit::DegenerateCalendar)
@@ -881,7 +955,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 6],
             observed: Observed::WeekendToMon,
-            holidays: vec![
+            valid_from: None, law_as_of: None, holidays: vec![
                 h("christmas", HolidayRule::Fixed { month: 12, day: 25 }, None),
                 h("boxing_day", HolidayRule::Fixed { month: 12, day: 26 }, None),
             ],
@@ -910,7 +984,7 @@ mod tests {
         for day in 27..=31 {
             holidays.push(h(&format!("dec{day}"), HolidayRule::Fixed { month: 12, day }, None));
         }
-        let cal = Calendar { id: "t".into(), country: "XX".into(), weekend: vec![0, 6], observed: Observed::WeekendToMon, holidays };
+        let cal = Calendar { id: "t".into(), country: "XX".into(), weekend: vec![0, 6], observed: Observed::WeekendToMon, valid_from: None, law_as_of: None, holidays };
         assert_eq!(weekday(days(2022, 1, 1)), 6, "guard: 1 January 2022 is a Saturday");
         assert!(!is_business_day(&dt(2022, 1, 3), &cal), "Christmas lands on the Monday after the weekend");
         assert!(!is_business_day(&dt(2022, 1, 4), &cal), "and Boxing Day on the Tuesday");
@@ -929,7 +1003,7 @@ mod tests {
             country: "XX".into(),
             weekend: vec![0, 6],
             observed: Observed::SatToFriSunToMon,
-            holidays: vec![
+            valid_from: None, law_as_of: None, holidays: vec![
                 h("eve", HolidayRule::Fixed { month: 7, day: 3 }, None),
                 h("day", HolidayRule::Fixed { month: 7, day: 4 }, None),
             ],
@@ -946,7 +1020,7 @@ mod tests {
                 country: "XX".into(),
                 weekend: vec![0, 6],
                 observed,
-                holidays: vec![
+                valid_from: None, law_as_of: None, holidays: vec![
                     h("day", HolidayRule::Fixed { month: 7, day: 4 }, None),
                     h("first_monday", HolidayRule::NthWeekday { month: 7, weekday: 1, order: 1 }, None),
                 ],
@@ -1007,5 +1081,52 @@ mod tests {
         let sat = CivilDateTime { year: 2026, month: 7, day: 4, hour: 15, minute: 45, second: 30 };
         let mon = CivilDateTime { year: 2026, month: 7, day: 6, hour: 15, minute: 45, second: 30 };
         assert_eq!(nearest_business_day(&sat, true, &cal).unwrap(), mon);
+    }
+
+    /// R4-S20. A calendar limited to the years its rules have a source for refuses a walk that steps on
+    /// a day before its first year - the same walk without the limit is answered with today's rules,
+    /// which is the wrong answer the limit exists to stop - and answers everything that stays inside.
+    #[test]
+    fn a_walk_that_steps_before_the_first_year_is_refused() {
+        let cal = Calendar { valid_from: Some(2026), ..us(Observed::SunToMon) };
+        // 2026-01-02 is a Friday: -1bd judges New Year's Day, then 31 December 2025.
+        assert_eq!(add_business_days(&dt(2026, 1, 2), -1, &cal), Err(BusinessDayLimit::BeforeCalendar));
+        let unlimited = us(Observed::SunToMon);
+        assert_eq!(add_business_days(&dt(2026, 1, 2), -1, &unlimited), Ok(dt(2025, 12, 31)));
+        // The start day is not judged, so +1bd from the last day before the range is answerable.
+        assert_eq!(add_business_days(&dt(2025, 12, 31), 1, &cal), Ok(dt(2026, 1, 2)));
+        // A walk that stays inside is untouched.
+        assert_eq!(add_business_days(&dt(2026, 1, 2), 1, &cal), Ok(dt(2026, 1, 5)));
+        assert_eq!(add_business_days(&dt(2026, 1, 5), -1, &cal), Ok(dt(2026, 1, 2)));
+    }
+
+    /// A roll judges the day it starts on, so a date before the range is refused even on a weekday, and
+    /// rolling back from the first day of the range is refused when it has to step out of it.
+    #[test]
+    fn a_roll_that_judges_a_day_before_the_first_year_is_refused() {
+        let cal = Calendar { valid_from: Some(2026), ..us(Observed::SunToMon) };
+        assert_eq!(nearest_business_day(&dt(2025, 12, 31), true, &cal), Err(BusinessDayLimit::BeforeCalendar));
+        assert_eq!(nearest_business_day(&dt(2026, 1, 1), false, &cal), Err(BusinessDayLimit::BeforeCalendar));
+        assert_eq!(nearest_business_day(&dt(2026, 1, 1), true, &cal), Ok(dt(2026, 1, 2)));
+        assert!(cal.judges_year(2026) && !cal.judges_year(2025));
+        assert!(us(Observed::SunToMon).judges_year(1000), "a calendar built in code judges every year");
+    }
+
+    /// R4/20, the owner's case: data last checked in 2030, the program run in 2032. A date after the
+    /// check counts as possibly missing a holiday only once the check is more than a year old.
+    #[test]
+    fn a_date_after_a_check_older_than_a_year_is_outdated() {
+        let checked = Calendar { law_as_of: Some(dt(2030, 6, 1)), ..us(Observed::SunToMon) };
+        assert!(outdated(&checked, &dt(2032, 3, 1), &dt(2032, 3, 10)));
+        // The day after the check, the list is as current as anyone's - no warning on every later date.
+        assert!(!outdated(&checked, &dt(2030, 6, 2), &dt(2032, 3, 10)));
+        // A date the check already covered stays trusted, however old the check is.
+        assert!(!outdated(&checked, &dt(2032, 3, 1), &dt(2030, 6, 1)));
+        // 2031-06-01 is 365 days after the check - still fresh. A day later it is not.
+        assert!(!outdated(&checked, &dt(2031, 6, 1), &dt(2031, 7, 1)));
+        assert!(outdated(&checked, &dt(2031, 6, 2), &dt(2031, 7, 1)));
+        // A clock behind the check, and a calendar built in code, never warn.
+        assert!(!outdated(&checked, &dt(2029, 1, 1), &dt(2032, 3, 10)));
+        assert!(!outdated(&us(Observed::SunToMon), &dt(2032, 3, 1), &dt(2032, 3, 10)));
     }
 }

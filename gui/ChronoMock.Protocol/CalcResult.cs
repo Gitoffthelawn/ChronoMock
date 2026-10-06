@@ -69,7 +69,14 @@ public sealed record CalcMetadata(
     /// <summary>The calendar id that decided the two fields above, null when none was supplied. Read
     /// from the RESULT rather than from whatever the picker shows now, so a note about which calendar
     /// judged a date can never describe a different calendar from the one that judged it.</summary>
-    [property: JsonPropertyName("calendar")] string? Calendar = null);
+    [property: JsonPropertyName("calendar")] string? Calendar = null,
+    /// <summary>The first year that calendar answers for, null without one. A date before it comes with
+    /// <see cref="BusinessDay"/> and <see cref="Holiday"/> null and the <c>before_calendar</c> mark
+    /// (R4-S20).</summary>
+    [property: JsonPropertyName("calendar_valid_from")] long? CalendarValidFrom = null,
+    /// <summary>The day that calendar's holidays were checked against the law, <c>YYYY-MM-DD</c>, null
+    /// without one - what the <c>calendar_outdated</c> mark is measured from (R4/20).</summary>
+    [property: JsonPropertyName("calendar_law_as_of")] string? CalendarLawAsOf = null);
 
 /// <summary>The preset's authored framing when the moment came from one (docs/04 4.2).</summary>
 public sealed record CalcPreset(

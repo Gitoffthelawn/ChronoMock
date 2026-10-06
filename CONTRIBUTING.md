@@ -40,6 +40,9 @@ description, because they are the tested examples.
   "name": { "en": "Poland", "local": "Polska" },
   "weekend": ["saturday", "sunday"],
   "observed": "none",
+  "valid_from": 2002,
+  "law_as_of": "2026-10-06",
+  "source": "Range from 2002, the first full year of the five-day working week ...",
   "holidays": [
     {
       "id": "new_years_day",
@@ -47,11 +50,27 @@ description, because they are the tested examples.
       "rule": { "type": "fixed", "month": 1, "day": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     }
   ]
 }
 ```
+
+Three fields say which years the calendar answers for, and all three are required:
+
+- **`valid_from`** - the first year for which every rule in the file has a source: the holidays, and
+  also the weekend and the `observed` rule. Poland's calendar starts in 2002, the first full year of
+  the five-day working week in its Labour Code, because before it Saturday was a working day, and a
+  holiday list alone cannot say that. A business-day step that reaches a day before this year is
+  refused, and a date before it gets no business-day or holiday judgement. Go back as far as your
+  sources go, and no further.
+- **`law_as_of`** - the day you checked the holiday list against the law, `YYYY-MM-DD`. A result
+  after that day, computed more than a year after it, is marked as possibly missing a holiday added
+  since. Update it whenever you check the list again, even if nothing changed.
+- **`source`** - where the range, the weekend and the observance rule come from. Each holiday keeps
+  its own `source` too.
+
+A holiday whose `valid_to` falls before the calendar's `valid_from` is refused: it could never apply.
 
 Three rule types cover everything shipped so far:
 
@@ -72,9 +91,10 @@ Friday - or `weekend_to_mon`. When the day a holiday would be observed on is
 already off, because of another holiday or a weekend day, it moves on to the next
 free day in the same direction.
 
-`valid_from` and `valid_to` are years, and they matter more than they look. Poland
+A holiday's own `valid_from` and `valid_to` are years, and they matter more than they look. Poland
 restored Epiphany as a non-working day in 2011, and a calendar that ignores that
-gives a wrong answer for every date before it.
+gives a wrong answer for every date before it. A single day off made by its own act is a `fixed`
+rule with the same year in both, like Poland's 12 November 2018.
 
 ### What makes a calendar acceptable
 

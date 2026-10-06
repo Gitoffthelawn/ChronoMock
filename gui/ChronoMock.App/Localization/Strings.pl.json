@@ -667,6 +667,8 @@
   // block, and this block says what the arithmetic LANDED ON, which is often incidental to it.
   "calc.what_tests": "Na co ta data trafia",
   "calc.sig_calendar": "Markery weekendu i świąt pochodzą z kalendarza {0}.",
+  "calc.sig_calendar_before": "Kalendarz {0} zaczyna się w roku {1} i nie ocenia wcześniejszych dat.",
+  "calc.sig_calendar_outdated": "Markery weekendu i świąt pochodzą z kalendarza {0} według stanu prawnego na {1}, czyli sprzed ponad roku.",
   "calc.all_formats": "Wszystkie formaty - kopiuj jednym klikiem",
   "calc.copy": "Kopiuj",
   "calc.copied": "Skopiowano",
@@ -716,6 +718,7 @@
   "calc.err.bad_set_time": "Krok ustawienia godziny ma godzinę, minutę albo sekundę poza zakresem.",
   "calc.err.year_out_of_range": "Wynik wypada w roku spoza zakresu, na którym ta wersja liczy (od -262143 do 262143).",
   "calc.err.business_days_limit": "Ten krok prosi o więcej niż 1 000 000 dni roboczych - tyle najwięcej liczy kalkulator.",
+  "calc.err.before_calendar": "Krok w dniach roboczych sięga roku sprzed początku wybranego kalendarza, więc nie da się go policzyć - wybierz późniejszą datę albo inny kalendarz.",
   "calc.err.base_overflow": "Punkt startowy w UTC wskazuje moment spoza zakresu, jaki ta wersja potrafi wyrazić.",
   "calc.err.base_not_a_date": "Punkt startowy nie jest prawdziwą datą i godziną - sprawdź w nim miesiąc, dzień i godzinę.",
   // A value the engine's argument reader refused (R4-S23). From this screen only the typed step fields
@@ -761,6 +764,8 @@
   "calc.sig.weekend": "Weekend - nie jest dniem roboczym",
   "calc.sig.public_holiday": "Święto",
   "calc.sig.observed_holiday": "Obchodzone święto - dzień wolny przesunięty z weekendowego święta",
+  "calc.sig.before_calendar": "Przed latami, które obejmuje kalendarz - bez oceny weekendu, święta i dnia roboczego",
+  "calc.sig.calendar_outdated": "Stan prawny kalendarza jest sprzed ponad roku - może brakować w nim nowszego święta",
 
   // Calculator result rendering (RELEASE-006): the weekday (mapped from the engine's English name), the format labels, the metadata line and the out-of-range marker - keys, not C# literals (rule 15).
   "calc.weekday.monday": "Poniedziałek",

@@ -45,8 +45,21 @@ pub(crate) struct CalendarDto {
     country: String,
     weekend: Vec<String>,
     observed: String,
+    // The years the calendar answers for and the day its holidays were checked against the law, both
+    // required (R4-S20, docs/04 section 5): a file without them would answer for every year the
+    // calculator computes, which is how Poland's Constitution Day came out a day off in 1985.
+    valid_from: i64,
+    law_as_of: String,
+    // Where the range, the weekend and the observance come from. Each holiday carries its own.
+    #[serde(rename = "source")]
+    _source: String,
     holidays: Vec<HolidayDto>,
 }
+
+/// The earliest `valid_from` a calendar may declare: the first full year of the Gregorian calendar.
+/// Every rule here is Gregorian - Easter by Meeus included - so a year before it would be answered
+/// with a calendar nobody kept.
+pub(crate) const FIRST_GREGORIAN_YEAR: i64 = 1583;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -395,6 +408,15 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
             dto.observed, dto.weekend
         ));
     }
+    let law_as_of = law_as_of_from(&dto.law_as_of)?;
+    // The range has to be one this engine can keep and one the check could have looked at: a first year
+    // after the day the list was checked would claim rules nobody has read yet.
+    if dto.valid_from < FIRST_GREGORIAN_YEAR || dto.valid_from > law_as_of.year {
+        return Err(format!(
+            "calendar 'valid_from' is {}, outside {FIRST_GREGORIAN_YEAR}..={} (the Gregorian calendar up to the year of 'law_as_of')",
+            dto.valid_from, law_as_of.year
+        ));
+    }
 
     let mut seen_ids: Vec<String> = Vec::new();
     let holidays = dto
@@ -416,6 +438,15 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
                         h.id
                     ));
                 }
+            // A holiday that ended before the calendar's first year can never apply - a typo in a year,
+            // or a range that was meant to reach further back and does not.
+            if let Some(to) = h.valid_to
+                && to < dto.valid_from {
+                    return Err(format!(
+                        "holiday '{}': valid_to {to} is before the calendar's valid_from {}, so it never applies",
+                        h.id, dto.valid_from
+                    ));
+                }
 
             seen_ids.push(h.id.clone());
             let rule = rule_from(&h.id, h.rule)?;
@@ -435,8 +466,20 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
         country: dto.country,
         weekend,
         observed,
+        valid_from: Some(dto.valid_from),
+        law_as_of: Some(law_as_of),
         holidays,
     })
+}
+
+/// The calendar's `law_as_of`, a plain `YYYY-MM-DD` that names a real day, read through the same
+/// civil-date parser as every other date here.
+fn law_as_of_from(text: &str) -> Result<chrono_core::calc::CivilDateTime, String> {
+    let refuse = || format!("calendar 'law_as_of' is '{text}', not a date written YYYY-MM-DD");
+    if text.len() != 10 {
+        return Err(refuse());
+    }
+    chrono_core::calc::parse_civil_datetime(&format!("{text}T00:00:00")).map_err(|_| refuse())
 }
 
 #[cfg(test)]
@@ -466,7 +509,7 @@ mod tests {
         let with_holidays = |n: usize| {
             let list: Vec<String> = (0..n).map(holiday).collect();
             format!(
-                r#"{{"schema":"chronomock.calendar/1","id":"probe","country":"XX","weekend":["saturday","sunday"],"observed":"none","holidays":[{}]}}"#,
+                r#"{{"schema":"chronomock.calendar/1","id":"probe","country":"XX","weekend":["saturday","sunday"],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[{}]}}"#,
                 list.join(",")
             )
         };
@@ -507,7 +550,7 @@ mod tests {
         let cal = |weekend: &str, observed: &str| {
             format!(
                 r#"{{"schema":"chronomock.calendar/1","id":"x","country":"XX","weekend":{weekend},
-                "observed":"{observed}","holidays":[]}}"#
+                "observed":"{observed}","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[]}}"#
             )
         };
 
@@ -533,13 +576,13 @@ mod tests {
     fn calendar_with_every_day_as_weekend_is_refused() {
         let all_week = r#"{"schema":"chronomock.calendar/1","id":"x","country":"XX",
             "weekend":["monday","tuesday","wednesday","thursday","friday","saturday","sunday"],
-            "observed":"none","holidays":[]}"#;
+            "observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[]}"#;
         let err = calendar_from_text(all_week).expect_err("a week with no working day is refused");
         assert!(err.contains("weekend"), "the message must name the field: {err}");
 
         // Duplicates alone are not an error - they fold, and the calendar still works.
         let dupes = r#"{"schema":"chronomock.calendar/1","id":"x","country":"XX",
-            "weekend":["saturday","saturday","sunday"],"observed":"none","holidays":[]}"#;
+            "weekend":["saturday","saturday","sunday"],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[]}"#;
         let cal = calendar_from_text(dupes).expect("duplicate weekend days fold");
         assert_eq!(cal.weekend.len(), 2);
     }
@@ -554,7 +597,7 @@ mod tests {
         let cal = |rule: &str| {
             format!(
                 r#"{{"schema":"chronomock.calendar/1","id":"x","country":"XX","weekend":["saturday","sunday"],
-                "observed":"none","holidays":[{{"id":"bad","name":{{"en":"B","local":"B"}},
+                "observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[{{"id":"bad","name":{{"en":"B","local":"B"}},
                 "rule":{rule},"source":"test"}}]}}"#
             )
         };
@@ -604,7 +647,7 @@ mod tests {
         let cal = |root: &str, holiday: &str, name: &str, rule: &str| {
             format!(
                 r#"{{"schema":"chronomock.calendar/1","id":"x","country":"XX","weekend":["saturday","sunday"],
-                "observed":"none"{root},"holidays":[{{"id":"h","name":{{"en":"H","local":"H"{name}}},
+                "observed":"none"{root},"valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[{{"id":"h","name":{{"en":"H","local":"H"{name}}},
                 "rule":{{"type":"fixed","month":7,"day":1{rule}}},"source":"t"{holiday}}}]}}"#
             )
         };
@@ -634,7 +677,7 @@ mod tests {
     #[test]
     fn a_later_schema_is_refused_as_a_schema_not_as_an_unknown_field() {
         let v2 = r#"{"schema":"chronomock.calendar/2","id":"x","country":"XX","weekend":[],
-            "observed":"none","holidays":[],"range":[1990,2100]}"#;
+            "observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[],"range":[1990,2100]}"#;
         let err = calendar_from_text(v2).expect_err("a later schema");
         assert!(err.contains("unsupported calendar schema 'chronomock.calendar/2'"), "got: {err}");
         assert!(!err.contains("unknown field"), "got: {err}");
@@ -700,13 +743,13 @@ mod tests {
     #[test]
     fn duplicate_holiday_ids_and_inverted_validity_windows_are_refused() {
         let dupes = r#"{"schema":"chronomock.calendar/1","id":"x","country":"XX",
-            "weekend":["saturday","sunday"],"observed":"none","holidays":[
+            "weekend":["saturday","sunday"],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[
             {"id":"same","name":{"en":"A","local":"A"},"rule":{"type":"fixed","month":1,"day":1},"source":"t"},
             {"id":"same","name":{"en":"B","local":"B"},"rule":{"type":"fixed","month":2,"day":2},"source":"t"}]}"#;
         assert!(calendar_from_text(dupes).expect_err("duplicate id").contains("same"));
 
         let inverted = r#"{"schema":"chronomock.calendar/1","id":"x","country":"XX",
-            "weekend":["saturday","sunday"],"observed":"none","holidays":[
+            "weekend":["saturday","sunday"],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t","holidays":[
             {"id":"w","name":{"en":"A","local":"A"},"rule":{"type":"fixed","month":1,"day":1},
              "valid_from":2030,"valid_to":2020,"source":"t"}]}"#;
         assert!(calendar_from_text(inverted).expect_err("inverted window").contains("valid_from"));
@@ -827,8 +870,8 @@ mod tests {
         // entry read "always" until 2026-09-07, which made every date back to year 1 wrong.
         assert_eq!(holiday_on(&d(1986, 1, 20), &fed).map(|h| h.id.as_str()), Some("mlk_day"));
         assert!(holiday_on(&d(1985, 1, 21), &fed).is_none());
-        assert_eq!(holiday_on(&d(1986, 1, 20), &bank).map(|h| h.id.as_str()), Some("mlk_day"));
-        assert!(holiday_on(&d(1985, 1, 21), &bank).is_none());
+        // The banking calendar starts in 2008, so it carries the rule but judges neither year.
+        assert!(!bank.judges_year(1986));
         // Banking observes a Sunday holiday on the Monday: New Year 2023-01-01 (Sun) -> Mon 2023-01-02.
         assert!(!is_business_day(&d(2023, 1, 2), &bank));
     }
@@ -839,8 +882,9 @@ mod tests {
     /// did not exist, and missed the seven years Veterans Day spent in October.
     ///
     /// Public Law 90-363 (the Uniform Monday Holiday Act) took effect on 1971-01-01, and Public Law
-    /// 94-97 returned Veterans Day to 11 November from 1978-01-01. Both calendars carry the same
-    /// dates, so both are asserted - the banking file is not a copy that can quietly drift.
+    /// 94-97 returned Veterans Day to 11 November from 1978-01-01. Since R4-S20 only the federal
+    /// calendar reaches back that far (from 1960) - the banking one starts in 2008, the oldest Federal
+    /// Reserve schedule read, and judges none of these years.
     #[test]
     fn us_calendars_follow_the_uniform_monday_holiday_act() {
         use chrono_core::calc::CivilDateTime;
@@ -856,8 +900,11 @@ mod tests {
 
         let fed = calendar_from_text(&read_data("calendars/us-federal.json")).expect("us-federal parses");
         let bank = calendar_from_text(&read_data("calendars/us-banking.json")).expect("us-banking parses");
+        assert!(fed.judges_year(1960) && !fed.judges_year(1959), "us-federal answers from 1960");
+        assert!(bank.judges_year(2008) && !bank.judges_year(2007), "us-banking answers from 2008");
 
-        for (which, cal) in [("us-federal", &fed), ("us-banking", &bank)] {
+        {
+            let (which, cal) = ("us-federal", &fed);
             let id_on = |date: CivilDateTime| {
                 holiday_on(&date, cal).map(|h| h.id.clone()).unwrap_or_default()
             };
@@ -898,6 +945,104 @@ mod tests {
             assert_eq!(id_on(d(1977, 11, 11)), "", "{which}");
             assert_eq!(id_on(d(1978, 10, 23)), "", "{which}");
         }
+    }
+
+    /// Every weekday a calendar closes in a year, the way a holiday table lists them - weekends left out,
+    /// because a table does not list them either.
+    fn weekdays_off(cal: &chrono_core::calendar::Calendar, year: i64) -> Vec<(u32, u32)> {
+        use chrono_core::calc::CivilDateTime;
+        let mut out = Vec::new();
+        for month in 1..=12u32 {
+            for day in 1..=31u32 {
+                let date = CivilDateTime { year, month, day, hour: 0, minute: 0, second: 0 };
+                if chrono_core::calc::parse_civil_datetime(&date.to_iso()).is_err() {
+                    continue; // 30 February and its kind
+                }
+                let weekend = chrono_core::calc::metadata(&date, &date).weekday == "Saturday"
+                    || chrono_core::calc::metadata(&date, &date).weekday == "Sunday";
+                if !weekend && !chrono_core::calendar::is_business_day(&date, cal) {
+                    out.push((month, day));
+                }
+            }
+        }
+        out
+    }
+
+    /// R4-S20: the banking calendar against its source - the Federal Reserve's K.8 table for 2008-2012,
+    /// the oldest schedule read and the first year the calendar answers for. Every weekday the Banks
+    /// closed, and no other: 4 July 2009, 25 December 2010 and 1 January 2011 fell on a Saturday and
+    /// moved nowhere, while a Sunday holiday closed the Monday (5 July 2010, 26 December 2011, 2 January
+    /// and 12 November 2012).
+    #[test]
+    fn us_banking_matches_the_federal_reserve_table_from_its_first_year() {
+        let bank = calendar_from_text(&read_data("calendars/us-banking.json")).expect("us-banking parses");
+        let table: [(i64, &[(u32, u32)]); 5] = [
+            (2008, &[(1, 1), (1, 21), (2, 18), (5, 26), (7, 4), (9, 1), (10, 13), (11, 11), (11, 27), (12, 25)]),
+            (2009, &[(1, 1), (1, 19), (2, 16), (5, 25), (9, 7), (10, 12), (11, 11), (11, 26), (12, 25)]),
+            (2010, &[(1, 1), (1, 18), (2, 15), (5, 31), (7, 5), (9, 6), (10, 11), (11, 11), (11, 25)]),
+            (2011, &[(1, 17), (2, 21), (5, 30), (7, 4), (9, 5), (10, 10), (11, 11), (11, 24), (12, 26)]),
+            (2012, &[(1, 2), (1, 16), (2, 20), (5, 28), (7, 4), (9, 3), (10, 8), (11, 12), (11, 22), (12, 25)]),
+        ];
+        for (year, closed) in table {
+            assert_eq!(weekdays_off(&bank, year), closed.to_vec(), "{year}");
+        }
+    }
+
+    /// R4-S20 and Z1 on the Polish calendar: it answers from 2002, the first full year of the five-day
+    /// week in the Labour Code, and it knows 12 November 2018, a day off by its own act (Dz.U. 2018 poz.
+    /// 2117) that the file used to count as a working day. The 2018 list is every weekday off that year.
+    #[test]
+    fn pl_answers_from_2002_and_knows_the_centenary_day_off() {
+        let pl = calendar_from_text(&read_data("calendars/pl.json")).expect("pl parses");
+        assert!(pl.judges_year(2002) && !pl.judges_year(2001));
+        assert_eq!(
+            weekdays_off(&pl, 2018),
+            vec![(1, 1), (4, 2), (5, 1), (5, 3), (5, 31), (8, 15), (11, 1), (11, 12), (12, 25), (12, 26)]
+        );
+        // One day, one year: 12 November 2019 is a Tuesday like any other.
+        assert!(!weekdays_off(&pl, 2019).contains(&(11, 12)));
+    }
+
+    /// R4-S20: the three fields that say which years a calendar answers for are required, and each is
+    /// refused when it cannot be true - named, so the author of a calendar knows what to fix.
+    #[test]
+    fn a_calendar_says_which_years_it_answers_for() {
+        let cal = |root: &str, holiday: &str| {
+            format!(
+                r#"{{"schema":"chronomock.calendar/1","id":"x","country":"XX","weekend":["saturday","sunday"],
+                "observed":"none"{root},"holidays":[{{"id":"h","name":{{"en":"H","local":"H"}},
+                "rule":{{"type":"fixed","month":7,"day":1}},"source":"t"{holiday}}}]}}"#
+            )
+        };
+        let full = r#","valid_from":2002,"law_as_of":"2026-10-06","source":"s""#;
+        let loaded = calendar_from_text(&cal(full, "")).expect("a calendar with all three loads");
+        assert_eq!(loaded.valid_from, Some(2002));
+        assert_eq!(loaded.law_as_of.map(|d| (d.year, d.month, d.day)), Some((2026, 10, 6)));
+
+        for (root, field) in [
+            (r#","law_as_of":"2026-10-06","source":"s""#, "valid_from"),
+            (r#","valid_from":2002,"source":"s""#, "law_as_of"),
+            (r#","valid_from":2002,"law_as_of":"2026-10-06""#, "source"),
+        ] {
+            let err = calendar_from_text(&cal(root, "")).expect_err("a required field is missing");
+            assert!(err.contains(&format!("`{field}`")), "names {field}: {err}");
+        }
+        for (root, needle) in [
+            (r#","valid_from":1582,"law_as_of":"2026-10-06","source":"s""#, "1582"),
+            (r#","valid_from":2027,"law_as_of":"2026-10-06","source":"s""#, "2027"),
+            (r#","valid_from":2002,"law_as_of":"2026-02-30","source":"s""#, "2026-02-30"),
+            (r#","valid_from":2002,"law_as_of":"6 October 2026","source":"s""#, "6 October 2026"),
+            (r#","valid_from":2002,"law_as_of":"2026-10-06T00:00:00","source":"s""#, "YYYY-MM-DD"),
+            // The civil parser reads a year with a leading zero, so the length is what keeps it out.
+            (r#","valid_from":2002,"law_as_of":"02026-10-06","source":"s""#, "02026-10-06"),
+        ] {
+            let err = calendar_from_text(&cal(root, "")).expect_err("an impossible range or date");
+            assert!(err.contains(needle), "names the value: {err}");
+        }
+        // A holiday that ended before the calendar's first year can never apply.
+        let err = calendar_from_text(&cal(full, r#","valid_to":2001"#)).expect_err("ends before the range");
+        assert!(err.contains("valid_to 2001") && err.contains("valid_from 2002"), "got: {err}");
+        calendar_from_text(&cal(full, r#","valid_to":2002"#)).expect("one that ends inside it loads");
     }
 
     #[test]

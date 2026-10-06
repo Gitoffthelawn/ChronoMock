@@ -10,6 +10,9 @@
   },
   "weekend": ["saturday", "sunday"],
   "observed": "none",
+  "valid_from": 2002,
+  "law_as_of": "2026-10-06",
+  "source": "Range from 2002, the first full year of the five-day working week of the Labour Code (art. 129 as amended by the Act of 1 March 2001, Dz.U. 2001 nr 28 poz. 301, in force 2001-05-01), with Saturday and Sunday as the weekend by the common practice of that week. Before it Saturday was a working day apart from days set aside year by year, which this calendar does not hold. Holidays: the Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28) as amended, and the Act of 7 November 2018. Not in it: days off given only to government offices, and a day off a regulation may name under art. 1a of the 1951 Act during an epidemic",
   "holidays": [
     {
       "id": "new_years_day",
@@ -17,7 +20,7 @@
       "rule": { "type": "fixed", "month": 1, "day": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     },
     {
       "id": "epiphany",
@@ -25,7 +28,7 @@
       "rule": { "type": "fixed", "month": 1, "day": 6 },
       "valid_from": 2011,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951, restored as a non-working day effective 2011 (2010 amendment)"
+      "source": "Non-working Days Act of 1951, struck out by the Act of 16 November 1960 (Dz.U. 1960 nr 51 poz. 297) and restored by the Act of 24 September 2010 (Dz.U. 2010 nr 224 poz. 1459, in force 2011-01-01)"
     },
     {
       "id": "easter_sunday",
@@ -33,7 +36,7 @@
       "rule": { "type": "easter_offset", "offset": 0 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     },
     {
       "id": "easter_monday",
@@ -41,7 +44,7 @@
       "rule": { "type": "easter_offset", "offset": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     },
     {
       "id": "labour_day",
@@ -49,15 +52,15 @@
       "rule": { "type": "fixed", "month": 5, "day": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     },
     {
       "id": "constitution_day",
       "name": { "en": "Constitution Day", "local": "Święto Konstytucji 3 Maja" },
       "rule": { "type": "fixed", "month": 5, "day": 3 },
-      "valid_from": null,
+      "valid_from": 1990,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Act of 6 April 1990 restoring the National Holiday of the Third of May (Dz.U. 1990 nr 28 poz. 160, in force 1990-04-28), added to the Non-working Days Act of 1951"
     },
     {
       "id": "pentecost",
@@ -65,7 +68,7 @@
       "rule": { "type": "easter_offset", "offset": 49 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland) - 49 days (7 weeks) after Easter Sunday"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1 - 49 days (7 weeks) after Easter Sunday"
     },
     {
       "id": "corpus_christi",
@@ -73,15 +76,15 @@
       "rule": { "type": "easter_offset", "offset": 60 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland) - Thursday after Trinity Sunday, 60 days after Easter Sunday"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1 - Thursday after Trinity Sunday, 60 days after Easter Sunday"
     },
     {
       "id": "assumption_day",
       "name": { "en": "Assumption of the Blessed Virgin Mary / Polish Armed Forces Day", "local": "Wniebowzięcie Najświętszej Maryi Panny / Święto Wojska Polskiego" },
       "rule": { "type": "fixed", "month": 8, "day": 15 },
-      "valid_from": null,
+      "valid_from": 1989,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 1951, struck out by the Act of 16 November 1960 (Dz.U. 1960 nr 51 poz. 297) and added again by the Act of 17 May 1989 (Dz.U. 1989 nr 29 poz. 154, art. 74)"
     },
     {
       "id": "all_saints_day",
@@ -89,15 +92,23 @@
       "rule": { "type": "fixed", "month": 11, "day": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     },
     {
       "id": "independence_day",
       "name": { "en": "National Independence Day", "local": "Narodowe Święto Niepodległości" },
       "rule": { "type": "fixed", "month": 11, "day": 11 },
-      "valid_from": null,
+      "valid_from": 1989,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Added to the Non-working Days Act of 1951 by the Act of 17 May 1989 (Dz.U. 1989 nr 29 poz. 154, art. 74)"
+    },
+    {
+      "id": "independence_centenary",
+      "name": { "en": "National Holiday of the Centenary of Regained Independence", "local": "Święto Narodowe z okazji Setnej Rocznicy Odzyskania Niepodległości" },
+      "rule": { "type": "fixed", "month": 11, "day": 12 },
+      "valid_from": 2018,
+      "valid_to": 2018,
+      "source": "Act of 7 November 2018 (Dz.U. 2018 poz. 2117), art. 2: 12 November 2018 is a non-working day. A single day, by its own act"
     },
     {
       "id": "christmas_eve",
@@ -105,7 +116,7 @@
       "rule": { "type": "fixed", "month": 12, "day": 24 },
       "valid_from": 2025,
       "valid_to": null,
-      "source": "Act of 6 December 2024 amending the Non-working Days Act (in force 1 February 2025, first non-working Christmas Eve 2025-12-24)"
+      "source": "Act of 6 December 2024 amending the Non-working Days Act (Dz.U. 2024 poz. 1965, in force 1 February 2025, first non-working Christmas Eve 2025-12-24)"
     },
     {
       "id": "christmas_day",
@@ -113,7 +124,7 @@
       "rule": { "type": "fixed", "month": 12, "day": 25 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     },
     {
       "id": "second_day_of_christmas",
@@ -121,7 +132,7 @@
       "rule": { "type": "fixed", "month": 12, "day": 26 },
       "valid_from": null,
       "valid_to": null,
-      "source": "Non-working Days Act of 18 January 1951 (Poland)"
+      "source": "Non-working Days Act of 18 January 1951 (Dz.U. 1951 nr 4 poz. 28), art. 1"
     }
   ]
 }
