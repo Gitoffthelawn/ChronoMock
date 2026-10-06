@@ -1590,6 +1590,7 @@ public class LayoutGuardTests
         var complaints = LayoutRules.OutsideTheSurface(elements, surface)
             .Concat(LayoutRules.ArrangedToNothing(elements))
             .Concat(LayoutRules.PastAHardClip(elements))
+            .Concat(LayoutRules.PartlyPastAHardClip(elements))
             .ToList();
 
         return (elements, complaints);

@@ -32,13 +32,14 @@ internal static class LayoutRules
     /// The scrolling exemption is what makes this usable rather than deafening. Measured on the startup
     /// panel: 27 visible elements reach past the bottom edge and every one of them sits inside the
     /// panel's scroll viewer, so they are content below the fold rather than content nobody can have.
+    /// It holds only in the axis that scrolls (see <see cref="ReachesPastUnscrolled"/>).
     /// </remarks>
     public static IReadOnlyList<string> OutsideTheSurface(IReadOnlyList<LaidOutElement> elements, Size surface)
     {
         var surfaceRect = new Rect(0, 0, surface.Width, surface.Height);
         return elements
-            .Where(e => e.IsVisible && !e.InsideScrollable && !IsEmpty(e.Bounds))
-            .Where(e => !Contains(surfaceRect, e.Bounds))
+            .Where(e => e.IsVisible && !IsEmpty(e.Bounds))
+            .Where(e => ReachesPastUnscrolled(surfaceRect, e))
             .Select(e => $"{LayoutReport.Locate(e)} lies outside the {Describe(surface)} surface")
             .ToList();
     }
@@ -63,8 +64,26 @@ internal static class LayoutRules
     /// </summary>
     public static IReadOnlyList<string> PastAHardClip(IReadOnlyList<LaidOutElement> elements) => elements
         .Where(e => e.IsVisible && !IsEmpty(e.Bounds) && e.HardClip.HasValue)
-        .Where(e => Rect.Intersect(e.HardClip!.Value, e.Bounds).IsEmpty)
+        .Where(e => !Overlaps(e.HardClip!.Value, e.Bounds))
         .Select(e => $"{LayoutReport.Locate(e)} is clipped away entirely by an ancestor")
+        .ToList();
+
+    /// <summary>
+    /// A control the user acts on that is cut by the edge of an ancestor which offers no way to scroll to
+    /// the rest of it - drawn in part, so it is there and does not work as it looks.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 THE RULE ABOVE ONLY SEES WHAT IS GONE ENTIRELY, and the defect it was missing was half a control
+    /// (PR A finding (a)): at the window's minimum width the calculator's parameter row lost the unit list's
+    /// chevron and the date's calendar button at the card's edge, and both were still partly drawn. Only
+    /// controls, because a control cut in part is a control that cannot be used, while cut text is already
+    /// the business of <see cref="TrimmedAway"/> and of the spill rule.
+    /// </remarks>
+    public static IReadOnlyList<string> PartlyPastAHardClip(IReadOnlyList<LaidOutElement> elements) => elements
+        .Where(e => e.IsVisible && e.IsOwnControl && !IsEmpty(e.Bounds) && e.HardClip.HasValue)
+        .Where(e => Overlaps(e.HardClip!.Value, e.Bounds) && !Contains(e.HardClip.Value, e.Bounds))
+        .Select(e => $"{LayoutReport.Locate(e)} is cut by the edge of an ancestor that does not scroll to it, "
+            + "so part of a control the user acts on is not drawn")
         .ToList();
 
     /// <summary>
@@ -102,7 +121,8 @@ internal static class LayoutRules
     /// rules. Text only gets trimmed when something really constrains it, such as a fixed grid column.
     ///
     /// Content under a scrolling ancestor is exempt for the usual reason: reaching past the viewport is
-    /// what scrolling is for.
+    /// what scrolling is for - in the axis that scrolls, and only there (see
+    /// <see cref="ReachesPastUnscrolled"/>).
     /// </remarks>
     public static IReadOnlyList<string> SpillsOutOfItsParent(IReadOnlyList<LaidOutElement> elements)
     {
@@ -110,13 +130,13 @@ internal static class LayoutRules
         for (int i = 0; i < elements.Count; i++)
         {
             var child = elements[i];
-            if (!child.IsVisible || child.InsideScrollable || IsEmpty(child.Bounds) || child.ParentIndex < 0)
+            if (!child.IsVisible || IsEmpty(child.Bounds) || child.ParentIndex < 0)
             {
                 continue;
             }
 
             var parent = elements[child.ParentIndex];
-            if (!parent.IsVisible || IsEmpty(parent.Bounds) || Contains(parent.Bounds, child.Bounds))
+            if (!parent.IsVisible || IsEmpty(parent.Bounds) || !ReachesPastUnscrolled(parent.Bounds, child))
             {
                 continue;
             }
@@ -129,6 +149,23 @@ internal static class LayoutRules
     }
 
     private static bool IsEmpty(Rect bounds) => bounds.Width <= Tolerance || bounds.Height <= Tolerance;
+
+    /// <summary>
+    /// Whether the element reaches past <paramref name="outer"/> in an axis its nearest scroll viewer does
+    /// not scroll - sideways in a column that scrolls down, say - which is the only way past an edge that
+    /// scrolling does not excuse.
+    /// </summary>
+    private static bool ReachesPastUnscrolled(Rect outer, LaidOutElement element)
+    {
+        var bounds = element.Bounds;
+        bool across = bounds.Left < outer.Left - Tolerance || bounds.Right > outer.Right + Tolerance;
+        bool down = bounds.Top < outer.Top - Tolerance || bounds.Bottom > outer.Bottom + Tolerance;
+        return (across && !element.ScrollsAcross) || (down && !element.ScrollsDown);
+    }
+
+    /// <summary>Whether two regions share more than a rounding step - an element merely touching a clip's
+    /// edge from outside is past it, not partly inside.</summary>
+    private static bool Overlaps(Rect a, Rect b) => Rect.Intersect(a, b) is { IsEmpty: false } shared && !IsEmpty(shared);
 
     private static bool Contains(Rect outer, Rect inner) =>
         inner.Left >= outer.Left - Tolerance

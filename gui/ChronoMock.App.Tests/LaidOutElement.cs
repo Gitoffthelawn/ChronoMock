@@ -15,12 +15,18 @@ namespace ChronoMock.App.Tests;
 /// arranged to zero, 11 of them carrying text, every one of them a state that was simply not showing.
 /// A zero-size rule without this flag would have reported all eleven.
 ///
-/// <see cref="InsideScrollable"/>: content below the fold is the point of a scrolling panel. Measured on
-/// the same render: 173 elements reach past the bottom edge, all of them inside the panel's scroll
-/// viewer, none of them a defect.
+/// <see cref="ScrollsAcross"/> and <see cref="ScrollsDown"/>: content below the fold is the point of a
+/// scrolling panel. Measured on the same render: 173 elements reach past the bottom edge, all of them
+/// inside the panel's scroll viewer, none of them a defect.
+///
+/// 🔴 PER AXIS, because one flag for both was a blind spot (PR A finding (a)). The calculator's columns
+/// scroll DOWN only, so content wider than a column is cut at the column's edge with no way to scroll to
+/// it - and a single "inside something that scrolls" excused that too. A parameter row cut at the card's
+/// edge at the window's minimum width passed every rule for exactly that reason.
 ///
 /// <see cref="HardClip"/>: the region an ancestor clips to WITHOUT offering a way to scroll there. Past
-/// that edge content is not late, it is unreachable.
+/// that edge content is not late, it is unreachable. A scroll viewer's viewport counts as one in each axis
+/// it does not scroll.
 /// </remarks>
 internal sealed record LaidOutElement
 {
@@ -39,11 +45,22 @@ internal sealed record LaidOutElement
     /// <summary>Rendered for the user, as opposed to present in the tree with its state switched off.</summary>
     public required bool IsVisible { get; init; }
 
-    /// <summary>Some ancestor scrolls, so bounds reaching past the root are content below the fold.</summary>
-    public required bool InsideScrollable { get; init; }
+    /// <summary>The nearest scroll viewer around this element scrolls sideways, so reaching past a side edge
+    /// is content to scroll to. The NEAREST one: content past the edge of an inner viewport that does not
+    /// scroll sideways is cut there, whatever an outer viewer does.</summary>
+    public required bool ScrollsAcross { get; init; }
+
+    /// <summary>The same for up and down, which is the axis almost every scroll viewer here scrolls.</summary>
+    public required bool ScrollsDown { get; init; }
 
     /// <summary>The nearest non-scrolling clip region, or null when nothing clips this element.</summary>
     public required Rect? HardClip { get; init; }
+
+    /// <summary>
+    /// A control the user acts on - a button, a field, a list to pick from, a slider - and not a part of
+    /// another one's template, so one control cut at an edge is one finding rather than one per part.
+    /// </summary>
+    public required bool IsOwnControl { get; init; }
 
     /// <summary>Enabled for input, which is what decides whether the user can act on it.</summary>
     public required bool IsEnabled { get; init; }
