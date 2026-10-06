@@ -146,10 +146,11 @@ public sealed class FilledScreenSweepTests
     [Fact]
     public async Task Every_text_and_gap_of_the_filled_calculator_keeps_to_the_scales_in_every_scenario()
     {
-        var (findings, readings) = await WpfTestHost.RunAsync(async () =>
+        var (findings, readings, unanswered) = await WpfTestHost.RunAsync(async () =>
         {
             var found = new List<string>();
             var lowest = int.MaxValue;
+            var noAnswer = new List<string>();
             try
             {
                 foreach (var culture in LocalizationService.AvailableCultures())
@@ -162,7 +163,15 @@ public sealed class FilledScreenSweepTests
                     {
                         vm.SelectedPreset = preset;
                         FillEmptyParameters(vm);
-                        await AnsweredAsync(vm);
+
+                        // Waited for AND checked: a scenario with no answer has no format rows to read, and
+                        // the floor on the number of texts alone let it pass (CodeRabbit on #95, measured -
+                        // a sheet engine that cannot read "+90bd" left this test green).
+                        if (!await AnsweredAsync(vm))
+                        {
+                            noAnswer.Add($"{culture} {preset.Info.Id}");
+                        }
+
                         var view = new CalculatorView { DataContext = vm };
                         LayoutProbe.Settle(view);
                         var walk = LayoutProbe.Walk(view);
@@ -183,11 +192,12 @@ public sealed class FilledScreenSweepTests
                 LocalizationService.Apply(Application.Current, LocalizationService.DefaultCulture);
             }
 
-            return (found, lowest);
+            return (found, lowest, noAnswer);
         });
 
         // Measured: 50 pieces of text in the sparsest filled scenario, 28 on the empty calculator.
         Assert.True(readings >= TextReadingsAtLeast, $"a filled scenario yielded only {readings} pieces of text");
+        Assert.True(unanswered.Count == 0, "measured without an answer on the screen: " + string.Join(", ", unanswered));
         Assert.True(findings.Count == 0, string.Join("\n", findings));
     }
 

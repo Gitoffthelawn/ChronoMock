@@ -134,6 +134,54 @@ public sealed class AmountUnitInputTests
     }
 
     /// <summary>
+    /// Every amount input the screens draw is named after the field it fills, so a screen reader hears whose
+    /// amount and whose unit it is on: the run panel's "From now", the builder's shift step and a scenario's
+    /// parameter. Two of the three had no name and read "Direction, Amount, Unit" alone (CodeRabbit on #95).
+    /// Reversal probe: drop AccessibleName from the input in SetupPhaseView.xaml and this reddens.
+    /// </summary>
+    [Fact]
+    public async Task Every_amount_input_on_the_screens_is_named_after_its_field()
+    {
+        var names = await WpfTestHost.RunAsync(async () =>
+        {
+            var setup = new SetupPhaseView { DataContext = PhaseStates.SetupStartup() };
+            LayoutProbe.Settle(setup);
+            var found = Shown(setup).Select(i => ("setup", i.AccessibleName)).ToList();
+
+            var vm = new CalculatorViewModel(
+                new FakeCalcEngine(CalculatorSheetEngine.Answer), TestCatalogues.Library(TestCatalogues.Shipped()));
+            await vm.EnsureComputedAsync();
+            vm.SelectedPreset = vm.Presets.Single(p => p.Info.Id == "payment-due-business-days");
+            var calculator = new CalculatorView { DataContext = vm };
+            LayoutProbe.Settle(calculator);
+            found.AddRange(Shown(calculator).Select(i => ("calculator", i.AccessibleName)));
+            return found;
+        });
+
+        // The setup's shift, the scenario's shift step in the builder and its duration parameter.
+        Assert.True(names.Count >= 3, $"only {names.Count} amount inputs were on the screens");
+        Assert.All(names, n => Assert.False(string.IsNullOrWhiteSpace(n.AccessibleName), $"an amount input in the {n.Item1} has no name"));
+    }
+
+    /// <summary>The amount inputs a screen shows - its own visibility, since nothing is visible without a window.</summary>
+    private static IEnumerable<AmountUnitInput> Shown(DependencyObject node)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+        {
+            var child = VisualTreeHelper.GetChild(node, i);
+            if (child is AmountUnitInput { Visibility: Visibility.Visible } input)
+            {
+                yield return input;
+            }
+
+            foreach (var deeper in Shown(child))
+            {
+                yield return deeper;
+            }
+        }
+    }
+
+    /// <summary>
     /// 🔴 The amount reaches the view model when the field is left, in every place the input stands (owner's
     /// decision, 2026-10-06). The setup committed on every keystroke and the calculator on leaving the field,
     /// and a calculator commit is a question to the engine - one per half-typed number.

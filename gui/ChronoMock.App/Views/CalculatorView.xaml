@@ -190,8 +190,9 @@
                               AutomationProperties.Name="{DynamicResource calc.remove_step}"
                               FontSize="{StaticResource FontSizeCaption}" />
 
-                      <!-- Shift editor: sign, amount, unit. -->
+                      <!-- Shift editor: sign, amount, unit, named after the step's kind for a screen reader. -->
                       <controls:AmountUnitInput Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" HasSign="True"
+                                                AccessibleName="{DynamicResource calc.kind_shift}"
                                                 HorizontalAlignment="Left" Margin="{StaticResource StackGapSm}"
                                                 Visibility="{Binding IsShift, Converter={StaticResource BoolToVis}}" />
 

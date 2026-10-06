@@ -278,7 +278,7 @@
               <TextBlock Style="{StaticResource PartLabel}" Text="{DynamicResource setup.label_shift}" />
             </HeaderedContentControl.Header>
             <StackPanel Orientation="Horizontal">
-              <controls:AmountUnitInput HasSign="True" />
+              <controls:AmountUnitInput HasSign="True" AccessibleName="{DynamicResource setup.label_shift}" />
               <!-- The command lives on the view model, but this row's DataContext is Relative, so it reaches
                    back to the UserControl's DataContext for it - the parameters (sign, amount, unit) are read
                    from Relative by the command itself. -->

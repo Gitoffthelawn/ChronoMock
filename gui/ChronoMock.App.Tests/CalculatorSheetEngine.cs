@@ -81,11 +81,23 @@ internal static class CalculatorSheetEngine
     /// The shift's number, as days whatever its unit, so a sheet answers every step the builder can send.
     /// It read a one-letter unit only, so "+90bd" from a business-day scenario came back as a parse failure
     /// in place of a result, and every screen measured over such a scenario was measured without one.
+    /// A shift with no number, or a number past the range, is refused the way the engine refuses it - the
+    /// same sentence and key as <c>chrono calc --shift +bd</c> and <c>--shift +99999999999999999999999d</c>
+    /// give - rather than escaping as a parse exception the view model never sees from the real engine.
     /// </summary>
     private static long ShiftDays(string shift)
     {
         var digits = new string([.. shift.Skip(1).TakeWhile(char.IsAsciiDigit)]);
-        var amount = long.Parse(digits, CultureInfo.InvariantCulture);
+        if (digits.Length == 0)
+        {
+            throw new CalcException($"chrono calc: shift needs a number, got '{shift}' (calc.bad_argument)", 1);
+        }
+
+        if (!long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var amount))
+        {
+            throw new CalcException($"chrono calc: bad number in shift '{shift}' (calc.bad_argument)", 1);
+        }
+
         return shift[0] == '-' ? -amount : amount;
     }
 }
