@@ -214,6 +214,23 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **"90 business days" reads in full.** The unit list had a fixed width that cut the last letter
+  of its longest unit, so the builder and a scenario's parameter showed "90 business day" at every
+  window size. The list is now as wide as its longest unit in the window's language, whichever unit
+  is chosen.
+- **A value under "All formats" stays on one line.** At the window's default size ISO datetime,
+  FILETIME and RFC 1123 broke in the middle of the value - "2026-01-01T00" over ":00:00+00:00" - so
+  a value meant to be copied read as two. Each format's name now stands over its value.
+- **The list of recent applications says again which file is gone, and where each one is.** A file
+  that no longer exists is marked "(missing)" in the open list and in the closed box, and each entry
+  shows its folder after its name in the open list, because two builds of one application share a
+  name. Both were lost when the window moved to three phases. A screen reader hears the mark too.
+- **A long scenario name wraps instead of being cut.** At the window's smallest width "Payment due,
+  +N business days" lost its end, and its tooltip gave the description, not the name.
+- **The Polish name of UTC fits the zone box.** "Uniwersalny czas koordynowany" was cut in the
+  closed zone box, in the run panel at every window size. It reads "Czas uniwersalny" now.
+- **Every part of an amount has a name for a screen reader.** The sign, the amount and the unit of a
+  shift step in the calculator had none, and the unit of a scenario's parameter had none.
 - **A scenario's parameters fit the calculator at the window's smallest size.** At the minimum width
   the parameter row ran past the edge of the result card: the unit list lost its arrow and the date
   its calendar button. A parameter's label now stands above its input, as in the builder beside it,
