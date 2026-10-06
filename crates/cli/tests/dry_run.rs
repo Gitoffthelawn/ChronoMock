@@ -452,6 +452,21 @@ fn a_preset_counted_in_an_old_calendar_says_a_holiday_may_be_missing() {
     assert!(!fresh.contains("calendar_outdated"), "{fresh}");
 }
 
+/// R4-S20 on the session side: a preset that counts business days back past the first year of its
+/// market's calendar is refused, with the year, and with a way out a session has - `--at` - rather than
+/// the calculator's "another calendar", which `chrono run` cannot pick (the same class as R4-S12).
+#[test]
+fn a_preset_that_walks_before_its_calendar_is_refused_with_a_way_out() {
+    let moment = r#"{"base":{"absolute":"2002-01-02T00:00:00"},"steps":[{"shift":{"sign":"-","amount":1,"unit":"bd"}}]}"#;
+    let dir = catalogue_with("bd-before-pl", r#""pl""#, moment, 1);
+    let out = preset_plan(&dir, "bd-before-pl");
+    let _ = std::fs::remove_dir_all(&dir);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(said.contains("(calc.before_calendar)") && said.contains("2002") && said.contains("--at"), "{said}");
+    assert!(!said.contains("another calendar"), "{said}");
+}
+
 /// A zone step moves where a later step counts, not the instant the session starts at (R4-S12). "The
 /// start of the month in +05:45" is 2029-12-31T18:15 in UTC, and the plan used to carry 2030-01-01
 /// 00:00 - the Kathmandu wall clock, read as UTC.

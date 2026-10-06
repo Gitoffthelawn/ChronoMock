@@ -250,6 +250,14 @@ fn eval_preset_moment(
             );
             Err(calc_error_exit_code(&e))
         }
+        // The calculator's sentence ends in "pick another calendar", which `chrono run` cannot do - it
+        // takes the market's. What a session can do instead is start at a moment given directly.
+        Err(e @ EvalError::BeforeCalendar { first_year, .. }) => {
+            diag!(
+                "chrono: preset '{id}' counts business days back past {first_year}, the first year its market's calendar covers - start the session with --at and a date instead (calc.before_calendar)"
+            );
+            Err(calc_error_exit_code(&e))
+        }
         Err(e) => {
             diag!("chrono: preset '{id}' moment: {}", describe_calc_error(&e));
             Err(calc_error_exit_code(&e))

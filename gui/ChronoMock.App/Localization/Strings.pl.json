@@ -668,7 +668,7 @@
   "calc.what_tests": "Na co ta data trafia",
   "calc.sig_calendar": "Markery weekendu i świąt pochodzą z kalendarza {0}.",
   "calc.sig_calendar_before": "Kalendarz {0} zaczyna się w roku {1} i nie ocenia wcześniejszych dat.",
-  "calc.sig_calendar_outdated": "Markery weekendu i świąt pochodzą z kalendarza {0}, którego święta sprawdzono z prawem {1}, ponad rok temu.",
+  "calc.sig_calendar_outdated": "Markery weekendu i świąt pochodzą z kalendarza {0} według stanu prawnego na {1}, czyli sprzed ponad roku.",
   "calc.all_formats": "Wszystkie formaty - kopiuj jednym klikiem",
   "calc.copy": "Kopiuj",
   "calc.copied": "Skopiowano",
@@ -765,7 +765,7 @@
   "calc.sig.public_holiday": "Święto",
   "calc.sig.observed_holiday": "Obchodzone święto - dzień wolny przesunięty z weekendowego święta",
   "calc.sig.before_calendar": "Przed latami, które obejmuje kalendarz - bez oceny weekendu, święta i dnia roboczego",
-  "calc.sig.calendar_outdated": "Kalendarz sprawdzono z prawem ponad rok temu - może brakować w nim nowszego święta",
+  "calc.sig.calendar_outdated": "Stan prawny kalendarza jest sprzed ponad roku - może brakować w nim nowszego święta",
 
   // Calculator result rendering (RELEASE-006): the weekday (mapped from the engine's English name), the format labels, the metadata line and the out-of-range marker - keys, not C# literals (rule 15).
   "calc.weekday.monday": "Poniedziałek",
