@@ -8,8 +8,12 @@ namespace ChronoMock.App.Tests;
 /// written in place where a named reference belongs - a hard-coded colour, font size, or spacing. It is
 /// deliberately narrow (a wide "suspicious numbers" scan is the guard that gets switched off in a week).
 ///
-/// What it does NOT catch, on purpose: element/window geometry (Width/Height/MinWidth/MinHeight), a value
-/// built from named parts, a value computed in code, and a resource assigned to the wrong-typed property.
+/// What it does NOT catch, on purpose: a value built from named parts, a value computed in code, a resource
+/// assigned to the wrong-typed property, and a star share or Auto (a proportion, not a size).
+///
+/// 🔴 GEOMETRY IS CAUGHT SINCE R4/19 (GUI rule 12: a dimension is a token like a colour is). It used to be
+/// skipped on purpose, and six raw sizes had gathered in the views by the time a report counted them - one of
+/// them the parameter row that, at the window's minimum width, was clipped at the card's edge.
 ///
 /// 🔴 WHAT IT SCANS, and why that changed. It used to skip all of Themes/, which was right when Themes/
 /// held only definitions. It is wrong now: control templates live there too, and a template is a CONSUMER
@@ -47,7 +51,17 @@ internal static class XamlLiteralGuard
         // Value lookaheads keep the same exemptions - a markup extension, Transparent, a bare 0.
         ("setter-colour", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(Foreground|Background|Fill|Stroke|BorderBrush|Color)")(?=[^>]*\bValue\s*=\s*"(?!\{|Transparent"))""", RegexOptions.Compiled)),
         ("setter-spacing", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(Margin|Padding|BorderThickness|CornerRadius|FontSize)")(?=[^>]*\bValue\s*=\s*"(?!0")[0-9.\-])""", RegexOptions.Compiled)),
+        // A literal size, its floor or its ceiling. "0" is allowed - on a window it removes a floor the toolkit
+        // sets (a FluentWindow's own MinHeight), which is not a size anybody chose. A star share ("1.15*") and
+        // Auto never match, because the number has to run to the closing quote.
+        ("geometry", new Regex("""(?i)\b(Min|Max)?(Width|Height)\s*=\s*"(?!0")[0-9.]+(?=")""", RegexOptions.Compiled)),
+        ("setter-geometry", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(Min|Max)?(Width|Height)")(?=[^>]*\bValue\s*=\s*"(?!0")[0-9.]+")""", RegexOptions.Compiled)),
     ];
+
+    // The style a line sits in: its key, or for an implicit style the type it styles. Two expressions, not
+    // one alternation, so a style carrying both is always named by its key whichever attribute comes first.
+    private static readonly Regex StyleKey = new("""<Style\b[^>]*\bx:Key\s*=\s*"(?<name>[^"]+)(?=")""", RegexOptions.Compiled);
+    private static readonly Regex StyleType = new("""<Style\b[^>]*\bTargetType\s*=\s*"(?<name>[^"]+)(?=")""", RegexOptions.Compiled);
 
     /// <summary>
     /// Literals that stay for now, each with the reason and the condition under which it goes.
@@ -59,39 +73,38 @@ internal static class XamlLiteralGuard
     /// stops matching anything has to come out, and a new literal cannot hide behind an old excuse.
     ///
     /// The match is on the exact trimmed line, not a line number, so ordinary edits above do not silently
-    /// re-arm an allowance somewhere else.
+    /// re-arm an allowance somewhere else - and on the STYLE the line sits in. 🔴 The text alone was not
+    /// enough, measured in R4/19: an allowance written for the title-bar button's face kept matching after
+    /// that button moved to tokens, because the tooltip's template carried the very same line, so the
+    /// excuse quietly passed to a different control.
     /// </remarks>
-    internal static readonly (string File, string Line, string Reason)[] Allowances =
+    internal static readonly (string File, string Style, string Line, string Reason)[] Allowances =
     [
-        ("Themes/Controls.xaml",
+        ("Themes/Controls.xaml", "CalendarToggleStyle",
          """BorderThickness="1" CornerRadius="4" Padding="7,6" SnapsToDevicePixels="True">""",
-         "CalendarToggleStyle face; 7 is on no scale. Goes when the toggle gets its own template (2b)"),
-        ("Themes/Controls.xaml",
+         "the toggle's face - 7 is on no scale. Goes when the toggle gets its own template (2b)"),
+        ("Themes/Controls.xaml", "CalendarToggleStyle",
          """<TextBlock Text="&#xE787;" FontFamily="Segoe MDL2 Assets" FontSize="16" """.TrimEnd(),
-         "calendar glyph sized off the type scale; goes with the same template (2b)"),
-        ("Themes/Controls.xaml",
-         """BorderThickness="1" CornerRadius="4" Padding="10,6" SnapsToDevicePixels="True">""",
-         "TitleBarActionButton face; goes when the button gets its own template (2b)"),
+         "calendar glyph sized off the type scale - goes with the same template (2b)"),
     ];
 
     /// <summary>Find design-literal violations in a single XAML text.</summary>
     public static IReadOnlyList<Violation> FindViolations(string file, string content)
     {
         var violations = new List<Violation>();
-        var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-        for (int i = 0; i < lines.Length; i++)
+        foreach (var (number, style, line) in StyledLines(content))
         {
-            var trimmed = lines[i].Trim();
-            if (IsAllowed(file, trimmed))
+            var trimmed = line.Trim();
+            if (IsAllowed(file, style, trimmed))
             {
                 continue;
             }
 
             foreach (var (kind, pattern) in Rules)
             {
-                if (pattern.IsMatch(lines[i]))
+                if (pattern.IsMatch(line))
                 {
-                    violations.Add(new Violation(file, i + 1, kind, trimmed));
+                    violations.Add(new Violation(file, number, kind, trimmed));
                 }
             }
         }
@@ -99,10 +112,39 @@ internal static class XamlLiteralGuard
         return violations;
     }
 
-    /// <summary>Whether this exact line in this exact file carries a standing allowance.</summary>
-    internal static bool IsAllowed(string file, string trimmedLine)
+    /// <summary>
+    /// Every line with the style it sits in (its key, or the type an implicit style targets), empty outside
+    /// any style. A style nested inside another is not expected in these dictionaries and is not tracked.
+    /// </summary>
+    internal static IEnumerable<(int Number, string Style, string Line)> StyledLines(string content)
+    {
+        var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var style = string.Empty;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (StyleKey.Match(lines[i]) is { Success: true } key)
+            {
+                style = key.Groups["name"].Value;
+            }
+            else if (StyleType.Match(lines[i]) is { Success: true } type)
+            {
+                style = type.Groups["name"].Value;
+            }
+
+            yield return (i + 1, style, lines[i]);
+
+            if (lines[i].Contains("</Style>", StringComparison.Ordinal))
+            {
+                style = string.Empty;
+            }
+        }
+    }
+
+    /// <summary>Whether this exact line, in this style of this file, carries a standing allowance.</summary>
+    internal static bool IsAllowed(string file, string style, string trimmedLine)
         => Allowances.Any(a
             => file.EndsWith(a.File, StringComparison.OrdinalIgnoreCase)
+               && string.Equals(a.Style, style, StringComparison.Ordinal)
                && string.Equals(a.Line, trimmedLine, StringComparison.Ordinal));
 
     /// <summary>Scan every view XAML under the app directory (skipping the value dictionaries, the string

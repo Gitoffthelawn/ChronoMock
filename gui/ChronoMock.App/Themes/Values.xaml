@@ -103,6 +103,13 @@
        and bottom halves keep wrapped lines apart without moving a control off the middle of its row. -->
   <Thickness x:Key="ControlRowGap">0,4,8,4</Thickness>
 
+  <!-- Controls side by side on ONE line under a stacked label (the calculator's parameter rows). The gap
+       goes after each control and never above it, so the line starts the label's own gap under the label,
+       exactly where a single field under the same kind of label starts - the wrap row's top half would
+       drop it 4 px below its neighbour. It never needs to wrap: the result column's floor leaves room for
+       the widest such line, an amount and a unit from the shift tokens. -->
+  <Thickness x:Key="InlineControlGap">0,0,8,0</Thickness>
+
   <!-- The bar that marks the selected row. Narrow enough to read as a marker rather than a second
        column, wide enough to survive a non-integer display scale. -->
   <sys:Double x:Key="SelectionBarWidth">3</sys:Double>
@@ -303,8 +310,17 @@
        warranty paragraph reads in three lines rather than seven, narrow enough to stay a dialog. -->
   <sys:Double x:Key="AboutWidth">520</sys:Double>
 
-  <!-- The target box caps here so a deeply nested path cannot stretch the centred setup row across the
-       window; the name is what identifies the target, and the full path is in the tooltip. -->
+  <!-- The message dialog is the narrowest window: a heading, a few lines of detail and two answers. Wide
+       enough that a two-line question does not wrap into four, narrow enough to read as a question rather
+       than a page. It sizes its height to what it holds, so only the width is named. -->
+  <sys:Double x:Key="MessageDialogWidth">440</sys:Double>
+
+  <!-- The tooltip (Controls.xaml) wraps at this width, so a long explanation reads as a short paragraph
+       beside the pointer rather than one line across the screen, and keeps its text off its edge by a
+       padding of its own - tighter than a control's, because it is read at a glance. -->
+  <sys:Double x:Key="ToolTipMaxWidth">320</sys:Double>
+  <Thickness x:Key="ToolTipPadding">10,6</Thickness>
+
   <!-- A floor for the primary action, not a banner. 220 made "Start" a bar three times the width of its own
        word - and in a footer the action stands alone, so the accent fill and the position already carry the
        prominence, and the width only has to keep the button from shrinking to nothing. Named here, like
@@ -331,6 +347,8 @@
        down a line. A GridLength because a column width is one (see GroupChannelWidth). -->
   <GridLength x:Key="FormatLabelColumnWidth">104</GridLength>
 
+  <!-- The application box caps here so a deeply nested path cannot stretch the setup row across the
+       window - the name is what identifies the application, and the full path is in the tooltip. -->
   <sys:Double x:Key="TargetBoxMaxWidth">320</sys:Double>
 
   <!-- The scenario chips wrap inside this width. A cap is what MAKES them wrap: a WrapPanel measured with
