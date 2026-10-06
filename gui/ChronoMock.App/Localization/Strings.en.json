@@ -25,8 +25,6 @@
   "target.dialog_filter": "Executables (*.exe)|*.exe",
 
   // Scenarios (chrono-mock 7.1 pt 2): named moments from the shared preset catalogue. The scenario NAMES and their "what this date tests" lines come from the catalogue files (data locales), not from here.
-  "scenario.label": "Scenario",
-  "scenario.needs_parameters": "more scenarios take parameters - build one in the calculator, then use “Use this date”.",
   "scenario.failed": "That scenario could not be turned into a date.",
   "scenario.unsupported": "That scenario's preset file is in a shape this build cannot read.",
   "scenario.engine_missing": "The calculator engine could not be run, so scenarios cannot be computed.",
@@ -199,8 +197,6 @@
   "target.drop_rejected": "Only .exe files can be run from this window - for a shortcut, pick the program it opens. A script (.bat or .cmd) can be run with the chrono command line.",
 
   // Arguments and working folder (chrono-mock 7.1 pt 1). Collapsed by default: most sessions need neither. The wire and the mechanism have carried both since the protocol was written; only the surfaces did not offer them.
-  "launch.header": "Arguments and working folder",
-  "launch.args_label": "Arguments:",
   "launch.cwd_label": "Working folder:",
 
   // Time inputs (chrono-mock 7.1). The moment is the local time in the session zone (rule 2).
@@ -216,7 +212,6 @@
   "moment.time_format": "Use HH:MM (24-hour).",
   // Reads the typed moment back in plain language (chrono-mock 7.1 pt 3). Only a lead-in: the date itself is formatted in the interface culture, so no sentence has to be assembled from fragments.
   "moment.preview_label": "The application will see",
-  "moment.relative_label": "Relative to now:",
   "moment.relative_sign": "Direction",
   "moment.relative_amount": "Amount",
   "moment.relative_unit": "Unit",
@@ -225,8 +220,6 @@
   "action.pick_date": "Pick a date",
   "action.today": "Today",
   "action.now": "Now",
-  "action.set_relative": "Set",
-  "zone.label": "Zone:",
 
   // Market-name hints shown beside each offset in the zone dropdown, so it is not a bare number.
   "zone.host": "this machine",
@@ -237,7 +230,6 @@
   "zone.us_central": "US Central",
   "zone.us_mountain": "US Mountain",
   "zone.us_pacific": "US Pacific",
-  "mode.label": "Mode:",
   // 🔴 THE RATE, NOT A WORD FOR IT. This said "Flowing", which named the mechanism rather than answering
   // "how fast" - and it sat in a list whose other four entries answer that question in one glyph. A
   // reader met "Flowing" with no way to tell whether it was faster or slower than ×10. The key still
@@ -254,16 +246,12 @@
   "mode.x10": "×10",
   "mode.x60": "×60",
   "mode.x1440": "×1440",
-  "mode.scale_duration": "Scale duration too",
-  "mode.scale_qpc": "Scale QPC too",
-  "mode.force": "Run even if it does not work",
 
   // Actions.
   "action.start": "Start",
   "action.choose_target": "Choose…",
   "action.browse_folder": "Browse…",
   "action.freeze": "Freeze",
-  "action.jump_to": "Jump to",
   "action.set_speed": "Set",
   "speed.invalid": "Enter a whole number, e.g. 500.",
 
@@ -585,10 +573,7 @@
   "report.requested": "requested: {0} (zone {1}, mode {2})",
 
   // Session history (chrono-mock 7.2, 8.8, 11.1 pt 13). Local-only; clicking an entry fills the setup form and never starts a session (untouchable rule 7, docs/04 section 6).
-  "history.header": "History",
   "history.save_failed": "Could not save to history:",
-  "history.delete": "Delete this session",
-  "history.clear": "Clear",
   "history.clear_title": "Clear history",
   "history.clear_confirm": "Clear all recorded sessions?",
   "history.clear_undone": "This cannot be undone. The sessions themselves already ended - this removes the records of them.",
@@ -833,7 +818,6 @@
   "tip.today": "Fill in today's date (session zone), at midnight.",
   "tip.now": "Fill in the current date and time (session zone).",
   "tip.zone": "The session time zone - a fixed offset with no daylight saving. The date and time above are read in it.",
-  "tip.relative_moment": "Fill the date above with now, shifted by this much - the command line spells it --at +30d. Months, quarters and years land on the calendar date, not on a fixed number of hours. This row makes one shift and no more, which is why it offers fewer choices than the calculator: business days are absent because a session carries no holiday calendar, and ready-made dates such as a month end are in the Scenario list above.",
   "tip.mode": "How fast the fake clock runs: ×1 is real speed, frozen stops it, and the rest run that many times faster.",
   "tip.scale_duration": "Also speed up timers, sleeps and countdowns inside the app - not just the wall clock.",
   "tip.scale_qpc": "Also speed up QPC-based clocks (Python monotonic, .NET Stopwatch, Java nanoTime). May distort an app that times its rendering off QPC.",
@@ -841,7 +825,6 @@
   "tip.elevated_embedded": "Off by default. An application that runs as administrator makes WebView2 ignore the setting the session reaches its pages through, so they stay on the real clock. With this on, the session writes one WebView2 option under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and removes it when the session ends. It needs Chrono Mock to run as administrator and an application started from an .exe. While it is set, every program started under that file name gets the debugging port too, and the application you start has administrator rights. A value left by a session that ended abruptly is removed the next time you start with this on.",
   "tip.keep_timers": "A web engine slows the timers of a minimized or hidden window to about once a second, so with time sped up a hidden window loses the speed-up. With this on, the application is started with that slowdown switched off.",
   "tip.force": "Off by default. When the check right after the start shows that the fake clock did not take effect, the application is stopped rather than left running, because what it shows would come from the real clock. Tick this to run it anyway - the session is then marked unreliable everywhere it appears.",
-  "tip.freeze": "Freeze the fake clock so it stops advancing.",
   "tip.set_speed": "Set any custom speed, e.g. 500.",
   "tip.stop": "Stop the session. The app returns to real time - it is not closed.",
   "tip.jump_to": "Move the fake clock to this date and time, read in the session zone.",

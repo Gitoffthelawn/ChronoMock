@@ -59,6 +59,17 @@ fn production_source(path: &Path) -> String {
 /// shape check is what keeps file names (`icudtl.dat`) and JS expressions (`performance.now`)
 /// out of the set without needing a hand-written blocklist.
 fn is_key_shaped(s: &str) -> bool {
+    // File names share the shape. The list is short, explicit and only ever grows when a new kind of
+    // file name shows up in the sources (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, and an
+    // Electron application's app.asar).
+    const FILE_SUFFIXES: [&str; 8] = [".dat", ".bin", ".exe", ".dll", ".json", ".js", ".now", ".asar"];
+    has_key_shape(s) && !FILE_SUFFIXES.iter().any(|suffix| s.ends_with(suffix))
+}
+
+/// The shape alone, without the file names `is_key_shaped` keeps out of the Rust scan. The window's own
+/// scan needs this one: `action.now` is a key there, and `.now` is on that list only for `performance.now`
+/// in the JavaScript the core sends to a page - measured, the stricter shape called three live texts dead.
+fn has_key_shape(s: &str) -> bool {
     for ch in s.chars() {
         match ch {
             '.' | 'a'..='z' | '0'..='9' | '_' => {}
@@ -77,11 +88,7 @@ fn is_key_shaped(s: &str) -> bool {
     {
         return false;
     }
-    // File names share the shape. The list is short, explicit and only ever grows when a new kind of
-    // file name shows up in the sources (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, and an
-    // Electron application's app.asar).
-    const FILE_SUFFIXES: [&str; 8] = [".dat", ".bin", ".exe", ".dll", ".json", ".js", ".now", ".asar"];
-    !FILE_SUFFIXES.iter().any(|suffix| s.ends_with(suffix))
+    true
 }
 
 /// Every `.rs` file under `dir`, recursively. The canary is part of the helper: a walk that finds
@@ -150,6 +157,11 @@ fn emitted_keys(root: &Path) -> BTreeSet<String> {
 /// on its own was invisible to all three tests below. Trying every quote costs nothing in precision:
 /// the run has to be key-shaped all the way to the next quote, which text between two literals never is.
 fn keys_in_line(line: &str) -> Vec<String> {
+    quoted_runs(line).into_iter().filter(|run| is_key_shaped(run)).map(str::to_string).collect()
+}
+
+/// Every run of key characters that a quote opens and a quote closes, on one line, whatever its shape.
+fn quoted_runs(line: &str) -> Vec<&str> {
     let bytes = line.as_bytes();
     let mut found = Vec::new();
     for (open, _) in line.match_indices('"') {
@@ -159,8 +171,8 @@ fn keys_in_line(line: &str) -> Vec<String> {
                 .iter()
                 .take_while(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_'))
                 .count();
-        if bytes.get(end) == Some(&b'"') && is_key_shaped(&line[start..end]) {
-            found.push(line[start..end].to_string());
+        if bytes.get(end) == Some(&b'"') && end > start {
+            found.push(&line[start..end]);
         }
     }
     found
@@ -473,4 +485,222 @@ fn an_arm_is_a_match_pattern_not_a_mention() {
     }
     assert!(!has_arm(bodies, "a.four"), "a key in an arm's VALUE is not an arm");
     assert!(!has_arm(bodies, "a.five"), "an arm with no words prints the key raw, so it is not a gloss");
+}
+
+// --- The other direction: every text in the translation files is reached from somewhere -----------
+//
+// PR A finding (f). Everything above asks whether a key that is USED has its text. Nothing asked
+// whether a text that EXISTS is used, so a text whose control was taken away stayed behind in both
+// languages - and went on being translated, reviewed and reworded. R4/21 found four by a one-off
+// script, and this guard's first run found eighteen more, all from the move to three phases
+// (e0bbbae). One of them was not dead text but a lost feature (`UNREACHED` below).
+
+/// Every production file with this extension under `dir`, build output left out. The canary is part of
+/// it, as for the Rust walk: a walk that finds nothing looks like a window with no texts.
+fn gui_files_under(dir: &Path, extension: &str, at_least: usize) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let entries = std::fs::read_dir(&d).unwrap_or_else(|e| panic!("cannot read {}: {e}", d.display()));
+        for entry in entries {
+            let path = entry.expect("directory entry").path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            if path.is_dir() && name != "bin" && name != "obj" {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == extension) {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
+    assert!(
+        out.len() >= at_least,
+        "the walk found only {} .{extension} files under {} - it is reading the wrong place",
+        out.len(),
+        dir.display()
+    );
+    out
+}
+
+/// Every key a view names as `{DynamicResource key}` or `{StaticResource key}`.
+fn keys_in_markup(text: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for extension in ["{DynamicResource ", "{StaticResource "] {
+        for (at, _) in text.match_indices(extension) {
+            let rest = &text[at + extension.len()..];
+            if let Some(close) = rest.find('}') {
+                let key = rest[..close].trim();
+                if has_key_shape(key) {
+                    found.push(key.to_string());
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Every key the window writes out in full: in a view, or as a quoted literal in the application's and
+/// the protocol client's C#. Comment lines are left out, so a key a comment MENTIONS does not keep a
+/// dead text alive. An interpolated key (`$"calc.sig.{key}"`) is not a literal here - the run stops at
+/// the brace and is not key-shaped - and is counted by its rule in `BUILT` instead.
+fn keys_the_window_writes(root: &Path) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    for path in gui_files_under(&root.join("gui/ChronoMock.App"), "xaml", 10) {
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        keys.extend(keys_in_markup(&text));
+    }
+    let mut sources = gui_files_under(&root.join("gui/ChronoMock.App"), "cs", 20);
+    sources.extend(gui_files_under(&root.join("gui/ChronoMock.Protocol"), "cs", 3));
+    for path in sources {
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
+            keys.extend(quoted_runs(line).into_iter().filter(|run| has_key_shape(run)).map(str::to_string));
+        }
+    }
+    keys
+}
+
+/// Every double-quoted word inside the first stretch of `source` that starts at the last of `anchors`
+/// (each found after the one before) and ends at `end`.
+fn quoted_words_in(source: &str, anchors: &[&str], end: &str) -> Vec<String> {
+    let mut from = 0;
+    for anchor in anchors {
+        from += source[from..].find(anchor).unwrap_or_else(|| panic!("`{anchor}` is gone from the source - a rule's words went blind"));
+    }
+    let stretch = &source[from..];
+    let stretch = &stretch[..stretch.find(end).unwrap_or_else(|| panic!("no `{end:?}` after `{}`", anchors[anchors.len() - 1]))];
+    stretch.split('"').skip(1).step_by(2).map(str::to_string).collect()
+}
+
+/// How the window builds a key out of a word it was handed, instead of writing it out: the prefix, the
+/// C# file and text that do the building, and where the words come from. A rule counts its keys only
+/// while its builder is still in the code - a rule outliving its builder would keep its texts alive
+/// after the window stopped showing them.
+struct Built {
+    prefix: &'static str,
+    builder: (&'static str, &'static str),
+    words: fn(&Path) -> Vec<String>,
+}
+
+fn read(root: &Path, path: &str) -> String {
+    std::fs::read_to_string(root.join(path)).unwrap_or_else(|e| panic!("cannot read {path}: {e}"))
+}
+
+const BUILT: [Built; 4] = [
+    // A variant parameter's choices, by the labels the engine's `VARIANTS` table gives them.
+    Built {
+        prefix: "calc.variant.",
+        builder: ("gui/ChronoMock.App/Calc/CalculatorViewModel.cs", "$\"calc.variant.{"),
+        words: |root| quoted_words_in(&read(root, "crates/cli/src/preset.rs"), &["const VARIANTS"], "];"),
+    },
+    // The readings of a pasted date and the landmarks a date lands on, by the core's `key()`.
+    Built {
+        prefix: "calc.reading.",
+        builder: ("gui/ChronoMock.App/Calc/CalculatorViewModel.cs", "$\"calc.reading.{"),
+        words: |root| {
+            let words = quoted_words_in(&read(root, "crates/core/src/calc.rs"), &["impl DateReading {", "fn key(&self)"], "\n    }");
+            words.into_iter().filter(|w| !w.contains(' ')).collect()
+        },
+    },
+    Built {
+        prefix: "calc.sig.",
+        builder: ("gui/ChronoMock.App/Calc/CalculatorViewModel.cs", "$\"calc.sig.{"),
+        words: |root| {
+            let words = quoted_words_in(&read(root, "crates/core/src/calc.rs"), &["impl Significance {", "fn key(&self)"], "\n    }");
+            words.into_iter().filter(|w| !w.contains(' ')).collect()
+        },
+    },
+    // The weekday of a result, by the core's own names, which the window lowers.
+    Built {
+        prefix: "calc.weekday.",
+        builder: ("gui/ChronoMock.App/Calc/CalculatorViewModel.cs", "$\"calc.weekday.{"),
+        words: |root| {
+            let names = quoted_words_in(&read(root, "crates/core/src/calc.rs"), &["const DOW_FULL"], "];");
+            names.iter().map(|n| n.to_lowercase()).collect()
+        },
+    },
+];
+
+/// Texts nothing reaches today that stay in the files, each with why and what makes it go. Checked from
+/// both ends: an entry that is reached again, or is no longer in the files, has to come out. Only shrinks.
+const UNREACHED: [(&str, &str); 1] = [(
+    "target.missing",
+    "the recent-application list lost its (missing) marker in the move to three phases (e0bbbae) - \
+     RecentTarget.IsMissing is still computed and tested, and nothing shows it. Goes with the owner's \
+     decision: the marker back on the row, or the text and IsMissing out",
+)];
+
+/// Every key the window or the core can put on the screen, by every road this guard knows.
+fn reached_keys(root: &Path) -> BTreeSet<String> {
+    let mut reached = emitted_keys(root);
+    reached.extend(keys_the_window_writes(root));
+
+    // `family.something` -> `family.err.something`, as `CalcErrorText.Describe` builds it.
+    let describe = read(root, "gui/ChronoMock.App/Calc/CalcErrorText.cs");
+    assert!(describe.contains(".err."), "CalcErrorText no longer builds `family.err.` keys - the rule below is stale");
+    let mut engine = calc_keys(root);
+    engine.extend(gui_calc_keys(root));
+    for key in engine {
+        let (family, rest) = key.split_once('.').expect("a key has a family");
+        reached.insert(format!("{family}.err.{rest}"));
+    }
+
+    for rule in &BUILT {
+        let (file, text) = rule.builder;
+        assert!(
+            read(root, file).contains(text),
+            "{file} no longer builds `{}` keys (`{text}`) - drop the rule, and the texts it kept alive",
+            rule.prefix
+        );
+        let words = (rule.words)(root);
+        assert!(words.len() >= 3, "the words of `{}` came back {words:?} - the rule went blind", rule.prefix);
+        reached.extend(words.into_iter().map(|w| format!("{}{w}", rule.prefix)));
+    }
+    reached
+}
+
+/// PR A finding (f): every text in the translation files is reached by the window or the core. A text
+/// nothing reaches is one nobody will ever see, still translated and reworded with the rest - the
+/// round of PR #93 rewrote the Polish of `tip.freeze`, which had shown nowhere since e0bbbae.
+#[test]
+fn every_translation_is_reached_by_the_window_or_the_core() {
+    let root = repo_root();
+    let reached = reached_keys(&root);
+    // One canary per road, so a road that went blind cannot pass as a window that uses fewer texts.
+    for (canary, road) in [
+        ("app.title", "a view"),
+        ("mode.flow", "a C# literal"),
+        ("coverage.session_clock_never_read", "the core's wire keys"),
+        ("calc.err.needs_calendar", "an engine refusal"),
+        ("presets.err.folder_missing", "a catalogue refusal"),
+        ("calc.variant.on_day", "a variant label"),
+        ("calc.sig.leap_day", "a landmark"),
+        ("calc.weekday.monday", "a weekday"),
+    ] {
+        assert!(reached.contains(canary), "`{canary}` was not reached - the scan of {road} went blind");
+    }
+
+    let en = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.en.json"));
+    assert!(en.len() >= 500, "read only {} texts - the translation file is not the one this guard means", en.len());
+    let excused: BTreeSet<&str> = UNREACHED.iter().map(|(key, _)| *key).collect();
+    let orphans: Vec<&String> = en.iter().filter(|k| !reached.contains(*k) && !excused.contains(k.as_str())).collect();
+    assert!(
+        orphans.is_empty(),
+        "these texts are in the translation files and nothing reaches them - no view, no C# literal, no key \
+         from the core, no rule in BUILT: {orphans:?}\n\
+         Remove them from gui/ChronoMock.App/Localization/Strings.{{en,pl}}.json, or, if the window builds them \
+         from a word, name that rule in BUILT."
+    );
+
+    for (key, reason) in UNREACHED {
+        assert!(en.contains(key), "UNREACHED names `{key}`, which is no longer in the files - take it out ({reason})");
+        assert!(!reached.contains(key), "UNREACHED names `{key}`, which is reached again - take it out ({reason})");
+    }
+}
+
+/// The markup scan takes a key from either resource extension and nothing that is not a key.
+#[test]
+fn the_markup_scan_reads_both_resource_extensions() {
+    let markup = r#"<TextBlock Text="{DynamicResource app.title}" Style="{StaticResource PartHeading}" ToolTip="{StaticResource tip.zone }" />"#;
+    assert_eq!(keys_in_markup(markup), ["app.title", "tip.zone"]);
 }
