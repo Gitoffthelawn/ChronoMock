@@ -95,6 +95,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A preset or a calendar file that cannot be read says what is wrong in the file's own words.** A
+  value of the wrong JSON type used to be refused with the name of a type inside the tool
+  (`expected struct PresetTextDto`, `untagged enum BaseDto`, `expected u32`), which told whoever wrote
+  the file nothing. The refusal now names the shape the file needs, and the place comes first:
+  `bad preset JSON at line 7, column 67: invalid type: string "Start", expected a text in each
+  language - an object like {"en": "...", "pl": "..."} with en required`. The same holds for
+  `chrono calc`, `chrono run --preset`, `chrono presets` and the window's list of files it left out.
 - **The window speaks of the application, the fake clock and Chrono Mock.** Its texts no longer use
   the words the code and the command line use for the parts of the tool: "the core" became Chrono
   Mock, "the target" the application, "the substitution" the fake clock, and "the moment" the date

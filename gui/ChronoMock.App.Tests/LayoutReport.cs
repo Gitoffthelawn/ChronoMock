@@ -43,10 +43,12 @@ internal static class LayoutReport
         return text.ToString();
     }
 
-    /// <summary>A short line naming one element and where it sits, for a rule's failure message.</summary>
+    /// <summary>A short line naming one element, the words it shows when it shows any, and where it sits,
+    /// for a rule's failure message. The words are what tells two unnamed text blocks apart - "TextBlock at
+    /// [449,279]" is a place, "TextBlock "business days"" is a finding.</summary>
     public static string Locate(LaidOutElement element) => string.Create(
         CultureInfo.InvariantCulture,
-        $"{element.Label} at [{Round(element.Bounds.X)},{Round(element.Bounds.Y)} {Round(element.Bounds.Width)}x{Round(element.Bounds.Height)}]");
+        $"{element.Label}{(element.Text.Length > 0 ? $" \"{Shorten(element.Text)}\"" : string.Empty)} at [{Round(element.Bounds.X)},{Round(element.Bounds.Y)} {Round(element.Bounds.Width)}x{Round(element.Bounds.Height)}]");
 
     private const int MaxIndent = 12;
     private const int MaxTextLength = 60;

@@ -65,6 +65,70 @@ public sealed class ParameterRowLayoutTests
         Assert.True(complaints.Count == 0, string.Join("\n", complaints));
     }
 
+    /// <summary>
+    /// The same screens held to the GENERAL layout rules, which since PR A finding (a) know which axis a
+    /// scroll viewer scrolls and see a control cut in part. The direct measure above stays as well: it is
+    /// the one that names the card's inner edge, and the general rules are the ones every other screen gets.
+    /// Reversal probe: put the row from before R4/19 back (its label beside the field) and this reddens on
+    /// the unit list cut at the card's edge - the defect the rules were blind to when it shipped.
+    /// </summary>
+    [Fact]
+    public async Task The_general_layout_rules_find_nothing_in_any_scenarios_parameters_at_the_calculators_narrowest()
+    {
+        var (complaints, measured) = await WpfTestHost.RunAsync(async () =>
+        {
+            var vm = new CalculatorViewModel(
+                new FakeCalcEngine(CalculatorSheetEngine.Answer), TestCatalogues.Library(TestCatalogues.Shipped()));
+            var view = new CalculatorView { DataContext = vm };
+            await vm.EnsureComputedAsync();
+            var floor = (int)(double)view.FindResource("CalculatorMinWidth");
+
+            var found = new List<string>();
+            var laidOut = 0;
+            foreach (var preset in vm.Presets.Where(p => p.Info.IsParametric).ToList())
+            {
+                vm.SelectedPreset = preset;
+                LayoutProbe.Settle(view, floor, Tall);
+                var elements = LayoutProbe.Walk(view);
+                found.AddRange(LayoutRules.OutsideTheSurface(elements, new Size(floor, Tall))
+                    .Concat(LayoutRules.PastAHardClip(elements))
+                    .Concat(LayoutRules.PartlyPastAHardClip(elements))
+                    .Concat(LayoutRules.SpillsOutOfItsParent(elements))
+                    .Select(c => $"{preset.Info.Id}: {c}"));
+                laidOut++;
+            }
+
+            return (found, laidOut);
+        });
+
+        Assert.True(measured >= ScenariosAtLeast, $"only {measured} scenarios with parameters were laid out");
+        var unknown = complaints.Where(c => !KnownDefects.Any(k => IsKnown(c, k))).ToList();
+        Assert.True(unknown.Count == 0, string.Join("\n", unknown));
+        foreach (var defect in KnownDefects)
+        {
+            Assert.True(
+                complaints.Any(c => IsKnown(c, defect)),
+                $"{defect.Scenario}: the known defect no longer shows - take it off the list ({defect.Reason})");
+        }
+    }
+
+    /// <summary>
+    /// What the general rules found here the first time they could see it, each with the reason and what
+    /// makes it go. Listed for the owner to decide rather than fixed inside the instrument's own change, and
+    /// checked from both ends: a defect gone from the screen has to come off the list. Only shrinks.
+    /// </summary>
+    private static readonly (string Scenario, string Shows, string Reason)[] KnownDefects =
+    [
+        ("payment-due-business-days", "TextBlock \"business days\"",
+         "the unit list is ShiftUnitWidth wide with 78 px for its text, and \"business days\" needs 85, so the "
+         + "window reads \"90 business day\" - in the builder and in the parameter row, at every window width. "
+         + "Goes with the amount and unit component (PR B, finding (c))"),
+    ];
+
+    private static bool IsKnown(string complaint, (string Scenario, string Shows, string Reason) defect)
+        => complaint.StartsWith($"{defect.Scenario}: {defect.Shows} at ", StringComparison.Ordinal)
+           && complaint.Contains(" spills out of ", StringComparison.Ordinal);
+
     /// <summary>The kinds a parameter is edited with: the date input's box, the amount, the unit and the choice.</summary>
     private static readonly HashSet<string> EditorKinds = new(StringComparer.Ordinal) { "TextBox", "ComboBox" };
 

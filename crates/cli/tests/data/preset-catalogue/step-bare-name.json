@@ -1,0 +1,8 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "step-bare-name",
+  "name": { "en": "step-bare-name" },
+  "explains": { "en": "A test case of the catalogue." },
+  "applies_to": "calculator",
+  "moment": { "base": "today", "steps": [ "snap" ] }
+}

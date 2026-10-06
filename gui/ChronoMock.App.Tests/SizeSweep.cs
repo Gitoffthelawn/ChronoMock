@@ -49,6 +49,7 @@ internal static class SizeSweep
             .. LayoutRules.OutsideTheSurface(elements, surface),
             .. LayoutRules.ArrangedToNothing(elements),
             .. LayoutRules.PastAHardClip(elements),
+            .. LayoutRules.PartlyPastAHardClip(elements),
             .. LayoutRules.TrimmedAway(elements),
             .. LayoutRules.SpillsOutOfItsParent(elements),
         ];

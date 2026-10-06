@@ -22,6 +22,9 @@
        A named design value, not a literal per view (zasady/13 2.1). Consolas ships on the TFM floor
        (Win10 1809), so it always resolves. The default UI face stays Segoe (no key needed for it). -->
   <FontFamily x:Key="FontFamilyMono">Consolas</FontFamily>
+  <!-- The icon face for the few glyph buttons that live inside a field (the calendar toggle, the clear
+       button of a search box). Ships on the TFM floor like the mono face, so it always resolves. -->
+  <FontFamily x:Key="FontFamilyIcons">Segoe MDL2 Assets</FontFamily>
   <sys:Double x:Key="FontSizeCaption">12</sys:Double>
   <sys:Double x:Key="FontSizeBody">14</sys:Double>
   <sys:Double x:Key="FontSizeSubtitle">18</sys:Double>
@@ -31,11 +34,27 @@
   <!-- 🔴 WEIGHT, which the part library did not have at all - measured: zero FontWeight in the whole of
        Parts.xaml. Size alone had to carry every level of the screen, and two adjacent steps of a
        five-step scale are a weak signal when the colour and the face are identical. One emphasis weight,
-       not an axis: a second one would start a competition between levels rather than name them. -->
+       not an axis: a second one would start a competition between levels rather than name them. So the
+       headings, the clock's time, the dialogs' first lines and the primary action's label all take this
+       one, and the literal guard reddens on a weight written in place. -->
   <FontWeight x:Key="FontWeightHeading">SemiBold</FontWeight>
 
+  <!-- A control that cannot be used right now is dimmed, not greyed, so a disabled primary action still
+       reads as the colour it will be (see PrimaryActionButton). One value for every template that dims. -->
+  <sys:Double x:Key="OpacityDisabled">0.5</sys:Double>
+
+  <!-- The VEIL a templated button lays over its own fill: lighter on hover, deeper while pressed, in
+       whatever colour the button is. Two strengths, because the two buttons that use it sit in different
+       places. The primary action carries a filled accent, so its veil has to be strong enough to read on
+       it. The title-bar action has no fill and shares a strip with the window's own buttons, so its veil
+       stays quiet - anything louder there would outrank Start (see TitleBarActionButton). -->
+  <sys:Double x:Key="OpacityVeilHover">0.14</sys:Double>
+  <sys:Double x:Key="OpacityVeilPressed">0.24</sys:Double>
+  <sys:Double x:Key="OpacityVeilHoverQuiet">0.1</sys:Double>
+  <sys:Double x:Key="OpacityVeilPressedQuiet">0.18</sys:Double>
+
   <!-- How far an answer that is being replaced fades while the new one is computed (PartAnswerBlock,
-       R4-W4). Above the 0.5 a disabled control takes, because the block is not disabled: its values are
+       R4-W4). Above OpacityDisabled, because the block is not disabled: its values are
        still readable and still the last answer, only no longer the answer to what the input says.
        🔴 Measured, not chosen by eye: at 0.6 the secondary 12 px labels fell to 3.75 to 1 against the
        result card, under the 4.5 the rest of the screen holds. 0.75 keeps them above it (the faded

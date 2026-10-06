@@ -21,7 +21,7 @@
                   BorderThickness="1" CornerRadius="4" Padding="7,6" SnapsToDevicePixels="True">
             <!-- Segoe MDL2 Assets calendar glyph: a crisp monochrome icon in the current foreground,
                  shipped on the TFM floor (Win10 1809). -->
-            <TextBlock Text="&#xE787;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+            <TextBlock Text="&#xE787;" FontFamily="{StaticResource FontFamilyIcons}" FontSize="16"
                        Foreground="{TemplateBinding Foreground}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
@@ -39,7 +39,7 @@
               <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource BrushFocusRing}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.5" />
+              <Setter Property="Opacity" Value="{StaticResource OpacityDisabled}" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -62,7 +62,7 @@
           <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent"
                   BorderThickness="{StaticResource StrokeThinEdge}" CornerRadius="{StaticResource RadiusSm}"
                   Padding="{StaticResource SpaceXs}" SnapsToDevicePixels="True">
-            <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets"
+            <TextBlock Text="&#xE711;" FontFamily="{StaticResource FontFamilyIcons}"
                        FontSize="{StaticResource FontSizeCaption}"
                        Foreground="{TemplateBinding Foreground}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -73,7 +73,7 @@
               <Setter Property="Foreground" Value="{DynamicResource BrushTextPrimary}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.5" />
+              <Setter Property="Opacity" Value="{StaticResource OpacityDisabled}" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -99,7 +99,7 @@
     <Setter Property="Background" Value="{DynamicResource BrushAccent}" />
     <Setter Property="Foreground" Value="{DynamicResource BrushBgBase}" />
     <Setter Property="FontSize" Value="{DynamicResource FontSizeBody}" />
-    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontWeight" Value="{StaticResource FontWeightHeading}" />
     <Setter Property="MinWidth" Value="{DynamicResource PrimaryActionMinWidth}" />
     <Setter Property="Padding" Value="{StaticResource SpaceMd}" />
     <Setter Property="Cursor" Value="Hand" />
@@ -118,17 +118,17 @@
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Veil" Property="Opacity" Value="0.14" />
+              <Setter TargetName="Veil" Property="Opacity" Value="{StaticResource OpacityVeilHover}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
               <Setter TargetName="Veil" Property="Background" Value="{DynamicResource BrushBgBase}" />
-              <Setter TargetName="Veil" Property="Opacity" Value="0.24" />
+              <Setter TargetName="Veil" Property="Opacity" Value="{StaticResource OpacityVeilPressed}" />
             </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
               <Setter TargetName="Fill" Property="BorderBrush" Value="{DynamicResource BrushFocusRing}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.5" />
+              <Setter Property="Opacity" Value="{StaticResource OpacityDisabled}" />
               <Setter Property="Cursor" Value="Arrow" />
             </Trigger>
           </ControlTemplate.Triggers>
@@ -168,11 +168,11 @@
                  is easy to miss, and the label going from secondary to primary is what says "this is a
                  button" to somebody who has not hovered it before. -->
             <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Veil" Property="Opacity" Value="0.1" />
+              <Setter TargetName="Veil" Property="Opacity" Value="{StaticResource OpacityVeilHoverQuiet}" />
               <Setter Property="Foreground" Value="{DynamicResource BrushTextPrimary}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
-              <Setter TargetName="Veil" Property="Opacity" Value="0.18" />
+              <Setter TargetName="Veil" Property="Opacity" Value="{StaticResource OpacityVeilPressedQuiet}" />
             </Trigger>
             <!-- The focus ring matters more here than on a filled button: keyboard users reach this
                  through a strip whose other buttons are drawn by Windows, not by us. -->

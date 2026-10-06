@@ -21,7 +21,7 @@
                  Foreground="{DynamicResource BrushTextPrimary}" />
       <TextBlock Text="{Binding Time}"
                  FontSize="{StaticResource FontSizeClock}"
-                 FontWeight="SemiBold"
+                 FontWeight="{StaticResource FontWeightHeading}"
                  Foreground="{DynamicResource BrushTextPrimary}" />
       <TextBlock Text="{Binding Zone}"
                  Margin="{StaticResource SpaceXs}"

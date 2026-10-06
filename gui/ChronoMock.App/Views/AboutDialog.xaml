@@ -50,7 +50,7 @@
       <!-- Identity first, and the version with it. This line is what somebody reads out loud into a bug
            report, so it is the one thing here set in the title size. -->
       <TextBlock x:Name="ProductLine"
-                 FontSize="{StaticResource FontSizeTitle}" FontWeight="SemiBold"
+                 FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightHeading}"
                  Foreground="{DynamicResource BrushTextPrimary}" />
       <TextBlock x:Name="CopyrightLine" TextWrapping="Wrap"
                  FontSize="{StaticResource FontSizeCaption}"
@@ -63,7 +63,7 @@
                    FontSize="{StaticResource FontSizeBody}"
                    Foreground="{DynamicResource BrushTextSecondary}" />
         <TextBlock x:Name="SpdxLine" VerticalAlignment="Center" Margin="{StaticResource SpaceSm}"
-                   FontSize="{StaticResource FontSizeBody}" FontWeight="SemiBold"
+                   FontSize="{StaticResource FontSizeBody}" FontWeight="{StaticResource FontWeightHeading}"
                    Foreground="{DynamicResource BrushTextPrimary}" />
       </StackPanel>
 

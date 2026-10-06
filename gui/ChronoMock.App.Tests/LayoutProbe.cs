@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
+using ChronoMock.App.Controls;
 
 namespace ChronoMock.App.Tests;
 
@@ -81,7 +83,7 @@ internal static class LayoutProbe
     {
         var found = new List<LaidOutElement>();
         var pending = new Stack<Step>();
-        pending.Push(new Step(root, 0, false, null, true, -1));
+        pending.Push(new Step(root, 0, false, false, null, true, -1, false));
 
         while (pending.Count > 0)
         {
@@ -151,23 +153,64 @@ internal static class LayoutProbe
     /// ancestor and a clipping one are deliberately not the same thing: past a scroll edge content is
     /// late, past a clip edge it is nowhere.
     /// </summary>
+    /// <remarks>
+    /// 🔴 PER AXIS, AND THE NEAREST VIEWER DECIDES (PR A finding (a)). This used to be one flag for "some
+    /// ancestor scrolls", and a scroll viewer was never a clip, so a calculator column - which scrolls down
+    /// only - excused content cut at its side edge as content to scroll to. A viewer's axes now REPLACE the
+    /// ones from further up, because past the edge of an inner viewport that does not scroll sideways the
+    /// content is cut there, and an outer viewer scrolling sideways moves the whole inner one, not what it
+    /// cut. Its presenter is a hard clip in every axis the viewer does not scroll. Disabled is the one
+    /// setting that does not scroll: Hidden still does, by the wheel and the keyboard, with no bar drawn.
+    /// </remarks>
     private static void PushChildren(
         Stack<Step> pending, Step step, Rect? bounds, bool visible, int index)
     {
-        bool scrolls = step.Scrolls || step.Node is ScrollViewer or ScrollContentPresenter;
+        var (across, down) = (step.ScrollsAcross, step.ScrollsDown);
+        if (step.Node is ScrollViewer viewer)
+        {
+            across = viewer.HorizontalScrollBarVisibility != ScrollBarVisibility.Disabled;
+            down = viewer.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled;
+        }
+
         var clip = step.HardClip;
         if (step.Node is UIElement { ClipToBounds: true } and not (ScrollViewer or ScrollContentPresenter)
             && bounds.HasValue)
         {
-            clip = clip.HasValue ? Rect.Intersect(clip.Value, bounds.Value) : bounds.Value;
+            clip = Narrowed(clip, bounds.Value);
+        }
+        else if (step.Node is ScrollContentPresenter && bounds.HasValue && !(across && down))
+        {
+            clip = Narrowed(clip, Viewport(bounds.Value, across, down));
         }
 
+        bool insideAControl = step.InsideAControl || IsControl(step.Node);
         for (int i = VisualTreeHelper.GetChildrenCount(step.Node) - 1; i >= 0; i--)
         {
             pending.Push(new Step(
-                VisualTreeHelper.GetChild(step.Node, i), step.Depth + 1, scrolls, clip, visible, index));
+                VisualTreeHelper.GetChild(step.Node, i), step.Depth + 1, across, down, clip, visible, index,
+                insideAControl));
         }
     }
+
+    /// <summary>Far enough past any window that an axis bounded by it is, in effect, not bounded.</summary>
+    private const double Unbounded = 1_000_000;
+
+    /// <summary>A viewport as a clip: its own edges in each axis that does not scroll, none in each that does.</summary>
+    private static Rect Viewport(Rect presenter, bool across, bool down) => new(
+        across ? -Unbounded : presenter.Left,
+        down ? -Unbounded : presenter.Top,
+        across ? 2 * Unbounded : presenter.Width,
+        down ? 2 * Unbounded : presenter.Height);
+
+    private static Rect Narrowed(Rect? clip, Rect by) => clip.HasValue ? Rect.Intersect(clip.Value, by) : by;
+
+    /// <summary>A control the user acts on. Parts of its template are left to it: a list's drop-down button
+    /// is cut when the list is, and is one finding with it. The same for this application's own inputs made
+    /// of parts - a date field and its calendar button, a search box and its clear button - which the user
+    /// takes for one control (found in review: their parts were each a finding of their own).</summary>
+    private static bool IsControl(DependencyObject node)
+        => node is ButtonBase or TextBoxBase or ComboBox or PasswordBox or Slider
+            or DateInput or MomentInput or SearchBox;
 
     /// <summary>
     /// The element's rectangle in the root's coordinates, or null when it is not connected to the root -
@@ -198,8 +241,10 @@ internal static class LayoutProbe
             Bounds = bounds,
             Depth = step.Depth,
             IsVisible = visible,
-            InsideScrollable = step.Scrolls,
+            ScrollsAcross = step.ScrollsAcross,
+            ScrollsDown = step.ScrollsDown,
             HardClip = step.HardClip,
+            IsOwnControl = IsControl(element) && !step.InsideAControl,
             IsEnabled = element.IsEnabled,
             Text = TextOf(element),
             FontSize = element is TextBlock sized ? sized.FontSize : 0,
@@ -302,6 +347,6 @@ internal static class LayoutProbe
     /// would have run over an empty set and passed, for ever.
     /// </remarks>
     private readonly record struct Step(
-        DependencyObject Node, int Depth, bool Scrolls, Rect? HardClip, bool AncestorsVisible,
-        int ParentIndex);
+        DependencyObject Node, int Depth, bool ScrollsAcross, bool ScrollsDown, Rect? HardClip,
+        bool AncestorsVisible, int ParentIndex, bool InsideAControl);
 }

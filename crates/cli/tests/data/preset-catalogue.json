@@ -845,7 +845,7 @@
     {
       "file": "applies-to-missing.json",
       "id": "applies-to-missing",
-      "reason": "preset 'applies-to-missing': bad preset JSON: missing field `applies_to` at line 9 column 1 (in tests/data/preset-catalogue\\applies-to-missing.json)",
+      "reason": "preset 'applies-to-missing': bad preset JSON at line 9, column 1: missing field `applies_to` (in tests/data/preset-catalogue\\applies-to-missing.json)",
       "exit_code": 1
     },
     {
@@ -864,6 +864,12 @@
       "file": "base-keyword-unknown.json",
       "id": "base-keyword-unknown",
       "reason": "unknown preset base 'tomorrow' (use today, now, or an absolute/absolute_utc/parameter object)",
+      "exit_code": 1
+    },
+    {
+      "file": "base-number.json",
+      "id": "base-number",
+      "reason": "preset 'base-number': bad preset JSON at line 7, column 23: base must be \"today\", \"now\" or an object with absolute, absolute_utc or parameter (in tests/data/preset-catalogue\\base-number.json)",
       "exit_code": 1
     },
     {
@@ -929,7 +935,7 @@
     {
       "file": "moment-without-base.json",
       "id": "moment-without-base",
-      "reason": "preset 'moment-without-base': bad preset JSON: missing field `base` at line 8 column 27 (in tests/data/preset-catalogue\\moment-without-base.json)",
+      "reason": "preset 'moment-without-base': bad preset JSON at line 8, column 27: missing field `base` (in tests/data/preset-catalogue\\moment-without-base.json)",
       "exit_code": 1
     },
     {
@@ -947,25 +953,31 @@
     {
       "file": "not-json.json",
       "id": "not-json",
-      "reason": "preset 'not-json': bad preset JSON: EOF while parsing a value at line 1 column 34 (in tests/data/preset-catalogue\\not-json.json)",
+      "reason": "preset 'not-json': bad preset JSON at line 1, column 34: EOF while parsing a value (in tests/data/preset-catalogue\\not-json.json)",
       "exit_code": 1
     },
     {
       "file": "param-label-plain-text.json",
       "id": "param-label-plain-text",
-      "reason": "preset 'param-label-plain-text': bad preset JSON: invalid type: string \"Start\", expected struct PresetTextDto at line 7 column 67 (in tests/data/preset-catalogue\\param-label-plain-text.json)",
+      "reason": "preset 'param-label-plain-text': bad preset JSON at line 7, column 67: invalid type: string \"Start\", expected a text in each language - an object like {\"en\": \"...\", \"pl\": \"...\"} with en required (in tests/data/preset-catalogue\\param-label-plain-text.json)",
       "exit_code": 1
     },
     {
       "file": "param-label-without-english.json",
       "id": "param-label-without-english",
-      "reason": "preset 'param-label-without-english': bad preset JSON: missing field `en` at line 7 column 81 (in tests/data/preset-catalogue\\param-label-without-english.json)",
+      "reason": "preset 'param-label-without-english': bad preset JSON at line 7, column 81: missing field `en` (in tests/data/preset-catalogue\\param-label-without-english.json)",
       "exit_code": 1
     },
     {
       "file": "param-without-type.json",
       "id": "param-without-type",
-      "reason": "preset 'param-without-type': bad preset JSON: missing field `type` at line 7 column 31 (in tests/data/preset-catalogue\\param-without-type.json)",
+      "reason": "preset 'param-without-type': bad preset JSON at line 7, column 31: missing field `type` (in tests/data/preset-catalogue\\param-without-type.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "preset-as-list.json",
+      "id": "preset-as-list",
+      "reason": "preset 'preset-as-list': bad preset JSON at line 1, column 1: invalid type: list, expected a preset - an object with schema, id, name, explains, applies_to and moment (in tests/data/preset-catalogue\\preset-as-list.json)",
       "exit_code": 1
     },
     {
@@ -999,15 +1011,21 @@
       "exit_code": 1
     },
     {
+      "file": "step-bare-name.json",
+      "id": "step-bare-name",
+      "reason": "preset 'step-bare-name': bad preset JSON at line 7, column 50: invalid type: a step name on its own, expected the name with its value, like {\"snap\": \"end-of-month\"} (in tests/data/preset-catalogue\\step-bare-name.json)",
+      "exit_code": 1
+    },
+    {
       "file": "step-to-zone.json",
       "id": "step-to-zone",
-      "reason": "preset 'step-to-zone': bad preset JSON: unknown variant `to_zone`, expected one of `shift`, `set_time`, `snap`, `nearest`, `zone` at line 8 column 83 (in tests/data/preset-catalogue\\step-to-zone.json)",
+      "reason": "preset 'step-to-zone': bad preset JSON at line 8, column 83: unknown variant `to_zone`, expected one of `shift`, `set_time`, `snap`, `nearest`, `zone` (in tests/data/preset-catalogue\\step-to-zone.json)",
       "exit_code": 1
     },
     {
       "file": "step-two-keys.json",
       "id": "step-two-keys",
-      "reason": "preset 'step-two-keys': bad preset JSON: expected value at line 8 column 127 (in tests/data/preset-catalogue\\step-two-keys.json)",
+      "reason": "preset 'step-two-keys': bad preset JSON at line 8, column 127: expected value (in tests/data/preset-catalogue\\step-two-keys.json)",
       "exit_code": 1
     },
     {
