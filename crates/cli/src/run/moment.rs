@@ -217,10 +217,23 @@ fn eval_preset_moment(
 ) -> Result<String, i32> {
     let outcome = match chrono_core::calc::eval(moment, &EvalContext { now, zone_bias_min: now_bias, calendar: None }) {
         Err(needs @ EvalError::NeedsCalendar { .. }) => match load_market_calendar(id, market) {
-            Some(Ok(calendar)) => chrono_core::calc::eval(
-                moment,
-                &EvalContext { now, zone_bias_min: now_bias, calendar: Some(&calendar) },
-            ),
+            Some(Ok(calendar)) => {
+                let counted = chrono_core::calc::eval(
+                    moment,
+                    &EvalContext { now, zone_bias_min: now_bias, calendar: Some(&calendar) },
+                );
+                // The calculator marks this `calendar_outdated`. A session has no marks to carry it, so
+                // the line goes where the caller reads the rest of the start (R4/20).
+                if let Ok(out) = &counted
+                    && out.calendar_reach.is_some_and(|day| chrono_core::calendar::outdated(&calendar, &now, &day))
+                {
+                    diag!(
+                        "chrono: preset '{id}' counted business days in the {} calendar, whose holidays were checked against the law more than a year ago - a holiday added since may be missing (calendar_outdated)",
+                        calendar.id
+                    );
+                }
+                counted
+            }
             Some(Err(e)) => {
                 diag!("chrono: {e}");
                 return Err(1);
@@ -369,6 +382,11 @@ pub(crate) fn describe_at_error(e: EvalError) -> String {
             "relative --at asks for more than {} business days",
             chrono_core::calendar::MAX_BUSINESS_DAYS
         ),
+        // Only a calendar can refuse a walk for its first year, and this path has none. Named for the
+        // same reason as the two arms above.
+        EvalError::BeforeCalendar { first_year, .. } => {
+            format!("relative --at reaches a day before {first_year}, the first year of the calendar")
+        }
     }
 }
 

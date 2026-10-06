@@ -38,6 +38,33 @@ public class CalcClientTests
         Assert.Null(r.Moment.CustomFormatUnknown);
     }
 
+    /// <summary>R4-S20 and R4/20: a date before the calendar's first year comes back with neither
+    /// business-day nor holiday field, the calendar's first year and check date beside them, and the
+    /// mark that says the calendar judged nothing. The two fields are additive - a result without them
+    /// (every test above) still reads, with null.</summary>
+    [Fact]
+    public void Parses_the_years_a_calendar_answers_for()
+    {
+        const string json = """
+        {"schema":"chronomock.calc/1","moment":{"iso":"1985-05-03T00:00:00","zone_bias_min":0,
+         "base":"1985-05-03T00:00:00","steps":[],
+         "formats":{"iso_date":"1985-05-03","iso_datetime":"1985-05-03T00:00:00+00:00","us":"05/03/1985",
+                    "pl":"03.05.1985","epoch_seconds":484444800,"epoch_millis":484444800000,
+                    "filetime":121019184000000000,"rfc1123":"Fri, 03 May 1985 00:00:00 GMT"},
+         "metadata":{"weekday":"Friday","iso_week_year":1985,"iso_week":18,"us_week":18,
+                     "day_of_year":123,"quarter":2,"is_leap_year":false,"days_from_today":-15132,
+                     "business_day":null,"holiday":null,"calendar":"pl",
+                     "calendar_valid_from":2002,"calendar_law_as_of":"2026-10-06"},
+         "significance":["before_calendar"]}}
+        """;
+        var m = JsonSerializer.Deserialize<CalcResult>(json, ProtocolJson.Options)!.Moment!;
+        Assert.Null(m.Metadata.BusinessDay);
+        Assert.Equal("pl", m.Metadata.Calendar);
+        Assert.Equal(2002L, m.Metadata.CalendarValidFrom);
+        Assert.Equal("2026-10-06", m.Metadata.CalendarLawAsOf);
+        Assert.Equal(["before_calendar"], m.Significance);
+    }
+
     /// <summary>A mask the engine only partly understands renders anyway, with the letters it did not
     /// know passed through as text. The client has to receive that list, because the rendered string
     /// alone looks like a formatted date and gives the reader nothing to notice.</summary>

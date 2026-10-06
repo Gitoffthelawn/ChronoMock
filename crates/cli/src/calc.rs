@@ -303,9 +303,11 @@ pub(crate) struct MetadataJson {
     quarter: u32,
     is_leap_year: bool,
     days_from_today: i64,
-    /// null when no calendar was supplied - otherwise whether the date is a business day.
+    /// null when no calendar was supplied, or when the date is before the years it covers
+    /// (`calendar_valid_from`) - otherwise whether the date is a business day.
     business_day: Option<bool>,
-    /// The holiday's English name, or null (no calendar, or not a holiday - business_day disambiguates).
+    /// The holiday's English name, or null (no calendar, a date it does not cover, or not a holiday -
+    /// business_day disambiguates).
     holiday: Option<String>,
     /// The calendar id that decided the two fields above, or null when none was supplied. Added because
     /// they are a JUDGEMENT rather than a fact: a Sunday is not a business day under the calendars we
@@ -313,6 +315,12 @@ pub(crate) struct MetadataJson {
     /// named it ("business day  no  (us-banking)") and the machine output did not, so a consumer reading
     /// the JSON could not tell which calendar it was reading. Additive, so no schema version (docs/04 3).
     calendar: Option<String>,
+    /// The first year that calendar answers for, or null without one. A date before it has
+    /// `business_day` and `holiday` null and the `before_calendar` mark (R4-S20). Additive.
+    calendar_valid_from: Option<i64>,
+    /// The day that calendar's holidays were checked against the law (`YYYY-MM-DD`), or null without
+    /// one - what the `calendar_outdated` mark is measured from (R4/20). Additive.
+    calendar_law_as_of: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -371,7 +379,9 @@ pub(crate) fn metadata_json(
     calendar: Option<&chrono_core::calendar::Calendar>,
 ) -> MetadataJson {
     let m = chrono_core::calc::metadata(civil, now);
-    let (business_day, holiday) = match calendar {
+    // A calendar says nothing about a date before its first year - not "a business day", not "no
+    // holiday" - where its rules were not the ones in force (R4-S20).
+    let (business_day, holiday) = match calendar.filter(|cal| cal.judges_year(civil.year)) {
         Some(cal) => (
             Some(chrono_core::calendar::is_business_day(civil, cal)),
             chrono_core::calendar::holiday_on(civil, cal).map(|h| h.name_en.clone()),
@@ -390,15 +400,47 @@ pub(crate) fn metadata_json(
         business_day,
         holiday,
         calendar: calendar.map(|cal| cal.id.clone()),
+        calendar_valid_from: calendar.and_then(|cal| cal.valid_from),
+        calendar_law_as_of: calendar.and_then(|cal| cal.law_as_of).map(|law| date_text(&law)),
     }
+}
+
+/// A civil date as `YYYY-MM-DD`, the way a calendar file writes `law_as_of`.
+fn date_text(civil: &chrono_core::calc::CivilDateTime) -> String {
+    let iso = civil.to_iso();
+    iso.split('T').next().unwrap_or(&iso).to_string()
+}
+
+/// What `civil` lands on, with the calendar's say about itself. `before_calendar` comes from the core.
+/// `calendar_outdated` is added here, where today is known: the calendar decided something after the day
+/// its holidays were checked against the law, more than a year ago - about `civil` itself, or about
+/// `reach`, the latest day a business-day step judged on the way (R4/20, the owner's case of data from
+/// 2030 read in 2032).
+pub(crate) fn significance_of(
+    civil: &chrono_core::calc::CivilDateTime,
+    bias: i32,
+    calendar: Option<&chrono_core::calendar::Calendar>,
+    today: &chrono_core::calc::CivilDateTime,
+    reach: Option<&chrono_core::calc::CivilDateTime>,
+) -> Vec<chrono_core::calc::Significance> {
+    let mut marks = chrono_core::calc::significance(civil, bias, calendar);
+    if let Some(cal) = calendar {
+        let judged_here = cal.judges_year(civil.year) && chrono_core::calendar::outdated(cal, today, civil);
+        if judged_here || reach.is_some_and(|day| chrono_core::calendar::outdated(cal, today, day)) {
+            marks.push(chrono_core::calc::Significance::CalendarOutdated);
+        }
+    }
+    marks
 }
 
 pub(crate) fn significance_keys(
     civil: &chrono_core::calc::CivilDateTime,
     bias: i32,
     calendar: Option<&chrono_core::calendar::Calendar>,
+    today: &chrono_core::calc::CivilDateTime,
+    reach: Option<&chrono_core::calc::CivilDateTime>,
 ) -> Vec<&'static str> {
-    chrono_core::calc::significance(civil, bias, calendar).iter().map(|s| s.key()).collect()
+    significance_of(civil, bias, calendar, today, reach).iter().map(|s| s.key()).collect()
 }
 
 pub(crate) fn calc_moment_json(
@@ -420,7 +462,7 @@ pub(crate) fn calc_moment_json(
         steps: outcome.after_each.iter().map(|c| c.to_iso()).collect(),
         formats: formats_json(&result, bias),
         metadata: metadata_json(&result, today, calendar),
-        significance: significance_keys(&result, bias, calendar),
+        significance: significance_keys(&result, bias, calendar, today, outcome.calendar_reach.as_ref()),
         custom_format: rendered_mask.as_ref().map(|r| r.text.clone()),
         custom_format_unknown: rendered_mask
             .as_ref()
@@ -488,7 +530,7 @@ pub(crate) fn calc_analysis_json(
             instant: reading.is_instant(),
             time: reading_shows_time(*reading, written)
                 .then(|| format!("{:02}:{:02}:{:02}", civil.hour, civil.minute, civil.second)),
-            significance: significance_keys(civil, bias, calendar),
+            significance: significance_keys(civil, bias, calendar, now, None),
             metadata: metadata_json(civil, now, calendar),
         })
         .collect();
@@ -723,7 +765,10 @@ pub(crate) fn calc_error_exit_code(e: &EvalError) -> i32 {
         | EvalError::BaseOverflow
         | EvalError::BaseNotACivilDate
         | EvalError::YearOutOfRange { .. }
-        | EvalError::TooManyBusinessDays { .. } => 1,
+        | EvalError::TooManyBusinessDays { .. }
+        // The same kind of refusal as the year band: the step is built, the calendar holds no rules for
+        // the years it reached (R4-S20).
+        | EvalError::BeforeCalendar { .. } => 1,
     }
 }
 
@@ -776,6 +821,10 @@ pub(crate) fn describe_calc_error(e: &EvalError) -> String {
             "chrono calc: step {} asks for more than {} business days - the most this counts (calc.business_days_limit)",
             index + 1,
             chrono_core::calendar::MAX_BUSINESS_DAYS
+        ),
+        EvalError::BeforeCalendar { index, first_year } => format!(
+            "chrono calc: step {} reaches a day before {first_year}, the first year the calendar covers - pick a later date or another calendar (calc.before_calendar)",
+            index + 1
         ),
     }
 }
@@ -838,7 +887,8 @@ pub(crate) fn render_calc(
     let result_bias = outcome.result_bias;
     out.push_str(&render_formats(&outcome.result(), result_bias));
     out.push_str(&render_metadata(&outcome.result(), today, calendar));
-    out.push_str(&render_significance(&outcome.result(), result_bias, calendar));
+    let marks = significance_of(&outcome.result(), result_bias, calendar, today, outcome.calendar_reach.as_ref());
+    out.push_str(&render_significance(&outcome.result(), &marks, calendar));
     out
 }
 
@@ -857,10 +907,9 @@ pub(crate) fn render_calc(
 /// pick which one to believe.
 pub(crate) fn render_significance(
     civil: &chrono_core::calc::CivilDateTime,
-    tz_bias_min: i32,
+    marks: &[chrono_core::calc::Significance],
     calendar: Option<&chrono_core::calendar::Calendar>,
 ) -> String {
-    let marks = chrono_core::calc::significance(civil, tz_bias_min, calendar);
     if marks.is_empty() {
         return String::new();
     }
@@ -868,17 +917,30 @@ pub(crate) fn render_significance(
     for m in marks {
         out.push_str(&format!("    {}\n", m.label()));
     }
-    // Which calendar decided the weekend and holiday marks, named beside them rather than left to be
-    // looked up. It is stated whether or not any of those marks fired, because their ABSENCE is a
-    // judgement of the same calendar: a date with no weekend mark has none according to this file, and
-    // would have one under a calendar whose weekend falls elsewhere in the week.
     if let Some(cal) = calendar {
-        out.push_str(&format!(
-            "    (weekend and holiday marks follow the {} calendar)\n",
-            cal.id
-        ));
+        out.push_str(&format!("    ({})\n", calendar_line(civil, cal)));
     }
     out
+}
+
+/// Which calendar decided the weekend and holiday marks, named beside them rather than left to be looked
+/// up. It is stated whether or not any of those marks fired, because their ABSENCE is a judgement of the
+/// same calendar: a date with no weekend mark has none according to this file, and would have one under a
+/// calendar whose weekend falls elsewhere in the week. A calendar read from a file also says when its
+/// holidays were checked against the law, and a date before its first year says that the calendar did not
+/// judge it at all (R4-S20, R4/20).
+fn calendar_line(civil: &chrono_core::calc::CivilDateTime, cal: &chrono_core::calendar::Calendar) -> String {
+    if let Some(first) = cal.valid_from.filter(|_| !cal.judges_year(civil.year)) {
+        return format!("the {} calendar starts in {first} and does not judge this date", cal.id);
+    }
+    match cal.law_as_of {
+        Some(law) => format!(
+            "weekend and holiday marks follow the {} calendar, its holidays as the law stood on {}",
+            cal.id,
+            date_text(&law)
+        ),
+        None => format!("weekend and holiday marks follow the {} calendar", cal.id),
+    }
 }
 
 /// Render a reverse-analysis result (7.3): the input, then each reading with its resolved date,
@@ -923,7 +985,7 @@ pub(crate) fn render_analysis(
             reading.label(),
             reading_text(*reading, civil, written)
         ));
-        for m in chrono_core::calc::significance(civil, bias, calendar) {
+        for m in significance_of(civil, bias, calendar, now, None) {
             out.push_str(&format!("      {}\n", m.label()));
         }
     }
@@ -990,6 +1052,15 @@ pub(crate) fn render_metadata(
     out.push_str(&format!("    days from now {days}\n"));
 
     if let Some(cal) = calendar {
+        // Before the calendar's first year the calendar has no answer, and "no" would be one (R4-S20).
+        if let Some(first) = cal.valid_from.filter(|_| !cal.judges_year(civil.year)) {
+            out.push_str(&format!(
+                "    business day  not judged - the {} calendar starts in {first}\n",
+                cal.id
+            ));
+            out.push_str("    holiday       not judged\n");
+            return out;
+        }
         let business = if chrono_core::calendar::is_business_day(civil, cal) { "yes" } else { "no" };
         out.push_str(&format!("    business day  {business}  ({})\n", cal.id));
         let holiday = match chrono_core::calendar::holiday_on(civil, cal) {
@@ -1197,6 +1268,8 @@ mod tests {
             country: "US".into(),
             weekend: vec![0, 6],
             observed: Observed::SunToMon,
+            valid_from: None,
+            law_as_of: None,
             holidays: vec![Holiday {
                 id: "independence_day".into(),
                 name_en: "Independence Day".into(),
@@ -1217,6 +1290,31 @@ mod tests {
         assert!(text.contains("holiday       Independence Day"), "got:\n{text}");
         // 2026-07-04 is a Saturday, so it is not a business day.
         assert!(text.contains("business day  no  (us-test)"), "got:\n{text}");
+    }
+
+    /// R4-S20 and R4/20 in the text: a date before the calendar's first year is "not judged", with the
+    /// year, where it used to read "no" - an answer the calendar had no rules for - and a calendar read
+    /// from a file names the day it was checked against the law under the marks it decided.
+    #[test]
+    fn the_text_says_what_a_calendar_does_not_judge_and_when_it_was_checked() {
+        let day = |d: u32| chrono_core::calc::CivilDateTime { year: 2026, month: 7, day: d, hour: 0, minute: 0, second: 0 };
+        let later = chrono_core::calendar::Calendar { valid_from: Some(2030), ..test_calendar() };
+        let text = render_metadata(&day(4), &day(4), Some(&later));
+        assert!(text.contains("business day  not judged - the us-test calendar starts in 2030"), "got:\n{text}");
+        assert!(text.contains("holiday       not judged"), "got:\n{text}");
+        assert!(!text.contains("Independence Day"), "got:\n{text}");
+        let marks = significance_of(&day(4), 0, Some(&later), &day(4), None);
+        assert_eq!(marks, vec![chrono_core::calc::Significance::BeforeCalendar]);
+        let block = render_significance(&day(4), &marks, Some(&later));
+        assert!(block.contains("(the us-test calendar starts in 2030 and does not judge this date)"), "got:\n{block}");
+
+        let checked = chrono_core::calendar::Calendar { law_as_of: Some(day(1)), ..test_calendar() };
+        let marks = significance_of(&day(4), 0, Some(&checked), &day(4), None);
+        let block = render_significance(&day(4), &marks, Some(&checked));
+        assert!(
+            block.contains("(weekend and holiday marks follow the us-test calendar, its holidays as the law stood on 2026-07-01)"),
+            "got:\n{block}"
+        );
     }
 
     #[test]

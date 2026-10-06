@@ -1618,7 +1618,12 @@ public sealed class CalculatorViewModel : ObservableObject
         }
 
         HasSignificance = Significance.Count > 0;
-        SignificanceCalendar = HasSignificance ? CalendarNote(moment.Metadata.Calendar) : string.Empty;
+        SignificanceCalendar = HasSignificance
+            ? CalendarNote(
+                moment.Metadata.Calendar,
+                moment.Significance.Contains("before_calendar") ? moment.Metadata.CalendarValidFrom : null,
+                moment.Significance.Contains("calendar_outdated") ? moment.Metadata.CalendarLawAsOf : null)
+            : string.Empty;
 
         ShowFormats(moment.Formats);
         ShowCustomFormat(moment.CustomFormat, moment.CustomFormatUnknown);
@@ -1750,8 +1755,14 @@ public sealed class CalculatorViewModel : ObservableObject
     /// the engine applied none. The id comes back from the engine (e.g. "us-banking") and is shown through
     /// the picker's own label, so the note names the calendar the way the tester picked it (rule 15). An id
     /// the picker does not know is shown as itself rather than dropped - an honest raw id beats a sentence
-    /// that quietly omits which calendar it means.</summary>
-    internal string CalendarNote(string? calendarId)
+    /// that quietly omits which calendar it means.
+    ///
+    /// Two results say more about the calendar than its name (R4-S20, R4/20). <paramref name="startsIn"/> is
+    /// the calendar's first year when the date lies before it: the calendar judged nothing, and "marks
+    /// follow" would claim it did. <paramref name="lawAsOf"/> is the day its holidays were checked against
+    /// the law when that check is more than a year old for what was computed: the note says from when, so
+    /// the tester can tell how old.</summary>
+    internal string CalendarNote(string? calendarId, long? startsIn = null, string? lawAsOf = null)
     {
         if (calendarId is null)
         {
@@ -1761,7 +1772,14 @@ public sealed class CalculatorViewModel : ObservableObject
         var label = Calendars.FirstOrDefault(c => c.Id == calendarId) is { } known
             ? Tr(known.LabelKey)
             : calendarId;
-        return TextFormat.Translate("calc.sig_calendar", label);
+        if (startsIn is { } year)
+        {
+            return TextFormat.Translate("calc.sig_calendar_before", label, year);
+        }
+
+        return lawAsOf is { } day
+            ? TextFormat.Translate("calc.sig_calendar_outdated", label, day)
+            : TextFormat.Translate("calc.sig_calendar", label);
     }
 
     private static string BuildMetadataLine(CalcMetadata m)

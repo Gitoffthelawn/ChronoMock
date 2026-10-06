@@ -10,6 +10,9 @@
   },
   "weekend": ["saturday", "sunday"],
   "observed": "sun_to_mon",
+  "valid_from": 2008,
+  "law_as_of": "2026-10-06",
+  "source": "Range from 2008, the oldest Federal Reserve holiday schedule read (K.8, Holidays Observed by the Federal Reserve 2008-2012, the copy of 9 July 2008 kept by the Internet Archive). It states the rule K.8 still states for 2026-2030: for holidays falling on Saturday Federal Reserve Banks and Branches are open the preceding Friday, for holidays falling on Sunday all Federal Reserve offices are closed the following Monday. Not in it: days only the Board of Governors closes",
   "holidays": [
     {
       "id": "new_years_day",
@@ -17,7 +20,7 @@
       "rule": { "type": "fixed", "month": 1, "day": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule"
+      "source": "Federal Reserve holiday schedule (K.8)"
     },
     {
       "id": "mlk_day",
@@ -25,7 +28,7 @@
       "rule": { "type": "nth_weekday", "month": 1, "weekday": "monday", "order": 3 },
       "valid_from": 1986,
       "valid_to": null,
-      "source": "Public Law 98-144 of 1983-11-02, effective the first 1 January falling after a two-year period, so first observed on 1986-01-20. The Federal Reserve Bank schedule carries the federal legal public holidays"
+      "source": "Federal Reserve holiday schedule (K.8), which carries the federal legal public holidays. Public Law 98-144 of 1983-11-02, effective the first 1 January falling after a two-year period, so first observed on 1986-01-20"
     },
     {
       "id": "washingtons_birthday",
@@ -33,15 +36,7 @@
       "rule": { "type": "nth_weekday", "month": 2, "weekday": "monday", "order": 3 },
       "valid_from": 1971,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule, which carries the federal legal public holidays. Public Law 90-363 (Uniform Monday Holiday Act) substituted the third Monday in February with effect from 1971-01-01"
-    },
-    {
-      "id": "washingtons_birthday_pre_1971",
-      "name": { "en": "Washington's Birthday", "local": "Washington's Birthday" },
-      "rule": { "type": "fixed", "month": 2, "day": 22 },
-      "valid_from": null,
-      "valid_to": 1970,
-      "source": "5 U.S.C. 6103 as it read before Public Law 90-363, carried by the Federal Reserve Bank schedule. The first year is left unclaimed rather than guessed"
+      "source": "Federal Reserve holiday schedule (K.8), which carries the federal legal public holidays. Public Law 90-363 (Uniform Monday Holiday Act) substituted the third Monday in February with effect from 1971-01-01"
     },
     {
       "id": "memorial_day",
@@ -49,15 +44,7 @@
       "rule": { "type": "nth_weekday", "month": 5, "weekday": "monday", "order": -1 },
       "valid_from": 1971,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule, which carries the federal legal public holidays. Public Law 90-363 (Uniform Monday Holiday Act) substituted the last Monday in May with effect from 1971-01-01"
-    },
-    {
-      "id": "memorial_day_pre_1971",
-      "name": { "en": "Memorial Day", "local": "Memorial Day" },
-      "rule": { "type": "fixed", "month": 5, "day": 30 },
-      "valid_from": null,
-      "valid_to": 1970,
-      "source": "5 U.S.C. 6103 as it read before Public Law 90-363, carried by the Federal Reserve Bank schedule. The first year is left unclaimed rather than guessed"
+      "source": "Federal Reserve holiday schedule (K.8), which carries the federal legal public holidays. Public Law 90-363 (Uniform Monday Holiday Act) substituted the last Monday in May with effect from 1971-01-01"
     },
     {
       "id": "juneteenth",
@@ -73,7 +60,7 @@
       "rule": { "type": "fixed", "month": 7, "day": 4 },
       "valid_from": null,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule"
+      "source": "Federal Reserve holiday schedule (K.8)"
     },
     {
       "id": "labor_day",
@@ -81,7 +68,7 @@
       "rule": { "type": "nth_weekday", "month": 9, "weekday": "monday", "order": 1 },
       "valid_from": null,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule"
+      "source": "Federal Reserve holiday schedule (K.8)"
     },
     {
       "id": "columbus_day",
@@ -89,7 +76,7 @@
       "rule": { "type": "nth_weekday", "month": 10, "weekday": "monday", "order": 2 },
       "valid_from": 1971,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule, which carries the federal legal public holidays. Public Law 90-363 (Uniform Monday Holiday Act) added this holiday with effect from 1971-01-01"
+      "source": "Federal Reserve holiday schedule (K.8), which carries the federal legal public holidays. Public Law 90-363 (Uniform Monday Holiday Act) added this holiday with effect from 1971-01-01"
     },
     {
       "id": "veterans_day",
@@ -97,23 +84,7 @@
       "rule": { "type": "fixed", "month": 11, "day": 11 },
       "valid_from": 1978,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule, which carries the federal legal public holidays. Public Law 94-97 returned this holiday to 11 November with effect from 1978-01-01"
-    },
-    {
-      "id": "veterans_day_october_monday",
-      "name": { "en": "Veterans Day", "local": "Veterans Day" },
-      "rule": { "type": "nth_weekday", "month": 10, "weekday": "monday", "order": 4 },
-      "valid_from": 1971,
-      "valid_to": 1977,
-      "source": "5 U.S.C. 6103 between Public Law 90-363 and Public Law 94-97, carried by the Federal Reserve Bank schedule"
-    },
-    {
-      "id": "veterans_day_pre_1971",
-      "name": { "en": "Veterans Day", "local": "Veterans Day" },
-      "rule": { "type": "fixed", "month": 11, "day": 11 },
-      "valid_from": null,
-      "valid_to": 1970,
-      "source": "5 U.S.C. 6103 as it read before Public Law 90-363, carried by the Federal Reserve Bank schedule. The first year is left unclaimed rather than guessed"
+      "source": "Federal Reserve holiday schedule (K.8), which carries the federal legal public holidays. Public Law 94-97 returned this holiday to 11 November with effect from 1978-01-01"
     },
     {
       "id": "thanksgiving_day",
@@ -121,7 +92,7 @@
       "rule": { "type": "nth_weekday", "month": 11, "weekday": "thursday", "order": 4 },
       "valid_from": null,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule"
+      "source": "Federal Reserve holiday schedule (K.8)"
     },
     {
       "id": "christmas_day",
@@ -129,7 +100,7 @@
       "rule": { "type": "fixed", "month": 12, "day": 25 },
       "valid_from": null,
       "valid_to": null,
-      "source": "U.S. Federal Reserve Bank holiday schedule"
+      "source": "Federal Reserve holiday schedule (K.8)"
     }
   ]
 }

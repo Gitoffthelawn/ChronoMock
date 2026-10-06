@@ -24,6 +24,7 @@ public sealed class CalcErrorTextTests
     [InlineData("chrono calc: step 1 overflows the representable range (calc.overflow)", "calc.err.overflow")]
     [InlineData("chrono calc: unrecognised date format '31.02.2026' (calc.analyze_unrecognized)", "calc.err.analyze_unrecognized")]
     [InlineData("calc did not finish within 10 s and was stopped (calc.timeout)", "calc.err.timeout")]
+    [InlineData("chrono calc: step 1 reaches a day before 2002, the first year the calendar covers - pick a later date or another calendar (calc.before_calendar)", "calc.err.before_calendar")]
     public void An_engine_key_becomes_its_translation(string stderr, string expectedKey)
         => Assert.Equal($"[{expectedKey}]", CalcErrorText.Describe(stderr, Translator(expectedKey)));
 
