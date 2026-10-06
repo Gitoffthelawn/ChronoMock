@@ -91,6 +91,20 @@ public partial class ComponentCatalogue : UserControl
         TimeText = "03:14:07",
     };
 
+    /// <summary>The amount input with a sign, as a shift step shows it, on the longest unit there is.</summary>
+    public AmountUnitSample SampleSignedAmount { get; } = new("90", "bd");
+
+    /// <summary>The amount input without a sign, as a scenario's duration parameter shows it.</summary>
+    public AmountUnitSample SampleUnsignedAmount { get; } = new("30", "d");
+
+    /// <summary>The recent-application rows: one there, its other build gone, and one with a long path.</summary>
+    public IReadOnlyList<RecentTarget> SampleRecentTargets { get; } =
+    [
+        new(@"C:\src\app\bin\x64\Release\app.exe"),
+        new(@"C:\src\app\bin\x86\Release\app.exe") { IsMissing = true },
+        new(@"C:\Users\tester\source\repos\a-product-with-a-long-name\build\output\x64\Release\net10.0-windows\the-application.exe"),
+    ];
+
     /// <summary>A scenario list still being read - where every list starts.</summary>
     public Calc.CatalogueStatus SampleListReading { get; } = new();
 
@@ -130,4 +144,22 @@ public partial class ComponentCatalogue : UserControl
         Wall = "2038-01-19T03:14:07",
         Zone = "UTC+14:00 - Line Islands, Kiritimati, the furthest offset there is",
     };
+}
+
+/// <summary>
+/// The shape the amount input binds to, filled for the catalogue: the screens bind it to a shift step, the
+/// setup's relative moment and a scenario's parameter, none of which can be built without the screen
+/// behind it.
+/// </summary>
+public sealed class AmountUnitSample(string amount, string unitToken)
+{
+    public IReadOnlyList<string> Signs => Calc.StepViewModel.Signs;
+
+    public string Sign { get; set; } = "+";
+
+    public string Amount { get; set; } = amount;
+
+    public IReadOnlyList<Calc.UnitOption> Units => Calc.StepViewModel.AllUnits;
+
+    public Calc.UnitOption Unit { get; set; } = Calc.StepViewModel.AllUnits.Single(u => u.Token == unitToken);
 }

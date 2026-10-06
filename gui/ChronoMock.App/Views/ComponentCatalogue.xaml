@@ -195,6 +195,48 @@
         </StackPanel>
       </Border>
 
+      <!-- ============ Amount and unit ============ -->
+      <TextBlock Text="Amount and unit" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
+
+      <Border Style="{StaticResource PartCard}" Margin="{StaticResource StackGapSm}">
+        <StackPanel>
+          <TextBlock Style="{StaticResource PartCaption}"
+                     Text="Every amount on a screen is typed and its unit picked the same way: a whole number and a unit, led by a sign where the amount can go either way. The unit list is as wide as its longest label in the window's language, so no unit is cut under the chevron and the field does not change width with the choice. The amount commits when the field is left, and the message for a bad amount is the consumer's, under the row." />
+          <StackPanel Margin="{StaticResource StackGapSm}" HorizontalAlignment="Left">
+            <controls:AmountUnitInput Margin="{StaticResource SpaceXs}" HasSign="True"
+                                      DataContext="{Binding SampleSignedAmount, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+            <controls:AmountUnitInput Margin="{StaticResource SpaceXs}" AccessibleName="Payment term"
+                                      DataContext="{Binding SampleUnsignedAmount, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+            <controls:AmountUnitInput Margin="{StaticResource SpaceXs}" HasSign="True" IsEnabled="False"
+                                      DataContext="{Binding SampleSignedAmount, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- ============ Recent application row ============ -->
+      <TextBlock Text="Recent application row" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
+
+      <Border Style="{StaticResource PartCard}" Margin="{StaticResource StackGapSm}">
+        <StackPanel>
+          <TextBlock Style="{StaticResource PartCaption}"
+                     Text="The open list of applications run before: the name, its folder dimmed after it, and a file that is gone marked as missing rather than dropped. The closed box reads as the plain name, with the missing mark kept. The full path is the row's tooltip and its name for a screen reader." />
+          <controls:TextNamedItems Margin="{StaticResource StackGapSm}" HorizontalAlignment="Left"
+                        ItemsSource="{Binding SampleRecentTargets, RelativeSource={RelativeSource AncestorType=UserControl}}">
+            <controls:TextNamedItems.ItemTemplate>
+              <DataTemplate>
+                <ComboBoxItem Style="{StaticResource RecentTargetRow}" Content="{Binding}"
+                              ContentTemplate="{StaticResource RecentTargetRowTemplate}" />
+              </DataTemplate>
+            </controls:TextNamedItems.ItemTemplate>
+          </controls:TextNamedItems>
+          <ComboBox Margin="{StaticResource StackGapSm}" HorizontalAlignment="Left" SelectedIndex="1"
+                    MaxWidth="{StaticResource TargetBoxMaxWidth}"
+                    ItemContainerStyle="{StaticResource RecentTargetRow}"
+                    ItemTemplate="{StaticResource RecentTargetRowTemplate}"
+                    ItemsSource="{Binding SampleRecentTargets, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+        </StackPanel>
+      </Border>
+
       <!-- ============ Check ============ -->
       <TextBlock Text="Check" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
 

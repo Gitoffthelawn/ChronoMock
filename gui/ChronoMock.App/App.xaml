@@ -49,6 +49,15 @@
         <Setter Property="AutomationProperties.Name" Value="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
       </Style>
 
+      <!-- And what such an item SHOWS: its label in the window's language. One drawing for every list of
+           labelled options, which was written out in place twelve times. -->
+      <DataTemplate x:Key="LabelKeyText">
+        <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
+      </DataTemplate>
+
+      <!-- The accessible name of one part of a composite input, led by the input's own name (AmountUnitInput). -->
+      <local:PartNameConverter x:Key="PartName" />
+
       <!-- Zone items (ZoneComboItem, ZoneRow) live in Themes/Parts.xaml with the rest of the parts, so both
            zone pickers draw and name a zone from one definition. -->
 

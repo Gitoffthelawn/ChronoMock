@@ -120,11 +120,8 @@
         its data item's ToString() aloud, so each list that binds records needs a container style that sets an
         accessible name. These stay local because the ItemContainerStyle is named and applied on the list here.
       -->
-      <Style x:Key="RecentTargetRow" TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
-        <!-- The FULL path: a file name alone does not identify a build, since an x64 and an x86 output are
-             both called the same thing. -->
-        <Setter Property="AutomationProperties.Name" Value="{Binding FullPath}" />
-      </Style>
+      <!-- The recent-application row (RecentTargetRow and its template) is in Themes/Parts.xaml, so the
+           component catalogue draws it from the same definition, missing file included. -->
 
       <!-- The label-key item style is NOT here. It was, word for word the same as LabelKeyComboItem in
            App.xaml, under a second name - one decision in two places, which is the shape GUI rules 5 and
@@ -172,22 +169,12 @@
           <StackPanel Orientation="Horizontal" Margin="{StaticResource StackGapSm}">
             <ComboBox ItemsSource="{Binding RecentTargets}" SelectedItem="{Binding SelectedTarget}"
                       ItemContainerStyle="{StaticResource RecentTargetRow}"
+                      ItemTemplate="{StaticResource RecentTargetRowTemplate}"
                       ToolTip="{DynamicResource setup.tip_recent}"
                       AutomationProperties.Name="{DynamicResource setup.label_target}"
                       MaxWidth="{StaticResource TargetBoxMaxWidth}"
                       app:ComboBoxBehavior.OpenedCommand="{Binding Commands.RefreshRecentTargets}"
-                      Visibility="{Binding HasRecentTargets, Converter={StaticResource BoolToVis}}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate>
-                  <!-- 🔴 The FULL path on the row, because a file name does not identify a build: an x64
-                       and an x86 output are both called the same thing, and choosing the wrong one is a
-                       session that proves nothing about the binary somebody meant. Until now the path
-                       existed only in the name read out to assistive tech. -->
-                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
-                             ToolTip="{Binding FullPath}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
+                      Visibility="{Binding HasRecentTargets, Converter={StaticResource BoolToVis}}" />
             <!-- 🔴 The accent sits HERE until there is a target, and on Start afterwards. On an empty
                  screen the one thing that has to happen was the quietest control on it, while the loudest
                  was a Start nobody could press. One suggested control at a time, always the next step. -->
@@ -291,23 +278,7 @@
               <TextBlock Style="{StaticResource PartLabel}" Text="{DynamicResource setup.label_shift}" />
             </HeaderedContentControl.Header>
             <StackPanel Orientation="Horizontal">
-              <ComboBox ItemsSource="{Binding Signs}" SelectedItem="{Binding Sign}"
-                        Width="{StaticResource ShiftSignWidth}"
-                        AutomationProperties.Name="{DynamicResource moment.relative_sign}" />
-              <TextBox Text="{Binding Amount, UpdateSourceTrigger=PropertyChanged}"
-                       Width="{StaticResource ShiftAmountWidth}" Margin="{StaticResource SpaceXs}"
-                       FontFamily="{StaticResource FontFamilyMono}"
-                       AutomationProperties.Name="{DynamicResource moment.relative_amount}" />
-              <ComboBox ItemsSource="{Binding Units}" SelectedItem="{Binding Unit}"
-                        ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                        Width="{StaticResource ShiftUnitWidth}"
-                        AutomationProperties.Name="{DynamicResource moment.relative_unit}">
-                <ComboBox.ItemTemplate>
-                  <DataTemplate>
-                    <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                  </DataTemplate>
-                </ComboBox.ItemTemplate>
-              </ComboBox>
+              <controls:AmountUnitInput HasSign="True" AccessibleName="{DynamicResource setup.label_shift}" />
               <!-- The command lives on the view model, but this row's DataContext is Relative, so it reaches
                    back to the UserControl's DataContext for it - the parameters (sign, amount, unit) are read
                    from Relative by the command itself. -->
@@ -444,15 +415,9 @@
               <TextBlock Style="{StaticResource PartLabel}" Text="{DynamicResource setup.label_mode}" />
             </HeaderedContentControl.Header>
             <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}"
-                      ItemContainerStyle="{StaticResource LabelKeyComboItem}"
+                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
                       IsEnabled="{Binding CanEditTime}" ToolTip="{DynamicResource tip.mode}"
-                      HorizontalAlignment="Left" MinWidth="{StaticResource LaunchFieldWidth}">
-              <ComboBox.ItemTemplate>
-                <DataTemplate>
-                  <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
+                      HorizontalAlignment="Left" MinWidth="{StaticResource LaunchFieldWidth}" />
           </HeaderedContentControl>
 
           <!-- 🔴 Labels in the reader's words, not ours. The shipped panel says "Scale duration too",

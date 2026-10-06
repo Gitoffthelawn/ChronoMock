@@ -1,0 +1,38 @@
+<UserControl x:Class="ChronoMock.App.Controls.AmountUnitInput"
+             x:Name="Root"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ChronoMock.App.Controls">
+  <!-- The shared amount-and-unit input: an optional sign, a whole number and a unit - "+ 90 business days".
+       Bound to any DataContext with Amount, Unit and Units, and Sign and Signs when HasSign is set (the
+       setup's relative moment, a calculator shift step, a scenario's duration parameter), the way DateInput
+       binds DateText and SelectedDate.
+
+       🔴 ITS OWN PART because the same three controls stood in three places with three margins, two binding
+       triggers and accessible names in one of them, and the unit list's width was a number that its
+       longest word outgrew (GUI rules 2, 5 and 7).
+
+       The amount commits when the field is left (LostFocus), everywhere. In the calculator every commit is
+       a question to the engine, so a commit per keystroke showed a refusal for each half-typed number on
+       its way to a whole one. The setup reacts to nothing until its button is pressed, and pressing the
+       button leaves the field first, so nothing there waits on a keystroke. -->
+  <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+    <ComboBox ItemsSource="{Binding Signs}" SelectedItem="{Binding Sign}"
+              Width="{StaticResource ShiftSignWidth}" Margin="{StaticResource InlineControlGap}"
+              VerticalAlignment="Center"
+              Visibility="{Binding HasSign, ElementName=Root, Converter={StaticResource BoolToVis}}"
+              AutomationProperties.Name="{Binding AccessibleName, ElementName=Root, Converter={StaticResource PartName}, ConverterParameter={x:Static controls:AmountUnitInput.SignWordKey}}" />
+    <TextBox Text="{Binding Amount, UpdateSourceTrigger=LostFocus}"
+             Width="{StaticResource ShiftAmountWidth}" Margin="{StaticResource InlineControlGap}"
+             VerticalAlignment="Center" FontFamily="{StaticResource FontFamilyMono}"
+             AutomationProperties.Name="{Binding AccessibleName, ElementName=Root, Converter={StaticResource PartName}, ConverterParameter={x:Static controls:AmountUnitInput.AmountWordKey}}" />
+    <!-- 🔴 THE LIST IS AS WIDE AS ITS LONGEST LABEL, in the window's language, plus what the drop-down draws
+         around its text (DropDownChrome) - set by the input as it measures (AmountUnitInput.MeasureOverride).
+         Whatever unit is chosen, the field keeps its width, and no label is cut under the chevron. -->
+    <ComboBox x:Name="UnitList" ItemsSource="{Binding Units}" SelectedItem="{Binding Unit}"
+              VerticalAlignment="Center"
+              ItemContainerStyle="{StaticResource LabelKeyComboItem}"
+              ItemTemplate="{StaticResource LabelKeyText}"
+              AutomationProperties.Name="{Binding AccessibleName, ElementName=Root, Converter={StaticResource PartName}, ConverterParameter={x:Static controls:AmountUnitInput.UnitWordKey}}" />
+  </StackPanel>
+</UserControl>

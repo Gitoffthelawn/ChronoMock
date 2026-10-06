@@ -61,9 +61,10 @@ public class StateSheetTests
     /// The grid is 1 024. The clock and the fact list took the content to 4 851 px, so this went to 5 120:
     /// one step, not the measurement. Doubling to 8 192 would have doubled the cost of every render of it
     /// for 269 px of content. The verdict headline took it to 5 397, so one more step: 6 144. The process
-    /// table took it to 6 266, so one more: 7 168.
+    /// table took it to 6 266, so one more: 7 168. The amount-and-unit input and the recent-application row
+    /// took it to 7 553, so one more: 8 192.
     /// </remarks>
-    private const int CatalogueHeight = 7168;
+    private const int CatalogueHeight = 8192;
 
     /// <summary>
     /// The rebuilt setup phase, in the three states that decide whether it works.

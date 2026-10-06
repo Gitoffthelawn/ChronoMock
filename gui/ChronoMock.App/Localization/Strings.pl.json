@@ -219,7 +219,7 @@
 
   // Market-name hints shown beside each offset in the zone dropdown, so it is not a bare number.
   "zone.host": "ta maszyna",
-  "zone.utc": "Uniwersalny czas koordynowany",
+  "zone.utc": "Czas uniwersalny",
   "zone.pl_standard": "Polska (czas zimowy)",
   "zone.pl_summer": "Polska (czas letni)",
   "zone.us_eastern": "USA wschodni",
