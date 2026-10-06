@@ -8,6 +8,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **A preset names its parameters for the window.** A parameter in a preset file can carry a
+  `label`, one text per language like `name`, with `en` required when it is there. The window shows
+  it above the parameter's input, in its own language or else in English, and shows the id only for a
+  parameter the file does not name. The command line keeps the id, which is what `--param` takes, and
+  `chrono presets --json` hands each parameter's `label` on, empty when the file names none. Every
+  parameter of the shipped presets now has an English and a Polish label - the window used to show
+  `trial length` above the field, in every language.
 - **`chrono presets` lists the preset catalogue as `--preset` reads it.** Every preset file in the
   folder comes back either as a preset, written in the words the calculator's grammar reads, or as
   a file left out, with the reason `--preset` would give for it. `--json` writes the schema
@@ -88,6 +95,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **The window speaks of the application, the fake clock and Chrono Mock.** Its texts no longer use
+  the words the code and the command line use for the parts of the tool: "the core" became Chrono
+  Mock, "the target" the application, "the substitution" the fake clock, and "the moment" the date
+  and time. A message about a fault inside Chrono Mock now says that it is one and how to report it,
+  and a message about a mixed-up package says to extract it again. The command line, its report and
+  the JSON are unchanged.
 - **A holiday calendar says which years it answers for, and counts no business day outside them.**
   A calendar file now has three more required fields: `valid_from`, the first year every rule in it
   has a source for (holidays, weekend and observance), `law_as_of`, the day its holidays were checked
@@ -194,6 +207,16 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A scenario's parameters fit the calculator at the window's smallest size.** At the minimum width
+  the parameter row ran past the edge of the result card: the unit list lost its arrow and the date
+  its calendar button. A parameter's label now stands above its input, as in the builder beside it,
+  and the amount and the unit are as wide there as in the builder and the run panel.
+- **The calculator no longer asks to fill in the parameters "below"** while they stand above the
+  note.
+- **Dropping a script on the window no longer says that it cannot be run.** The window still takes
+  only `.exe` files, and its message now says so and that a script (`.bat`, `.cmd`) runs with the
+  `chrono` command line. It used to say that a clock cannot be attached to a script, which stopped
+  being true when the command line learned to run scripts.
 - **Old dates are no longer counted with today's holidays.** The Polish calendar answered for every
   year with today's list: 3 May came out a day off before 1990, 11 November and 15 August before
   1989, 22 July (a day off until 1989) never, and Saturday a weekend day in years when it was a
