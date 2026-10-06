@@ -977,7 +977,7 @@
     {
       "file": "preset-as-list.json",
       "id": "preset-as-list",
-      "reason": "preset 'preset-as-list': bad preset JSON at line 1, column 2: invalid type: list, expected a preset - an object with schema, id, name, explains, applies_to and moment (in tests/data/preset-catalogue\\preset-as-list.json)",
+      "reason": "preset 'preset-as-list': bad preset JSON at line 1, column 1: invalid type: list, expected a preset - an object with schema, id, name, explains, applies_to and moment (in tests/data/preset-catalogue\\preset-as-list.json)",
       "exit_code": 1
     },
     {

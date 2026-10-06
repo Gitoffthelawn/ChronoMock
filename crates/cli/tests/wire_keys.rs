@@ -539,21 +539,98 @@ fn keys_in_markup(text: &str) -> Vec<String> {
     found
 }
 
+/// The markup with its comments taken out, so a reference left in a comment keeps no text alive.
+fn markup_without_comments(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find("<!--") {
+        out.push_str(&rest[..open]);
+        rest = rest[open..].find("-->").map_or("", |close| &rest[open + close + "-->".len()..]);
+    }
+    out.push_str(rest);
+    out
+}
+
+/// C# with its comments taken out and its strings kept: `//` to the end of the line and `/* */`, when they
+/// stand outside a string or a character literal. Regular, verbatim (`@"`) and raw (`"""`) strings are kept
+/// whole, so a `//` inside an address stays text. Line breaks are kept, so the code keeps its lines.
+fn csharp_without_comments(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut kept = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let from = at;
+        at = match &bytes[at..] {
+            [b'/', b'/', ..] => end_of_line(bytes, at),
+            [b'/', b'*', ..] => bytes[at + 2..].windows(2).position(|w| w == b"*/").map_or(bytes.len(), |p| at + 2 + p + 2),
+            [b'"', b'"', b'"', ..] => end_of_raw_string(bytes, at),
+            [b'@', b'"', ..] => end_of_quoted(bytes, at + 1, true),
+            [b'"', ..] => end_of_quoted(bytes, at, false),
+            [b'\'', ..] => end_of_char_literal(bytes, at),
+            _ => at + 1,
+        };
+        let comment = bytes[from..].starts_with(b"//") || bytes[from..].starts_with(b"/*");
+        if comment {
+            kept.extend(bytes[from..at].iter().filter(|b| **b == b'\n'));
+        } else {
+            kept.extend_from_slice(&bytes[from..at]);
+        }
+    }
+    String::from_utf8(kept).expect("only whole comments were taken out")
+}
+
+fn end_of_line(bytes: &[u8], at: usize) -> usize {
+    bytes[at..].iter().position(|b| *b == b'\n').map_or(bytes.len(), |p| at + p)
+}
+
+/// Past the closing quote of a string opening at `open`. In a verbatim string `""` is a quote, elsewhere a
+/// backslash takes the next character with it.
+fn end_of_quoted(bytes: &[u8], open: usize, verbatim: bool) -> usize {
+    let mut at = open + 1;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'\\' if !verbatim => at += 2,
+            b'"' if verbatim && bytes.get(at + 1) == Some(&b'"') => at += 2,
+            b'"' => return at + 1,
+            _ => at += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// Past the end of a raw string opening at `open` with three quotes or more: the same run of quotes again.
+fn end_of_raw_string(bytes: &[u8], open: usize) -> usize {
+    let quotes = bytes[open..].iter().take_while(|b| **b == b'"').count();
+    let fence = vec![b'"'; quotes];
+    bytes[open + quotes..].windows(quotes).position(|w| w == fence.as_slice()).map_or(bytes.len(), |p| open + quotes + p + quotes)
+}
+
+/// Past a character literal opening at `open` - `'x'`, `'\''` - so a quote inside one opens no string.
+fn end_of_char_literal(bytes: &[u8], open: usize) -> usize {
+    let body = if bytes.get(open + 1) == Some(&b'\\') { 2 } else { 1 };
+    match bytes.get(open + 1 + body) {
+        Some(b'\'') => open + body + 2,
+        _ => open + 1,
+    }
+}
+
 /// Every key the window writes out in full: in a view, or as a quoted literal in the application's and
-/// the protocol client's C#. Comment lines are left out, so a key a comment MENTIONS does not keep a
-/// dead text alive. An interpolated key (`$"calc.sig.{key}"`) is not a literal here - the run stops at
-/// the brace and is not key-shaped - and is counted by its rule in `BUILT` instead.
+/// the protocol client's C#. Comments are taken out first - a whole line, the end of one, a block, and
+/// the markup's own - so a key a comment MENTIONS, or a reference commented out, keeps no dead text alive
+/// (found in review: whole comment lines were the only ones left out). An interpolated key
+/// (`$"calc.sig.{key}"`) is not a literal here - the run stops at the brace and is not key-shaped - and
+/// is counted by its rule in `BUILT` instead.
 fn keys_the_window_writes(root: &Path) -> BTreeSet<String> {
     let mut keys = BTreeSet::new();
     for path in gui_files_under(&root.join("gui/ChronoMock.App"), "xaml", 10) {
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-        keys.extend(keys_in_markup(&text));
+        keys.extend(keys_in_markup(&markup_without_comments(&text)));
     }
     let mut sources = gui_files_under(&root.join("gui/ChronoMock.App"), "cs", 20);
     sources.extend(gui_files_under(&root.join("gui/ChronoMock.Protocol"), "cs", 3));
     for path in sources {
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-        for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
+        for line in csharp_without_comments(&text).lines() {
             keys.extend(quoted_runs(line).into_iter().filter(|run| has_key_shape(run)).map(str::to_string));
         }
     }
@@ -647,8 +724,9 @@ fn reached_keys(root: &Path) -> BTreeSet<String> {
 
     for rule in &BUILT {
         let (file, text) = rule.builder;
+        // In the code, not in a comment: a builder commented out builds nothing (found in review).
         assert!(
-            read(root, file).contains(text),
+            csharp_without_comments(&read(root, file)).contains(text),
             "{file} no longer builds `{}` keys (`{text}`) - drop the rule, and the texts it kept alive",
             rule.prefix
         );
@@ -703,4 +781,31 @@ fn every_translation_is_reached_by_the_window_or_the_core() {
 fn the_markup_scan_reads_both_resource_extensions() {
     let markup = r#"<TextBlock Text="{DynamicResource app.title}" Style="{StaticResource PartHeading}" ToolTip="{StaticResource tip.zone }" />"#;
     assert_eq!(keys_in_markup(markup), ["app.title", "tip.zone"]);
+}
+
+/// A reference in a comment is no reference: the markup's own comments, a line of C# comment, the end of
+/// a line and a block all go, and the strings stay whole - an address with `//` in it, a verbatim string
+/// with a doubled quote, a raw string, and a quote inside a character literal. Found in review: only whole
+/// comment lines used to be left out, so `// "dead.key"` after code kept a dead text alive.
+#[test]
+fn a_key_in_a_comment_keeps_no_text_alive() {
+    let markup = "<!-- {DynamicResource dead.markup} -->\n<TextBlock Text=\"{DynamicResource live.markup}\" /><!-- {DynamicResource dead.after}";
+    assert_eq!(keys_in_markup(&markup_without_comments(markup)), ["live.markup"]);
+
+    let csharp = concat!(
+        "var a = \"live.first\"; // \"dead.trailing\"\n",
+        "// \"dead.line\"\n",
+        "/* \"dead.block\"\n \"dead.block_two\" */ var u = \"http://x.y/z\"; var b = \"live.after_url\";\n",
+        "var v = @\"c:\\path \"\"quoted\"\" \"; var c = '\"'; var d = \"live.after_char\";\n",
+        "var r = \"\"\"raw // not a comment \"\"\"; var e = \"live.after_raw\";\n",
+        "var f = \"escaped \\\" // still text\"; var g = \"live.after_escape\";\n",
+    );
+    let code = csharp_without_comments(csharp);
+    let keys: Vec<&str> = code.lines().flat_map(quoted_runs).filter(|run| has_key_shape(run)).collect();
+    assert_eq!(keys, ["live.first", "live.after_url", "live.after_char", "live.after_raw", "live.after_escape"]);
+    assert_eq!(code.lines().count(), csharp.lines().count(), "the code keeps its lines");
+
+    // And a builder that is only a comment builds nothing.
+    assert!(!csharp_without_comments("// Add($\"calc.sig.{key}\");\n").contains("$\"calc.sig.{"));
+    assert!(csharp_without_comments("Add($\"calc.sig.{key}\");\n").contains("$\"calc.sig.{"));
 }

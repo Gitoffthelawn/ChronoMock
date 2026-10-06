@@ -503,7 +503,7 @@ pub(crate) fn parse_shift_sign(sign: &Option<String>) -> Result<Sign, PresetErro
 /// a non-parametric preset resolves trivially (empty values). Unknown major schema is refused.
 pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
     let dto: PresetDto =
-        serde_json::from_str(text).map_err(|e| PresetError::BadFile(crate::calendar::json_refusal("preset", &e)))?;
+        crate::calendar::from_object(text).map_err(|e| PresetError::BadFile(crate::calendar::json_refusal("preset", &e)))?;
     if dto.schema != "chronomock.preset/1" {
         return Err(PresetError::BadFile(format!(
             "unsupported preset schema '{}' (this build reads chronomock.preset/1)",
@@ -1253,13 +1253,19 @@ mod tests {
             ("a shift as a phrase", preset(name, "[]", "", &moment(r#"[{"shift":"+1 day"}]"#))),
             ("a shift amount as text", preset(name, "[]", "", &moment(r#"[{"shift":{"sign":"+","amount":"1","unit":"day"}}]"#))),
             ("a whole preset as a list", "[]".to_string()),
-            // Nine values that serde would take for the nine fields, by position, and one more. Measured:
-            // serde_json itself calls the tenth "trailing characters", which names no Rust.
+            // Nine values that serde took for the nine fields, by position - this one LOADED as a preset
+            // until the top level was read as an object only (found in review, measured on the binary).
             (
-                "a whole preset as a long list",
-                r#"["chronomock.preset/1","x",{"en":"n"},{"en":"e"},"calculator",[],{"base":"today"},null,null,10]"#
+                "a whole preset as a list of its nine values",
+                r#"["chronomock.preset/1","x",{"en":"n"},{"en":"e"},"calculator",[],{"base":"today","steps":[]},null,null]"#
                     .to_string(),
             ),
+            // The likelier mistake: a file holding a list of presets, which serde read as one preset whose
+            // `schema` was the first object, and refused with "expected a string".
+            ("a list of presets in one file", format!("[{},{}]", preset(name, "[]", "", &moment("[]")), preset(name, "[]", "", &moment("[]")))),
+            // A NESTED object written as an empty list still goes through serde's length check, which is
+            // the shape the "invalid length" words in `json_refusal` are there for.
+            ("a moment as an empty list", preset(name, "[]", "", "[]")),
         ];
         for (what, text) in &cases {
             let refusal = match parse_preset(text) {
@@ -1292,7 +1298,11 @@ mod tests {
             after_place("[]"),
             "invalid type: list, expected a preset - an object with schema, id, name, explains, applies_to and moment"
         );
-        assert_eq!(refusal("[]"), format!("bad preset JSON at line 1, column 2: {}", after_place("[]")));
+        assert_eq!(refusal("[]"), format!("bad preset JSON at line 1, column 1: {}", after_place("[]")));
+        assert_eq!(cases.len(), 17, "the indices below name the cases above");
+        assert_eq!(after_place(&cases[14].1), after_place("[]"), "a list of nine values is a list, whatever it holds");
+        assert_eq!(after_place(&cases[15].1), after_place("[]"), "and so is a list of presets");
+        assert_eq!(after_place(&cases[16].1), "invalid type: list, expected a moment - an object with base and steps");
     }
 
     /// R4-N33. Every one of these used to load and be settled by the order of the reader's code: the

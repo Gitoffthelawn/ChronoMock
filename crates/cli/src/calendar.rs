@@ -394,8 +394,10 @@ const SERDE_WORDS: [(&str, &str); 7] = [
 pub(crate) fn json_refusal(kind: &str, error: &serde_json::Error) -> String {
     let full = error.to_string();
     let at = format!(" at line {} column {}", error.line(), error.column());
+    // serde_json counts the characters read before the error, so a file refused on its very first
+    // character - a list where an object belongs - comes back as column 0, which no editor shows.
     let (said, place) = match full.strip_suffix(&at) {
-        Some(said) if error.line() > 0 => (said, format!(" at line {}, column {}", error.line(), error.column())),
+        Some(said) if error.line() > 0 => (said, format!(" at line {}, column {}", error.line(), error.column().max(1))),
         _ => (full.as_str(), String::new()),
     };
     let mut said = match said.strip_prefix("invalid length ").and_then(|rest| rest.split_once(", expected ")) {
@@ -409,11 +411,53 @@ pub(crate) fn json_refusal(kind: &str, error: &serde_json::Error) -> String {
     format!("bad {kind} JSON{place}: {said}")
 }
 
+/// A catalogue file's top level, which answers a struct only from an object.
+///
+/// serde reads a struct from a list too, by position, so a preset file holding nine values in field order
+/// loaded as a preset, and a file holding a LIST of presets - the likelier mistake - was read as one
+/// preset whose `schema` was the first object, and refused with "expected a string" (found in review,
+/// measured on the binary). The derived `Deserialize` of a struct asks for a struct, and serde_json answers
+/// that from an object or a list. This answers it from an object alone, so a list is refused in the
+/// struct's own words at the list's place. Only the top level: a nested object written as a list, in field
+/// order, is still read by position - wrapping every nested value would mean wrapping all of serde's access
+/// traits, for a shape nobody writes by accident.
+struct ObjectOnly<'a, 'de>(&'a mut serde_json::Deserializer<serde_json::de::StrRead<'de>>);
+
+impl<'de> serde::Deserializer<'de> for ObjectOnly<'_, 'de> {
+    type Error = serde_json::Error;
+
+    fn deserialize_any<V: serde::de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        serde::Deserializer::deserialize_any(self.0, visitor)
+    }
+
+    fn deserialize_struct<V: serde::de::Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        serde::Deserializer::deserialize_map(self.0, visitor)
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit
+        unit_struct newtype_struct seq tuple tuple_struct map enum identifier ignored_any
+    }
+}
+
+/// A catalogue file read as `T`, its top level as an object only (see [`ObjectOnly`]), and nothing after it.
+pub(crate) fn from_object<'de, T: Deserialize<'de>>(text: &'de str) -> serde_json::Result<T> {
+    let mut reader = serde_json::Deserializer::from_str(text);
+    let value = T::deserialize(ObjectOnly(&mut reader))?;
+    reader.end()?;
+    Ok(value)
+}
+
 /// Parse and validate a calendar from its JSON text, mapping the `chronomock.calendar/1` schema to the
 /// engine's types. Separated from the on-disk lookup (symmetry with `parse_preset`) so the shipped
 /// calendars can be golden-tested against the real engine without the file-resolution step.
 pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Calendar, String> {
-    let schema: SchemaDto = serde_json::from_str(text).map_err(|e| json_refusal("calendar", &e))?;
+    let schema: SchemaDto = from_object(text).map_err(|e| json_refusal("calendar", &e))?;
     // An unknown major schema version is refused, not half-understood (docs/04 section 3.1).
     if schema.schema != "chronomock.calendar/1" {
         return Err(format!(
@@ -421,7 +465,7 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
             schema.schema
         ));
     }
-    let dto: CalendarDto = serde_json::from_str(text).map_err(|e| json_refusal("calendar", &e))?;
+    let dto: CalendarDto = from_object(text).map_err(|e| json_refusal("calendar", &e))?;
     let mut weekend = dto.weekend.iter().map(|w| weekday_index(w)).collect::<Result<Vec<_>, _>>()?;
     // Duplicates are harmless to the engine (membership is a contains) but they hide a typo, and
     // they make the count below meaningless - so fold them away before counting.
@@ -752,6 +796,8 @@ mod tests {
             ("a holiday name as plain text", with(&|c| c["holidays"][0]["name"] = "New Year".into())),
             ("a rule as a word", with(&|c| c["holidays"][0]["rule"] = "fixed".into())),
             ("a month as text", with(&|c| c["holidays"][0]["rule"]["month"] = "1".into())),
+            // A file holding a list of calendars, which serde used to read as one calendar by position.
+            ("a list of calendars in one file", format!("[{shipped},{shipped}]")),
         ];
         for (what, text) in &cases {
             let refusal = calendar_from_text(text).expect_err(what);
@@ -771,6 +817,8 @@ mod tests {
         );
         assert_eq!(after_place(&cases[3].1), r#"invalid type: string "Poland", expected a name - an object with en and local"#);
         assert_eq!(after_place(&cases[8].1), r#"invalid type: string "1", expected a whole number, zero or more"#);
+        assert_eq!(after_place(&cases[9].1), after_place(&cases[0].1), "a list of calendars is a list, not a calendar");
+        assert!(after_place(&cases[0].1).starts_with("invalid type: list, expected a calendar - "), "{}", after_place(&cases[0].1));
     }
 
     /// The guard behind both halves of finding (g): every DTO of a file people write by hand says what it

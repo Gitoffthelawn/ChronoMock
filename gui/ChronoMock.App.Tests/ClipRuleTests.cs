@@ -95,6 +95,29 @@ public class ClipRuleTests
         Assert.DoesNotContain(entirely, c => c.Contains("ComboBox", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The application's own date field is one control too, not its box and its calendar button apart -
+    /// the calendar button is exactly the part a cut date field lost (R4/19 Z1). Found in review: each part
+    /// used to be a finding of its own. Reversal probe: take DateInput out of the probe's list of controls
+    /// and this finds the box instead.
+    /// </summary>
+    [Fact]
+    public void The_partial_clip_rule_finds_a_cut_date_field_once_and_by_its_name()
+    {
+        var partly = WpfTestHost.InvokeSettled(() =>
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new Button { Content = "Fill", Width = 100 });
+            row.Children.Add(new ChronoMock.App.Controls.DateInput());
+            var viewer = ScrollsDownOnly(row);
+            LayoutProbe.Settle(viewer, 200, 200);
+            return LayoutRules.PartlyPastAHardClip(LayoutProbe.Walk(viewer));
+        });
+
+        var cut = Assert.Single(partly);
+        Assert.StartsWith("DateInput", cut, StringComparison.Ordinal);
+    }
+
     /// <summary>The same row in a viewport that DOES scroll sideways is a row to scroll along, and a control
     /// wholly inside a clipping canvas is not cut at all.</summary>
     [Fact]

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
+using ChronoMock.App.Controls;
 
 namespace ChronoMock.App.Tests;
 
@@ -204,9 +205,12 @@ internal static class LayoutProbe
     private static Rect Narrowed(Rect? clip, Rect by) => clip.HasValue ? Rect.Intersect(clip.Value, by) : by;
 
     /// <summary>A control the user acts on. Parts of its template are left to it: a list's drop-down button
-    /// is cut when the list is, and is one finding with it.</summary>
+    /// is cut when the list is, and is one finding with it. The same for this application's own inputs made
+    /// of parts - a date field and its calendar button, a search box and its clear button - which the user
+    /// takes for one control (found in review: their parts were each a finding of their own).</summary>
     private static bool IsControl(DependencyObject node)
-        => node is ButtonBase or TextBoxBase or ComboBox or PasswordBox or Slider;
+        => node is ButtonBase or TextBoxBase or ComboBox or PasswordBox or Slider
+            or DateInput or MomentInput or SearchBox;
 
     /// <summary>
     /// The element's rectangle in the root's coordinates, or null when it is not connected to the root -
