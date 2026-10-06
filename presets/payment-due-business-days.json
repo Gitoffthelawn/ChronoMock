@@ -10,7 +10,7 @@
   "applies_to": "calculator",
   "market": "us",
   "parameters": [
-    { "id": "days", "type": "duration", "default": { "amount": 90, "unit": "business_days" } }
+    { "id": "days", "type": "duration", "label": { "en": "Payment term", "pl": "Okres płatności" }, "default": { "amount": 90, "unit": "business_days" } }
   ],
   "moment": {
     "base": "today",

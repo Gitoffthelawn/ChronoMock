@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "param-label-without-english",
+  "name": { "en": "param-label-without-english" },
+  "explains": { "en": "A label needs English, as a name does - the command line shows only English." },
+  "applies_to": "calculator",
+  "parameters": [ { "id": "start", "type": "date", "label": { "pl": "Początek" }, "default": "2026-03-01" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [] }
+}

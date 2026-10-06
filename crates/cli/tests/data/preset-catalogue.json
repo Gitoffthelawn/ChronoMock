@@ -166,6 +166,7 @@
         {
           "id": "start",
           "type": "date",
+          "label": {},
           "default": "-0044-03-15T00:00:00",
           "default_hint": null
         }
@@ -200,6 +201,7 @@
         {
           "id": "start",
           "type": "date",
+          "label": {},
           "default": null,
           "default_hint": null
         }
@@ -234,6 +236,7 @@
         {
           "id": "start",
           "type": "date",
+          "label": {},
           "default": "2026-03-01T12:30:00",
           "default_hint": null
         }
@@ -356,12 +359,14 @@
         {
           "id": "start",
           "type": "date",
+          "label": {},
           "default": "2026-03-01T00:00:00",
           "default_hint": null
         },
         {
           "id": "length",
           "type": "duration",
+          "label": {},
           "default": {
             "amount": 2,
             "unit": "mo"
@@ -371,6 +376,7 @@
         {
           "id": "boundary",
           "type": "variant",
+          "label": {},
           "default": "on_day",
           "default_hint": null,
           "choices": [
@@ -408,6 +414,87 @@
       }
     },
     {
+      "file": "params-labelled.json",
+      "id": "params-labelled",
+      "applies_to": "calculator",
+      "market": null,
+      "calendar": null,
+      "name": {
+        "en": "params-labelled",
+        "pl": "params-labelled (pl)"
+      },
+      "explains": {
+        "en": "A label in two languages, in English alone, as a non-text value in one language, and none.",
+        "pl": "Przypadek testowy katalogu."
+      },
+      "time_mode": {
+        "multiplier": 1,
+        "scale_duration_clock": false
+      },
+      "parameters": [
+        {
+          "id": "start",
+          "type": "date",
+          "label": {
+            "en": "Start of the period",
+            "pl": "Początek okresu"
+          },
+          "default": "2026-03-01T00:00:00",
+          "default_hint": null
+        },
+        {
+          "id": "length",
+          "type": "duration",
+          "label": {
+            "en": "Length"
+          },
+          "default": {
+            "amount": 2,
+            "unit": "mo"
+          },
+          "default_hint": null
+        },
+        {
+          "id": "boundary",
+          "type": "variant",
+          "label": {},
+          "default": "on_day",
+          "default_hint": null,
+          "choices": [
+            {
+              "label": "day_before",
+              "days": -1
+            },
+            {
+              "label": "on_day",
+              "days": 0
+            },
+            {
+              "label": "day_after",
+              "days": 1
+            }
+          ]
+        }
+      ],
+      "moment": {
+        "base": {
+          "kind": "parameter",
+          "parameter": "start"
+        },
+        "steps": [
+          {
+            "kind": "shift",
+            "sign": "+",
+            "parameter": "length"
+          },
+          {
+            "kind": "shift",
+            "parameter": "boundary"
+          }
+        ]
+      }
+    },
+    {
       "file": "params-without-defaults.json",
       "id": "params-without-defaults",
       "applies_to": "both",
@@ -429,18 +516,21 @@
         {
           "id": "start",
           "type": "date",
+          "label": {},
           "default": null,
           "default_hint": "target_file_creation"
         },
         {
           "id": "length",
           "type": "duration",
+          "label": {},
           "default": null,
           "default_hint": null
         },
         {
           "id": "boundary",
           "type": "variant",
+          "label": {},
           "default": null,
           "default_hint": null,
           "choices": [
@@ -858,6 +948,18 @@
       "file": "not-json.json",
       "id": "not-json",
       "reason": "preset 'not-json': bad preset JSON: EOF while parsing a value at line 1 column 34 (in tests/data/preset-catalogue\\not-json.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "param-label-plain-text.json",
+      "id": "param-label-plain-text",
+      "reason": "preset 'param-label-plain-text': bad preset JSON: invalid type: string \"Start\", expected struct PresetTextDto at line 7 column 67 (in tests/data/preset-catalogue\\param-label-plain-text.json)",
+      "exit_code": 1
+    },
+    {
+      "file": "param-label-without-english.json",
+      "id": "param-label-without-english",
+      "reason": "preset 'param-label-without-english': bad preset JSON: missing field `en` at line 7 column 81 (in tests/data/preset-catalogue\\param-label-without-english.json)",
       "exit_code": 1
     },
     {

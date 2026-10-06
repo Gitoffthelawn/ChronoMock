@@ -24,12 +24,20 @@
         {
           "id": "birth_date",
           "type": "date",
+          "label": {
+            "en": "Date of birth",
+            "pl": "Data urodzenia"
+          },
           "default": null,
           "default_hint": null
         },
         {
           "id": "boundary",
           "type": "variant",
+          "label": {
+            "en": "Day to test",
+            "pl": "Dzień do sprawdzenia"
+          },
           "default": "day_before",
           "default_hint": null,
           "choices": [
@@ -122,6 +130,10 @@
         {
           "id": "install_date",
           "type": "date",
+          "label": {
+            "en": "Installation date",
+            "pl": "Data instalacji"
+          },
           "default": null,
           "default_hint": "target_file_creation"
         }
@@ -221,6 +233,10 @@
         {
           "id": "fiscal_year_start",
           "type": "date",
+          "label": {
+            "en": "Fiscal year start",
+            "pl": "Początek roku obrotowego"
+          },
           "default": null,
           "default_hint": null
         }
@@ -332,6 +348,10 @@
         {
           "id": "days",
           "type": "duration",
+          "label": {
+            "en": "Payment term",
+            "pl": "Okres płatności"
+          },
           "default": {
             "amount": 90,
             "unit": "bd"
@@ -405,6 +425,10 @@
         {
           "id": "trial_length",
           "type": "duration",
+          "label": {
+            "en": "Trial length",
+            "pl": "Długość okresu próbnego"
+          },
           "default": {
             "amount": 30,
             "unit": "d"
@@ -414,6 +438,10 @@
         {
           "id": "start_date",
           "type": "date",
+          "label": {
+            "en": "Trial start",
+            "pl": "Początek okresu próbnego"
+          },
           "default": null,
           "default_hint": "target_file_creation"
         }
@@ -458,6 +486,10 @@
         {
           "id": "trial_length",
           "type": "duration",
+          "label": {
+            "en": "Trial length",
+            "pl": "Długość okresu próbnego"
+          },
           "default": {
             "amount": 30,
             "unit": "d"
@@ -467,6 +499,10 @@
         {
           "id": "start_date",
           "type": "date",
+          "label": {
+            "en": "Trial start",
+            "pl": "Początek okresu próbnego"
+          },
           "default": null,
           "default_hint": "target_file_creation"
         }

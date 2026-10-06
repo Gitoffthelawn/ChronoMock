@@ -36,12 +36,15 @@ public sealed record CataloguePreset(
 /// <summary>A parameter: <c>date</c>, <c>duration</c> or <c>variant</c>. <see cref="Default"/> is shaped
 /// by the type - a date as ISO text, a duration as <c>{ amount, unit }</c> with a unit code, a variant as its
 /// label - and is a JSON null when the file gives none. A variant carries its choices and the day offset
-/// each moves the boundary by, so the window keeps no copy of that table.</summary>
+/// each moves the boundary by, so the window keeps no copy of that table. <see cref="Label"/> is what a
+/// reader calls the parameter, per language - empty when the file names none, absent from an engine
+/// older than R4/19, and the window shows the id in both cases.</summary>
 public sealed record CatalogueParameter(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("default")] JsonElement Default,
-    [property: JsonPropertyName("choices")] IReadOnlyList<CatalogueChoice>? Choices);
+    [property: JsonPropertyName("choices")] IReadOnlyList<CatalogueChoice>? Choices,
+    [property: JsonPropertyName("label")] IReadOnlyDictionary<string, string>? Label = null);
 
 /// <summary>One variant choice: its label (a translation key suffix) and its signed day offset.</summary>
 public sealed record CatalogueChoice(

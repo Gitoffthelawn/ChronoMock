@@ -77,6 +77,9 @@ struct ParameterJson {
     id: String,
     #[serde(rename = "type")]
     kind: &'static str,
+    /// What a reader calls it, per language - always present, and empty when the file names none, in
+    /// which case a surface shows the id (R4/19).
+    label: BTreeMap<String, String>,
     default: serde_json::Value,
     default_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -301,7 +304,14 @@ fn canonical_parameter(p: &Parameter) -> ParameterJson {
     };
     let choices = (p.kind == ParamKind::Variant)
         .then(|| VARIANTS.iter().map(|&(label, days)| ChoiceJson { label, days }).collect());
-    ParameterJson { id: p.id.clone(), kind: p.kind.name(), default, default_hint: p.default_hint.clone(), choices }
+    ParameterJson {
+        id: p.id.clone(),
+        kind: p.kind.name(),
+        label: p.label_texts.clone(),
+        default,
+        default_hint: p.default_hint.clone(),
+        choices,
+    }
 }
 
 /// What `chrono presets` was asked for.
