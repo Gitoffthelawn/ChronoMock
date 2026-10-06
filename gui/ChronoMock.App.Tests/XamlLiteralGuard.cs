@@ -9,7 +9,14 @@ namespace ChronoMock.App.Tests;
 /// deliberately narrow (a wide "suspicious numbers" scan is the guard that gets switched off in a week).
 ///
 /// What it does NOT catch, on purpose: a value built from named parts, a value computed in code, a resource
-/// assigned to the wrong-typed property, and a star share or Auto (a proportion, not a size).
+/// assigned to the wrong-typed property, and a star share or Auto (a proportion, not a size). Nor a value
+/// written as a property element (<c>&lt;TextBlock.FontWeight&gt;Bold&lt;/TextBlock.FontWeight&gt;</c>):
+/// every rule reads one line of attributes, and the scanned XAML has no property element carrying a design
+/// value today.
+///
+/// 🔴 TYPOGRAPHY AND OPACITY ARE CAUGHT TOO. A weight, a face and a fade are design decisions exactly like
+/// a colour, and until this rule five semibold weights, two icon faces and seven opacities sat in place
+/// beside a weight token nobody had to use - measured when the rule went in.
 ///
 /// 🔴 GEOMETRY IS CAUGHT SINCE R4/19 (GUI rule 12: a dimension is a token like a colour is). It used to be
 /// skipped on purpose, and six raw sizes had gathered in the views by the time a report counted them - one of
@@ -57,6 +64,15 @@ internal static class XamlLiteralGuard
         // because the number has to run to the closing quote.
         ("geometry", new Regex("""(?i)\b(?:(?:Max)?(?:Width|Height)\s*=\s*"[0-9.]+(?=")|Min(?:Width|Height)\s*=\s*"(?!0")[0-9.]+(?="))""", RegexOptions.Compiled)),
         ("setter-geometry", new Regex("""(?i)<Setter\b(?:(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(?:Max)?(?:Width|Height)")(?=[^>]*\bValue\s*=\s*"[0-9.]+")|(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?Min(?:Width|Height)")(?=[^>]*\bValue\s*=\s*"(?!0")[0-9.]+"))""", RegexOptions.Compiled)),
+        // A weight or a face written as a word. Anything that does not start a markup extension is a literal,
+        // the same inversion the colour rule uses, so "Bold", "600" and a family name all count.
+        ("font-weight", new Regex("""(?i)\bFontWeight\s*=\s*"(?!\{)""", RegexOptions.Compiled)),
+        ("font-family", new Regex("""(?i)\bFontFamily\s*=\s*"(?!\{)""", RegexOptions.Compiled)),
+        // A fade. "0" is allowed like a zero margin: it is the resting state of a veil that only shows on
+        // hover, not a strength anybody chose.
+        ("opacity", new Regex("""(?i)\bOpacity\s*=\s*"(?!\{|0")""", RegexOptions.Compiled)),
+        ("setter-typography", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(FontWeight|FontFamily)")(?=[^>]*\bValue\s*=\s*"(?!\{))""", RegexOptions.Compiled)),
+        ("setter-opacity", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?Opacity")(?=[^>]*\bValue\s*=\s*"(?!\{|0"))""", RegexOptions.Compiled)),
     ];
 
     // The style a line sits in: its key, or for an implicit style the type it styles. Two expressions, not
@@ -85,7 +101,7 @@ internal static class XamlLiteralGuard
          """BorderThickness="1" CornerRadius="4" Padding="7,6" SnapsToDevicePixels="True">""",
          "the toggle's face - 7 is on no scale. Goes when the toggle gets its own template (2b)"),
         ("Themes/Controls.xaml", "CalendarToggleStyle",
-         """<TextBlock Text="&#xE787;" FontFamily="Segoe MDL2 Assets" FontSize="16" """.TrimEnd(),
+         """<TextBlock Text="&#xE787;" FontFamily="{StaticResource FontFamilyIcons}" FontSize="16" """.TrimEnd(),
          "calendar glyph sized off the type scale - goes with the same template (2b)"),
     ];
 

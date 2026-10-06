@@ -56,7 +56,7 @@
 
     <StackPanel Grid.Row="1" Margin="{StaticResource SpaceXl}" VerticalAlignment="Top">
       <TextBlock x:Name="Heading" TextWrapping="Wrap"
-                 FontSize="{StaticResource FontSizeSubtitle}" FontWeight="SemiBold"
+                 FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource FontWeightHeading}"
                  Foreground="{DynamicResource BrushTextPrimary}" />
       <TextBlock x:Name="Message" TextWrapping="Wrap" Margin="{StaticResource SpaceSm}"
                  FontSize="{StaticResource FontSizeBody}"

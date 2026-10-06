@@ -208,6 +208,37 @@ public class LiteralGuardTests
         Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="Width" Value="0" />"""));
     }
 
+    /// <summary>
+    /// A weight, a face and a fade written in place, in an attribute and in a setter - five rules, each
+    /// probed, so a typo in any one of them cannot leave that half open. The setter forms are the ones the
+    /// style dictionary actually used: a veil's opacity carries a TargetName, and the primary action's
+    /// weight was a setter, not an attribute.
+    /// </summary>
+    [Fact]
+    public void Guard_reddens_on_a_literal_weight_face_or_fade()
+    {
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBlock FontWeight="SemiBold" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Run FontWeight="600" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBlock FontFamily="Segoe MDL2 Assets" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border Opacity="0.5" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border Opacity=".5" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="FontWeight" Value="SemiBold" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="TextBlock.FontFamily" Value="Consolas" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter TargetName="Veil" Property="Opacity" Value="0.14" />"""));
+    }
+
+    /// <summary>A named weight, face or fade passes, and so does a zero fade - the resting state of a veil -
+    /// in either form.</summary>
+    [Fact]
+    public void Guard_allows_a_named_weight_face_or_fade_and_a_zero_fade()
+    {
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBlock FontWeight="{StaticResource FontWeightHeading}" FontFamily="{StaticResource FontFamilyMono}" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Border Opacity="{StaticResource OpacityStale}" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Border x:Name="Veil" Opacity="0" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter TargetName="Veil" Property="Opacity" Value="0" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="Opacity" Value="{StaticResource OpacityDisabled}" />"""));
+    }
+
     /// <summary>A share of the space, Auto, a named size and a zero floor (a toolkit floor taken away) are
     /// not sizes anybody typed in, so none of them may redden.</summary>
     [Fact]
