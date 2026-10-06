@@ -10,7 +10,7 @@
   "applies_to": "calculator",
   "market": null,
   "parameters": [
-    { "id": "fiscal_year_start", "type": "date" }
+    { "id": "fiscal_year_start", "type": "date", "label": { "en": "Fiscal year start", "pl": "Początek roku obrotowego" } }
   ],
   "moment": {
     "base": { "parameter": "fiscal_year_start" },

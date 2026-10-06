@@ -10,8 +10,8 @@
   "applies_to": "both",
   "market": null,
   "parameters": [
-    { "id": "trial_length", "type": "duration", "default": { "amount": 30, "unit": "days" } },
-    { "id": "start_date", "type": "date", "default_hint": "target_file_creation" }
+    { "id": "trial_length", "type": "duration", "label": { "en": "Trial length", "pl": "Długość okresu próbnego" }, "default": { "amount": 30, "unit": "days" } },
+    { "id": "start_date", "type": "date", "label": { "en": "Trial start", "pl": "Początek okresu próbnego" }, "default_hint": "target_file_creation" }
   ],
   "moment": {
     "base": { "parameter": "start_date" },

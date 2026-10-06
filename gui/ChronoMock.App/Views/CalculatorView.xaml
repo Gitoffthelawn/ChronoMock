@@ -370,7 +370,7 @@
 
             <!-- Active preset provenance (7.3): the authored name and "what it tests", plus an honest note
                  when the preset needs parameters (it does not fill the builder then). Cleared on a by-hand edit. -->
-            <Border Margin="{StaticResource SpaceXs}" Padding="{StaticResource SpaceSm}"
+            <Border x:Name="ActivePresetCard" Margin="{StaticResource SpaceXs}" Padding="{StaticResource SpaceSm}"
                     Background="{DynamicResource BrushBgBase}" CornerRadius="{StaticResource RadiusSm}"
                     Visibility="{Binding HasActivePreset, Converter={StaticResource BoolToVis}}">
               <StackPanel>
@@ -380,31 +380,39 @@
                 <TextBlock Text="{Binding ActivePresetExplains}" TextWrapping="Wrap"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
 
-                <!-- Parameter inputs (docs/04 4.2): a date box or an amount+unit per parameter, seeded from
-                     the file defaults. Filling a required date recomputes the result. -->
-                <StackPanel Margin="{StaticResource SpaceXs}"
+                <!-- Parameter inputs (docs/04 4.2): a date box, an amount and a unit, or a choice per parameter,
+                     seeded from the file defaults. Filling a required date recomputes the result.
+
+                     🔴 THE LABEL STANDS ABOVE ITS FIELD (R4/19), the builder's rule for this screen. A label
+                     beside its field did not fit: at the window's minimum width this column has about 268 px
+                     for content, and the row needed 272 to 274, so the unit list lost its chevron and the date
+                     its calendar button at the card's edge - measured on the live window. A label column would
+                     have left a label 44 px. The amount and the unit take the builder's shift widths, so the
+                     same idea is the same size in all three places it appears, and the block keeps the card's
+                     left edge (a vertical-only gap) rather than being indented off the title above it. -->
+                <StackPanel x:Name="PresetParameters" Margin="{StaticResource StackGapSm}"
                             Visibility="{Binding HasParamInputs, Converter={StaticResource BoolToVis}}">
                   <TextBlock Style="{StaticResource PartGroupHeading}" Text="{DynamicResource calc.preset_params_header}" />
                   <controls:TextNamedItems ItemsSource="{Binding ParamInputs}">
                     <controls:TextNamedItems.ItemTemplate>
                       <DataTemplate>
-                        <StackPanel Orientation="Horizontal" Margin="{StaticResource SpaceXs}">
-                          <TextBlock Text="{Binding Label}" VerticalAlignment="Center" MinWidth="90"
-                                     FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}" />
+                        <StackPanel>
+                          <TextBlock Style="{StaticResource PartFieldLabel}" Text="{Binding Label}" />
                           <!-- The shared date input, calendar included: a date the setup and the builder let
                                the tester pick was typed by hand here, and a first run read the missing
                                calendar as this one being broken (owner's review, 2026-09-21). -->
-                          <controls:DateInput VerticalAlignment="Center"
+                          <controls:DateInput HorizontalAlignment="Left"
                                               AccessibleName="{Binding Label}"
                                               Visibility="{Binding IsDate, Converter={StaticResource BoolToVis}}" />
                           <StackPanel Orientation="Horizontal"
                                       Visibility="{Binding IsDuration, Converter={StaticResource BoolToVis}}">
                             <TextBox Text="{Binding Amount, UpdateSourceTrigger=LostFocus}"
-                                     Width="56" VerticalAlignment="Center" FontFamily="{StaticResource FontFamilyMono}"
+                                     Width="{StaticResource ShiftAmountWidth}" Margin="{StaticResource InlineControlGap}" VerticalAlignment="Center"
+                                     FontFamily="{StaticResource FontFamilyMono}"
                                      AutomationProperties.Name="{Binding Label}" />
                             <ComboBox ItemsSource="{Binding Units}" SelectedItem="{Binding Unit}"
                                       ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                                      Margin="{StaticResource SpaceSm}" VerticalAlignment="Center" MinWidth="110">
+                                      Width="{StaticResource ShiftUnitWidth}" VerticalAlignment="Center">
                               <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                   <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
@@ -414,7 +422,6 @@
                           </StackPanel>
                           <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding Variant}"
                                     ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-                                    VerticalAlignment="Center" MinWidth="150"
                                     AutomationProperties.Name="{Binding Label}"
                                     Visibility="{Binding IsVariant, Converter={StaticResource BoolToVis}}">
                             <ComboBox.ItemTemplate>
@@ -432,7 +439,7 @@
                 <!-- "Fill in the parameters" while one has no value, or - a defence after R4/18 - that the
                      preset is in a shape this build cannot read. One line, keyed by the view model. -->
                 <TextBlock Text="{Binding ActiveNoteKey, Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
-                           Margin="{StaticResource SpaceXs}"
+                           Margin="{StaticResource StackGapSm}"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}"
                            Visibility="{Binding HasActiveNote, Converter={StaticResource BoolToVis}}" />
               </StackPanel>

@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "param-label-plain-text",
+  "name": { "en": "param-label-plain-text" },
+  "explains": { "en": "A label is one text per language, like a name, not a bare string." },
+  "applies_to": "calculator",
+  "parameters": [ { "id": "start", "type": "date", "label": "Start", "default": "2026-03-01" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [] }
+}

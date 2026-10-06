@@ -10,8 +10,8 @@
   "applies_to": "calculator",
   "market": null,
   "parameters": [
-    { "id": "birth_date", "type": "date" },
-    { "id": "boundary", "type": "variant", "default": "day_before" }
+    { "id": "birth_date", "type": "date", "label": { "en": "Date of birth", "pl": "Data urodzenia" } },
+    { "id": "boundary", "type": "variant", "label": { "en": "Day to test", "pl": "Dzień do sprawdzenia" }, "default": "day_before" }
   ],
   "moment": {
     "base": { "parameter": "birth_date" },

@@ -20,8 +20,7 @@
   "clock.elapsed": "upłynęło",
 
   // Target selection (chrono-mock 7.1). The dialog strings are keyed too (rule 15).
-  "target.label": "Cel:",
-  "target.dialog_title": "Wybierz cel",
+  "target.dialog_title": "Wybierz aplikację",
 
   // Only .exe: native injection needs a PE and CDP needs an Electron/Chromium .exe. Narrowing the filter keeps a user from picking a .lnk/.bat/.txt that could only fail (RELEASE-007).
   "target.dialog_filter": "Pliki wykonywalne (*.exe)|*.exe",
@@ -53,7 +52,7 @@
   // 🔴 One line saying what the screen does and what it will not do, because somebody opening this for
   // the first time has no way of knowing either. The second half is the product's whole promise
   // (untouchable rule 1) and the question a stranger actually has: is this going to change my computer.
-  "setup.intro": "Uruchamia aplikację tak, jakby był inny moment w czasie. Zegar systemowy pozostaje nietknięty.",
+  "setup.intro": "Uruchamia aplikację tak, jakby była inna data i godzina. Zegar systemowy pozostaje nietknięty.",
 
   // "Moment" is our word, not the reader's.
   "setup.section_moment": "Data i godzina",
@@ -152,7 +151,7 @@
   // these sentences was already written correctly, in the tooltip nobody reads first.
   "setup.opt_duration": "Przyspiesz też liczniki i odliczanie wewnątrz aplikacji",
   "setup.opt_qpc": "Przyspiesz też liczniki mierzące upływ czasu (Stopwatch, nanoTime, monotonic)",
-  "setup.opt_force": "Uruchom nawet wtedy, gdy podmiana zegara okaże się nieskuteczna",
+  "setup.opt_force": "Uruchom nawet wtedy, gdy okaże się, że fałszywy zegar nie działa",
   "setup.opt_embedded": "Sięgnij do stron WWW wewnątrz aplikacji",
   "setup.opt_elevated_embedded": "Dotrzyj do stron w aplikacji uruchomionej jako administrator",
   "setup.opt_keep_timers": "Utrzymuj tempo timerów w ukrytych oknach",
@@ -178,7 +177,7 @@
 
   // Both of these say "target" in the shipped panel, which is the word this screen stopped using.
   "setup.tip_recent": "Aplikacje uruchamiane wcześniej. „Wybierz…” wskazuje taką, której ta maszyna jeszcze nie uruchamiała.",
-  "setup.tip_start": "Uruchamia aplikację pod podmienionym zegarem. Wymaga aplikacji i poprawnej daty.",
+  "setup.tip_start": "Uruchamia aplikację z fałszywym zegarem. Wymaga aplikacji i poprawnej daty.",
 
   // Shown only while the date field still holds the one this build ships with. A pre-filled date in 2038
   // looks arbitrary to a first reader, and an unexplained value is a value nobody trusts.
@@ -193,8 +192,8 @@
 
   // Shown only while no target is chosen: dropping a file on the window is not discoverable on its own, and once there is a target the hint would be noise on every later run (chrono-mock 7.1 pt 1).
   "target.drop_hint": "…albo przeciągnij aplikację na to okno",
-  "target.drop_rejected_title": "Ten plik nie może być celem",
-  "target.drop_rejected": "Uruchomić można tylko pliki .exe - do skrótu ani skryptu nie da się podłączyć zegara.",
+  "target.drop_rejected_title": "Tego pliku nie da się tu uruchomić",
+  "target.drop_rejected": "W tym oknie można uruchomić tylko pliki .exe - zamiast skrótu wybierz program, który on otwiera. Skrypt (.bat albo .cmd) uruchomisz poleceniem chrono w wierszu poleceń.",
 
   // Arguments and working folder (chrono-mock 7.1 pt 1). Collapsed by default: most sessions need neither. The wire and the mechanism have carried both since the protocol was written; only the surfaces did not offer them.
   "launch.header": "Argumenty i katalog roboczy",
@@ -202,7 +201,6 @@
   "launch.cwd_label": "Katalog roboczy:",
 
   // Time inputs (chrono-mock 7.1). The moment is the local time in the session zone (rule 2).
-  "moment.label": "Moment:",
   "moment.date_placeholder": "YYYY-MM-DD",
   "moment.time_placeholder": "HH:MM",
   "moment.date_name": "Data",
@@ -282,7 +280,7 @@
   "status.did_not_take_effect": "Nie zadziałało - aplikacja zniknęła",
   "status.core_stopped": "Chrono Mock nieoczekiwanie się zatrzymał - aplikacja wróciła do realnego zegara",
   "status.stopping": "Zatrzymywanie - aplikacja wraca do realnego zegara",
-  "status.refused": "Odmowa - podmiana nie zadziałała, więc sesja zakończyła aplikację",
+  "status.refused": "Odmowa - fałszywy zegar nie zadziałał, więc sesja zakończyła aplikację",
   "status.stopped": "Sesja zatrzymana - aplikacja wróciła do realnego zegara",
   "status.core_unresponsive": "Chrono Mock przestał odpowiadać - aplikacja wróciła do realnego zegara",
   "status.core_missing": "Nie udało się uruchomić Chrono Mock - instalacja może być niekompletna",
@@ -293,7 +291,7 @@
 
   // Core failure reasons (RELEASE-001). When a start/fatal error ends a session, its specific reason becomes the status headline, so a failed start never reads as "Session ended". Phrased as failure statements because they ARE the status line. Emitted by the core (crates/cli, crates/mech).
   "core.hook_dll_missing": "Brakuje części Chrono Mocka, więc aplikacja nie została uruchomiona z fałszywym zegarem (zainstaluj Chrono Mock ponownie).",
-  "protocol.version_mismatch": "Aplikacja i rdzeń mówią różnymi wersjami protokołu - zainstaluj Chrono Mock ponownie, żeby oba pochodziły z tej samej kompilacji.",
+  "protocol.version_mismatch": "Części Chrono Mock pochodzą z różnych wersji - rozpakuj paczkę ponownie, żeby wszystkie pochodziły z tej samej kompilacji.",
   "time.bad_mode": "Nieobsługiwany tryb czasu - sesja nie wystartowała.",
   // Rejected rather than applied: past the bound the fake clock leaves the representable date range
   // mid-session and the time channels start disagreeing, and a negative rate would run the clock
@@ -303,7 +301,7 @@
   // R4-S7, R4-S9: both can answer a start AND a jump, so neither says which of the two did not happen,
   // and neither needs an in-flight twin (SessionViewModel.InFlightKey).
   "moment.out_of_range": "Ta data leży poza zakresem, który sesja potrafi przedstawić (lata 1601-30828), więc nie została użyta.",
-  "time.bad_zone": "Strefa czasowa przekazana rdzeniowi jest pusta albo leży poza przyjmowanym zakresem (od -14:59 do +14:59).",
+  "time.bad_zone": "Strefa czasowa sesji jest pusta albo leży poza zakresem, który przyjmuje Chrono Mock (od -14:59 do +14:59) - wybierz inną strefę.",
   // 🔴 THE SAME TWO REASONS, FOR A COMMAND REJECTED MID-SESSION. The core sends one key whether a bad
   // moment arrives with the start command or with a jump, so the panel printed "the session did not
   // start" under a status line reading "Running" - a screen contradicting itself. These say what actually
@@ -312,12 +310,12 @@
   "moment.invalid_in_flight": "Nieprawidłowa data i godzina (luka czasu letniego, 29 lutego w roku nieprzestępnym albo poza zakresem) - zegar nie drgnął.",
   "time.bad_multiplier_in_flight": "Prędkość poza zakresem - musi mieścić się między 0 (zamrożenie) a 1,000,000. Tempo się nie zmieniło.",
   "moment.needs_calendar": "Ten skok liczy dni robocze, a trwająca sesja nie ma kalendarza - skocz do konkretnej daty albo policz ją najpierw w kalkulatorze.",
-  "moment.unsupported_kind": "Rdzeń nie rozpoznał tego rodzaju celu skoku.",
-  "session.control_failed": "Nie udało się ustawić łącza, którym steruje się sesją - podmiana nie zadziałała.",
-  "target.launch_failed": "Nie udało się uruchomić celu - podmiana nie zadziałała.",
+  "moment.unsupported_kind": "Chrono Mock nie rozpoznał tego rodzaju daty. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
+  "session.control_failed": "Nie udało się ustawić łącza, którym Chrono Mock steruje sesją, więc fałszywy zegar nie zadziałał. Spróbuj ponownie - jeśli to się powtarza, skopiuj diagnostykę i zgłoś błąd.",
+  "target.launch_failed": "Nie udało się uruchomić aplikacji, więc fałszywy zegar nie zadziałał. Sprawdź, czy plik nadal istnieje i czy Windows pozwala go uruchomić.",
   // Checked in the core before either mechanism starts. Without it the failure arrives as target.launch_failed, which blames the application for a folder that is simply not there.
   "target.cwd_missing": "Katalog roboczy nie istnieje - sesja nie wystartowała. Wskaż istniejący katalog albo zostaw pole puste, żeby aplikacja wystartowała tam, gdzie normalnie.",
-  "target.inject_failed": "Nie udało się podłączyć fałszywego zegara do tej aplikacji - podmiana nie zadziałała (mógł ją zablokować antywirus albo utwardzona aplikacja).",
+  "target.inject_failed": "Nie udało się podłączyć fałszywego zegara do tej aplikacji - mógł to zablokować antywirus albo utwardzona aplikacja. Sprawdź, czy antywirus nie zatrzymał Chrono Mock.",
   // R4-S6. The application's own start failed while Windows was loading it, before the fake clock got its
   // turn. Windows's error window is kept off while it loads, so each text says how to see the name that
   // window would have shown. Before, these read as a single-instance vanish or, ten seconds later, a loader lock.
@@ -326,26 +324,26 @@
   "target.loader_bad_image": "Aplikacja nie wystartowała - Windows znalazł bibliotekę (DLL), której potrzebuje, ale nie mógł jej załadować (zwykle jest zbudowana dla innej bitowości, 32 zamiast 64 bitów albo odwrotnie, albo uszkodzona), więc sesja się nie zaczęła. Sprawdź, czy aplikacja startuje bez Chrono Mock z tego samego katalogu roboczego.",
   "target.loader_init_failed": "Aplikacja nie wystartowała - biblioteka (DLL), którą ładuje przy starcie, nie zdołała się zainicjować, więc sesja się nie zaczęła. Sprawdź, czy aplikacja startuje bez Chrono Mock.",
   "target.died_while_loading": "Aplikacja zakończyła się, zanim Windows skończył ją ładować, więc sesja się nie zaczęła. Kod, z którym się zakończyła, jest w diagnostyce (Kopiuj diagnostykę).",
-  "target.attach_failed": "Nie udało się podłączyć do aplikacji Chromium/Electron - podmiana nie zadziałała.",
+  "target.attach_failed": "Nie udało się połączyć z aplikacją Chromium/Electron, więc fałszywy zegar nie zadziałał. Aplikacja może nie pozwalać na takie połączenie albo już działa jej kopia - zamknij działające kopie i spróbuj ponownie.",
   // R2-S1. The GUI normally catches this itself (HandshakeGate, from the target's PE), so this is the
   // core's own second line of defence - reachable for a target whose real bitness differs from what its
   // file header declares, such as a .NET AnyCPU executable.
-  "target.bitness_mismatch": "Bitowość tej aplikacji nie zgadza się z bitowością tego rdzenia - fałszywy zegar nie przechodzi między 32 a 64 bitami.",
+  "target.bitness_mismatch": "Ta aplikacja działa w innej bitowości (32 albo 64 bity), niż deklaruje jej plik, więc część Chrono Mock wybrana według pliku nie podłączy do niej fałszywego zegara - zdarza się to przy niektórych aplikacjach .NET zbudowanych dla dowolnego procesora. Skopiuj diagnostykę i zgłoś błąd.",
   "session.already_active": "Inna sesja Chrono Mock już działa - tylko jedna naraz.",
-  "protocol.no_command": "Rdzeń nie otrzymał komendy - sesja nie wystartowała.",
-  "protocol.bad_command": "Rdzeń otrzymał błędną komendę - sesja nie wystartowała.",
-  "protocol.bad_command_ignored": "Rdzeń nie odczytał komendy i ją pominął - sesja nadal trwa.",
+  "protocol.no_command": "Sesja nie wystartowała - Chrono Mock nie dostał komendy jej startu. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
+  "protocol.bad_command": "Sesja nie wystartowała - Chrono Mock dostał komendę, której nie potrafił odczytać. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
+  "protocol.bad_command_ignored": "Chrono Mock nie odczytał komendy i ją pominął - sesja nadal trwa. Jeśli to się powtarza, zgłoś błąd.",
   // The two ways the command stream itself fails. They end the session, unlike a single unreadable command,
   // and each names what the client sent rather than blaming the core, which is what the silence used to do.
-  "protocol.line_too_long": "Komenda wysłana do rdzenia była za długa, żeby ją odczytać, więc sesja się zakończyła.",
-  "protocol.stream_unreadable": "Rdzeń dostał bajty, których nie potrafi odczytać jako tekstu, więc sesja się zakończyła.",
-  "protocol.unsupported_command": "Rdzeń otrzymał komendę, której w tym miejscu nie obsługuje, i ją pominął - sesja nadal trwa.",
+  "protocol.line_too_long": "Komenda była za długa, żeby Chrono Mock mógł ją odczytać, więc sesja się zakończyła. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
+  "protocol.stream_unreadable": "Chrono Mock dostał bajty, których nie potrafi odczytać jako tekstu, więc sesja się zakończyła. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
+  "protocol.unsupported_command": "Chrono Mock dostał komendę, której w tym miejscu nie obsługuje, i ją pominął - sesja nadal trwa. Jeśli to się powtarza, zgłoś błąd.",
   "proto.serialize_failed": "Chrono Mock nie zdołał zapisać jednego ze swoich komunikatów, więc w raporcie tej sesji może czegoś brakować. Uruchom sesję ponownie, a jeśli to się powtórzy, zgłoś to jako błąd Chrono Mock.",
-  "protocol.expected_start": "Rdzeń oczekiwał komendy start - sesja nie wystartowała.",
+  "protocol.expected_start": "Sesja nie wystartowała - Chrono Mock oczekiwał najpierw komendy startu. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
 
   // Handshake gate refusals (surfaced before the target is launched).
-  "handshake.protocol_mismatch": "Niezgodna wersja protokołu - nie uruchomiono",
-  "handshake.bitness_mismatch": "Niezgodna bitowość rdzenia - nie uruchomiono",
+  "handshake.protocol_mismatch": "Części Chrono Mock z różnych wersji - nie uruchomiono. Rozpakuj paczkę ponownie.",
+  "handshake.bitness_mismatch": "Pomieszane 32- i 64-bitowe części Chrono Mock - nie uruchomiono. Rozpakuj paczkę ponownie.",
 
   // Verifier verdict (chrono-mock 7.1). The label is paired with a glyph and a colour.
   "verdict.works": "Działa",
@@ -436,8 +434,8 @@
   "wait.timeout_collapsed": "Część oczekiwań tej aplikacji była za krótka, żeby podzielić je przez pełny mnożnik, więc przebiegły w najkrótszym kroku, jakiego to narzędzie używa (1 ms). Ta część aplikacji nie przyspieszyła - mniejsza prędkość sprawi, że będzie dokładnie.",
   "wait.network_timeouts_scaled": "Ta aplikacja otworzyła połączenie sieciowe. Biblioteka sieciowa, która sama odmierza limit czasu z systemowego licznika, na przykład WinHTTP, idzie za prędkością sesji - więc serwer wolniejszy niż ten limit podzielony przez prędkość sprawi, że żądanie się nie powiedzie, choć oczekiwania pod spodem zostają na prawdziwym zegarze.",
   "timer.multimedia_not_scaled": "Timer multimedialny (timeSetEvent) jest obserwowany, ale nie skalowany.",
-  "clock.timegettime_scaled_audio_may_shift": "Zegar winmm timeGetTime jest skalowany razem z resztą osi trwania, więc cel odmierzający z niego własne tempo podąża za sesją - ale aplikacja multimedialna pozycjonująca dźwięk z tego zegara może dryfować.",
-  "coverage.channel_installed_late": "Funkcje z listy „Pod fałszywy zegar trafiły później” zostały podpięte dopiero po załadowaniu swojego modułu, więc wywołań sprzed tego momentu nie ma w ich licznikach - a zegar funkcji skalowanej wykonał przy dołączeniu jednorazowy skok.",
+  "clock.timegettime_scaled_audio_may_shift": "Zegar winmm timeGetTime jest skalowany razem z resztą osi trwania, więc aplikacja odmierzająca z niego własne tempo podąża za sesją - ale aplikacja multimedialna pozycjonująca dźwięk z tego zegara może dryfować.",
+  "coverage.channel_installed_late": "Funkcje z listy „Pod fałszywy zegar trafiły później” zostały podpięte dopiero po załadowaniu swojego modułu, więc wywołań sprzed tej chwili nie ma w ich licznikach - a zegar funkcji skalowanej wykonał przy dołączeniu jednorazowy skok.",
   "inheritance.ntcreateuserprocess_child_maybe_uncovered": "Proces potomny utworzony niższym wywołaniem systemu mógł działać na prawdziwym zegarze.",
   // R2-S2. Distinct from the NtCreateUserProcess warning above it: there we choose not to inject,
   // here we tried and it did not take, so a process of this family really did run on the real clock.
@@ -477,13 +475,13 @@
   // Not a "we chose not to scale this" caution like the runtime.*_qpc family above it - this one
   // says a clock is out of reach entirely, and names what DID reach the application, because a real
   // date shown in the session's time zone is the part that confuses a reader.
-  "runtime.go_wall_clock_unreachable": "Ta aplikacja jest zbudowana w Go. Jej runtime czyta datę wprost ze współdzielonej pamięci systemu, zamiast pytać o nią Windows, więc widzi PRAWDZIWĄ datę i żadne ustawienie tego nie zmieni. Strefa czasowa sesji do niej dociera, więc pokazywane godziny to prawdziwy moment wyrażony w strefie sesji.",
-  "coverage.session_clock_never_read": "Żaden proces w tej sesji ani razu nie odczytał zegara, który sesja podmienia, więc nic z tego, co zrobiła aplikacja, nie wzięło się z fałszywej daty. Kanały powyżej są założone i działają - aplikacja po prostu wzięła czas skądinąd, na przykład ze źródła spoza tego komputera.",
-  "time.fake_clock_clamped": "Fałszywy zegar doszedł do ostatniej daty, jaką ta wersja potrafi wyrazić (rok 30828), i stanął tam do końca sesji. Późniejsze odczyty nie są momentami, które dałaby wybrana prędkość.",
+  "runtime.go_wall_clock_unreachable": "Ta aplikacja jest zbudowana w Go. Jej runtime czyta datę wprost ze współdzielonej pamięci systemu, zamiast pytać o nią Windows, więc widzi PRAWDZIWĄ datę i żadne ustawienie tego nie zmieni. Strefa czasowa sesji do niej dociera, więc pokazywane godziny to prawdziwy czas wyrażony w strefie sesji.",
+  "coverage.session_clock_never_read": "Żaden proces w tej sesji ani razu nie odczytał zegara, który sesja zastępuje, więc nic z tego, co zrobiła aplikacja, nie wzięło się z fałszywej daty. Kanały powyżej są założone i działają - aplikacja po prostu wzięła czas skądinąd, na przykład ze źródła spoza tego komputera.",
+  "time.fake_clock_clamped": "Fałszywy zegar doszedł do ostatniej daty, jaką ta wersja potrafi wyrazić (rok 30828), i stanął tam do końca sesji. Późniejsze odczyty nie są datami, które dałaby wybrana prędkość.",
   "time.duration_axis_clamped": "Liczniki monotoniczne (licznik tyknięć, nieobciążony czas przerwań oraz QPC, gdy skalowany) doszły do końca swojego zakresu i stanęły, więc czas, jaki upłynął wewnątrz aplikacji, przestał rosnąć, mimo że sesja trwała dalej. Mniejsza prędkość albo krótsza sesja tego unika.",
   "session.left_running": "Aplikacja nadal działała, gdy sesja się skończyła. Jest już z powrotem na prawdziwej dacie i godzinie, a jej liczniki czasu biegną dalej w normalnym tempie od miejsca, w którym zostawiła je sesja, zamiast się cofnąć. Timer cykliczny ustawiony, gdy jej timery były przyspieszone, zachowuje skrócony odstęp, który wtedy dostał. Żeby wystartowała od zera na prawdziwym zegarze, uruchom ją ponownie.",
   "session.followed_family": "Program wybrany do sesji zakończył się, gdy uruchomione przez niego programy nadal działały na fałszywym zegarze, więc sesja trwała dalej dla nich, zamiast skończyć się razem z nim. Program, który działa dalej po zamknięciu aplikacji, też trzyma sesję otwartą - zatrzymaj sesję, gdy skończysz.",
-  "target.single_instance_suspected": "zakończył się zaraz po uruchomieniu, zanim podmianę dało się potwierdzić - zwykle to aplikacja jednoinstancyjna, która przekazała pracę swojej działającej już kopii",
+  "target.single_instance_suspected": "zakończył się zaraz po uruchomieniu, zanim fałszywy zegar dało się potwierdzić - zwykle to aplikacja jednoinstancyjna, która przekazała pracę swojej działającej już kopii, więc zamknij tę kopię i uruchom ponownie",
   "target.handed_off_uncovered": "zakończył się zaraz po uruchomieniu innego programu, któremu nie udało się podać fałszywego zegara - zwykle programu o innej bitowości - więc ten program działa na prawdziwym",
 
   // Runtime detected statically from the target's files (B1): its monotonic/elapsed clocks stand on QueryPerformanceCounter, which stays real (ADR-2), so a timer built on them does not scale even though the wall clock does. Wording mirrors the CLI describe_warning.
@@ -494,7 +492,7 @@
   "runtime.unity_delta_time_capped": "Gra na silniku Unity: silnik ogranicza, o ile posuwa symulację w jednej klatce (Time.maximumDeltaTime), więc rozgrywka trafia we własny sufit i przestaje nadążać za tempem sesji dużo poniżej niego. Zegar ścienny, daty i znaczniki czasu nadal idą w tempie sesji, a żadne pokrycie zegarów tego sufitu nie podnosi.",
 
   // Shown when QPC scaling is ON (the scale-qpc option, ADR-2 reversal): the monotonic/elapsed clock now scales, but a target that times rendering off QPC may look distorted. Replaces the runtime QPC warnings.
-  "qpc.scaled_render_may_distort": "QueryPerformanceCounter jest skalowany, więc zegar monotoniczny/elapsed oparty na QPC przyspiesza - ale cel liczący render lub animację z QPC może wyglądać na zniekształcony.",
+  "qpc.scaled_render_may_distort": "QueryPerformanceCounter jest skalowany, więc zegar monotoniczny/elapsed oparty na QPC przyspiesza - ale aplikacja licząca render lub animację z QPC może wyglądać na zniekształconą.",
 
   // Chromium/Electron (CDP) mode, ADR-8/ADR-9: verdict reasons and warnings the CDP core emits. The coverage unit is a JS context, not an OS process.
   "chromium.contexts_covered": "Każdy kontekst JS działał na zegarze sesji.",
@@ -526,12 +524,12 @@
   "fault.unexpected": "Coś w Chrono Mock nieoczekiwanie się nie powiodło. Okno zostaje otwarte, ale to, co wtedy robiło, mogło się nie zakończyć. Jeśli to się powtarza, uruchom Chrono Mock ponownie.",
   "fault.saved": "Szczegóły zapisano w:",
   "fault.detail": "Szczegół techniczny:",
-  "report.unreliable_banner": "!! DOWÓD NIERZETELNY - podmiana czasu nie zadziałała w pełni. Nie cytuj tego jako dowodu zachowania.",
+  "report.unreliable_banner": "!! DOWÓD NIERZETELNY - fałszywy zegar nie zadziałał w pełni. Nie cytuj tego jako dowodu zachowania.",
   "report.title": "Chrono Mock - raport sesji",
-  "report.target": "cel",
+  "report.target": "aplikacja",
   "report.verdict": "werdykt",
   "report.no_verdict": "brak werdyktu",
-  "report.did_not_take_effect": "NIE ZADZIAŁAŁO - cel zniknął zaraz po wstrzyknięciu",
+  "report.did_not_take_effect": "NIE ZADZIAŁAŁO - aplikacja zamknęła się zaraz po podłączeniu fałszywego zegara",
   "report.cut_short": "PRZERWANA - Chrono Mock zatrzymał się, zanim zamknął sesję, więc werdykt niżej to tylko ten podany na początku",
   "report.vanish_detail": "{0} - działał {1} ms",
   "report.processes": "procesy: {0}",
@@ -540,10 +538,10 @@
   "report.elapsed": "realnie {0}s, fałszywie {1}s",
 
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
-  "report.target_exit": "cel zakończył się kodem",
+  "report.target_exit": "aplikacja zakończyła się kodem",
   "report.cleanup": "nie sprzątnięto do końca",
   // The processes the session went on for after the target closed, see the English file.
-  "report.followed": "cel uruchomił te programy, a sesja trwała dalej dla nich",
+  "report.followed": "aplikacja uruchomiła te programy, a sesja trwała dalej dla nich",
   // What a refusal could not end, see the English file.
   "report.left_running": "nie udało się ich zakończyć - działają na realnym zegarze",
   // The processes the hook never got into, see the English file.
@@ -643,15 +641,15 @@
   "about.read_licence": "Przeczytaj licencję w sieci",
   "about.read_licence_tip": "Otwiera gnu.org w Twojej przeglądarce. Sam Chrono Mock nadal z niczym się nie łączy.",
   "about.components": "Co jest w środku tej kompilacji",
-  "about.components_asking": "Pytam rdzeń…",
-  "about.components_unavailable": "Nie udało się zapytać rdzenia, więc nic tu nie jest wypisane - lepsze to niż lista, która mogłaby być niepełna. Plik not wymieniony wyżej niesie tę samą informację.",
+  "about.components_asking": "Wczytuję listę…",
+  "about.components_unavailable": "Nie udało się wczytać listy, więc nic tu nie jest wypisane - lepsze to niż lista, która mogłaby być niepełna. Plik not wymieniony wyżej niesie tę samą informację.",
 
   // Date calculator (chrono-mock 7.3). Slice G1 is the layout shell; more keys arrive with the wiring.
   "calc.presets_header": "Scenariusze",
   "calc.filter_placeholder": "Szukaj scenariuszy",
   "calc.preset_note": "Scenariusz to punkt startowy - nie certyfikat kompletności testu.",
   "calc.preset_params_header": "Parametry",
-  "calc.preset_needs_params": "Uzupełnij parametry poniżej, aby policzyć ten scenariusz.",
+  "calc.preset_needs_params": "Uzupełnij parametry powyżej, aby policzyć ten scenariusz.",
   "calc.build_header": "Zbuduj datę",
   "calc.start_point": "Zacznij od",
   "calc.base_zone": "Strefa czasowa",
@@ -719,7 +717,7 @@
   "calc.err.year_out_of_range": "Wynik wypada w roku spoza zakresu, na którym ta wersja liczy (od -262143 do 262143).",
   "calc.err.business_days_limit": "Ten krok prosi o więcej niż 1 000 000 dni roboczych - tyle najwięcej liczy kalkulator.",
   "calc.err.before_calendar": "Krok w dniach roboczych sięga roku sprzed początku wybranego kalendarza, więc nie da się go policzyć - wybierz późniejszą datę albo inny kalendarz.",
-  "calc.err.base_overflow": "Punkt startowy w UTC wskazuje moment spoza zakresu, jaki ta wersja potrafi wyrazić.",
+  "calc.err.base_overflow": "Punkt startowy w UTC wskazuje chwilę spoza zakresu, jaki ta wersja potrafi wyrazić.",
   "calc.err.base_not_a_date": "Punkt startowy nie jest prawdziwą datą i godziną - sprawdź w nim miesiąc, dzień i godzinę.",
   // A value the engine's argument reader refused (R4-S23). From this screen only the typed step fields
   // can cause it - the start point is checked by its own field before anything is computed - so the text
@@ -730,7 +728,7 @@
   // Two failures that are not the engine's: its answer arrived and was not usable. Rare, and worth saying
   // plainly rather than showing the reader a blank result they cannot explain.
   "calc.err.no_readings": "Analiza nie zwróciła żadnego odczytu dla tego wejścia.",
-  "calc.err.incomplete_result": "Rdzeń zwrócił niekompletny wynik, więc nie ma czego wiarygodnie pokazać.",
+  "calc.err.incomplete_result": "Silnik obliczeń zwrócił niekompletny wynik, więc nie ma czego wiarygodnie pokazać.",
   "calc.err.timeout": "Obliczenie nie skończyło się w wyznaczonym czasie i zostało zatrzymane. Potrafi to zrobić plik kalendarza z bardzo dużą liczbą świąt.",
   // The engine could not be started at all - missing, quarantined, or not allowed to run (R4-S26). The
   // detail line beneath keeps the path, which is what somebody repairing the install needs.
@@ -794,37 +792,35 @@
   "calc.md.not_business_day": "nie dzień roboczy",
 
   // Tooltips (hover help). Keys, not literals (rule 15); shown in the current language.
-  "tip.choose_target": "Wybierz aplikację do uruchomienia z podmienionym zegarem.",
+  "tip.choose_target": "Wybierz aplikację do uruchomienia z fałszywym zegarem.",
   "tip.target_args": "Wiersz poleceń, z którym startuje aplikacja. Argument ze spacjami ujęty w cudzysłów, tak jak w terminalu.",
   "tip.working_folder": "Katalog, w którym startuje aplikacja. Pusty znaczy: tam, gdzie normalnie.",
   "tip.browse_folder": "Wskaż katalog, w którym ma wystartować aplikacja.",
-  "tip.target_recent": "Cele uruchamiane wcześniej. Przycisk „Wybierz…” wskazuje taki, którego ta maszyna jeszcze nie uruchamiała.",
   "tip.scenario": "Wybierz scenariusz, żeby wypełnić datę poniżej. To nigdy nie startuje sesji.",
   "tip.date_field": "Wpisz datę jako YYYY-MM-DD albo wybierz z kalendarza.",
   "tip.time_field": "Godzina jako HH:MM (24h). Pusto oznacza północ.",
   "tip.today": "Wstaw dzisiejszą datę (strefa sesji), o północy.",
   "tip.now": "Wstaw bieżącą datę i godzinę (strefa sesji).",
-  "tip.zone": "Strefa czasowa sesji - stały offset bez zmiany czasu. Moment jest w niej liczony.",
+  "tip.zone": "Strefa czasowa sesji - stały offset bez zmiany czasu. Data i godzina powyżej są w niej liczone.",
   "tip.relative_moment": "Wypełnia datę powyżej czasem teraz, przesuniętym o tę wartość - w wierszu poleceń to --at +30d. Miesiące, kwartały i lata trafiają na datę kalendarzową, nie na stałą liczbę godzin. Ten wiersz robi jedno przesunięcie i nic więcej, dlatego ma mniej opcji niż kalkulator: dni roboczych nie ma, bo sesja nie niesie kalendarza świąt, a gotowe daty w rodzaju końca miesiąca stoją na liście scenariuszy powyżej.",
-  "tip.mode": "Jak szybko idzie podmieniony zegar: ×1 to zwykłe tempo, zamrożony go zatrzymuje, reszta idzie tyle razy szybciej.",
+  "tip.mode": "Jak szybko idzie fałszywy zegar: ×1 to zwykłe tempo, zamrożony go zatrzymuje, reszta idzie tyle razy szybciej.",
   "tip.scale_duration": "Przyśpiesz też liczniki, uśpienia i odliczania w aplikacji - nie tylko zegar ścienny.",
   "tip.scale_qpc": "Przyśpiesz też zegary na QPC (Python monotonic, .NET Stopwatch, Java nanoTime). Może zniekształcić aplikację liczącą render z QPC.",
   "tip.embedded": "Domyślnie włączone. Aplikacja z wbudowanym silnikiem WWW (WebView2, Qt WebEngine) uruchamia swoje strony w procesie, do którego hook zegara nie wchodzi. Z tą opcją silnik jest proszony o otwarcie na czas sesji lokalnego portu debugowania, a strony idą za zegarem sesji przez ten port. Odznacz, aby zostawić te strony na realnym zegarze i nie otwierać portu.",
   "tip.elevated_embedded": "Domyślnie wyłączone. Aplikacja uruchomiona jako administrator sprawia, że WebView2 pomija ustawienie, przez które sesja dociera do jej stron, więc zostają na realnym zegarze. Po włączeniu sesja zapisuje jedną opcję WebView2 w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i usuwa ją po końcu sesji. Wymaga Chrono Mock uruchomionego jako administrator i aplikacji startowanej z pliku .exe. Dopóki jest ustawiona, każdy program uruchomiony pod tą nazwą pliku też dostaje port diagnostyczny, a uruchamiana aplikacja ma uprawnienia administratora. Wartość zostawiona przez sesję, która zakończyła się awaryjnie, jest usuwana przy następnym starcie z tą opcją.",
   "tip.keep_timers": "Silnik WWW spowalnia timery zminimalizowanego albo ukrytego okna do mniej więcej jednego wywołania na sekundę, więc przy przyspieszonym czasie ukryte okno traci przyspieszenie. Z tą opcją aplikacja startuje z tym spowolnieniem wyłączonym.",
-  "tip.force": "Domyślnie wyłączone. Gdy werdykt otwierający mówi, że podmiana nie zadziałała, cel jest zatrzymywany zamiast oddany do pracy - jego dowód dotyczyłby realnego zegara. Zaznacz, aby mimo to uruchomić - sesja jest wtedy wszędzie oznaczona jako nierzetelna.",
-  "tip.start": "Uruchom cel z podmienionym zegarem. Wymaga celu i poprawnego momentu.",
-  "tip.freeze": "Zamroź podmieniony zegar, by przestał iść.",
+  "tip.force": "Domyślnie wyłączone. Gdy sprawdzenie zaraz po starcie pokaże, że fałszywy zegar nie zadziałał, aplikacja jest zatrzymywana, a nie zostawiana w działaniu, bo to, co pokazuje, pochodziłoby z realnego zegara. Zaznacz, żeby mimo to ją uruchomić - sesja jest wtedy wszędzie oznaczona jako nierzetelna.",
+  "tip.freeze": "Zamroź fałszywy zegar, by przestał iść.",
   "tip.set_speed": "Ustaw dowolną prędkość, np. 500.",
   "tip.stop": "Zatrzymaj sesję. Aplikacja wraca do prawdziwego czasu - nie jest zamykana.",
   "tip.jump_to": "Przesuń fałszywy zegar na tę datę i godzinę, czytaną w strefie sesji.",
   "tip.copy_summary": "Skopiuj gotowe podsumowanie sesji do zgłoszenia.",
-  "tip.copy_diagnostics": "Skopiuj diagnostykę rdzenia (jego stderr), by dołączyć do zgłoszenia.",
+  "tip.copy_diagnostics": "Skopiuj to, co Chrono Mock zapisał w trakcie tej sesji, by dołączyć do zgłoszenia.",
   "tip.base_kind": "Od czego zaczyna się obliczenie: dziś, teraz, albo konkretna data.",
   "tip.base_zone": "Strefa, w której czytany jest punkt startowy - dziś to inny dzień po obu stronach północy. Bez wyboru używana jest strefa tej maszyny. To nie to samo co krok do strefy, który przelicza wynik.",
   "tip.add_step": "Dodaj krok: przesuń, przyciągnij, najbliższy dzień roboczy, ustaw czas, zmień strefę.",
   "tip.calc_calendar": "Kalendarz świąt i dni roboczych używany przez kroki dni roboczych i najbliższy.",
   "tip.custom_format": "Sformatuj wynik własną maską (tokeny .NET/Java).",
   "tip.analyze": "Wklej datę, by zobaczyć jak się czyta - obie interpretacje, gdy niejednoznaczna.",
-  "tip.use_in_substitution": "Wyślij ten moment do ekranu uruchamiania i wypełnij jego datę. Dostępne tylko, gdy jego strefa jest jedną z oferowanych stref sesji."
+  "tip.use_in_substitution": "Wyślij tę datę i godzinę do trybu „Uruchom aplikację”. Dostępne tylko, gdy jej strefa jest jedną z oferowanych stref sesji."
 }

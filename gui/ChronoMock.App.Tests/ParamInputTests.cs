@@ -183,8 +183,27 @@ public class ParamInputTests
     }
 
     [Fact]
-    public void The_label_humanizes_the_parameter_id()
+    public void Without_a_label_the_parameter_id_is_shown()
         => Assert.Equal(
             "install date",
             new ParamInputViewModel(Param("""{ "id": "install_date", "type": "date", "default": null }"""), Units()).Label);
+
+    /// <summary>R4/19: the preset names its parameter, and the window shows that name in its own language,
+    /// English when the file has no text in it, and the id only when the file names nothing usable.</summary>
+    [Fact]
+    public void The_label_is_the_presets_own_name_in_the_windows_language()
+    {
+        var named = Param("""{ "id": "start_date", "type": "date", "default": null, "label": { "en": "Trial start", "pl": "Początek okresu próbnego" } }""");
+
+        Assert.Equal("Początek okresu próbnego", new ParamInputViewModel(named, Units(), "pl").Label);
+        Assert.Equal("Trial start", new ParamInputViewModel(named, Units(), "de").Label);
+        Assert.Equal("Trial start", new ParamInputViewModel(named, Units()).Label);
+
+        var blank = Param("""{ "id": "start_date", "type": "date", "default": null, "label": { "en": "  " } }""");
+        Assert.Equal("start date", new ParamInputViewModel(blank, Units()).Label);
+
+        // A blank text in the window's language is a missing one: English comes before the id.
+        var blankPolish = Param("""{ "id": "start_date", "type": "date", "default": null, "label": { "en": "Start", "pl": " " } }""");
+        Assert.Equal("Start", new ParamInputViewModel(blankPolish, Units(), "pl").Label);
+    }
 }

@@ -62,6 +62,10 @@ pub(crate) struct Parameter {
     /// `target_file_creation` needs a target, so it is honoured only in `run` (a later slice) - the
     /// calculator, having no target, reports it as a value the user must supply.
     pub(crate) default_hint: Option<String>,
+    /// What a reader calls the parameter, in every language the file wrote it in (R4/19) - for the
+    /// window, through the catalogue. Empty when the file names none, and the window then shows the id,
+    /// which is also what `--param` takes on the command line.
+    pub(crate) label_texts: BTreeMap<String, String>,
 }
 
 /// A parameter's type. `date` fills a base - `duration` and `variant` fill a shift (a `variant` by a
@@ -174,14 +178,19 @@ pub(crate) struct TimeModeDto {
     scale_duration_clock: bool,
 }
 
-/// A preset parameter as written in the file (docs/04 4.2): `{ "id", "type", "default"?, "default_hint"? }`.
-/// `default` shape depends on `type` (a string for `date`, `{ amount, unit }` for `duration`), so it
-/// stays a raw value here and is parsed against the type in `parse_parameter`.
+/// A preset parameter as written in the file (docs/04 4.2): `{ "id", "type", "label"?, "default"?,
+/// "default_hint"? }`. `default` shape depends on `type` (a string for `date`, `{ amount, unit }` for
+/// `duration`), so it stays a raw value here and is parsed against the type in `parse_parameter`.
 #[derive(Deserialize)]
 pub(crate) struct ParameterDto {
     id: String,
     #[serde(rename = "type")]
     kind: String,
+    /// One text per language like `name`, `en` required when the label is there at all. Optional,
+    /// because the id names the parameter well enough on the command line, and a preset written
+    /// before labels existed must keep loading.
+    #[serde(default)]
+    label: Option<PresetTextDto>,
     #[serde(default)]
     default: Option<serde_json::Value>,
     #[serde(default)]
@@ -552,7 +561,8 @@ pub(crate) fn parse_parameter(dto: ParameterDto) -> Result<Parameter, PresetErro
         Some(v) => Some(param_value_from_json(&dto.id, kind, &v)?),
         None => None,
     };
-    Ok(Parameter { id: dto.id, kind, default, default_hint: dto.default_hint })
+    let label_texts = dto.label.map(PresetTextDto::into_texts).unwrap_or_default();
+    Ok(Parameter { id: dto.id, kind, default, default_hint: dto.default_hint, label_texts })
 }
 
 /// Parse a parameter's file `default` (a JSON value) against its declared type.
@@ -1170,6 +1180,31 @@ mod tests {
         let m = resolve_no_params(parse_preset(json).unwrap()).unwrap();
         assert_eq!(m.base, Base::Today);
         assert!(m.steps.is_empty());
+    }
+
+    /// R4/19: a parameter's label is what the window shows above its input, so it travels in every
+    /// language the file wrote it in, English required like a name, and a parameter without one still
+    /// loads (the window then shows its id). A label that never reaches the catalogue would leave the
+    /// window showing `trial length` in every language, which is what it did before labels existed.
+    #[test]
+    fn a_parameter_label_is_read_in_every_language_and_may_be_left_out() {
+        let preset = |label: &str| {
+            format!(
+                r#"{{"schema":"chronomock.preset/1","id":"x","name":{{"en":"n"}},"explains":{{"en":"e"}},
+                "applies_to":"calculator","parameters":[{{"id":"start","type":"date"{label}}}],
+                "moment":{{"base":{{"parameter":"start"}},"steps":[]}}}}"#
+            )
+        };
+
+        let labelled = parse_preset(&preset(r#","label":{"en":"Start","pl":"Początek","de":3}"#)).unwrap();
+        let texts = &labelled.parameters[0].label_texts;
+        assert_eq!(texts.get("en").map(String::as_str), Some("Start"));
+        assert_eq!(texts.get("pl").map(String::as_str), Some("Początek"));
+        assert!(!texts.contains_key("de"), "a language whose value is not text is left out, as for a name");
+
+        assert!(parse_preset(&preset("")).unwrap().parameters[0].label_texts.is_empty());
+        assert!(parse_preset(&preset(r#","label":{"pl":"Początek"}"#)).is_err(), "English is required");
+        assert!(parse_preset(&preset(r#","label":"Start""#)).is_err(), "one text per language, not a string");
     }
 
     /// R4-N33. Every one of these used to load and be settled by the order of the reader's code: the

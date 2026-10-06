@@ -10,7 +10,7 @@
   "applies_to": "both",
   "market": null,
   "parameters": [
-    { "id": "install_date", "type": "date", "default_hint": "target_file_creation" }
+    { "id": "install_date", "type": "date", "label": { "en": "Installation date", "pl": "Data instalacji" }, "default_hint": "target_file_creation" }
   ],
   "moment": {
     "base": { "parameter": "install_date" },

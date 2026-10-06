@@ -264,7 +264,8 @@ public sealed class ParamInputViewModel : ObservableObject
     private UnitOption _unit;
     private VariantOption? _variant;
 
-    public ParamInputViewModel(CatalogueParameter param, IReadOnlyList<UnitOption> units)
+    public ParamInputViewModel(
+        CatalogueParameter param, IReadOnlyList<UnitOption> units, string culture = LocalizationService.DefaultCulture)
     {
         ArgumentNullException.ThrowIfNull(param);
         ArgumentNullException.ThrowIfNull(units);
@@ -273,7 +274,12 @@ public sealed class ParamInputViewModel : ObservableObject
         IsDate = param.Type == "date";
         IsDuration = param.Type == "duration";
         IsVariant = param.Type == "variant";
-        Label = param.Id.Replace('_', ' ');
+
+        // The preset's own name for it (R4/19), in the window's language or English. The id is the last
+        // resort, for a file that names none: before labels it was all the window had, and it showed
+        // "trial length" above a field in every language.
+        var named = PresetInfo.Localized(param.Label, culture);
+        Label = string.IsNullOrWhiteSpace(named) ? param.Id.Replace('_', ' ') : named;
         VariantOptions = [.. (param.Choices ?? []).Select(c => new VariantOption(c.Label, $"calc.variant.{c.Label}"))];
 
         // 🔴 NOTHING INVENTED (R4-S22). A duration without a default used to show "1 day" and compute with it,
@@ -1216,9 +1222,10 @@ public sealed class CalculatorViewModel : ObservableObject
     private void PopulateParamInputs(PresetInfo preset)
     {
         ClearParamInputsOnly();
+        var culture = LocalizationService.CurrentCulture;
         foreach (var param in preset.Parameters)
         {
-            var input = new ParamInputViewModel(param, Units);
+            var input = new ParamInputViewModel(param, Units, culture);
             input.PropertyChanged += OnParamChanged;
             ParamInputs.Add(input);
         }

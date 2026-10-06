@@ -19,8 +19,7 @@
   "clock.elapsed": "elapsed",
 
   // Target selection (chrono-mock 7.1). The dialog strings are keyed too (rule 15).
-  "target.label": "Target:",
-  "target.dialog_title": "Choose target",
+  "target.dialog_title": "Choose an application",
 
   // Only .exe: native injection needs a PE and CDP needs an Electron/Chromium .exe. Narrowing the filter keeps a user from picking a .lnk/.bat/.txt that could only fail (RELEASE-007).
   "target.dialog_filter": "Executables (*.exe)|*.exe",
@@ -196,8 +195,8 @@
 
   // Shown only while no target is chosen: dropping a file on the window is not discoverable on its own, and once there is a target the hint would be noise on every later run (chrono-mock 7.1 pt 1).
   "target.drop_hint": "…or drag an application onto this window",
-  "target.drop_rejected_title": "That file cannot be a target",
-  "target.drop_rejected": "Only .exe files can be run - a shortcut or a script is not something a clock can be attached to.",
+  "target.drop_rejected_title": "That file cannot be run here",
+  "target.drop_rejected": "Only .exe files can be run from this window - for a shortcut, pick the program it opens. A script (.bat or .cmd) can be run with the chrono command line.",
 
   // Arguments and working folder (chrono-mock 7.1 pt 1). Collapsed by default: most sessions need neither. The wire and the mechanism have carried both since the protocol was written; only the surfaces did not offer them.
   "launch.header": "Arguments and working folder",
@@ -205,7 +204,6 @@
   "launch.cwd_label": "Working folder:",
 
   // Time inputs (chrono-mock 7.1). The moment is the local time in the session zone (rule 2).
-  "moment.label": "At:",
   "moment.date_placeholder": "YYYY-MM-DD",
   "moment.time_placeholder": "HH:MM",
   // What a screen reader calls the two fields of a moment input - the placeholder is a hint, not a name.
@@ -288,7 +286,7 @@
   "status.did_not_take_effect": "Did not take effect - the application vanished",
   "status.core_stopped": "Chrono Mock stopped unexpectedly - the application is back on the real clock",
   "status.stopping": "Stopping - returning the application to the real clock",
-  "status.refused": "Refused - the substitution did not take effect, so the session ended the application",
+  "status.refused": "Refused - the fake clock did not take effect, so the session ended the application",
   "status.stopped": "Session stopped - the application is back on the real clock",
   "status.core_unresponsive": "Chrono Mock stopped responding - the application is back on the real clock",
   "status.core_missing": "Chrono Mock could not be started - the installation may be incomplete",
@@ -299,7 +297,7 @@
 
   // Core failure reasons (RELEASE-001). When a start/fatal error ends a session, its specific reason becomes the status headline, so a failed start never reads as "Session ended". Phrased as failure statements because they ARE the status line. Emitted by the core (crates/cli, crates/mech).
   "core.hook_dll_missing": "Part of Chrono Mock is missing, so the application was not launched under a fake clock (reinstall Chrono Mock).",
-  "protocol.version_mismatch": "This app and the core speak different protocol versions - reinstall Chrono Mock so both come from the same build.",
+  "protocol.version_mismatch": "Parts of Chrono Mock come from different versions - extract the package again so they all come from the same build.",
   "time.bad_mode": "Unsupported time mode - the session did not start.",
   // Rejected rather than applied: past the bound the fake clock leaves the representable date range
   // mid-session and the time channels start disagreeing, and a negative rate would run the clock
@@ -312,7 +310,7 @@
   // R4-S7, R4-S9: both can answer a start AND a jump, so neither says which of the two did not happen,
   // and neither needs an in-flight twin (SessionViewModel.InFlightKey).
   "moment.out_of_range": "That date is outside the range a session can represent (years 1601 to 30828), so it was not used.",
-  "time.bad_zone": "The time zone sent to the core is missing or outside the range it accepts (-14:59 to +14:59).",
+  "time.bad_zone": "The session time zone is missing or outside the range Chrono Mock accepts (-14:59 to +14:59) - pick another time zone.",
   // 🔴 THE SAME TWO REASONS, FOR A COMMAND REJECTED MID-SESSION. The core sends one key whether a bad
   // moment arrives with the start command or with a jump, so the panel printed "the session did not
   // start" under a status line reading "Running" - a screen contradicting itself. These say what actually
@@ -321,12 +319,12 @@
   "moment.invalid_in_flight": "That date and time is not valid (a daylight-saving gap, 29 February in a year that is not a leap year, or out of range) - the clock did not move.",
   "time.bad_multiplier_in_flight": "Speed out of range - it must be between 0 (freeze) and 1,000,000. The rate did not change.",
   "moment.needs_calendar": "That jump counts business days, and a running session has no calendar - jump to a date instead, or work the date out in the calculator first.",
-  "moment.unsupported_kind": "The core did not recognise that kind of jump target.",
-  "session.control_failed": "Could not set up the link the session is steered through - the substitution did not take effect.",
-  "target.launch_failed": "Could not launch the target - the substitution did not take effect.",
+  "moment.unsupported_kind": "Chrono Mock did not recognise that kind of date. This is a fault in Chrono Mock - copy the diagnostics and report it.",
+  "session.control_failed": "Could not set up the link Chrono Mock steers the session through, so the fake clock did not take effect. Try again - if it keeps happening, copy the diagnostics and report it.",
+  "target.launch_failed": "Could not launch the application, so the fake clock did not take effect. Check that the file still exists and that Windows allows it to run.",
   // Checked in the core before either mechanism starts. Without it the failure arrives as target.launch_failed, which blames the application for a folder that is simply not there.
   "target.cwd_missing": "The working folder does not exist - the session did not start. Pick a folder that is there, or leave it empty to start where the application normally would.",
-  "target.inject_failed": "Could not attach the fake clock to that application - the substitution did not take effect (an antivirus or a hardened application may have blocked it).",
+  "target.inject_failed": "Could not attach the fake clock to that application - an antivirus or a hardened application may have blocked it. Check whether your antivirus stopped Chrono Mock.",
   // R4-S6. The application's own start failed while Windows was loading it, before the fake clock got its
   // turn. Windows's error window is kept off while it loads, so each text says how to see the name that
   // window would have shown. Before, these read as a single-instance vanish or, ten seconds later, a loader lock.
@@ -335,28 +333,28 @@
   "target.loader_bad_image": "The application could not start - Windows found a library (DLL) it needs but could not load it, usually because it is built for the other bitness (32-bit versus 64-bit) or damaged, so the session did not start. Check that it starts without Chrono Mock from the same working folder.",
   "target.loader_init_failed": "The application could not start - a library (DLL) it loads at start-up failed to initialise, so the session did not start. Check that it starts without Chrono Mock.",
   "target.died_while_loading": "The application ended while Windows was still loading it, so the session did not start. The code it ended with is in the diagnostics (Copy diagnostics).",
-  "target.attach_failed": "Could not attach to the Chromium/Electron app - the substitution did not take effect.",
+  "target.attach_failed": "Could not connect to the Chromium/Electron application, so the fake clock did not take effect. The application may not allow such a connection, or a copy of it may already be running - close any running copy and try again.",
   // R2-S1. The GUI normally catches this itself (HandshakeGate, from the target's PE), so this is the
   // core's own second line of defence - reachable for a target whose real bitness differs from what its
   // file header declares, such as a .NET AnyCPU executable.
-  "target.bitness_mismatch": "That application's bitness does not match this core's - a fake clock cannot cross between 32-bit and 64-bit.",
+  "target.bitness_mismatch": "That application runs at a different bitness (32-bit or 64-bit) than its file declares, so the part of Chrono Mock picked from the file cannot attach a fake clock to it - this happens with some .NET applications built for any CPU. Copy the diagnostics and report it.",
   "session.already_active": "Another Chrono Mock session is already running - only one at a time.",
-  "protocol.no_command": "The core received no command - the session did not start.",
-  "protocol.bad_command": "The core received a malformed command - the session did not start.",
+  "protocol.no_command": "The session did not start - Chrono Mock received no command to start it. This is a fault in Chrono Mock - copy the diagnostics and report it.",
+  "protocol.bad_command": "The session did not start - Chrono Mock received a command it could not read. This is a fault in Chrono Mock - copy the diagnostics and report it.",
   // Mid-session, unlike the two above: the session is still running, the line was simply not
   // readable. Reported rather than dropped, so a client waiting on `ack` is not left waiting.
-  "protocol.bad_command_ignored": "The core could not read a command and ignored it - the session is still running.",
+  "protocol.bad_command_ignored": "Chrono Mock could not read a command and ignored it - the session is still running. If this keeps happening, report it.",
   // The two ways the command stream itself fails. They end the session, unlike a single unreadable command,
   // and each names what the client sent rather than blaming the core, which is what the silence used to do.
-  "protocol.line_too_long": "A command sent to the core was too long to read, so the session ended.",
-  "protocol.stream_unreadable": "The core received bytes it could not read as text, so the session ended.",
-  "protocol.unsupported_command": "The core received a command it does not act on here and ignored it - the session is still running.",
+  "protocol.line_too_long": "A command was too long for Chrono Mock to read, so the session ended. This is a fault in Chrono Mock - copy the diagnostics and report it.",
+  "protocol.stream_unreadable": "Chrono Mock received bytes it could not read as text, so the session ended. This is a fault in Chrono Mock - copy the diagnostics and report it.",
+  "protocol.unsupported_command": "Chrono Mock received a command it does not act on here and ignored it - the session is still running. If this keeps happening, report it.",
   "proto.serialize_failed": "Chrono Mock could not write one of its messages, so part of this session's report may be missing. Run the session again, and if it happens again, report it as a fault in Chrono Mock.",
-  "protocol.expected_start": "The core expected a start command - the session did not start.",
+  "protocol.expected_start": "The session did not start - Chrono Mock expected a start command first. This is a fault in Chrono Mock - copy the diagnostics and report it.",
 
   // Handshake gate refusals (surfaced before the target is launched).
-  "handshake.protocol_mismatch": "Protocol version mismatch - not started",
-  "handshake.bitness_mismatch": "Core bitness mismatch - not started",
+  "handshake.protocol_mismatch": "Parts of Chrono Mock from different versions - not started. Extract the package again.",
+  "handshake.bitness_mismatch": "Mixed-up 32-bit and 64-bit parts of Chrono Mock - not started. Extract the package again.",
 
   // Verifier verdict (chrono-mock 7.1). The label is paired with a glyph and a colour.
   "verdict.works": "Works",
@@ -455,7 +453,7 @@
   "wait.timeout_collapsed": "Some of this application's waits were too short to divide by the full speed factor, so they ran at the shortest step this tool uses (1 ms) instead. That part of the application did not accelerate - a lower speed makes it exact again.",
   "wait.network_timeouts_scaled": "This application opened a network connection. A network library that measures its own timeout from the system tick count, such as WinHTTP, follows the session speed - so a server slower than that timeout divided by the speed makes a request fail, even though the waits underneath stay on the real clock.",
   "timer.multimedia_not_scaled": "The multimedia timer (timeSetEvent) is observed but not scaled.",
-  "clock.timegettime_scaled_audio_may_shift": "The winmm clock timeGetTime is being scaled with the rest of the duration axis, so a target that paces itself from it follows the session - but a media application that positions audio from that clock may drift.",
+  "clock.timegettime_scaled_audio_may_shift": "The winmm clock timeGetTime is being scaled with the rest of the duration axis, so an application that paces itself from it follows the session - but a media application that positions audio from that clock may drift.",
   "coverage.channel_installed_late": "The functions listed as coming under the fake clock late were hooked only once their own module loaded, so calls the application made before that are missing from their counts - and a scaled one's clock jumped once when it joined.",
   "inheritance.ntcreateuserprocess_child_maybe_uncovered": "A child process started through a lower-level call may have run on the real clock.",
   // R2-S2. Distinct from the NtCreateUserProcess warning above it: there we choose not to inject,
@@ -501,16 +499,16 @@
   // Not a "we chose not to scale this" caution like the runtime.*_qpc family above it - this one
   // says a clock is out of reach entirely, and names what DID reach the application, because a real
   // date shown in the session's time zone is the part that confuses a reader.
-  "runtime.go_wall_clock_unreachable": "This application was built with Go. Its runtime reads the date straight from shared system memory instead of asking Windows for it, so it sees the REAL date and no setting here can change that. The session time zone does reach it, so the times it shows are the real moment expressed in the session's zone.",
+  "runtime.go_wall_clock_unreachable": "This application was built with Go. Its runtime reads the date straight from shared system memory instead of asking Windows for it, so it sees the REAL date and no setting here can change that. The session time zone does reach it, so the times it shows are the real time expressed in the session's zone.",
   "coverage.session_clock_never_read": "No process in this session ever read a clock the session replaces, so nothing this application did came from the fake date. The channels above are in place and working - the application simply took its time from somewhere else, such as a source outside this computer.",
-  "time.fake_clock_clamped": "The fake clock reached the last date this build can represent (year 30828) and stood there for the rest of the session. Late readings are not the moments the chosen speed would have produced.",
+  "time.fake_clock_clamped": "The fake clock reached the last date this build can represent (year 30828) and stood there for the rest of the session. Later readings are not the dates the chosen speed would have produced.",
   "time.duration_axis_clamped": "The monotonic counters (tick count, unbiased interrupt time, and QPC when scaled) reached the end of their range and stood there, so elapsed time inside the application stopped advancing even though the session went on. A lower speed or a shorter session avoids it.",
   // The session does not stop the application, so it says which way each clock went once it lets go: "back to real time" alone reads as "the counters went back too", which is what letting go used to do.
   "session.left_running": "The application was still running when the session ended. It is back on the real date and time now, and its tick counts and elapsed-time counters carry on at normal speed from where the session left them instead of jumping back. A repeating timer it set while its timers were sped up keeps the shorter interval it was given. Restart it for a clean run on the real clock.",
   // A launcher, a restart after an update, a script that runs "start app.exe": the program the tester chose ends on purpose and the session goes on for what it started (ADR-16). Says why the session outlived it, and the one way that can surprise.
   "session.followed_family": "The program you started closed while programs it had started were still running on the fake clock, so the session went on for them instead of ending with it. A program that keeps running after the application closes keeps the session open too - stop the session when you are done.",
   // The vanish reasons complete the sentence under "The application ran for N ms and then vanished", and each carries its own suspicion, because report.vanish_detail no longer names one for all of them.
-  "target.single_instance_suspected": "exited right after it started, before the substitution could be confirmed - usually a single-instance application handing over to a copy that is already running",
+  "target.single_instance_suspected": "exited right after it started, before the fake clock could be confirmed - usually a single-instance application handing over to a copy that is already running, so close that copy and start again",
   "target.handed_off_uncovered": "closed right after starting another program that could not be given the fake clock - usually one of a different bitness - so that program runs on the real one",
 
   // Runtime detected statically from the target's files (B1): its monotonic/elapsed clocks stand on QueryPerformanceCounter, which stays real (ADR-2), so a timer built on them does not scale even though the wall clock does. Wording mirrors the CLI describe_warning.
@@ -521,7 +519,7 @@
   "runtime.unity_delta_time_capped": "A Unity game: the engine caps how far it advances the simulation in a single frame (Time.maximumDeltaTime), so the gameplay hits a ceiling of its own and stops following the session speed well below it. The wall clock, dates and timestamps still move at the session rate, and no amount of clock coverage raises that ceiling.",
 
   // Shown when QPC scaling is ON (the scale-qpc option, ADR-2 reversal): the monotonic/elapsed clock now scales, but a target that times rendering off QPC may look distorted. Replaces the runtime QPC warnings.
-  "qpc.scaled_render_may_distort": "QueryPerformanceCounter is being scaled, so a QPC-timed monotonic/elapsed clock accelerates - but a target that times its rendering or animation off QPC may look distorted.",
+  "qpc.scaled_render_may_distort": "QueryPerformanceCounter is being scaled, so a QPC-timed monotonic/elapsed clock accelerates - but an application that times its rendering or animation off QPC may look distorted.",
 
   // Chromium/Electron (CDP) mode, ADR-8/ADR-9: verdict reasons and warnings the CDP core emits. The coverage unit is a JS context, not an OS process.
   "chromium.contexts_covered": "Every JS context ran on the fake clock.",
@@ -550,15 +548,15 @@
   // Where the diagnostics log was written (RELEASE-012); the path follows this prefix.
   "diagnostics.saved": "Diagnostics saved to",
   // The box for an unexpected fault (R4-N52): what happened and what to do first, then where the full details went (the path follows fault.saved), then the exception's own message (it follows fault.detail).
-  "fault.unexpected": "Something inside Chrono Mock failed unexpectedly. The window stays open, but what it was doing at that moment may not have finished. If this keeps happening, restart Chrono Mock.",
+  "fault.unexpected": "Something inside Chrono Mock failed unexpectedly. The window stays open, but what it was doing then may not have finished. If this keeps happening, restart Chrono Mock.",
   "fault.saved": "The details were saved to:",
   "fault.detail": "Technical detail:",
-  "report.unreliable_banner": "!! UNRELIABLE EVIDENCE - the time substitution did not fully take effect. Do not cite this as proof of behavior.",
+  "report.unreliable_banner": "!! UNRELIABLE EVIDENCE - the fake clock did not fully take effect. Do not cite this as proof of behavior.",
   "report.title": "Chrono Mock - session report",
-  "report.target": "target",
+  "report.target": "application",
   "report.verdict": "verdict",
   "report.no_verdict": "no verdict emitted",
-  "report.did_not_take_effect": "DID NOT TAKE EFFECT - the target vanished right after injection",
+  "report.did_not_take_effect": "DID NOT TAKE EFFECT - the application closed right after the fake clock was attached",
   "report.cut_short": "CUT SHORT - Chrono Mock stopped before it closed the session, so the verdict below is only the one it gave at the start",
   "report.vanish_detail": "{0} - lived {1} ms",
   "report.processes": "processes: {0}",
@@ -567,10 +565,10 @@
   "report.elapsed": "real {0}s, fake {1}s",
 
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
-  "report.target_exit": "target exited with code",
+  "report.target_exit": "application exited with code",
   "report.cleanup": "not fully cleaned up",
   // The processes the session went on for after the target closed (ADR-16), under the exit line, in the CLI report's words. "Went on for", never "until they closed": a Stop can end the session while one still runs.
-  "report.followed": "the target had started these, and the session went on for them",
+  "report.followed": "the application had started these, and the session went on for them",
   // What a refusal could not end (R4-S5), under the verdict in the copied summary, in the CLI report's words.
   "report.left_running": "could not be ended - they run on the real clock",
   // The processes the hook never got into, one line per pid the way the CLI report prints them (the screen
@@ -674,15 +672,15 @@
   "about.read_licence": "Read the licence online",
   "about.read_licence_tip": "Opens gnu.org in your browser. Chrono Mock itself still connects to nothing.",
   "about.components": "What is inside this build",
-  "about.components_asking": "Asking the core…",
-  "about.components_unavailable": "The core could not be asked, so nothing is listed here rather than a list that might be incomplete. The notices file named above carries the same information.",
+  "about.components_asking": "Reading the list…",
+  "about.components_unavailable": "The list could not be read, so nothing is shown here rather than a list that might be incomplete. The notices file named above carries the same information.",
 
   // Date calculator (chrono-mock 7.3). Slice G1 is the layout shell; more keys arrive with the wiring.
   "calc.presets_header": "Scenarios",
   "calc.filter_placeholder": "Search scenarios",
   "calc.preset_note": "A scenario is a starting point - not a certificate that your test is complete.",
   "calc.preset_params_header": "Parameters",
-  "calc.preset_needs_params": "Fill in the parameters below to compute this scenario.",
+  "calc.preset_needs_params": "Fill in the parameters above to compute this scenario.",
   "calc.build_header": "Build a date",
   "calc.start_point": "Start from",
   "calc.base_zone": "Time zone",
@@ -714,7 +712,7 @@
   "calc.reading.pl_day_month": "PL reading (DD/MM/YYYY)",
   "calc.reading.epoch_seconds": "Unix time in seconds",
   "calc.reading.epoch_millis": "Unix time in milliseconds",
-  "calc.analyze_zone": "A number is a moment, not a date - shown in {0}, the time zone chosen above.",
+  "calc.analyze_zone": "A number is a point in time, not a date - shown in {0}, the time zone chosen above.",
 
   // Calculator builder (G3b): base kinds, shift units, calendars, and the significance markers.
   "calc.base.today": "Today",
@@ -761,7 +759,7 @@
   // Two failures that are not the engine's: its answer arrived and was not usable. Rare, and worth saying
   // plainly rather than showing the reader a blank result they cannot explain.
   "calc.err.no_readings": "The analyser returned no readings for this input.",
-  "calc.err.incomplete_result": "The engine returned an incomplete result, so there is nothing reliable to show.",
+  "calc.err.incomplete_result": "The calculation engine returned an incomplete result, so there is nothing reliable to show.",
   "calc.err.timeout": "The calculation did not finish in time and was stopped. A calendar file with a very large number of holidays can do this.",
   // The engine could not be started at all - missing, quarantined, or not allowed to run (R4-S26). The
   // detail line beneath keeps the path, which is what somebody repairing the install needs.
@@ -829,13 +827,12 @@
   "tip.target_args": "Command line the application is started with. Quote an argument containing spaces, as you would in a terminal.",
   "tip.working_folder": "Folder the application starts in. Leave empty to start where it normally would.",
   "tip.browse_folder": "Pick the folder the application starts in.",
-  "tip.target_recent": "The targets you have run before. Choose… picks one this machine has not run yet.",
   "tip.scenario": "Pick a scenario to fill the date below. It never starts the session.",
   "tip.date_field": "Type the date as YYYY-MM-DD, or pick it from the calendar.",
   "tip.time_field": "Time as HH:MM (24-hour). Empty means midnight.",
   "tip.today": "Fill in today's date (session zone), at midnight.",
   "tip.now": "Fill in the current date and time (session zone).",
-  "tip.zone": "The session time zone - a fixed offset with no daylight saving. The moment is read in it.",
+  "tip.zone": "The session time zone - a fixed offset with no daylight saving. The date and time above are read in it.",
   "tip.relative_moment": "Fill the date above with now, shifted by this much - the command line spells it --at +30d. Months, quarters and years land on the calendar date, not on a fixed number of hours. This row makes one shift and no more, which is why it offers fewer choices than the calculator: business days are absent because a session carries no holiday calendar, and ready-made dates such as a month end are in the Scenario list above.",
   "tip.mode": "How fast the fake clock runs: ×1 is real speed, frozen stops it, and the rest run that many times faster.",
   "tip.scale_duration": "Also speed up timers, sleeps and countdowns inside the app - not just the wall clock.",
@@ -843,19 +840,18 @@
   "tip.embedded": "On by default. An application with a built-in web engine (WebView2, Qt WebEngine) runs its pages in a process the clock hook cannot enter. With this on, the engine is asked to open a local debugging port for the session and the pages follow the session clock through it. Untick it to leave those pages on the real clock and open no port.",
   "tip.elevated_embedded": "Off by default. An application that runs as administrator makes WebView2 ignore the setting the session reaches its pages through, so they stay on the real clock. With this on, the session writes one WebView2 option under HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, in a value named after the application's file, and removes it when the session ends. It needs Chrono Mock to run as administrator and an application started from an .exe. While it is set, every program started under that file name gets the debugging port too, and the application you start has administrator rights. A value left by a session that ended abruptly is removed the next time you start with this on.",
   "tip.keep_timers": "A web engine slows the timers of a minimized or hidden window to about once a second, so with time sped up a hidden window loses the speed-up. With this on, the application is started with that slowdown switched off.",
-  "tip.force": "Off by default. When the opening verdict says the substitution did not take effect, the target is stopped rather than handed to you, because its evidence would be about the real clock. Tick this to run anyway - the session is then marked unreliable everywhere it appears.",
-  "tip.start": "Launch the target under the fake clock. Needs a target and a valid moment.",
+  "tip.force": "Off by default. When the check right after the start shows that the fake clock did not take effect, the application is stopped rather than left running, because what it shows would come from the real clock. Tick this to run it anyway - the session is then marked unreliable everywhere it appears.",
   "tip.freeze": "Freeze the fake clock so it stops advancing.",
   "tip.set_speed": "Set any custom speed, e.g. 500.",
   "tip.stop": "Stop the session. The app returns to real time - it is not closed.",
   "tip.jump_to": "Move the fake clock to this date and time, read in the session zone.",
   "tip.copy_summary": "Copy a paste-ready session summary for a ticket.",
-  "tip.copy_diagnostics": "Copy the core diagnostics (its stderr) to attach to a support ticket.",
+  "tip.copy_diagnostics": "Copy what Chrono Mock logged during this session, to attach to a support ticket.",
   "tip.base_kind": "Where the calculation starts: today, now, or a specific date.",
   "tip.base_zone": "The zone the start point is read in - today is a different day either side of midnight. This machine's zone is used unless you pick another. Not the same as a to-zone step, which re-expresses the answer.",
   "tip.add_step": "Add a step: shift, snap, nearest business day, set time, or change zone.",
   "tip.calc_calendar": "The holiday and business-day calendar used by business-day and nearest steps.",
   "tip.custom_format": "Render the result with your own format mask (.NET/Java tokens).",
   "tip.analyze": "Paste a date to see how it reads - both interpretations when it is ambiguous.",
-  "tip.use_in_substitution": "Send this moment over to Run an app and fill its date. Available only when its zone is one of the offered session zones."
+  "tip.use_in_substitution": "Send this date and time to Run an app. Available only when its zone is one of the offered session zones."
 }

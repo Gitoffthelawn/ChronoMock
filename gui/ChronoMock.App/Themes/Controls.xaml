@@ -3,9 +3,10 @@
 
   <!--
     Custom dark control templates (zasady/13): the calendar toggle and the checkbox, so their checked and
-    hover states read cleanly on the dark base instead of the low-contrast wpfui defaults. This file lives
-    under Themes/, where design values (sizes, thicknesses) are DEFINED, so literals here are intentional
-    (the literal guard scans views, not Themes/). Colours still come from the named palette.
+    hover states read cleanly on the dark base instead of the low-contrast wpfui defaults. The design values
+    are DEFINED in Values.xaml and Colours.xaml - this file USES them like a view does, and the literal
+    guard (XamlLiteralGuard) scans it like one. The few literals left in the calendar toggle are its listed
+    allowances, each with the condition under which it goes.
   -->
 
   <!-- Calendar popup toggle (MomentInput): a quiet icon button. Checked (popup open) shows a subtle surface
@@ -191,12 +192,13 @@
     <Setter Property="Foreground" Value="{DynamicResource BrushTextPrimary}" />
     <Setter Property="Background" Value="{DynamicResource BrushBgSurfaceAlt}" />
     <Setter Property="BorderBrush" Value="{DynamicResource BrushStroke}" />
-    <Setter Property="MaxWidth" Value="320" />
+    <Setter Property="MaxWidth" Value="{StaticResource ToolTipMaxWidth}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ToolTip">
           <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                  BorderThickness="1" CornerRadius="4" Padding="10,6" SnapsToDevicePixels="True">
+                  BorderThickness="{StaticResource StrokeThinEdge}" CornerRadius="{StaticResource RadiusSm}"
+                  Padding="{StaticResource ToolTipPadding}" SnapsToDevicePixels="True">
             <TextBlock Text="{TemplateBinding Content}" TextWrapping="Wrap"
                        Foreground="{TemplateBinding Foreground}" FontSize="{DynamicResource FontSizeCaption}" />
           </Border>

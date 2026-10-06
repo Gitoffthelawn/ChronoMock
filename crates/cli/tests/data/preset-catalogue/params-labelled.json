@@ -1,0 +1,9 @@
+{
+  "schema": "chronomock.preset/1",
+  "id": "params-labelled",
+  "name": { "en": "params-labelled", "pl": "params-labelled (pl)" },
+  "explains": { "en": "A label in two languages, in English alone, as a non-text value in one language, and none.", "pl": "Przypadek testowy katalogu." },
+  "applies_to": "calculator",
+  "parameters": [ { "id": "start", "type": "date", "label": { "en": "Start of the period", "pl": "Początek okresu" }, "default": "2026-03-01" }, { "id": "length", "type": "duration", "label": { "en": "Length", "de": 7 }, "default": { "amount": 2, "unit": "month" } }, { "id": "boundary", "type": "variant", "default": "on_day" } ],
+  "moment": { "base": { "parameter": "start" }, "steps": [ { "shift": { "sign": "+", "parameter": "length" } }, { "shift": { "parameter": "boundary" } } ] }
+}

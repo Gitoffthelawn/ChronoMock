@@ -126,14 +126,18 @@ public class LiteralGuardTests
         var appDirectory = TestPaths.AppDirectory();
         var stale = new List<string>();
 
-        foreach (var (file, line, reason) in XamlLiteralGuard.Allowances)
+        foreach (var (file, style, line, reason) in XamlLiteralGuard.Allowances)
         {
+            // In its own style, not anywhere in the file: R4/19 found an allowance for one control's face
+            // still matching after that control moved to tokens, because another template had the same line.
             var path = Path.Combine(appDirectory, file.Replace('/', Path.DirectorySeparatorChar));
             var present = File.Exists(path)
-                && File.ReadAllLines(path).Any(l => string.Equals(l.Trim(), line, StringComparison.Ordinal));
+                && XamlLiteralGuard.StyledLines(File.ReadAllText(path)).Any(l
+                    => string.Equals(l.Style, style, StringComparison.Ordinal)
+                       && string.Equals(l.Line.Trim(), line, StringComparison.Ordinal));
             if (!present)
             {
-                stale.Add($"  {file}: {line}   (reason: {reason})");
+                stale.Add($"  {file} [{style}]: {line}   (reason: {reason})");
             }
         }
 
@@ -149,10 +153,72 @@ public class LiteralGuardTests
     [Fact]
     public void An_allowance_silences_only_its_own_line()
     {
-        var (file, line, _) = XamlLiteralGuard.Allowances[0];
+        var (file, style, line, _) = XamlLiteralGuard.Allowances[0];
+        var inItsStyle = $"<Style x:Key=\"{style}\" TargetType=\"Button\">\n{line}\n</Style>";
+        var inAnotherStyle = $"<Style TargetType=\"ToolTip\">\n{line}\n</Style>";
 
-        Assert.Empty(XamlLiteralGuard.FindViolations(file, line));
+        Assert.Empty(XamlLiteralGuard.FindViolations(file, inItsStyle));
         Assert.NotEmpty(XamlLiteralGuard.FindViolations(file, """<Border Margin="7" />"""));
-        Assert.NotEmpty(XamlLiteralGuard.FindViolations("Themes/Somewhere.xaml", line));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("Themes/Somewhere.xaml", inItsStyle));
+
+        // The same text in another style of the same file is another control, not the excused one.
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations(file, inAnotherStyle));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations(file, line));
+    }
+
+    /// <summary>A style is named by its key even when its type comes first, and an implicit one by its type.</summary>
+    [Fact]
+    public void A_line_is_placed_in_the_style_around_it()
+    {
+        var content = "<Style TargetType=\"Button\" x:Key=\"Keyed\">\na\n</Style>\nb\n<Style TargetType=\"ToolTip\">\nc\n</Style>";
+        var styles = XamlLiteralGuard.StyledLines(content)
+            .Where(l => l.Line is "a" or "b" or "c")
+            .ToDictionary(l => l.Line, l => l.Style);
+
+        Assert.Equal("Keyed", styles["a"]);
+        Assert.Equal(string.Empty, styles["b"]);
+        Assert.Equal("ToolTip", styles["c"]);
+    }
+
+    /// <summary>
+    /// GUI rule 12 (R4/19): a size, its floor and its ceiling are tokens like a colour is. Both the attribute
+    /// and the setter form are probed - they are two rules, and a typo in one would leave that half open.
+    /// </summary>
+    [Fact]
+    public void Guard_reddens_on_a_literal_size()
+    {
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBox Width="56" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<ComboBox MinWidth="110" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border MaxHeight="280" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<ColumnDefinition Width="104" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<ui:FluentWindow Width="440" """));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="MaxWidth" Value="320" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="FrameworkElement.MinHeight" Value="12.5" />"""));
+    }
+
+    /// <summary>A zero size or ceiling collapses the control, so only a zero FLOOR passes - the attribute and
+    /// the setter form alike.</summary>
+    [Fact]
+    public void Guard_reddens_on_a_zero_size_or_ceiling()
+    {
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBox Width="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border Height="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border MaxWidth="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="MaxHeight" Value="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="Width" Value="0" />"""));
+    }
+
+    /// <summary>A share of the space, Auto, a named size and a zero floor (a toolkit floor taken away) are
+    /// not sizes anybody typed in, so none of them may redden.</summary>
+    [Fact]
+    public void Guard_allows_a_share_auto_a_name_and_zero()
+    {
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<ColumnDefinition Width="1.15*" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<ColumnDefinition Width="*" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<RowDefinition Height="Auto" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBox Width="{StaticResource ShiftAmountWidth}" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<ui:FluentWindow MinHeight="0" """));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Border MinWidth="0" />"""));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="MinHeight" Value="0" />"""));
     }
 }

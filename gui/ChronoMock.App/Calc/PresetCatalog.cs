@@ -50,8 +50,12 @@ public sealed record PresetInfo(
     /// <summary>The "what this date tests" framing in the given culture, English fallback.</summary>
     public string LocalizedExplains(string culture) => Localized(Explains, culture);
 
-    private static string Localized(IReadOnlyDictionary<string, string> map, string culture)
-        => map.TryGetValue(culture, out var value) ? value
+    /// <summary>One text of a preset file in the given culture, falling back to English, empty when the
+    /// file has neither - the one rule for every per-language text a preset carries. A blank text counts
+    /// as missing, so a language written as " " falls back to English rather than showing nothing.</summary>
+    internal static string Localized(IReadOnlyDictionary<string, string>? map, string culture)
+        => map is null ? string.Empty
+            : map.TryGetValue(culture, out var value) && !string.IsNullOrWhiteSpace(value) ? value
             : map.TryGetValue(LocalizationService.DefaultCulture, out var fallback) ? fallback
             : string.Empty;
 }

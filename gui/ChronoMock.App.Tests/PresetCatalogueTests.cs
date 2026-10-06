@@ -1,4 +1,5 @@
 using ChronoMock.App.Calc;
+using ChronoMock.App.Localization;
 using ChronoMock.Protocol;
 
 namespace ChronoMock.App.Tests;
@@ -28,9 +29,9 @@ public class PresetCatalogueTests
         var catalogue = TestCatalogues.TestCatalogue();
 
         Assert.Equal(PresetCatalogue.SupportedSchema, catalogue.Schema);
-        // Fifteen files the engine accepts, thirty it refuses (crates/cli/tests/data/preset-catalogue).
-        Assert.Equal(15, catalogue.Presets.Count);
-        Assert.Equal(30, catalogue.Refused.Count);
+        // Sixteen files the engine accepts, thirty-two it refuses (crates/cli/tests/data/preset-catalogue).
+        Assert.Equal(16, catalogue.Presets.Count);
+        Assert.Equal(32, catalogue.Refused.Count);
         Assert.All(catalogue.Refused, r => Assert.False(string.IsNullOrWhiteSpace(r.Reason)));
     }
 
@@ -160,6 +161,42 @@ public class PresetCatalogueTests
     public void An_unknown_culture_falls_back_to_english()
         => Assert.Equal("Last day of month", TestCatalogues.ShippedPreset("month-end").LocalizedName("xx"));
 
+    /// <summary>
+    /// R4/19: every parameter of a shipped preset has a name in every language of the window, from the
+    /// engine's own answer for the presets folder. Without it the window shows the id above the field in
+    /// every language ("trial length"), which is what it did before labels existed - and a preset added
+    /// later without one would bring that back for its own fields only, where nobody looks.
+    /// </summary>
+    [Fact]
+    public void Every_shipped_parameter_is_named_in_every_language_of_the_window()
+    {
+        var cultures = LocalizationService.AvailableCultures();
+        var parameters = TestCatalogues.Shipped().Presets
+            .SelectMany(p => p.Parameters.Select(q => (Preset: p.Id, Parameter: q)))
+            .ToList();
+        var unnamed = parameters
+            .SelectMany(p => cultures
+                .Where(c => p.Parameter.Label is null || !p.Parameter.Label.TryGetValue(c, out var text) || string.IsNullOrWhiteSpace(text))
+                .Select(c => $"{p.Preset}.{p.Parameter.Id} ({c})"))
+            .ToList();
+
+        Assert.True(parameters.Count >= 9, $"only {parameters.Count} shipped parameters were read");
+        Assert.True(cultures.Count >= 2, "expected at least English and Polish, found: " + string.Join(", ", cultures));
+        Assert.True(unnamed.Count == 0, "parameters without a name in a language of the window: " + string.Join(", ", unnamed));
+    }
+
+    /// <summary>A label in two languages, in English alone, with a non-text language left out, and none -
+    /// as the engine hands the test catalogue on.</summary>
+    [Fact]
+    public void A_parameters_label_arrives_as_the_engine_reads_it()
+    {
+        var parameters = Listed("params-labelled").Parameters;
+
+        Assert.Equal("Początek okresu", parameters.Single(p => p.Id == "start").Label!["pl"]);
+        Assert.Equal(["en"], parameters.Single(p => p.Id == "length").Label!.Keys);
+        Assert.Empty(parameters.Single(p => p.Id == "boundary").Label!);
+    }
+
     [Fact]
     public async Task The_calculator_and_the_panel_share_one_read()
     {
@@ -218,7 +255,7 @@ public class PresetCatalogueTests
 
         Assert.True(vm.PresetStatus.IsReady);
         Assert.True(vm.PresetStatus.HasLeftOut);
-        Assert.Equal(30, vm.PresetStatus.LeftOut);
+        Assert.Equal(32, vm.PresetStatus.LeftOut);
         Assert.Contains("step-to-zone.json - ", vm.PresetStatus.LeftOutFiles, StringComparison.Ordinal);
         Assert.All(vm.Presets, p => Assert.True(p.Info.ForCalculator));
         Assert.DoesNotContain(vm.Presets, p => p.Info.Id == "time-mode-x60"); // substitution only
