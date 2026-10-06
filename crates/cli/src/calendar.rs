@@ -22,12 +22,19 @@ use serde::Deserialize;
 /// has to be refused as that - read strictly first, it would be refused over whichever of its new
 /// fields came first, and the reader would chase a typo that is not there.
 #[derive(Deserialize)]
+#[serde(expecting = "a calendar - an object with schema, id, country, weekend, observed, valid_from, law_as_of, source and holidays")]
 struct SchemaDto {
     schema: String,
 }
 
+// 🔴 EVERY DTO HERE AND IN preset.rs NAMES WHAT IT EXPECTS IN THE FILE'S OWN WORDS (`expecting`), or
+// serde names the Rust type instead - "expected struct NameDto", in front of somebody who wrote JSON.
+// A test reads both files and refuses a derive without it. The rest of serde's words: `json_refusal`.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    deny_unknown_fields,
+    expecting = "a calendar - an object with schema, id, country, weekend, observed, valid_from, law_as_of, source and holidays"
+)]
 pub(crate) struct CalendarDto {
     // Read by `SchemaDto` before this struct is. Named here so the field itself is not unknown.
     #[serde(rename = "schema")]
@@ -62,7 +69,7 @@ pub(crate) struct CalendarDto {
 pub(crate) const FIRST_GREGORIAN_YEAR: i64 = 1583;
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, expecting = "a holiday - an object with id, name, rule and source")]
 pub(crate) struct HolidayDto {
     id: String,
     name: NameDto,
@@ -75,7 +82,7 @@ pub(crate) struct HolidayDto {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, expecting = "a name - an object with en and local")]
 pub(crate) struct NameDto {
     en: String,
     local: String,
@@ -85,7 +92,12 @@ pub(crate) struct NameDto {
 // was relied on: a stray field in any rule is refused, the `type` tag itself is not, and it does not
 // matter where in the object the tag stands.
 #[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    deny_unknown_fields,
+    expecting = "a rule - an object with type (fixed, nth_weekday or easter_offset) and its fields"
+)]
 pub(crate) enum RuleDto {
     Fixed { month: u32, day: u32 },
     NthWeekday { month: u32, weekday: String, order: i32 },
@@ -350,11 +362,58 @@ pub(crate) fn read_catalogue_file(path: &std::path::Path) -> Result<String, Stri
     String::from_utf8(bytes).map_err(|e| format!("cannot read {}: it is not UTF-8 text ({e})", path.display()))
 }
 
+/// serde's own words for a shape, as the person who wrote the file would put them. Checked in order,
+/// each one replaced wherever it stands.
+const SERDE_WORDS: [(&str, &str); 7] = [
+    // A step written as its bare name, `"snap"` where `{"snap": "end-of-month"}` belongs. Only a preset
+    // step can produce it: the one enum in either reader whose variants carry a value.
+    (
+        "invalid type: unit variant, expected newtype variant",
+        "invalid type: a step name on its own, expected the name with its value, like {\"snap\": \"end-of-month\"}",
+    ),
+    ("invalid type: map", "invalid type: object"),
+    ("invalid type: sequence", "invalid type: list"),
+    ("expected a sequence", "expected a list"),
+    ("expected i64", "expected a whole number"),
+    ("expected i32", "expected a whole number"),
+    ("expected u32", "expected a whole number, zero or more"),
+];
+
+/// A JSON refusal of a catalogue file - a preset or a calendar - in the words of whoever wrote it.
+///
+/// 🔴 serde names what it expected by the RUST TYPE it was building: "expected struct PresetTextDto",
+/// "data did not match any variant of untagged enum BaseDto", "expected u32". That sentence went
+/// straight to the CLI and to the window's list of skipped files, in front of somebody who wrote JSON
+/// and has never seen the code. Every DTO carries its own `expecting` text for its half of it, and the
+/// rest of serde's vocabulary, which no attribute reaches, is translated here.
+///
+/// The place in the file moves to the front, where it does not run on from a JSON example. And a list
+/// given where an object belongs is called that: serde reads a struct from a list too, by position, so
+/// it complained about a LENGTH ("invalid length 0, expected struct PresetDto with 9 elements") and
+/// told the author that a preset could be an array.
+pub(crate) fn json_refusal(kind: &str, error: &serde_json::Error) -> String {
+    let full = error.to_string();
+    let at = format!(" at line {} column {}", error.line(), error.column());
+    let (said, place) = match full.strip_suffix(&at) {
+        Some(said) if error.line() > 0 => (said, format!(" at line {}, column {}", error.line(), error.column())),
+        _ => (full.as_str(), String::new()),
+    };
+    let mut said = match said.strip_prefix("invalid length ").and_then(|rest| rest.split_once(", expected ")) {
+        Some((_, expected)) => format!("invalid type: list, expected {expected}"),
+        None => said.to_string(),
+    };
+    for (theirs, ours) in SERDE_WORDS {
+        said = said.replace(theirs, ours);
+    }
+
+    format!("bad {kind} JSON{place}: {said}")
+}
+
 /// Parse and validate a calendar from its JSON text, mapping the `chronomock.calendar/1` schema to the
 /// engine's types. Separated from the on-disk lookup (symmetry with `parse_preset`) so the shipped
 /// calendars can be golden-tested against the real engine without the file-resolution step.
 pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Calendar, String> {
-    let schema: SchemaDto = serde_json::from_str(text).map_err(|e| format!("bad calendar JSON: {e}"))?;
+    let schema: SchemaDto = serde_json::from_str(text).map_err(|e| json_refusal("calendar", &e))?;
     // An unknown major schema version is refused, not half-understood (docs/04 section 3.1).
     if schema.schema != "chronomock.calendar/1" {
         return Err(format!(
@@ -362,7 +421,7 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
             schema.schema
         ));
     }
-    let dto: CalendarDto = serde_json::from_str(text).map_err(|e| format!("bad calendar JSON: {e}"))?;
+    let dto: CalendarDto = serde_json::from_str(text).map_err(|e| json_refusal("calendar", &e))?;
     let mut weekend = dto.weekend.iter().map(|w| weekday_index(w)).collect::<Result<Vec<_>, _>>()?;
     // Duplicates are harmless to the engine (membership is a contains) but they hide a typo, and
     // they make the count below meaningless - so fold them away before counting.
@@ -669,6 +728,77 @@ mod tests {
         let contract = cal(r#","stability":"unstable","subregion":null,"name":{"en":"X","local":"X"}"#, "", "", "");
         calendar_from_text(&contract).expect("the contract's fields load");
         calendar_from_text(&cal("", "", "", "")).expect("and a file without them loads as before");
+    }
+
+    /// PR A finding (g), the calendar half: a wrong JSON type anywhere in a calendar - the catalogue
+    /// people outside the project are invited to write - is refused in the file's own words, place first.
+    /// Measured before the fix: five positions named a Rust type (`SchemaDto`, `NameDto` twice,
+    /// `HolidayDto`, "internally tagged enum RuleDto"), two said "i64" or "u32", two "map" or "sequence".
+    #[test]
+    fn a_wrong_type_anywhere_in_a_calendar_is_refused_in_the_files_own_words() {
+        let shipped: serde_json::Value = serde_json::from_str(&read_data("calendars/pl.json")).expect("pl parses");
+        let with = |change: &dyn Fn(&mut serde_json::Value)| {
+            let mut calendar = shipped.clone();
+            change(&mut calendar);
+            calendar.to_string()
+        };
+        let cases = [
+            ("a calendar as a list", "[]".to_string()),
+            ("a weekend as a word", with(&|c| c["weekend"] = "saturday".into())),
+            ("a first year as text", with(&|c| c["valid_from"] = "2002".into())),
+            ("a title as plain text", with(&|c| c["name"] = "Poland".into())),
+            ("holidays as an object", with(&|c| c["holidays"] = serde_json::json!({}))),
+            ("a holiday as a word", with(&|c| c["holidays"] = serde_json::json!(["new-year"]))),
+            ("a holiday name as plain text", with(&|c| c["holidays"][0]["name"] = "New Year".into())),
+            ("a rule as a word", with(&|c| c["holidays"][0]["rule"] = "fixed".into())),
+            ("a month as text", with(&|c| c["holidays"][0]["rule"]["month"] = "1".into())),
+        ];
+        for (what, text) in &cases {
+            let refusal = calendar_from_text(text).expect_err(what);
+            assert!(refusal.starts_with("bad calendar JSON at line "), "{what}: the place comes first - {refusal}");
+            for word in ["Dto", "struct ", "enum ", "i64", "i32", "u32", "sequence", "map", "invalid length"] {
+                assert!(!refusal.contains(word), "{what}: says {word:?} - {refusal}");
+            }
+        }
+
+        let after_place = |text: &str| {
+            let refusal = calendar_from_text(text).expect_err("refused");
+            refusal.split_once(": ").map(|(_, said)| said.to_string()).unwrap_or_default()
+        };
+        assert_eq!(
+            after_place(&cases[7].1),
+            r#"invalid type: string "fixed", expected a rule - an object with type (fixed, nth_weekday or easter_offset) and its fields"#
+        );
+        assert_eq!(after_place(&cases[3].1), r#"invalid type: string "Poland", expected a name - an object with en and local"#);
+        assert_eq!(after_place(&cases[8].1), r#"invalid type: string "1", expected a whole number, zero or more"#);
+    }
+
+    /// The guard behind both halves of finding (g): every DTO of a file people write by hand says what it
+    /// expects in the file's words. Without `expecting`, a DTO added later would put its Rust name back in
+    /// front of the author on the first wrong type, and no test of today's positions would notice.
+    #[test]
+    fn every_dto_of_a_hand_written_file_names_what_it_expects() {
+        for (file, source, at_least) in [("calendar.rs", include_str!("calendar.rs"), 5), ("preset.rs", include_str!("preset.rs"), 9)] {
+            let lines: Vec<&str> = source.lines().collect();
+            let mut derives = 0;
+            for (at, line) in lines.iter().enumerate() {
+                if !(line.trim_start().starts_with("#[derive(") && line.contains("Deserialize")) {
+                    continue;
+                }
+                derives += 1;
+                let attributes: Vec<&str> = lines[at..]
+                    .iter()
+                    .take_while(|l| !l.contains("struct ") && !l.contains("enum "))
+                    .copied()
+                    .collect();
+                assert!(
+                    attributes.iter().any(|l| l.contains("expecting = ")),
+                    "{file}:{}: a DTO without `expecting` - serde would name its Rust type to the author",
+                    at + 1
+                );
+            }
+            assert!(derives >= at_least, "{file}: found {derives} DTOs, expected at least {at_least} - is the scan reading the file?");
+        }
     }
 
     /// A file written to a later schema is refused as that, not over its first new field. Read

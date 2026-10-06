@@ -29,9 +29,9 @@ public class PresetCatalogueTests
         var catalogue = TestCatalogues.TestCatalogue();
 
         Assert.Equal(PresetCatalogue.SupportedSchema, catalogue.Schema);
-        // Sixteen files the engine accepts, thirty-two it refuses (crates/cli/tests/data/preset-catalogue).
+        // Sixteen files the engine accepts, thirty-five it refuses (crates/cli/tests/data/preset-catalogue).
         Assert.Equal(16, catalogue.Presets.Count);
-        Assert.Equal(32, catalogue.Refused.Count);
+        Assert.Equal(35, catalogue.Refused.Count);
         Assert.All(catalogue.Refused, r => Assert.False(string.IsNullOrWhiteSpace(r.Reason)));
     }
 
@@ -255,7 +255,7 @@ public class PresetCatalogueTests
 
         Assert.True(vm.PresetStatus.IsReady);
         Assert.True(vm.PresetStatus.HasLeftOut);
-        Assert.Equal(32, vm.PresetStatus.LeftOut);
+        Assert.Equal(35, vm.PresetStatus.LeftOut);
         Assert.Contains("step-to-zone.json - ", vm.PresetStatus.LeftOutFiles, StringComparison.Ordinal);
         Assert.All(vm.Presets, p => Assert.True(p.Info.ForCalculator));
         Assert.DoesNotContain(vm.Presets, p => p.Info.Id == "time-mode-x60"); // substitution only

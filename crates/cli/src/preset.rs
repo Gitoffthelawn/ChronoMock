@@ -148,7 +148,10 @@ impl PresetError {
     }
 }
 
+// Each DTO names what it expects in the file's own words (`expecting`), never by its Rust name - see
+// `calendar::json_refusal`. A test there holds every derive in this file to it.
 #[derive(Deserialize)]
+#[serde(expecting = "a preset - an object with schema, id, name, explains, applies_to and moment")]
 pub(crate) struct PresetDto {
     schema: String,
     id: String,
@@ -171,6 +174,7 @@ pub(crate) struct PresetDto {
 
 /// A preset's `time_mode` object (docs/04 4.2): `{ "multiplier": N, "scale_duration_clock": bool }`.
 #[derive(Deserialize)]
+#[serde(expecting = "a time mode - an object like {\"multiplier\": 60}")]
 pub(crate) struct TimeModeDto {
     #[serde(default)]
     multiplier: Option<i64>,
@@ -182,6 +186,7 @@ pub(crate) struct TimeModeDto {
 /// "default_hint"? }`. `default` shape depends on `type` (a string for `date`, `{ amount, unit }` for
 /// `duration`), so it stays a raw value here and is parsed against the type in `parse_parameter`.
 #[derive(Deserialize)]
+#[serde(expecting = "a parameter - an object with id and type")]
 pub(crate) struct ParameterDto {
     id: String,
     #[serde(rename = "type")]
@@ -199,6 +204,7 @@ pub(crate) struct ParameterDto {
 
 /// A `duration` value/`default` object: `{ "amount": N, "unit": "days" }` (docs/04 4.2).
 #[derive(Deserialize)]
+#[serde(expecting = "an amount and a unit - an object like {\"amount\": 2, \"unit\": \"months\"}")]
 pub(crate) struct DurationDto {
     amount: i64,
     unit: String,
@@ -210,6 +216,7 @@ pub(crate) struct DurationDto {
 /// language whose value is not text is left out rather than refusing the file - the window's own
 /// reader left it out too, and a file listed there has to stay usable here.
 #[derive(Deserialize)]
+#[serde(expecting = "a text in each language - an object like {\"en\": \"...\", \"pl\": \"...\"} with en required")]
 pub(crate) struct PresetTextDto {
     en: String,
     #[serde(flatten)]
@@ -233,6 +240,7 @@ impl PresetTextDto {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(expecting = "a moment - an object with base and steps")]
 pub(crate) struct MomentDto {
     pub(crate) base: BaseDto,
     #[serde(default)]
@@ -247,8 +255,10 @@ pub(crate) struct MomentDto {
 /// the SESSION zone (rule 2), `absolute_utc` is an instant. A preset whose meaning is "9 AM local"
 /// wants the first, a preset whose meaning is "epoch second 0" wants the second - and using the
 /// first for the second is how these presets came to miss their target by exactly the zone offset.
+///
+/// Untagged, so serde's whole sentence for a base that fits no variant is the `expecting` text.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
+#[serde(untagged, expecting = "base must be \"today\", \"now\" or an object with absolute, absolute_utc or parameter")]
 pub(crate) enum BaseDto {
     Keyword(String),
     Object {
@@ -265,7 +275,7 @@ pub(crate) enum BaseDto {
 /// `{ "set_time": "HH:MM:SS" }`, `{ "snap": "end-of-month" }`, `{ "nearest": "next-business-day" }`,
 /// `{ "zone": "+05:45" }`. The string forms reuse the CLI parsers, keeping one grammar.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", expecting = "a step - an object with one of shift, set_time, snap, nearest, zone")]
 pub(crate) enum StepDto {
     Shift(ShiftDto),
     SetTime(String),
@@ -278,6 +288,7 @@ pub(crate) enum StepDto {
 /// resolved from a `duration`, or a parametric `{ parameter }` resolved from a `variant` (docs/04 4.2).
 /// The sign is optional because a `variant` parameter carries its own direction (docs/05 3.6).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(expecting = "a shift - an object with sign, amount and unit, or with parameter")]
 pub(crate) struct ShiftDto {
     #[serde(default)]
     sign: Option<String>,
@@ -492,7 +503,7 @@ pub(crate) fn parse_shift_sign(sign: &Option<String>) -> Result<Sign, PresetErro
 /// a non-parametric preset resolves trivially (empty values). Unknown major schema is refused.
 pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
     let dto: PresetDto =
-        serde_json::from_str(text).map_err(|e| PresetError::BadFile(format!("bad preset JSON: {e}")))?;
+        serde_json::from_str(text).map_err(|e| PresetError::BadFile(crate::calendar::json_refusal("preset", &e)))?;
     if dto.schema != "chronomock.preset/1" {
         return Err(PresetError::BadFile(format!(
             "unsupported preset schema '{}' (this build reads chronomock.preset/1)",
@@ -1205,6 +1216,83 @@ mod tests {
         assert!(parse_preset(&preset("")).unwrap().parameters[0].label_texts.is_empty());
         assert!(parse_preset(&preset(r#","label":{"pl":"Początek"}"#)).is_err(), "English is required");
         assert!(parse_preset(&preset(r#","label":"Start""#)).is_err(), "one text per language, not a string");
+    }
+
+    /// What serde says about a file when it names the Rust instead of the file: a type of ours, one of
+    /// its own, or a word for a shape that JSON calls something else. Each one was in a measured refusal.
+    const RUST_WORDS: [&str; 10] =
+        ["Dto", "struct ", "enum ", "i64", "i32", "u32", "sequence", "map", "variant, expected", "invalid length"];
+
+    /// PR A finding (g): a wrong JSON type anywhere in a preset is refused in the file's own words, with
+    /// the place first. Measured before the fix on every one of these positions: nine of them named a
+    /// Rust type ("expected struct PresetTextDto" for a label written as plain text, "untagged enum
+    /// BaseDto"), and the rest said "i64", "map", "sequence" or "unit variant, expected newtype variant"
+    /// to somebody who wrote JSON. The accepted wordings are pinned exactly, the rest by the words left out.
+    #[test]
+    fn a_wrong_type_anywhere_in_a_preset_is_refused_in_the_files_own_words() {
+        let preset = |name: &str, params: &str, time_mode: &str, moment: &str| {
+            format!(
+                r#"{{"schema":"chronomock.preset/1","id":"x","name":{name},"explains":{{"en":"e"}},
+                "applies_to":"both","parameters":{params}{time_mode},"moment":{moment}}}"#
+            )
+        };
+        let name = r#"{"en":"n"}"#;
+        let moment = |steps: &str| format!(r#"{{"base":"today","steps":{steps}}}"#);
+        let cases = [
+            ("a name as plain text", preset(r#""Start""#, "[]", "", &moment("[]"))),
+            ("a list of words for parameters", preset(name, r#""x""#, "", &moment("[]"))),
+            ("a parameter as a word", preset(name, r#"["x"]"#, "", &moment("[]"))),
+            ("a label as plain text", preset(name, r#"[{"id":"a","type":"date","label":"Start"}]"#, "", &moment("[]"))),
+            ("a time mode as a word", preset(name, "[]", r#","time_mode":"x60""#, &moment("[]"))),
+            ("a multiplier as text", preset(name, "[]", r#","time_mode":{"multiplier":"60"}"#, &moment("[]"))),
+            ("a moment as a word", preset(name, "[]", "", r#""now""#)),
+            ("a base as a number", preset(name, "[]", "", r#"{"base":5,"steps":[]}"#)),
+            ("an absolute base as a number", preset(name, "[]", "", r#"{"base":{"absolute":5},"steps":[]}"#)),
+            ("steps as an object", preset(name, "[]", "", &moment(r#"{"snap":"end-of-month"}"#))),
+            ("a step as its bare name", preset(name, "[]", "", &moment(r#"["snap"]"#))),
+            ("a shift as a phrase", preset(name, "[]", "", &moment(r#"[{"shift":"+1 day"}]"#))),
+            ("a shift amount as text", preset(name, "[]", "", &moment(r#"[{"shift":{"sign":"+","amount":"1","unit":"day"}}]"#))),
+            ("a whole preset as a list", "[]".to_string()),
+            // Nine values that serde would take for the nine fields, by position, and one more. Measured:
+            // serde_json itself calls the tenth "trailing characters", which names no Rust.
+            (
+                "a whole preset as a long list",
+                r#"["chronomock.preset/1","x",{"en":"n"},{"en":"e"},"calculator",[],{"base":"today"},null,null,10]"#
+                    .to_string(),
+            ),
+        ];
+        for (what, text) in &cases {
+            let refusal = match parse_preset(text) {
+                Err(PresetError::BadFile(m)) => m,
+                Err(other) => panic!("{what}: refused as {}, not as a bad file", other.message()),
+                Ok(_) => panic!("{what}: loaded"),
+            };
+            assert!(refusal.starts_with("bad preset JSON at line "), "{what}: the place comes first - {refusal}");
+            for word in RUST_WORDS {
+                assert!(!refusal.contains(word), "{what}: says {word:?} - {refusal}");
+            }
+        }
+
+        let refusal = |text: &str| parse_preset(text).err().map(|e| e.message().to_string()).unwrap_or_default();
+        let after_place = |text: &str| refusal(text).split_once(": ").map(|(_, said)| said.to_string()).unwrap_or_default();
+        assert_eq!(
+            after_place(&cases[3].1),
+            r#"invalid type: string "Start", expected a text in each language - an object like {"en": "...", "pl": "..."} with en required"#
+        );
+        assert_eq!(
+            after_place(&cases[7].1),
+            r#"base must be "today", "now" or an object with absolute, absolute_utc or parameter"#
+        );
+        assert_eq!(
+            after_place(&cases[10].1),
+            r#"invalid type: a step name on its own, expected the name with its value, like {"snap": "end-of-month"}"#
+        );
+        assert_eq!(after_place(&cases[5].1), r#"invalid type: string "60", expected a whole number"#);
+        assert_eq!(
+            after_place("[]"),
+            "invalid type: list, expected a preset - an object with schema, id, name, explains, applies_to and moment"
+        );
+        assert_eq!(refusal("[]"), format!("bad preset JSON at line 1, column 2: {}", after_place("[]")));
     }
 
     /// R4-N33. Every one of these used to load and be settled by the order of the reader's code: the
