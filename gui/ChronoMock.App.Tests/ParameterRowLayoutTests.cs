@@ -48,7 +48,12 @@ public sealed class ParameterRowLayoutTests
                 vm.SelectedPreset = preset;
                 LayoutProbe.Settle(view, floor, Tall);
                 var parts = OutsideTheCard(view);
-                Assert.True(parts.Inside > 0, $"{preset.Info.Id}: no parameter input was laid out");
+
+                // Every parameter has at least one editor - a date box, an amount box, a choice - and the
+                // block's heading is not one: counting the heading let this pass with no input laid out.
+                Assert.True(
+                    parts.Editors >= vm.ParamInputs.Count,
+                    $"{preset.Info.Id}: {parts.Editors} editors laid out for {vm.ParamInputs.Count} parameters");
                 withParameters++;
                 found.AddRange(parts.Outside.Select(o => $"{preset.Info.Id}: {o}"));
             }
@@ -60,9 +65,12 @@ public sealed class ParameterRowLayoutTests
         Assert.True(complaints.Count == 0, string.Join("\n", complaints));
     }
 
+    /// <summary>The kinds a parameter is edited with: the date input's box, the amount, the unit and the choice.</summary>
+    private static readonly HashSet<string> EditorKinds = new(StringComparer.Ordinal) { "TextBox", "ComboBox" };
+
     /// <summary>The visible parts of the parameter block that reach past the card's inner edge, and how
-    /// many stayed inside.</summary>
-    private static (List<string> Outside, int Inside) OutsideTheCard(FrameworkElement view)
+    /// many visible editors it laid out.</summary>
+    private static (List<string> Outside, int Editors) OutsideTheCard(FrameworkElement view)
     {
         var elements = LayoutProbe.Walk(view);
         var block = IndexOf(elements, "PresetParameters");
@@ -76,7 +84,7 @@ public sealed class ParameterRowLayoutTests
             edge.Height);
 
         var outside = new List<string>();
-        var inside = 0;
+        var editors = 0;
         for (int i = 0; i < elements.Count; i++)
         {
             var e = elements[i];
@@ -85,17 +93,18 @@ public sealed class ParameterRowLayoutTests
                 continue;
             }
 
+            if (EditorKinds.Contains(e.Kind))
+            {
+                editors++;
+            }
+
             if (e.Bounds.Left < inner.Left - Tolerance || e.Bounds.Right > inner.Right + Tolerance)
             {
                 outside.Add($"{e.Kind} '{e.Name}' at x {e.Bounds.Left:F0}..{e.Bounds.Right:F0}, card inner edge {inner.Left:F0}..{inner.Right:F0}");
             }
-            else
-            {
-                inside++;
-            }
         }
 
-        return (outside, inside);
+        return (outside, editors);
     }
 
     private static int IndexOf(IReadOnlyList<LaidOutElement> elements, string name)

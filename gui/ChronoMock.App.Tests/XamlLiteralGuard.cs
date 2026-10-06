@@ -51,11 +51,12 @@ internal static class XamlLiteralGuard
         // Value lookaheads keep the same exemptions - a markup extension, Transparent, a bare 0.
         ("setter-colour", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(Foreground|Background|Fill|Stroke|BorderBrush|Color)")(?=[^>]*\bValue\s*=\s*"(?!\{|Transparent"))""", RegexOptions.Compiled)),
         ("setter-spacing", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(Margin|Padding|BorderThickness|CornerRadius|FontSize)")(?=[^>]*\bValue\s*=\s*"(?!0")[0-9.\-])""", RegexOptions.Compiled)),
-        // A literal size, its floor or its ceiling. "0" is allowed - on a window it removes a floor the toolkit
-        // sets (a FluentWindow's own MinHeight), which is not a size anybody chose. A star share ("1.15*") and
-        // Auto never match, because the number has to run to the closing quote.
-        ("geometry", new Regex("""(?i)\b(Min|Max)?(Width|Height)\s*=\s*"(?!0")[0-9.]+(?=")""", RegexOptions.Compiled)),
-        ("setter-geometry", new Regex("""(?i)<Setter\b(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(Min|Max)?(Width|Height)")(?=[^>]*\bValue\s*=\s*"(?!0")[0-9.]+")""", RegexOptions.Compiled)),
+        // A literal size, its floor or its ceiling. A FLOOR of "0" is allowed - on a window it removes a floor
+        // the toolkit sets (a FluentWindow's own MinHeight), which is not a size anybody chose. A size or a
+        // ceiling of "0" is not: it collapses the control. A star share ("1.15*") and Auto never match,
+        // because the number has to run to the closing quote.
+        ("geometry", new Regex("""(?i)\b(?:(?:Max)?(?:Width|Height)\s*=\s*"[0-9.]+(?=")|Min(?:Width|Height)\s*=\s*"(?!0")[0-9.]+(?="))""", RegexOptions.Compiled)),
+        ("setter-geometry", new Regex("""(?i)<Setter\b(?:(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?(?:Max)?(?:Width|Height)")(?=[^>]*\bValue\s*=\s*"[0-9.]+")|(?=[^>]*\bProperty\s*=\s*"(?:\w+\.)?Min(?:Width|Height)")(?=[^>]*\bValue\s*=\s*"(?!0")[0-9.]+"))""", RegexOptions.Compiled)),
     ];
 
     // The style a line sits in: its key, or for an implicit style the type it styles. Two expressions, not

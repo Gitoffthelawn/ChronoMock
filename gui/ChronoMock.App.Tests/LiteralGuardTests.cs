@@ -196,7 +196,19 @@ public class LiteralGuardTests
         Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="FrameworkElement.MinHeight" Value="12.5" />"""));
     }
 
-    /// <summary>A share of the space, Auto, a named size and a bare zero (a toolkit floor taken away) are
+    /// <summary>A zero size or ceiling collapses the control, so only a zero FLOOR passes - the attribute and
+    /// the setter form alike.</summary>
+    [Fact]
+    public void Guard_reddens_on_a_zero_size_or_ceiling()
+    {
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBox Width="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border Height="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Border MaxWidth="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="MaxHeight" Value="0" />"""));
+        Assert.NotEmpty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="Width" Value="0" />"""));
+    }
+
+    /// <summary>A share of the space, Auto, a named size and a zero floor (a toolkit floor taken away) are
     /// not sizes anybody typed in, so none of them may redden.</summary>
     [Fact]
     public void Guard_allows_a_share_auto_a_name_and_zero()
@@ -206,6 +218,7 @@ public class LiteralGuardTests
         Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<RowDefinition Height="Auto" />"""));
         Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<TextBox Width="{StaticResource ShiftAmountWidth}" />"""));
         Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<ui:FluentWindow MinHeight="0" """));
+        Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Border MinWidth="0" />"""));
         Assert.Empty(XamlLiteralGuard.FindViolations("x.xaml", """<Setter Property="MinHeight" Value="0" />"""));
     }
 }

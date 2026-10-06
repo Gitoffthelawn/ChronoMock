@@ -177,7 +177,7 @@
 
   // Both of these say "target" in the shipped panel, which is the word this screen stopped using.
   "setup.tip_recent": "Aplikacje uruchamiane wcześniej. „Wybierz…” wskazuje taką, której ta maszyna jeszcze nie uruchamiała.",
-  "setup.tip_start": "Uruchamia aplikację pod podmienionym zegarem. Wymaga aplikacji i poprawnej daty.",
+  "setup.tip_start": "Uruchamia aplikację z fałszywym zegarem. Wymaga aplikacji i poprawnej daty.",
 
   // Shown only while the date field still holds the one this build ships with. A pre-filled date in 2038
   // looks arbitrary to a first reader, and an unexplained value is a value nobody trusts.
@@ -328,7 +328,7 @@
   // R2-S1. The GUI normally catches this itself (HandshakeGate, from the target's PE), so this is the
   // core's own second line of defence - reachable for a target whose real bitness differs from what its
   // file header declares, such as a .NET AnyCPU executable.
-  "target.bitness_mismatch": "Ta aplikacja i część Chrono Mock wybrana do jej uruchomienia różnią się bitowością (32 i 64 bity), a fałszywy zegar nie przechodzi między nimi - rozpakuj paczkę ponownie, żeby obie części były na miejscu.",
+  "target.bitness_mismatch": "Ta aplikacja działa w innej bitowości (32 albo 64 bity), niż deklaruje jej plik, więc część Chrono Mock wybrana według pliku nie podłączy do niej fałszywego zegara - zdarza się to przy niektórych aplikacjach .NET zbudowanych dla dowolnego procesora. Skopiuj diagnostykę i zgłoś błąd.",
   "session.already_active": "Inna sesja Chrono Mock już działa - tylko jedna naraz.",
   "protocol.no_command": "Sesja nie wystartowała - Chrono Mock nie dostał komendy jej startu. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
   "protocol.bad_command": "Sesja nie wystartowała - Chrono Mock dostał komendę, której nie potrafił odczytać. To błąd w Chrono Mock - skopiuj diagnostykę i zgłoś go.",
@@ -476,7 +476,7 @@
   // says a clock is out of reach entirely, and names what DID reach the application, because a real
   // date shown in the session's time zone is the part that confuses a reader.
   "runtime.go_wall_clock_unreachable": "Ta aplikacja jest zbudowana w Go. Jej runtime czyta datę wprost ze współdzielonej pamięci systemu, zamiast pytać o nią Windows, więc widzi PRAWDZIWĄ datę i żadne ustawienie tego nie zmieni. Strefa czasowa sesji do niej dociera, więc pokazywane godziny to prawdziwy czas wyrażony w strefie sesji.",
-  "coverage.session_clock_never_read": "Żaden proces w tej sesji ani razu nie odczytał zegara, który sesja podmienia, więc nic z tego, co zrobiła aplikacja, nie wzięło się z fałszywej daty. Kanały powyżej są założone i działają - aplikacja po prostu wzięła czas skądinąd, na przykład ze źródła spoza tego komputera.",
+  "coverage.session_clock_never_read": "Żaden proces w tej sesji ani razu nie odczytał zegara, który sesja zastępuje, więc nic z tego, co zrobiła aplikacja, nie wzięło się z fałszywej daty. Kanały powyżej są założone i działają - aplikacja po prostu wzięła czas skądinąd, na przykład ze źródła spoza tego komputera.",
   "time.fake_clock_clamped": "Fałszywy zegar doszedł do ostatniej daty, jaką ta wersja potrafi wyrazić (rok 30828), i stanął tam do końca sesji. Późniejsze odczyty nie są datami, które dałaby wybrana prędkość.",
   "time.duration_axis_clamped": "Liczniki monotoniczne (licznik tyknięć, nieobciążony czas przerwań oraz QPC, gdy skalowany) doszły do końca swojego zakresu i stanęły, więc czas, jaki upłynął wewnątrz aplikacji, przestał rosnąć, mimo że sesja trwała dalej. Mniejsza prędkość albo krótsza sesja tego unika.",
   "session.left_running": "Aplikacja nadal działała, gdy sesja się skończyła. Jest już z powrotem na prawdziwej dacie i godzinie, a jej liczniki czasu biegną dalej w normalnym tempie od miejsca, w którym zostawiła je sesja, zamiast się cofnąć. Timer cykliczny ustawiony, gdy jej timery były przyspieszone, zachowuje skrócony odstęp, który wtedy dostał. Żeby wystartowała od zera na prawdziwym zegarze, uruchom ją ponownie.",
@@ -792,7 +792,7 @@
   "calc.md.not_business_day": "nie dzień roboczy",
 
   // Tooltips (hover help). Keys, not literals (rule 15); shown in the current language.
-  "tip.choose_target": "Wybierz aplikację do uruchomienia z podmienionym zegarem.",
+  "tip.choose_target": "Wybierz aplikację do uruchomienia z fałszywym zegarem.",
   "tip.target_args": "Wiersz poleceń, z którym startuje aplikacja. Argument ze spacjami ujęty w cudzysłów, tak jak w terminalu.",
   "tip.working_folder": "Katalog, w którym startuje aplikacja. Pusty znaczy: tam, gdzie normalnie.",
   "tip.browse_folder": "Wskaż katalog, w którym ma wystartować aplikacja.",
@@ -803,14 +803,14 @@
   "tip.now": "Wstaw bieżącą datę i godzinę (strefa sesji).",
   "tip.zone": "Strefa czasowa sesji - stały offset bez zmiany czasu. Data i godzina powyżej są w niej liczone.",
   "tip.relative_moment": "Wypełnia datę powyżej czasem teraz, przesuniętym o tę wartość - w wierszu poleceń to --at +30d. Miesiące, kwartały i lata trafiają na datę kalendarzową, nie na stałą liczbę godzin. Ten wiersz robi jedno przesunięcie i nic więcej, dlatego ma mniej opcji niż kalkulator: dni roboczych nie ma, bo sesja nie niesie kalendarza świąt, a gotowe daty w rodzaju końca miesiąca stoją na liście scenariuszy powyżej.",
-  "tip.mode": "Jak szybko idzie podmieniony zegar: ×1 to zwykłe tempo, zamrożony go zatrzymuje, reszta idzie tyle razy szybciej.",
+  "tip.mode": "Jak szybko idzie fałszywy zegar: ×1 to zwykłe tempo, zamrożony go zatrzymuje, reszta idzie tyle razy szybciej.",
   "tip.scale_duration": "Przyśpiesz też liczniki, uśpienia i odliczania w aplikacji - nie tylko zegar ścienny.",
   "tip.scale_qpc": "Przyśpiesz też zegary na QPC (Python monotonic, .NET Stopwatch, Java nanoTime). Może zniekształcić aplikację liczącą render z QPC.",
   "tip.embedded": "Domyślnie włączone. Aplikacja z wbudowanym silnikiem WWW (WebView2, Qt WebEngine) uruchamia swoje strony w procesie, do którego hook zegara nie wchodzi. Z tą opcją silnik jest proszony o otwarcie na czas sesji lokalnego portu debugowania, a strony idą za zegarem sesji przez ten port. Odznacz, aby zostawić te strony na realnym zegarze i nie otwierać portu.",
   "tip.elevated_embedded": "Domyślnie wyłączone. Aplikacja uruchomiona jako administrator sprawia, że WebView2 pomija ustawienie, przez które sesja dociera do jej stron, więc zostają na realnym zegarze. Po włączeniu sesja zapisuje jedną opcję WebView2 w HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments, w wartości nazwanej jak plik aplikacji, i usuwa ją po końcu sesji. Wymaga Chrono Mock uruchomionego jako administrator i aplikacji startowanej z pliku .exe. Dopóki jest ustawiona, każdy program uruchomiony pod tą nazwą pliku też dostaje port diagnostyczny, a uruchamiana aplikacja ma uprawnienia administratora. Wartość zostawiona przez sesję, która zakończyła się awaryjnie, jest usuwana przy następnym starcie z tą opcją.",
   "tip.keep_timers": "Silnik WWW spowalnia timery zminimalizowanego albo ukrytego okna do mniej więcej jednego wywołania na sekundę, więc przy przyspieszonym czasie ukryte okno traci przyspieszenie. Z tą opcją aplikacja startuje z tym spowolnieniem wyłączonym.",
   "tip.force": "Domyślnie wyłączone. Gdy sprawdzenie zaraz po starcie pokaże, że fałszywy zegar nie zadziałał, aplikacja jest zatrzymywana, a nie zostawiana w działaniu, bo to, co pokazuje, pochodziłoby z realnego zegara. Zaznacz, żeby mimo to ją uruchomić - sesja jest wtedy wszędzie oznaczona jako nierzetelna.",
-  "tip.freeze": "Zamroź podmieniony zegar, by przestał iść.",
+  "tip.freeze": "Zamroź fałszywy zegar, by przestał iść.",
   "tip.set_speed": "Ustaw dowolną prędkość, np. 500.",
   "tip.stop": "Zatrzymaj sesję. Aplikacja wraca do prawdziwego czasu - nie jest zamykana.",
   "tip.jump_to": "Przesuń fałszywy zegar na tę datę i godzinę, czytaną w strefie sesji.",

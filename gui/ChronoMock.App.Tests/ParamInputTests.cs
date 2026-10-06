@@ -201,5 +201,9 @@ public class ParamInputTests
 
         var blank = Param("""{ "id": "start_date", "type": "date", "default": null, "label": { "en": "  " } }""");
         Assert.Equal("start date", new ParamInputViewModel(blank, Units()).Label);
+
+        // A blank text in the window's language is a missing one: English comes before the id.
+        var blankPolish = Param("""{ "id": "start_date", "type": "date", "default": null, "label": { "en": "Start", "pl": " " } }""");
+        Assert.Equal("Start", new ParamInputViewModel(blankPolish, Units(), "pl").Label);
     }
 }

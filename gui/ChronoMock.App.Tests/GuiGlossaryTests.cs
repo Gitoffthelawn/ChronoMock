@@ -15,17 +15,19 @@ namespace ChronoMock.App.Tests;
 /// The match is on whole words, so a key name, a longer word that merely contains one of these ("targeted")
 /// and the product name are not caught. A text that genuinely needs one of these words in its plain sense
 /// is rephrased first ("at that moment" became "then") - the list has no allowance on purpose, because
-/// every hit so far was jargon. The Polish list carries the inflected forms the language uses.
+/// every hit so far was jargon. The Polish list carries the inflected forms the language uses, the verb's
+/// as well as the noun's: the first list knew "podmiana" and missed five texts saying "podmieniony zegar"
+/// or "sesja podmienia", which a review found by reading them.
 /// </remarks>
 public sealed class GuiGlossaryTests
 {
     private static readonly Dictionary<string, Regex> KeptOut = new(StringComparer.Ordinal)
     {
         ["en"] = new Regex(
-            @"\b(cores?|targets?|substitutions?|moments?)\b",
+            @"\b(cores?|targets?|substitut\w*|moments?)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
         ["pl"] = new Regex(
-            @"\b(rdze[nń]\w*|rdzeni\w*|cel(u|em|e|i|ów|owi|ach|ami)?|podmian\w*|moment\w*)\b",
+            @"\b(rdze[nń]\w*|rdzeni\w*|cel(u|em|e|i|ów|owi|ach|ami)?|podmi[ae]n\w*|moment\w*)\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
     };
 
@@ -76,11 +78,15 @@ public sealed class GuiGlossaryTests
     [InlineData("en", "Launch the TARGET", true)]
     [InlineData("en", "the substitution did not take effect", true)]
     [InlineData("en", "at that moment", true)]
+    [InlineData("en", "the substituted clock", true)]
     [InlineData("en", "a targeted test in Chrono Mock", false)]
     [InlineData("pl", "Rdzeń nie odczytał komendy", true)]
     [InlineData("pl", "Nie udało się zapytać rdzenia", true)]
     [InlineData("pl", "Uruchom cel", true)]
     [InlineData("pl", "podmiana nie zadziałała", true)]
+    [InlineData("pl", "Zamroź podmieniony zegar", true)]
+    [InlineData("pl", "zegara, który sesja podmienia", true)]
+    [InlineData("pl", "prawdziwy zegar, celowo", false)]
     [InlineData("pl", "sprzed tego momentu", true)]
     [InlineData("pl", "fałszywy zegar nie zadziałał", false)]
     public void The_word_lists_catch_the_forms_the_texts_used(string culture, string text, bool caught)

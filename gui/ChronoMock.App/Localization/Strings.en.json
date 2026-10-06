@@ -337,7 +337,7 @@
   // R2-S1. The GUI normally catches this itself (HandshakeGate, from the target's PE), so this is the
   // core's own second line of defence - reachable for a target whose real bitness differs from what its
   // file header declares, such as a .NET AnyCPU executable.
-  "target.bitness_mismatch": "That application and the part of Chrono Mock picked to run it differ in bitness (32-bit and 64-bit), and a fake clock cannot cross between them - extract the package again so both parts are in place.",
+  "target.bitness_mismatch": "That application runs at a different bitness (32-bit or 64-bit) than its file declares, so the part of Chrono Mock picked from the file cannot attach a fake clock to it - this happens with some .NET applications built for any CPU. Copy the diagnostics and report it.",
   "session.already_active": "Another Chrono Mock session is already running - only one at a time.",
   "protocol.no_command": "The session did not start - Chrono Mock received no command to start it. This is a fault in Chrono Mock - copy the diagnostics and report it.",
   "protocol.bad_command": "The session did not start - Chrono Mock received a command it could not read. This is a fault in Chrono Mock - copy the diagnostics and report it.",
