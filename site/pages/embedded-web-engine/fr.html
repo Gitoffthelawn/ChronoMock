@@ -131,10 +131,10 @@
     <div class="prose">
       <p>
         Deux limites plus petites, dites simplement. Les pages lisent le fuseau de la session comme
-        un décalage fixe, donc <code>Intl</code> le nomme <code>GMT+02:00</code> et non une ville.
-        Et un minuteur déjà planifié <em>avant</em> que la session atteigne la page garde son ancien
-        rythme, comme dans une session Chromium pure - la session avertit plutôt que de vous laisser
-        conclure qu'il ne s'est rien passé.
+        un décalage fixe, donc <code>Intl</code> le nomme par son décalage, comme
+        <code>GMT+02:00</code>, et non par une ville. Et un minuteur déjà planifié <em>avant</em>
+        que la session atteigne la page garde son ancien rythme, comme dans une session Chromium
+        pure - la session avertit plutôt que de vous laisser conclure qu'il ne s'est rien passé.
       </p>
       <p>
         Si le moteur est configuré par une stratégie d'arguments de navigateur dans le registre, la
