@@ -136,9 +136,10 @@
     <div class="prose">
       <p>
         Two smaller ones, said plainly. The pages read the session time zone as a fixed offset, so
-        <code>Intl</code> names it <code>GMT+02:00</code>, not a city. And a timer already scheduled
-        <em>before</em> the session reached the page keeps its old rate, the same way it does in a
-        pure Chromium session - the session warns rather than letting you conclude nothing happened.
+        <code>Intl</code> names it by its offset, such as <code>GMT+02:00</code>, not by a city. And
+        a timer already scheduled <em>before</em> the session reached the page keeps its old rate,
+        the same way it does in a pure Chromium session - the session warns rather than letting you
+        conclude nothing happened.
       </p>
       <p>
         If the engine is configured through a browser-arguments policy in the registry, the
