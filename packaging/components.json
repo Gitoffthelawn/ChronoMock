@@ -16,7 +16,7 @@
     "source": "https://github.com/donislawdev/ChronoMock"
   },
 
-  "//packages": "The two things a release publishes. A component belongs to one or both, and each gets its own SBOM - a single document describing both would misstate each.",
+  "//packages": "The things a release publishes. A component belongs to one or both archives, and each file gets its own SBOM - a single document describing both would misstate each. The installer is built from the window package and carries exactly its components, so it names that package under `contents` rather than appearing in every component's `in` list a second time. `zip` is the published file name, which for the installer is not a zip.",
   "packages": {
     "cli": {
       "zip": "ChronoMock-cli-win.zip",
@@ -25,6 +25,11 @@
     "gui": {
       "zip": "ChronoMock-app-win-x64.zip",
       "description": "The window, self-contained, with the same native cores underneath it"
+    },
+    "msi": {
+      "zip": "ChronoMock-app-win-x64.msi",
+      "contents": "gui",
+      "description": "The Windows installer: the window package for every account on the machine, with the command line on PATH"
     }
   },
 

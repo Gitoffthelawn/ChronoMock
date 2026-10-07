@@ -32,8 +32,9 @@ public sealed class NoOpDiagnosticsLog : IDiagnosticsLog
 
 /// <summary>
 /// File log: writes one timestamped file per problem session into a logs/ folder beside the executable
-/// (portable layout), falling back to a per-user writable folder when the exe folder is read-only - the
-/// same choice the history store makes (a USB stick, or Program Files without admin). Best-effort: a write
+/// (portable layout), falling back to a per-user writable folder when the exe folder is read-only, and
+/// always in the per-user folder when the installer put the copy there - the same choice the history store
+/// makes. Best-effort: a write
 /// failure returns null rather than throwing, because the diagnostics are also kept in memory for the
 /// Copy-diagnostics button.
 /// </summary>
@@ -43,21 +44,10 @@ public sealed class FileDiagnosticsLog : IDiagnosticsLog
 
     internal FileDiagnosticsLog(string directory) => _directory = directory;
 
-    /// <summary>The log for the running app: a logs/ folder next to the executable, or a per-user folder when
-    /// that is read-only (mirrors <see cref="FileSessionHistoryStore.ForApp"/>).</summary>
-    public static FileDiagnosticsLog ForApp()
-    {
-        var exeLogs = Path.Combine(AppContext.BaseDirectory, "logs");
-        var perUser = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", "logs");
-        return new FileDiagnosticsLog(ChooseWritableDir(exeLogs, perUser, WritableFolder.IsWritable));
-    }
-
-    /// <summary>Pick <paramref name="preferred"/> when writable, else <paramref name="fallback"/>. The
-    /// writability check is injected so the choice is unit-tested without a real read-only medium (mirrors
-    /// the history store's ChooseWritableDir).</summary>
-    internal static string ChooseWritableDir(string preferred, string fallback, Func<string, bool> isWritable)
-        => isWritable(preferred) ? preferred : fallback;
+    /// <summary>The log for the running app: a logs/ folder next to the executable of a portable copy, or a
+    /// per-user folder when that is read-only and always for an installed copy (the same choice as
+    /// <see cref="FileSessionHistoryStore.ForApp"/>, made in <see cref="WritableFolder.Choose"/>).</summary>
+    public static FileDiagnosticsLog ForApp() => new(WritableFolder.ForApp("logs"));
 
     /// <summary>How many names one save tries before it gives up - the stamp, then the stamp with a suffix.</summary>
     private const int NameAttempts = 10;

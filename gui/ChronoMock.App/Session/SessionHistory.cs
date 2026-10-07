@@ -116,21 +116,10 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
 
     public FileSessionHistoryStore(string directory) => _directory = directory;
 
-    /// <summary>The store for the running app: a history folder next to the executable (portable). When that
-    /// location is read-only - a USB stick, or Program Files without admin - fall back to a per-user
-    /// writable folder so the log still saves instead of every session reporting a write error.</summary>
-    public static FileSessionHistoryStore ForApp()
-    {
-        var exeHistory = Path.Combine(AppContext.BaseDirectory, "history");
-        var perUser = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", "history");
-        return new FileSessionHistoryStore(ChooseWritableDir(exeHistory, perUser, WritableFolder.IsWritable));
-    }
-
-    /// <summary>Pick <paramref name="preferred"/> when it is writable, else <paramref name="fallback"/>. The
-    /// writability check is injected so the choice is unit-tested without a real read-only medium.</summary>
-    internal static string ChooseWritableDir(string preferred, string fallback, Func<string, bool> isWritable)
-        => isWritable(preferred) ? preferred : fallback;
+    /// <summary>The store for the running app: a history folder next to the executable of a portable copy, or
+    /// the per-user one when that location is read-only (a USB stick) and always for an installed copy, so the
+    /// log still saves instead of every session reporting a write error (<see cref="WritableFolder.Choose"/>).</summary>
+    public static FileSessionHistoryStore ForApp() => new(WritableFolder.ForApp("history"));
 
     private string FilePath => Path.Combine(_directory, FileName);
 

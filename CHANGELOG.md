@@ -8,6 +8,17 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **A Windows installer.** Each release now also carries `ChronoMock-app-win-x64.msi`, signed like the
+  programs inside it. It installs the window and the command line for every account on the machine,
+  into `Program Files\Chrono Mock`: the window in the Start menu, and the 64-bit `chrono` on the
+  machine's PATH (the 32-bit one is `core\x86\chrono.exe` in the same folder). Installing needs
+  administrator rights, running does not. An installed window keeps its session history and
+  diagnostics logs in `%LOCALAPPDATA%\ChronoMock`, also when it runs as administrator, and
+  uninstalling (Settings, Apps) removes the program, the shortcut and the PATH entry and leaves that
+  folder alone. A newer version installs over an older one, and an older one is refused over a newer.
+  The installer closes nothing that is running - a file still held by a running program is set aside,
+  the new one is in place at once, the old copy goes at the next restart, and the installer says so
+  with exit code 3010. The two zips stay as they were, and a release candidate gets no installer.
 - **A preset names its parameters for the window.** A parameter in a preset file can carry a
   `label`, one text per language like `name`, with `en` required when it is there. The window shows
   it above the parameter's input, in its own language or else in English, and shows the id only for a

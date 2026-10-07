@@ -323,6 +323,16 @@ fn the_register_is_well_formed() {
     assert_eq!(doc["product"]["license"], "GPL-3.0-only");
     assert!(doc["packages"]["cli"]["zip"].is_string(), "each package must name its zip");
     assert!(doc["packages"]["gui"]["zip"].is_string(), "each package must name its zip");
+    // The installer carries the window package's components and says so once, under `contents`. A second
+    // membership list in every component would be a second source for one fact.
+    let installer = &doc["packages"]["msi"];
+    assert!(
+        installer["zip"].as_str().is_some_and(|name| name.ends_with(".msi")),
+        "the installer package must name its .msi file"
+    );
+    let carried = installer["contents"].as_str().expect("the installer must name the package whose contents it carries");
+    assert!(doc["packages"][carried].is_object(), "the installer carries unknown package '{carried}'");
+    assert!(installer["contents"] != "msi", "the installer cannot carry its own contents");
 
     let all = components(&doc);
     assert!(all.len() >= 25, "only {} components - the register lost entries", all.len());
@@ -343,6 +353,10 @@ fn the_register_is_well_formed() {
         for package in packages {
             let id = package.as_str().expect("a package id");
             assert!(doc["packages"][id].is_object(), "{name} is in unknown package '{id}'");
+            assert!(
+                doc["packages"][id]["contents"].is_null(),
+                "{name} lists '{id}', which carries another package's contents - list that package instead"
+            );
         }
     }
 

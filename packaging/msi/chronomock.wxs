@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Windows installer: the window and the command line, for every account on the machine.
+
+  Rendered by packaging/build-msi.ps1, which fills every doubled-brace placeholder from the one place its
+  value lives (packaging/components.json for the names and addresses, the tag for the version) and hands
+  WiX two paths - $(PayloadDir), the signed window package laid out the way the installer puts it down,
+  and $(IconFile), the window's icon.
+
+  No extension, no custom action and no dialogs of WiX's own, so nothing goes into the package but our
+  files and Windows Installer's own tables. crates/cli/tests/msi.rs holds that, and build-msi.ps1 asks the
+  built database the same question. Every line below that decides what happens on somebody's machine was
+  measured before it was written (docs/06-adr.md, ADR-23).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="{{APP_NAME}}"
+      Manufacturer="{{PUBLISHER}}"
+      Version="{{VERSION}}"
+      UpgradeCode="{{UPGRADE_CODE}}"
+      Language="1033"
+      Scope="perMachine">
+
+    <!--
+      The UpgradeCode is the product, not a build, and it never changes. Every machine finds the version
+      it has through it, and a new one would leave the old install in place beside the new one for good.
+      Pinned by a guard.
+
+      AllowSameVersionUpgrades, because a release rebuilt under the same number must replace the first
+      build rather than install beside it as a second entry in Programs and Features.
+
+      afterInstallInitialize, because that rebuild's files must actually land. Windows Installer replaces
+      a file only when it is missing or older ("omus", MS Learn: REINSTALLMODE property), and our programs
+      carry the product version - so with the old product still in place (afterInstallExecute, the new
+      files first) a rebuild under the same number kept every old program and reported success. Here the
+      old product goes first, inside the same transaction, so a failed install puts it back (MS Learn:
+      RemoveExistingProducts Action, placement 2). The cost is that every file is copied again.
+    -->
+    <MajorUpgrade
+        Schedule="afterInstallInitialize"
+        AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="{{DOWNGRADE_MESSAGE}}" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      Nothing that is running gets closed. The injected library stays loaded in an application that
+      outlived its session (ADR-14), so the program holding one of our files is often the application a
+      tester is testing - and the Restart Manager would offer to close exactly that. With it off, a file
+      in use is set aside, the new one is in place at once, and the installer answers 3010 so the old copy
+      goes at the next restart.
+
+      It has to be here, in the package, from the first installer on. An upgrade removes the old version
+      under the OLD package's properties, so a package published without it cannot be fixed afterwards.
+    -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+
+    <!-- What Programs and Features shows. There is nothing to repair or to change - one feature. -->
+    <Property Id="ARPURLINFOABOUT" Value="{{PROJECT_URL}}" />
+    <Property Id="ARPHELPLINK" Value="{{ISSUES_URL}}" />
+    <Property Id="ARPURLUPDATEINFO" Value="{{RELEASE_NOTES_URL}}" />
+    <Property Id="ARPPRODUCTICON" Value="ProgramIcon" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <Icon Id="ProgramIcon" SourceFile="$(IconFile)" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="{{APP_NAME}}" />
+    </StandardDirectory>
+
+    <!--
+      The window package as it is, plus what build-msi.ps1 adds: the calendars and presets beside each
+      core, so the command line on PATH reads the installed catalogue and never one from the folder it was
+      started in, and the marker that tells the window the installer owns this folder.
+    -->
+    <ComponentGroup Id="Programs" Directory="INSTALLFOLDER">
+      <Files Include="$(PayloadDir)\**" />
+    </ComponentGroup>
+
+    <!--
+      The 64-bit command line on the machine's PATH, once, so chrono answers in every account and for a
+      build agent that runs as a service. Only that folder: the 32-bit core stays one folder over and is
+      named by its path, as the refusal for a target of the other bitness says. Permanent="no" takes the
+      entry off again at uninstall.
+    -->
+    <ComponentGroup Id="OnThePath" Directory="INSTALLFOLDER">
+      <Component Id="MachinePath">
+        <Environment Id="MachinePath" Name="PATH" Value="[INSTALLFOLDER]core\x64"
+                     Part="last" Action="set" System="yes" Permanent="no" />
+        <RegistryValue Root="HKLM" Key="Software\{{PUBLISHER}}\{{APP_NAME}}"
+                       Name="Path" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      The window in the Start menu of every account, started in the folder it is installed in. The window
+      keeps nothing of its own there (the marker above), so the working folder is only where it starts.
+    -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="Window"
+                  Name="{{APP_NAME}}"
+                  Description="{{SHORTCUT_DESCRIPTION}}"
+                  Target="[INSTALLFOLDER]ChronoMock.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="ProgramIcon" />
+        <RegistryValue Root="HKLM" Key="Software\{{PUBLISHER}}\{{APP_NAME}}"
+                       Name="Shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Everything">
+      <ComponentGroupRef Id="Programs" />
+      <ComponentGroupRef Id="OnThePath" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

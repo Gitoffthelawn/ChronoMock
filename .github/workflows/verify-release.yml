@@ -60,7 +60,9 @@ jobs:
           # Without the branch below, re-checking any release before 0.3.0 would fail with "missing"
           # for assets that are present under their own names, which would be this workflow lying
           # about a release that is fine.
-          $version = [version]($env:TAG.TrimStart('v'))
+          # The three numbers only. A candidate's tag carries a hyphen, and [version] refuses one - this
+          # step threw on every candidate before it could say anything about it.
+          $version = [version](($env:TAG.TrimStart('v') -split '-', 2)[0])
           $expected = if ($version -lt [version]'0.3.0') {
             @(
               'ChronoMock-win-x64.zip', 'chrono-cli-win.zip',
@@ -75,6 +77,17 @@ jobs:
               'ChronoMock-app-win-x64.zip.sigstore.json', 'ChronoMock-cli-win.zip.sigstore.json',
               'SHA256SUMS'
             )
+          }
+          # The Windows installer from 0.4.0 on, and never on a candidate - the rule phase B builds by
+          # (Test-Candidate in sign-release.ps1, a hyphen in the tag). A candidate carrying one is as wrong
+          # as a release missing it: Windows Installer reads three numbers, so it would block the release.
+          $installer = 'ChronoMock-app-win-x64.msi'
+          $wantInstaller = ($version -ge [version]'0.4.0') -and -not $env:TAG.Contains('-')
+          if ($wantInstaller) {
+            $expected += @($installer, "$installer.spdx.json", "$installer.sigstore.json")
+          }
+          elseif (Test-Path -LiteralPath "published/$installer") {
+            throw "$env:TAG carries $installer, and a release candidate or a release before 0.4.0 gets none - remove it, its SBOM and its bundle from the release"
           }
           $present = (Get-ChildItem published -File).Name
           $missing = @($expected | Where-Object { $present -notcontains $_ })
@@ -128,7 +141,7 @@ jobs:
           # the one it replaced: it looks like a broken release rather than a renamed asset.
           # What does NOT change with the version is the path INSIDE each archive. The packages were
           # renamed and the folders they unzip to deliberately were not, so only the keys differ.
-          $version = [version]($env:TAG.TrimStart('v'))
+          $version = [version](($env:TAG.TrimStart('v') -split '-', 2)[0])
           $legacy = $version -lt [version]'0.3.0'
           $appArchive = if ($legacy) { 'ChronoMock-win-x64.zip' } else { 'ChronoMock-app-win-x64.zip' }
           $cliArchive = if ($legacy) { 'chrono-cli-win.zip' }     else { 'ChronoMock-cli-win.zip' }
@@ -155,6 +168,21 @@ jobs:
               # Without a timestamp the signature dies with the certificate, which is a year away.
               elseif (-not $signature.TimeStamperCertificate) { $bad += "$relative : signed but NOT timestamped" }
               else { Write-Host "  ok  $relative" }
+            }
+          }
+          # The installer is what an administrator runs with the machine's highest rights, so it is held to
+          # the same pin. Whether it must be there at all is the asset step's question - this one asks of
+          # the file the release carries.
+          $installer = 'published/ChronoMock-app-win-x64.msi'
+          if (Test-Path -LiteralPath $installer) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $installer
+            if ($signature.Status -ne 'Valid') { $bad += "the installer : signature status $($signature.Status)" }
+            else {
+              $sha = (([System.Security.Cryptography.SHA256]::Create().ComputeHash($signature.SignerCertificate.RawData) |
+                    ForEach-Object { $_.ToString('x2') }) -join '')
+              if ($sha -ne $pin) { $bad += "the installer : signed by $sha, and the repository pins $pin" }
+              elseif (-not $signature.TimeStamperCertificate) { $bad += 'the installer : signed but NOT timestamped' }
+              else { Write-Host '  ok  ChronoMock-app-win-x64.msi' }
             }
           }
           if ($bad) { throw "signature check failed: $($bad -join '; ')" }

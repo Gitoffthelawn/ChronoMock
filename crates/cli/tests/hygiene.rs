@@ -1330,7 +1330,7 @@ const POLISH_WORDS_WITHOUT_DIACRITICS: &[&str] = &[
 /// before and after, 285 keys, deep-equal.
 #[test]
 fn every_comment_in_the_repository_is_english() {
-    let files = tracked_files(&["rs", "cs", "xaml", "json", "ps1", "yml", "toml", "md"]);
+    let files = tracked_files(&["rs", "cs", "xaml", "wxs", "json", "ps1", "yml", "toml", "md"]);
     let mut offenders = Vec::new();
     for path in &files {
         if is_this_file(path) {
@@ -1828,7 +1828,7 @@ fn is_invisible(c: char) -> bool {
 /// charset error that does not say BOM. Reversal probe in `CHANGELOG-DEV.md`.
 #[test]
 fn no_file_carries_a_character_nobody_can_see() {
-    let files = tracked_files(&["rs", "cs", "xaml", "ps1", "json", "md", "yml", "toml", "html", "css", "js"]);
+    let files = tracked_files(&["rs", "cs", "xaml", "wxs", "ps1", "json", "md", "yml", "toml", "html", "css", "js"]);
     let mut offenders = Vec::new();
     for path in &files {
         let Ok(text) = std::fs::read_to_string(path) else { continue };
@@ -1855,7 +1855,7 @@ fn no_file_carries_a_character_nobody_can_see() {
 /// an en dash inside a string may be someone's data.
 #[test]
 fn prose_uses_a_flat_hyphen_and_no_semicolons() {
-    let files = tracked_files(&["rs", "cs", "xaml", "ps1", "md"]);
+    let files = tracked_files(&["rs", "cs", "xaml", "wxs", "ps1", "md"]);
     let mut offenders = Vec::new();
     let mut semicolons_in_prose = 0usize;
     for path in &files {

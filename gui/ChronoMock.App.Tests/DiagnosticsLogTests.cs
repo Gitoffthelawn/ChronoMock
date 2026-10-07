@@ -52,20 +52,6 @@ public sealed class DiagnosticsLogTests : IDisposable
     }
 
     [Fact]
-    public void Chooses_the_preferred_logs_directory_when_it_is_writable()
-        => Assert.Equal(
-            @"X:\exe\logs",
-            FileDiagnosticsLog.ChooseWritableDir(@"X:\exe\logs", @"Y:\user\logs", _ => true));
-
-    [Fact]
-    public void Falls_back_to_the_per_user_directory_when_the_preferred_is_read_only()
-        // A read-only medium (a USB stick, Program Files without admin) cannot hold the log next to the exe,
-        // so diagnostics save to a per-user location instead of being lost.
-        => Assert.Equal(
-            @"Y:\user\logs",
-            FileDiagnosticsLog.ChooseWritableDir(@"X:\exe\logs", @"Y:\user\logs", _ => false));
-
-    [Fact]
     public void The_no_op_log_saves_nothing()
         => Assert.Null(new NoOpDiagnosticsLog().Save("anything"));
 

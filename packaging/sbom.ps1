@@ -19,10 +19,10 @@
     its own hash.
 
 .PARAMETER PackageId
-    Which package to describe: a key of the register's `packages` object (cli or gui).
+    Which package to describe: a key of the register's `packages` object (cli, gui or msi).
 
 .PARAMETER ZipPath
-    The zip that was built for it. Its sha256 goes into the document.
+    The file that was built for it - a zip, or the installer. Its sha256 goes into the document.
 
 .PARAMETER OutPath
     Where to write the SPDX JSON.
@@ -48,6 +48,15 @@ if (-not $register.packages.PSObject.Properties.Name.Contains($PackageId)) {
     throw "the register has no package '$PackageId' - it knows: $($register.packages.PSObject.Properties.Name -join ', ')"
 }
 $package = $register.packages.$PackageId
+# Which package's components this file carries. The installer is built from the window package and names it
+# under `contents`, so its document lists exactly the window's components without a second membership list.
+$contentsId = $PackageId
+if ($package.PSObject.Properties['contents']) {
+    $contentsId = $package.contents
+    if (-not $register.packages.PSObject.Properties.Name.Contains($contentsId)) {
+        throw "package '$PackageId' carries the contents of '$contentsId', which the register does not know"
+    }
+}
 
 # The product version, read from the workspace manifest rather than retyped. The GUI half states the
 # same number in gui/Directory.Build.props, and bumping only one of the two is a known landmine.
@@ -82,13 +91,23 @@ function Get-Purl($component) {
     }
 }
 
+# The name a reader sees for the file. A zip is named by its stem, as every SBOM before the installer was.
+# The installer's stem is the window package's, and two documents naming one thing would mislead, so it
+# keeps its extension.
+$stem = if ([System.IO.Path]::GetExtension($package.zip) -eq '.zip') {
+    [System.IO.Path]::GetFileNameWithoutExtension($package.zip)
+}
+else {
+    $package.zip
+}
+
 $rootId = ConvertTo-SpdxId $package.zip 'package'
 $packages = [System.Collections.Generic.List[object]]::new()
 $relationships = [System.Collections.Generic.List[object]]::new()
 
 $packages.Add([ordered]@{
         SPDXID           = $rootId
-        name             = [System.IO.Path]::GetFileNameWithoutExtension($package.zip)
+        name             = $stem
         versionInfo      = $productVersion
         downloadLocation = "$($register.product.source)/releases/download/v$productVersion/$($package.zip)"
         homepage         = $register.product.homepage
@@ -111,7 +130,7 @@ $relationships.Add([ordered]@{
 $seen = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
 $count = 0
 foreach ($component in $register.components) {
-    if ($component.in -notcontains $PackageId) { continue }
+    if ($component.in -notcontains $contentsId) { continue }
 
     $id = ConvertTo-SpdxId $component.name $component.kind
     if ($seen.ContainsKey($id)) {
@@ -159,9 +178,9 @@ $document = [ordered]@{
     spdxVersion       = 'SPDX-2.3'
     dataLicense       = 'CC0-1.0'
     SPDXID            = 'SPDXRef-DOCUMENT'
-    name              = "$([System.IO.Path]::GetFileNameWithoutExtension($package.zip))-$productVersion"
+    name              = "$stem-$productVersion"
     # Unique per build, because it carries the hash of the exact zip this document describes.
-    documentNamespace = "$($register.product.homepage)/spdx/$([System.IO.Path]::GetFileNameWithoutExtension($package.zip))/$productVersion/$($zipSha.Substring(0, 16))"
+    documentNamespace = "$($register.product.homepage)/spdx/$stem/$productVersion/$($zipSha.Substring(0, 16))"
     creationInfo      = [ordered]@{
         created  = $created
         creators = @("Person: $(($register.product.supplier -split ':\s*', 2)[-1])", 'Tool: chronomock-sbom-1')
@@ -204,5 +223,5 @@ $json = $document | ConvertTo-Json -Depth 12
 # same trap that turns `dotnet format` red elsewhere in this repository.
 [System.IO.File]::WriteAllText($OutPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 
-Write-Host ("== sbom == {0}: {1} components, zip {2:N1} MB, sha256 {3}..." -f `
+Write-Host ("== sbom == {0}: {1} components, file {2:N1} MB, sha256 {3}..." -f `
         $package.zip, $count, ($zipItem.Length / 1MB), $zipSha.Substring(0, 12))
