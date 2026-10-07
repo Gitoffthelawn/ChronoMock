@@ -6,6 +6,8 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-07
+
 ### Added
 
 - **A Windows installer.** Each release now also carries `ChronoMock-app-win-x64.msi`, signed like the
@@ -102,7 +104,10 @@ Notable changes to Chrono Mock, newest first. The format follows
   with the name of the program to start. With or without the option, the session now follows the
   process tree under an elevated application: the engine's processes are named among those that ran
   on the real clock, so the verdict is as careful as for an ordinary application, and an engine port
-  you opened yourself in the registry is reached.
+  you opened yourself in the registry is reached. The wire carries the option as
+  `start.target.elevated_embedded`, and `--dry-run --json` as `session.elevated_embedded` (false for
+  a Chromium target, where it does not apply) and `session.elevated_embedded_value`, the file name the
+  value would be named after, null when nothing would be written, as for a script.
 
 ### Changed
 
@@ -1372,6 +1377,7 @@ listing everything as "added", here is where to find out what it does:
 
 From the next release onwards this file records what changed.
 
+[0.4.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.4.0
 [0.3.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.3.0
 [0.2.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.2.0
 [0.1.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.1.0
