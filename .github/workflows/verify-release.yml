@@ -87,7 +87,7 @@ jobs:
             $expected += @($installer, "$installer.spdx.json", "$installer.sigstore.json")
           }
           elseif (Test-Path -LiteralPath "published/$installer") {
-            throw "$env:TAG carries $installer, and a release candidate or a release before 0.4.0 gets none"
+            throw "$env:TAG carries $installer, and a release candidate or a release before 0.4.0 gets none - remove it, its SBOM and its bundle from the release"
           }
           $present = (Get-ChildItem published -File).Name
           $missing = @($expected | Where-Object { $present -notcontains $_ })

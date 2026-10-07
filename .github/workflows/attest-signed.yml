@@ -71,20 +71,29 @@ jobs:
             --pattern '*.zip' --pattern '*.msi' --pattern '*.spdx.json' --dir assets
           ls -l assets
 
-      # 🔴 A release carries the installer and a candidate does not - the rule phase B builds by (a hyphen
-      # in the tag, Test-Candidate in sign-release.ps1). Asked in both directions, so an installer missing
-      # from a release fails here instead of being skipped in silence, and one on a candidate fails too.
-      - name: The installer is there exactly when the tag is a release
+      # 🔴 A release from 0.4.0 on carries the installer, and a candidate or an older release does not -
+      # the rule phase B builds by (Test-Installer in sign-release.ps1: a hyphen in the tag is a candidate,
+      # and 0.4.0 is the first release with an installer). Asked in both directions, so an installer missing
+      # from a release fails here instead of being skipped in silence, and one where none belongs fails too.
+      - name: The installer is there exactly when the release carries one
         id: installer
         run: |
+          numbers="${TAG#v}"
+          numbers="${numbers%%-*}"
           case "$TAG" in
             *-*) want=false ;;
-            *) want=true ;;
+            *)
+              if [ "$(printf '%s\n' 0.4.0 "$numbers" | sort -V | head -n 1)" = "0.4.0" ]; then
+                want=true
+              else
+                want=false
+              fi
+              ;;
           esac
           have=false
           if [ -f "assets/$INSTALLER" ]; then have=true; fi
           if [ "$want" != "$have" ]; then
-            echo "::error::$TAG expects the installer: $want, and the release carries it: $have"
+            echo "::error::$TAG expects the installer: $want, and the release carries it: $have. A release from 0.4.0 gets it from phase B - run packaging/sign-release.ps1 for this tag again. A candidate or an older release gets none - remove the installer, its SBOM and its bundle from the draft."
             exit 1
           fi
           echo "present=$want" >> "$GITHUB_OUTPUT"

@@ -216,9 +216,22 @@ function Assert-Payload([string] $folder) {
     }
 }
 
-# The window package laid out the way the installer puts it down.
+# The window package laid out the way the installer puts it down - all of it, or a refusal.
+# 🔴 Enumerated literally, hidden files included. `Copy-Item -Path <folder>\*` read the folder as a pattern:
+# a package in a folder whose name holds brackets copied NOTHING and said nothing, and a hidden file at the
+# top was left out (measured 2026-10-07, review of #96). The database check counts what was staged, so an
+# incomplete staging would have built and passed - hence the check right after the copy, against the package.
 function New-StagedPayload([string] $from, [string] $into) {
-    Copy-Item -Path (Join-Path $from '*') -Destination $into -Recurse
+    $source = (Get-Item -LiteralPath $from).FullName.TrimEnd('\', '/')
+    Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $into -Recurse -Force
+    }
+    $left = @(Get-ChildItem -LiteralPath $source -Recurse -File -Force |
+            ForEach-Object { $_.FullName.Substring($source.Length + 1) } |
+            Where-Object { -not (Test-Path -LiteralPath (Join-Path $into $_) -PathType Leaf) })
+    if ($left) {
+        Stop-Build "staging left out $($left.Count) file(s) of the package, the first $($left[0]) - nothing was built"
+    }
     foreach ($core in $CoreFolders) {
         foreach ($catalogue in $CatalogueFolders) {
             Copy-Item -LiteralPath (Join-Path $from $catalogue) -Destination (Join-Path $into $core) -Recurse
@@ -240,11 +253,15 @@ function New-StagedPayload([string] $from, [string] $into) {
 # 🔴 And every COM object is released, the records too: a view or a record left to the garbage collector
 # keeps the database open, and the installer could not be moved out of staging ("being used by another
 # process" - measured, after every check had passed).
+# Released on every path, the error ones too: the installer object and the database are made inside the
+# `try` whose `finally` releases them, and each record in a `finally` of its own (review of #96).
 function Read-MsiRows([string] $msi, [string] $query, [int] $fields) {
-    $installer = New-Object -ComObject WindowsInstaller.Installer
-    $database = $installer.OpenDatabase($msi, 0)
+    $installer = $null
+    $database = $null
     $view = $null
     try {
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = $installer.OpenDatabase($msi, 0)
         try {
             $view = $database.OpenView($query)
         }
@@ -255,9 +272,13 @@ function Read-MsiRows([string] $msi, [string] $query, [int] $fields) {
         while ($true) {
             $record = $view.Fetch()
             if ($null -eq $record) { break }
-            $row = [string[]]::new($fields)
-            for ($i = 0; $i -lt $fields; $i++) { $row[$i] = $record.StringData($i + 1) }
-            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($record)
+            try {
+                $row = [string[]]::new($fields)
+                for ($i = 0; $i -lt $fields; $i++) { $row[$i] = $record.StringData($i + 1) }
+            }
+            finally {
+                [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($record)
+            }
             Write-Output -NoEnumerate $row
         }
         [void]$view.Close()
@@ -326,15 +347,15 @@ if ($Check) {
     return
 }
 
-# Every refusal about the inputs comes before WiX is looked for, so the guards can ask each of them on a
-# machine without WiX, and a run with WiX missing stops at the same place on every system.
+# Every refusal about the inputs - the staged copy being whole among them - comes before WiX is looked for,
+# so the guards can ask each of them on a machine without WiX, and a run with WiX missing stops at the same
+# place on every system.
 Assert-Payload $Payload
 if (-not (Test-Path -LiteralPath $OutDir -PathType Container)) { Stop-Build "-OutDir $OutDir is not a folder. Pass one that exists" }
 $target = Join-Path $OutDir $InstallerName
 if (Test-Path -LiteralPath $target) {
     Stop-Build "$target is already there. Nothing is overwritten - remove it or pass another -OutDir"
 }
-$wix = Find-Wix
 
 # Beside nothing of the caller's: sign-release.ps1 hands its own folder of files to publish as -OutDir, and
 # a folder left inside it would be published, or would break the checksums written over it.
@@ -344,7 +365,8 @@ try {
     $staged = Join-Path $staging 'payload'
     New-Item -ItemType Directory -Path $staged | Out-Null
     New-StagedPayload $Payload $staged
-    $fileCount = @(Get-ChildItem -LiteralPath $staged -Recurse -File).Count
+    $fileCount = @(Get-ChildItem -LiteralPath $staged -Recurse -File -Force).Count
+    $wix = Find-Wix
 
     $wxs = Join-Path $staging 'chronomock.wxs'
     [System.IO.File]::WriteAllText($wxs, $source, (New-Object System.Text.UTF8Encoding($false)))

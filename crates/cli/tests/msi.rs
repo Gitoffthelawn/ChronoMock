@@ -337,6 +337,41 @@ fn the_installer_is_built_from_a_fresh_window_package_or_not_at_all() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// The staged copy is the whole package, wherever the package lies. A package in a folder whose name holds
+/// brackets, with a hidden file at its top, gets all the way to the step that looks for WiX - which a copy
+/// that left anything out would not, because the copy is checked against the package right after it is
+/// made. Read as a pattern, that folder name copied nothing and the build went on (review of #96).
+#[test]
+fn the_installer_stages_the_whole_package_wherever_it_lies() {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    let base = std::env::temp_dir().join(format!("chrono-msi-stage-{}", std::process::id()));
+    let package = base.join("pkg [1]").join("ChronoMock");
+    let (out, nowhere) = (base.join("out"), base.join("nowhere"));
+    for dir in [&package, &out, &nowhere] {
+        std::fs::create_dir_all(dir).expect("a folder for the case");
+    }
+    fresh_package(&package);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_HIDDEN)
+        .open(package.join("hidden.dat"))
+        .expect("a hidden file at the top of the package");
+    let run = build_msi(
+        &["-Tag", "v9.9.9", "-Payload", &package.to_string_lossy(), "-OutDir", &out.to_string_lossy()],
+        Some(&nowhere),
+    );
+    assert!(
+        run.code == 1 && run.said.contains("dotnet tool install --global wix --version 5.0.2"),
+        "a whole package in a bracketed folder did not reach the step that looks for WiX (exit {}):\n{}",
+        run.code,
+        run.said
+    );
+    assert!(entries(&nowhere).iter().all(|e| !e.starts_with("chrono-msi-")), "the run left its staging folder behind");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 /// The names several files have to agree on, read from each of them. Four files spell the installer's name,
 /// two the marker, two the upgrade code - and each disagreement builds, signs and publishes without a word.
 #[test]
@@ -378,6 +413,24 @@ fn every_place_asks_the_same_question_of_a_candidate() {
         (".github/workflows/verify-release.yml", without_line_comments(&read(".github/workflows/verify-release.yml"), "#"), "-not $env:TAG.Contains('-')"),
     ] {
         assert!(active.contains(rule), "{file} no longer asks a candidate {rule:?}");
+    }
+}
+
+/// One first release for the installer in every phase: 0.4.0. A fix on an older line comes from a tree with
+/// no installer template, so phase B makes none - and a phase C that expected one there would fail that
+/// release, as phase D would fail one that carried it (review of #96).
+#[test]
+fn every_phase_starts_the_installer_at_the_same_release() {
+    let sign = active_powershell(&read("packaging/sign-release.ps1"));
+    let attest = without_line_comments(&read(".github/workflows/attest-signed.yml"), "#");
+    let verify = without_line_comments(&read(".github/workflows/verify-release.yml"), "#");
+    for (file, active, rule) in [
+        ("packaging/sign-release.ps1", &sign, "$INSTALLER_SINCE = [version]'0.4.0'"),
+        ("packaging/sign-release.ps1", &sign, "$withInstaller = Test-Installer $Tag"),
+        (".github/workflows/attest-signed.yml", &attest, "printf '%s\\n' 0.4.0 \"$numbers\" | sort -V"),
+        (".github/workflows/verify-release.yml", &verify, "($version -ge [version]'0.4.0')"),
+    ] {
+        assert!(active.contains(rule), "{file} no longer starts the installer at 0.4.0 the way the others do: no {rule:?}");
     }
 }
 

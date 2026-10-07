@@ -21,7 +21,7 @@
          to the pin in packaging/codesign.json. A second code-signing certificate on the same
          machine - a renewal, a test one, one from another project - is exactly this accident;
       5. repacks both archives, builds the Windows installer from the signed window package and signs
-         it the same way (never for a release candidate - see Test-Candidate), regenerates the bills of
+         it the same way (from 0.4.0 on, never for a release candidate - see Test-Installer), regenerates the bills of
          materials over the SIGNED bytes, and writes SHA256SUMS over what will actually ship. Whether
          the installer CAN be built here is asked before anything else, so a machine without WiX stops
          before the card has signed anything;
@@ -128,6 +128,16 @@ $INSTALLER_INPUTS = @('packaging/msi', 'packaging/build-msi.ps1', 'packaging/msi
 # the release could not replace it on the machine of whoever tested the candidate.
 function Test-Candidate([string] $releaseTag) {
     return $releaseTag.Contains('-')
+}
+
+# The first release that carries the installer. A tag before it - a fix on an older line - comes from a tree
+# with no installer template, so it gets none, and phases C and D expect none for it either: one rule in all
+# three phases, held by crates/cli/tests/msi.rs (review of #96).
+$INSTALLER_SINCE = [version]'0.4.0'
+
+function Test-Installer([string] $releaseTag) {
+    if (Test-Candidate $releaseTag) { return $false }
+    return [version]($releaseTag.TrimStart('v').Split('-')[0]) -ge $INSTALLER_SINCE
 }
 
 $WARN_DAYS = 90
@@ -297,7 +307,7 @@ if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -For
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 Write-Host "working in $work"
 
-$withInstaller = -not (Test-Candidate $Tag)
+$withInstaller = Test-Installer $Tag
 $expectedAssets = @($EXPECTED_ASSETS)
 if ($withInstaller) { $expectedAssets += @($INSTALLER, "$INSTALLER.spdx.json") }
 
@@ -321,7 +331,7 @@ if ($withInstaller) {
     Invoke-Step @('pwsh', '-NoProfile', '-File', $BUILD_MSI, '-Tag', $Tag, '-Check') | ForEach-Object { Write-Host "  $_" }
 }
 else {
-    Write-Host "  $Tag is a release candidate, and candidates get no installer"
+    Write-Host "  $Tag is a release candidate or a release before $INSTALLER_SINCE, and gets no installer"
 }
 
 Write-Host "`n[1/8] fetching the build this tag produced"
