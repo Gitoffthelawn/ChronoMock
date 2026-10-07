@@ -107,7 +107,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   you opened yourself in the registry is reached. The wire carries the option as
   `start.target.elevated_embedded`, and `--dry-run --json` as `session.elevated_embedded` (false for
   a Chromium target, where it does not apply) and `session.elevated_embedded_value`, the file name the
-  value would be named after, null when nothing would be written, as for a script.
+  value would be named after when the option applies to an `.exe` target, null otherwise, as for a
+  script. A name there is not a promise of a write: the session writes the value only when Chrono Mock
+  itself runs as administrator.
 
 ### Changed
 
