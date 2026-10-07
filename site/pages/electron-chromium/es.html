@@ -76,11 +76,14 @@
     </div>
 
     <div class="note">
-      <p><strong>La zona horaria de la sesión sigue la del equipo.</strong></p>
+      <p><strong>Las páginas leen la zona horaria de la sesión.</strong></p>
       <p>
-        En este modo se falsea el instante, pero no los métodos de hora local, así que una
-        <a href="/es/pruebas-de-zonas-horarias/">zona horaria independiente</a> es una función solo del
-        modo nativo. Es una limitación de esta versión, no una decisión.
+        Cada página y cada worker se coloca en la <a href="/es/pruebas-de-zonas-horarias/">zona
+        horaria de la sesión</a>, un desfase fijo sin horario de verano, y comprueba el desfase que
+        lee, así que se informa de una página que haya leído otra zona. Dos límites:
+        <code>Intl</code> nombra esa zona como un desfase como <code>GMT+02:00</code> y no como una
+        ciudad, y el proceso principal de una aplicación Electron ejecuta JavaScript en Node, al que
+        la sesión no llega, así que conserva el reloj real - el informe lo dice.
       </p>
     </div>
 

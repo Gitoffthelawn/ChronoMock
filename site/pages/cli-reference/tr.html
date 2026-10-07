@@ -27,9 +27,16 @@
       </p>
       <p>
         <code>chrono license</code> dördüncüsünü yanıtlar: bu derlemenin hangi lisansla dağıtıldığı,
-        garanti reddi ve içine bağlanan üçüncü taraf bileşenler. Ayrıca tam lisans metninin ve üçüncü
-        taraf bildirimlerinin diskte nerede olduğunu söyler; çalıştırdığınız kopyanın yanında bunlar
-        yoksa bunu da kabul eder.
+        garanti reddi ve içine bağlanan üçüncü taraf bileşenler. Ayrıca tam lisans metninin ve
+        üçüncü taraf bildirimlerinin diskte nerede olduğunu söyler; çalıştırdığınız kopyanın yanında
+        bunlar yoksa bunu da kabul eder. <code>--components</code>, özet yerine paketlenen her
+        bileşeni sürümüyle birlikte listeler.
+      </p>
+      <p>
+        <code>chrono presets</code>, senaryo kataloğunu <code>--preset</code>'in okuduğu biçimde
+        listeler: klasördeki her senaryoyu hesaplayıcının dil bilgisinin okuduğu sözcüklerle ve
+        reddedeceği her dosyayı nedeniyle birlikte gösterir. <code>--json</code>
+        <code>chronomock.presets/1</code> yazar, <code>--dir</code> başka bir klasörü belirtir.
       </p>
     </div>
 
@@ -37,6 +44,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only ve pakete dahil olanlar</span>
+<span class="p">chrono</span> presets        <span class="c"># katalog, --preset'in okuduğu biçimde</span>
 <span class="p">chrono</span> --help          <span class="c"># hepsinin kullanımı</span></pre>
   </section>
 
@@ -137,14 +145,44 @@
               çalışmaya devam edip etmeyeceğini belirler.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Uygulamanın içindeki web sayfalarını (WebView2, Qt WebEngine) gerçek saatte bırakır
+              ve hata ayıklama bağlantı noktası açmaz. Bu bayrak olmadan oturum, böyle bir motordan
+              yerel bir bağlantı noktası açmasını ister ve sayfalarını onun üzerinden oturum saatine
+              alır - bağlantı noktası açık olduğu sürece bu bilgisayardaki başka herhangi bir
+              program onu kullanarak bu sayfalara ulaşabilir.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Yönetici olarak çalışan bir uygulama için, o da yönetici olarak çalışan bir Chrono
+              Mock'tan. WebView2, böyle bir uygulamada oturumun sayfalarına ulaştığı ayarı yok
+              sayar; bu yüzden oturum, süresi boyunca makinenin kayıt defterine (HKLM, uygulamanın
+              .exe dosyasının adıyla) bir değer yazar ve sonunda siler. Uygulama çalışırken bu
+              bilgisayardaki başka herhangi bir program bağlantı noktası üzerinden sayfalarına
+              ulaşabilir ve uygulamanın yönetici hakları vardır. <code>--no-embedded</code> ile
+              birlikte kullanılmaz.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Web motorunu - bir Chromium ya da Electron uygulamasının tarayıcısını veya bir
+              uygulamanın içindeki motoru - gizli pencerelerdeki zamanlayıcı yavaşlatması kapalı
+              olarak başlatır; böylece simge durumuna küçültülmüş bir pencere de oturum hızını
+              korur. Uygulama o zaman gizliyken de tam hızla çalışır.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
             <td>Oturumun ne olacağını yazdırır ve hiçbir şey başlatmaz: çözümlenen an ve dilim ile
               nereden geldikleri, bir senaryonun her parametreyi neyle doldurduğu, bölünmüş bağımsız
-              değişkenler ve hedefin iki mekanizmadan hangisini kullanacağı. Hiçbir süreç başlatılmaz
-              ve <code>--report</code>’un adını verdiği dosya dahil hiçbir dosya yazılmaz. Uygulanabilir
-              bir plan için 0, var olmayan bir hedef için 2 ile çıkar; gerçek bir çalıştırma aynı durum
-              için bu kodu verir. Bir planın kararı yoktur ve bunu söyler - yalnızca gerçek bir oturumun
-              kararı vardır.</td>
+              değişkenler ve hedefin iki mekanizmadan hangisini kullanacağı. Hiçbir süreç
+              başlatılmaz ve <code>--report</code>’un adını verdiği dosya dahil hiçbir dosya
+              yazılmaz. Uygulanabilir bir plan için 0, var olmayan bir hedef için 2 ile çıkar;
+              gerçek bir çalıştırma aynı durum için bu kodu verir. Bir planın kararı yoktur ve bunu
+              söyler - yalnızca gerçek bir oturumun kararı vardır. <code>--json</code> ile plan veri
+              olarak verilir; buna <code>session.elevated_embedded</code> ve
+              <code>session.elevated_embedded_value</code> da dahildir. İkincisi, seçenek bir
+              <code>.exe</code> hedefine uygulandığında kayıt defteri değerine ad verecek dosya
+              adıdır, aksi halde null olur. Orada bir ad bulunması yazılacağının sözü değildir:
+              oturum değeri yalnızca Chrono Mock'un kendisi yönetici olarak çalışıyorsa yazar.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -261,6 +299,11 @@
               çevrilmez.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td><code>--base</code> gibi, ancak başlangıç oturum diliminde bir duvar saati okuması
+              değil, sonunda isteğe bağlı <code>Z</code> olan UTC'de bir andır.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Tekrarlanabilir. İşaret zorunludur. Birimler: <code>s m h d w mo q y bd</code> ya da tam
               adları. <strong><code>m</code> dakika, <code>mo</code> aydır.</strong> Aylar, çeyrekler ve
@@ -292,10 +335,16 @@
           </tr>
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
-            <td>Bir tatil takvimi yükler. Meta verilere iş günü ve tatil ekler ve <code>bd</code> ile
-              <code>--nearest</code>’i etkinleştirir. İki Amerikan takvimi, hafta sonuna denk gelen bir
-              tatili nasıl gözlemlediklerinde ayrılır; bu da bir testin bulması gereken tam olarak bir gün
-              kayma türü hatadır.</td>
+            <td>Bir tatil takvimi yükler. Meta verilere iş günü ve tatil ekler ve <code>bd</code>
+              ile <code>--nearest</code>’i etkinleştirir. İki Amerikan takvimi, hafta sonuna denk
+              gelen bir tatili nasıl gözlemlediklerinde ayrılır; bu da bir testin bulması gereken
+              tam olarak bir gün kayma türü hatadır. Her takvim belirli bir yıl aralığı için yanıt
+              verir: <code>pl</code> 2002'den, <code>us-federal</code> 1960'tan ve
+              <code>us-banking</code> 2008'den başlar. Bu aralıktan önceki bir güne ulaşan iş günü
+              adımı 1 koduyla reddedilir, aralıktan önceki bir tarih de değerlendirilmemiş olarak
+              gösterilir. Bir takvimin tatilleri en son bir yıldan uzun süre önce yasayla
+              karşılaştırılmışsa, değerlendirdiği daha sonraki gün <code>calendar_outdated</code>
+              ile işaretlenir, çünkü daha yeni bir tatil eksik olabilir.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

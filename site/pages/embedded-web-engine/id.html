@@ -125,11 +125,11 @@
 
     <div class="prose">
       <p>
-        Dua yang lebih kecil, disampaikan terus terang. Halaman mempertahankan <strong>zona waktu mesin
-        ini</strong>, sehingga zona sesi yang mandiri hanyalah fitur mode native. Dan timer yang sudah
-        dijadwalkan <em>sebelum</em> sesi menjangkau halaman mempertahankan laju lamanya, sama seperti
-        pada sesi Chromium murni - sesi memperingatkan, bukan membiarkan Anda menyimpulkan tidak terjadi
-        apa-apa.
+        Dua yang lebih kecil, disampaikan terus terang. Halaman membaca zona waktu sesi sebagai
+        selisih tetap, sehingga <code>Intl</code> menamainya <code>GMT+02:00</code>, bukan kota. Dan
+        timer yang sudah dijadwalkan <em>sebelum</em> sesi menjangkau halaman mempertahankan laju
+        lamanya, sama seperti pada sesi Chromium murni - sesi memperingatkan, bukan membiarkan Anda
+        menyimpulkan tidak terjadi apa-apa.
       </p>
       <p>
         Jika engine dikonfigurasi melalui kebijakan argumen peramban di registry, variabel sesi

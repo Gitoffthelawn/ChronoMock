@@ -26,10 +26,18 @@
         stdout, ca un script să o poată captura.
       </p>
       <p>
-        <code>chrono license</code> răspunde la a patra: licența sub care este distribuit acest build,
-        declinarea garanției și componentele terțe legate în el. Spune și unde se află pe disc textul
-        complet al licenței și notele despre componentele terțe sau recunoaște că exemplarul pe care îl
-        rulezi nu le are alături.
+        <code>chrono license</code> răspunde la a patra: licența sub care este distribuit acest
+        build, declinarea garanției și componentele terțe legate în el. Spune și unde se află pe
+        disc textul complet al licenței și notele despre componentele terțe sau recunoaște că
+        exemplarul pe care îl rulezi nu le are alături. <code>--components</code> listează fiecare
+        componentă inclusă cu versiunea ei, în loc de un rezumat.
+      </p>
+      <p>
+        <code>chrono presets</code> listează catalogul de presetări așa cum îl citește
+        <code>--preset</code>: fiecare presetare din folder, scrisă cu cuvintele pe care le citește
+        gramatica calculatorului, și fiecare fișier pe care l-ar refuza, cu motivul.
+        <code>--json</code> scrie <code>chronomock.presets/1</code>, iar <code>--dir</code> indică
+        alt folder.
       </p>
     </div>
 
@@ -37,6 +45,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, și ce este inclus</span>
+<span class="p">chrono</span> presets        <span class="c"># catalogul, așa cum îl citește --preset</span>
 <span class="p">chrono</span> --help          <span class="c"># utilizarea tuturor</span></pre>
   </section>
 
@@ -142,13 +151,44 @@
               Acesta decide doar dacă ținta continuă să ruleze.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Lasă paginile web din interiorul aplicației (WebView2, Qt WebEngine) pe ceasul real
+              și nu deschide niciun port de depanare. Fără el, sesiunea cere unui astfel de motor să
+              deschidă un port local și îi pune paginile pe ceasul sesiunii prin el - cât timp
+              portul este deschis, orice alt program de pe acest calculator îl poate folosi ca să
+              ajungă la acele pagini.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Pentru o aplicație care rulează ca administrator, dintr-un Chrono Mock care rulează
+              și el ca administrator. WebView2 ignoră pentru o astfel de aplicație setarea prin care
+              sesiunea ajunge la paginile ei, așa că sesiunea scrie pe durata sa o valoare în
+              registrul mașinii (HKLM, denumită după .exe al aplicației) și o elimină la final. Cât
+              timp aplicația rulează, orice alt program de pe acest calculator poate ajunge la
+              paginile ei prin port, iar aplicația are drepturi de administrator. Nu împreună cu
+              <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Pornește motorul web - browserul unei aplicații Chromium sau Electron, ori motorul
+              din interiorul unei aplicații - cu încetinirea temporizatoarelor din ferestrele
+              ascunse oprită, ca o fereastră minimizată să păstreze viteza sesiunii. Aplicația
+              lucrează atunci cu viteză deplină și cât timp este ascunsă.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Afișează ce ar fi sesiunea și nu pornește nimic: momentul și fusul rezolvate și de unde
-              provin, cu ce a completat un preset fiecare parametru, argumentele după împărțire și care
-              dintre cele două mecanisme ar folosi ținta. Nu pornește niciun proces și nu scrie niciun
-              fișier, inclusiv cel numit de <code>--report</code>. Iese cu 0 pentru un plan realizabil și
-              cu 2 pentru o țintă care nu există, adică exact codul pe care îl dă o rulare reală pentru
-              același fapt. Un plan nu are verdict și o spune - doar o sesiune reală are unul.</td>
+            <td>Afișează ce ar fi sesiunea și nu pornește nimic: momentul și fusul rezolvate și de
+              unde provin, cu ce a completat un preset fiecare parametru, argumentele după împărțire
+              și care dintre cele două mecanisme ar folosi ținta. Nu pornește niciun proces și nu
+              scrie niciun fișier, inclusiv cel numit de <code>--report</code>. Iese cu 0 pentru un
+              plan realizabil și cu 2 pentru o țintă care nu există, adică exact codul pe care îl dă
+              o rulare reală pentru același fapt. Un plan nu are verdict și o spune - doar o sesiune
+              reală are unul. Cu <code>--json</code> planul este dat ca date, inclusiv
+              <code>session.elevated_embedded</code> și
+              <code>session.elevated_embedded_value</code>, numele fișierului după care ar fi
+              denumită valoarea din registru când opțiunea se aplică unei ținte <code>.exe</code>,
+              altfel null. Un nume acolo nu este o promisiune de scriere: sesiunea scrie valoarea
+              doar când Chrono Mock însuși rulează ca administrator.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -267,6 +307,11 @@
               următoare.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Ca <code>--base</code>, dar începutul este un moment în UTC, cu un <code>Z</code>
+              final opțional, nu o citire a ceasului de perete în fusul sesiunii.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Se poate repeta. Semnul este obligatoriu. Unități: <code>s m h d w mo q y bd</code> sau
               numele lor complete. <strong><code>m</code> înseamnă minute, <code>mo</code> înseamnă
@@ -301,9 +346,15 @@
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
             <td>Încarcă un calendar de sărbători. Adaugă zi lucrătoare și sărbătoare la metadate și
-              activează <code>bd</code> și <code>--nearest</code>. Cele două calendare americane diferă prin
-              felul în care tratează o sărbătoare căzută în weekend, adică exact genul de diferență de o zi
-              pe care un test trebuie să o găsească.</td>
+              activează <code>bd</code> și <code>--nearest</code>. Cele două calendare americane
+              diferă prin felul în care tratează o sărbătoare căzută în weekend, adică exact genul
+              de diferență de o zi pe care un test trebuie să o găsească. Fiecare calendar răspunde
+              pentru un interval de ani: <code>pl</code> din 2002, <code>us-federal</code> din 1960
+              și <code>us-banking</code> din 2008. Un pas în zile lucrătoare care ajunge la o zi
+              dinaintea lui este refuzat cu codul 1, iar o dată dinaintea lui este afișată ca
+              neevaluată. Când sărbătorile unui calendar au fost verificate cu legea acum mai bine
+              de un an, o zi ulterioară pe care a evaluat-o poartă marcajul
+              <code>calendar_outdated</code>, pentru că poate lipsi o sărbătoare mai nouă.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

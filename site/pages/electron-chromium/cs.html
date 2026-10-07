@@ -76,11 +76,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Časové pásmo sezení se řídí hostitelem.</strong></p>
+      <p><strong>Stránky čtou časové pásmo sezení.</strong></p>
       <p>
-        V tomto režimu je okamžik falešný, ale getery místního času ne, takže
-        <a href="/cs/testovani-casovych-pasem/">nezávislé časové pásmo</a> je funkce pouze nativního
-        režimu. To je omezení této verze, ne rozhodnutí.
+        Každá stránka a každý worker se přepne na <a href="/cs/testovani-casovych-pasem/">časové
+        pásmo sezení</a>, pevný posun bez letního času, a kontroluje posun, který čte, takže
+        stránka, která přečetla jiné pásmo, je nahlášena. Dvě omezení: <code>Intl</code> toto pásmo
+        pojmenuje posunem jako <code>GMT+02:00</code>, ne městem, a hlavní proces aplikace Electron
+        spouští JavaScript v Node, kam sezení nedosáhne, takže si ponechává skutečné hodiny - zpráva
+        to říká.
       </p>
     </div>
 

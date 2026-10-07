@@ -96,8 +96,10 @@ Chrono Mock - date calculator
         <li><strong>O Java assume o fuso da sessão como um deslocamento.</strong> O fuso da sessão não tem
           horário de verão nem cidade por trás, então o Java o nomeia pelo deslocamento -
           <code>GMT+05:30</code> para uma sessão em +05:30.</li>
-        <li><strong>No modo Chromium e Electron, o fuso acompanha o host.</strong> O instante é
-          falsificado, os métodos de hora local não.</li>
+        <li><strong>No modo Chromium e Electron, as páginas também leem o fuso da sessão.</strong> É
+          o mesmo deslocamento fixo: cada página e cada worker é colocado nele e confere o que lê. O
+          processo principal de um aplicativo Electron executa JavaScript no Node, que a sessão não
+          alcança, então ele mantém o relógio real.</li>
         <li><strong>Os deslocamentos vão de -14:00 a +14:00</strong> em minutos inteiros. Qualquer coisa
           fora disso é recusada em vez de ser dobrada em silêncio.</li>
       </ul>

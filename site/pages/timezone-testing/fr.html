@@ -99,8 +99,10 @@ Chrono Mock - date calculator
         <li><strong>Java prend le fuseau de la session sous forme de décalage.</strong> Le fuseau de la
           session n'a ni heure d'été ni ville derrière lui, si bien que Java le nomme d'après son
           décalage - <code>GMT+05:30</code> pour une session à +05:30.</li>
-        <li><strong>En mode Chromium et Electron, le fuseau suit l'hôte.</strong> L'instant est falsifié,
-          pas les accesseurs d'heure locale.</li>
+        <li><strong>En mode Chromium et Electron, les pages lisent aussi le fuseau de la
+          session.</strong> C'est le même décalage fixe : chaque page et chaque worker y est placé
+          et vérifie ce qu'il lit. Le processus principal d'une application Electron exécute du
+          JavaScript dans Node, que la session n'atteint pas, donc il garde l'horloge réelle.</li>
         <li><strong>Les décalages vont de -14:00 à +14:00</strong> par minutes entières. Tout ce qui est en
           dehors est refusé plutôt que replié discrètement.</li>
       </ul>

@@ -130,10 +130,10 @@
 
     <div class="prose">
       <p>
-        Deux limites plus petites, dites simplement. Les pages gardent <strong>le fuseau horaire de cette
-        machine</strong>, un fuseau de session indépendant est donc une fonctionnalité du mode natif
-        uniquement. Et un minuteur déjà planifié <em>avant</em> que la session atteigne la page garde son
-        ancien rythme, comme dans une session Chromium pure - la session avertit plutôt que de vous laisser
+        Deux limites plus petites, dites simplement. Les pages lisent le fuseau de la session comme
+        un décalage fixe, donc <code>Intl</code> le nomme <code>GMT+02:00</code> et non une ville.
+        Et un minuteur déjà planifié <em>avant</em> que la session atteigne la page garde son ancien
+        rythme, comme dans une session Chromium pure - la session avertit plutôt que de vous laisser
         conclure qu'il ne s'est rien passé.
       </p>
       <p>

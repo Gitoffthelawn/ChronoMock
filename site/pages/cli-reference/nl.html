@@ -27,10 +27,17 @@
         stdout, zodat een script hem kan opvangen.
       </p>
       <p>
-        <code>chrono license</code> beantwoordt de vierde: onder welke licentie deze build wordt verspreid,
-        de uitsluiting van garantie en de componenten van derden die erin zijn gelinkt. Het zegt ook waar op
-        schijf de volledige licentietekst en de vermeldingen van derden staan, of geeft toe dat de kopie
-        die je draait ze niet naast zich heeft.
+        <code>chrono license</code> beantwoordt de vierde: onder welke licentie deze build wordt
+        verspreid, de uitsluiting van garantie en de componenten van derden die erin zijn gelinkt.
+        Het zegt ook waar op schijf de volledige licentietekst en de vermeldingen van derden staan,
+        of geeft toe dat de kopie die je draait ze niet naast zich heeft. <code>--components</code>
+        toont elk meegeleverd onderdeel met zijn versie in plaats van een samenvatting.
+      </p>
+      <p>
+        <code>chrono presets</code> toont de scenariocatalogus zoals <code>--preset</code> hem
+        leest: elk scenario in de map, geschreven in de woorden die de grammatica van de
+        rekenmachine leest, en elk bestand dat het zou weigeren, met de reden. <code>--json</code>
+        schrijft <code>chronomock.presets/1</code> en <code>--dir</code> noemt een andere map.
       </p>
     </div>
 
@@ -38,6 +45,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, and what is bundled</span>
+<span class="p">chrono</span> presets        <span class="c"># de catalogus, zoals --preset hem leest</span>
 <span class="p">chrono</span> --help          <span class="c"># usage for all of them</span></pre>
   </section>
 
@@ -140,13 +148,44 @@
               alleen of het doel blijft draaien.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Laat de webpagina's binnen de toepassing (WebView2, Qt WebEngine) op de echte klok
+              en opent geen debugpoort. Zonder deze optie vraagt de sessie zo'n engine een lokale
+              poort te openen en zet via die poort zijn pagina's op de sessieklok - zolang de poort
+              open is, kan elk ander programma op deze computer hem gebruiken om die pagina's te
+              bereiken.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Voor een toepassing die als beheerder draait, vanuit een Chrono Mock die ook als
+              beheerder draait. WebView2 negeert voor zo'n toepassing de instelling waarmee de
+              sessie haar pagina's bereikt, dus de sessie schrijft gedurende haar looptijd één
+              waarde naar het register van de machine (HKLM, genoemd naar de .exe van de toepassing)
+              en verwijdert die aan het einde. Zolang de toepassing draait, kan elk ander programma
+              op deze computer haar pagina's via de poort bereiken, en de toepassing heeft
+              beheerdersrechten. Niet samen met <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Start de webengine - de browser van een Chromium- of Electron-toepassing, of de
+              engine binnen een toepassing - met de vertraging van timers in verborgen vensters
+              uitgeschakeld, zodat een geminimaliseerd venster de sessiesnelheid behoudt. De
+              toepassing werkt dan ook op volle snelheid terwijl ze verborgen is.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Drukt af wat de sessie zou zijn en start niets: het opgeloste moment en de zone en waar ze
-              vandaan komen, waarmee een scenario elke parameter vulde, de argumenten na het splitsen en
-              welk van de twee mechanismen het doel zou nemen. Er wordt geen proces gestart en geen bestand
-              geschreven, ook niet dat wat <code>--report</code> noemt. Het eindigt met 0 voor een haalbaar
-              plan en met 2 voor een doel dat er niet is, de code die een echte run voor hetzelfde feit
-              geeft. Een plan draagt geen oordeel en zegt dat - alleen een echte sessie heeft er een.</td>
+            <td>Drukt af wat de sessie zou zijn en start niets: het opgeloste moment en de zone en
+              waar ze vandaan komen, waarmee een scenario elke parameter vulde, de argumenten na het
+              splitsen en welk van de twee mechanismen het doel zou nemen. Er wordt geen proces
+              gestart en geen bestand geschreven, ook niet dat wat <code>--report</code> noemt. Het
+              eindigt met 0 voor een haalbaar plan en met 2 voor een doel dat er niet is, de code
+              die een echte run voor hetzelfde feit geeft. Een plan draagt geen oordeel en zegt dat
+              - alleen een echte sessie heeft er een. Met <code>--json</code> is het plan data,
+              waaronder <code>session.elevated_embedded</code> en
+              <code>session.elevated_embedded_value</code>, de bestandsnaam waarnaar de
+              registerwaarde zou worden genoemd wanneer de optie op een <code>.exe</code>-doel van
+              toepassing is, anders null. Een naam daar is geen belofte dat er geschreven wordt: de
+              sessie schrijft de waarde alleen als Chrono Mock zelf als beheerder draait.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -264,6 +303,11 @@
               volgende maand.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Net als <code>--base</code>, maar het begin is een moment in UTC, met een optionele
+              afsluitende <code>Z</code>, in plaats van een wandklokaflezing in de sessiezone.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Herhaalbaar. Het teken is verplicht. Eenheden: <code>s m h d w mo q y bd</code>, of hun
               volledige namen. <strong><code>m</code> is minuten, <code>mo</code> is maanden.</strong>
@@ -296,10 +340,16 @@
           </tr>
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
-            <td>Laadt een feestdagenkalender. Het voegt werkdag en feestdag toe aan de metadata en maakt
-              <code>bd</code> en <code>--nearest</code> mogelijk. De twee Amerikaanse kalenders verschillen
-              in hoe ze een feestdag in het weekend viereren, en dat is precies het soort afwijking van een
-              dag dat een test moet vinden.</td>
+            <td>Laadt een feestdagenkalender. Het voegt werkdag en feestdag toe aan de metadata en
+              maakt <code>bd</code> en <code>--nearest</code> mogelijk. De twee Amerikaanse
+              kalenders verschillen in hoe ze een feestdag in het weekend viereren, en dat is
+              precies het soort afwijking van een dag dat een test moet vinden. Elke kalender
+              antwoordt voor een reeks jaren: <code>pl</code> vanaf 2002, <code>us-federal</code>
+              vanaf 1960 en <code>us-banking</code> vanaf 2008. Een werkdagstap die een dag daarvoor
+              bereikt, wordt geweigerd met exitcode 1, en een datum daarvoor wordt getoond als niet
+              beoordeeld. Als de feestdagen van een kalender het laatst meer dan een jaar geleden
+              aan de wet zijn getoetst, krijgt een latere dag die hij beoordeelde de markering
+              <code>calendar_outdated</code>, omdat een nieuwere feestdag kan ontbreken.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

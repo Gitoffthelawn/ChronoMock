@@ -128,11 +128,11 @@
 
     <div class="prose">
       <p>
-        Altri due, più piccoli, detti chiaramente. Le pagine mantengono il <strong>fuso orario di questa
-        macchina</strong>, quindi un fuso di sessione indipendente è una funzione solo della modalità
-        nativa. E un timer già programmato <em>prima</em> che la sessione raggiungesse la pagina mantiene
-        il vecchio ritmo, come in una sessione Chromium pura - la sessione avvisa invece di lasciarti
-        concludere che non è successo nulla.
+        Altri due, più piccoli, detti chiaramente. Le pagine leggono il fuso della sessione come uno
+        scostamento fisso, quindi <code>Intl</code> lo chiama <code>GMT+02:00</code> e non con una
+        città. E un timer già programmato <em>prima</em> che la sessione raggiungesse la pagina
+        mantiene il vecchio ritmo, come in una sessione Chromium pura - la sessione avvisa invece di
+        lasciarti concludere che non è successo nulla.
       </p>
       <p>
         Se il motore è configurato tramite un criterio di argomenti del browser nel registro, la variabile

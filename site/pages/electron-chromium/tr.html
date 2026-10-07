@@ -75,11 +75,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Oturum saat dilimi ana makineyi izler.</strong></p>
+      <p><strong>Sayfalar oturumun saat dilimini okur.</strong></p>
       <p>
-        Bu kipte an sahtelenir ama yerel saat getter’ları sahtelenmez; bu yüzden
-        <a href="/tr/saat-dilimi-testi/">bağımsız bir saat dilimi</a> yalnızca yerel kipin bir özelliğidir.
-        Bu, bu sürümün bir sınırlamasıdır, bir karar değil.
+        Her sayfa ve worker, yaz saati uygulaması olmayan sabit bir fark olan
+        <a href="/tr/saat-dilimi-testi/">oturum saat dilimine</a> alınır ve okuduğu farkı denetler,
+        bu yüzden başka bir dilimi okuyan sayfa raporlanır. İki sınır var: <code>Intl</code> bu
+        dilimi bir şehir olarak değil, <code>GMT+02:00</code> gibi bir fark olarak adlandırır ve bir
+        Electron uygulamasının ana süreci JavaScript'i oturumun erişemediği Node içinde çalıştırır,
+        bu yüzden gerçek saati korur - rapor bunu söyler.
       </p>
     </div>
 

@@ -96,8 +96,10 @@ Chrono Mock - date calculator
         <li><strong>Java neemt de sessiezone over als offset.</strong> De sessiezone heeft geen zomertijd en
           geen stad erachter, dus Java noemt haar naar haar offset - <code>GMT+05:30</code> voor een sessie
           op +05:30.</li>
-        <li><strong>In de Chromium- en Electron-modus volgt de zone de host.</strong> Het moment wordt
-          vervalst, de getters voor de lokale tijd niet.</li>
+        <li><strong>In de Chromium- en Electron-modus lezen de pagina's de sessiezone ook.</strong>
+          Het is dezelfde vaste afwijking: elke pagina en elke worker wordt erop gezet en
+          controleert wat hij leest. Het hoofdproces van een Electron-toepassing draait JavaScript
+          in Node, waar de sessie niet bij kan, dus het houdt de echte klok.</li>
         <li><strong>Offsets lopen van -14:00 tot +14:00</strong> in hele minuten. Alles daarbuiten wordt
           geweigerd in plaats van stilletjes omgeslagen.</li>
       </ul>

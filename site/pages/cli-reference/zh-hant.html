@@ -19,7 +19,10 @@
         <code>chrono version</code> 回答第三個小得多的問題：這是哪個建置、可執行檔是兩個核心中的哪一個，以及它使用的通訊協定版本。在 stdout 上只輸出一行，方便指令碼擷取。
       </p>
       <p>
-        <code>chrono license</code> 回答第四個問題：這個建置以什麼授權條款散布、免責聲明，以及連結進來的第三方元件。它還會告訴你完整授權文字與第三方聲明在磁碟上的位置；如果你執行的這份副本旁邊沒有它們，也會如實說明。
+        <code>chrono license</code> 回答第四個問題：這個建置以什麼授權條款散布、免責聲明，以及連結進來的第三方元件。它還會告訴你完整授權文字與第三方聲明在磁碟上的位置；如果你執行的這份副本旁邊沒有它們，也會如實說明。 <code>--components</code> 會列出每個隨附元件及其版本，而不是只給出摘要。
+      </p>
+      <p>
+        <code>chrono presets</code> 依 <code>--preset</code> 讀取的方式列出預設目錄：資料夾中的每個預設，以計算機文法讀取的詞語寫出，以及每個會被拒絕的檔案和原因。<code>--json</code> 輸出 <code>chronomock.presets/1</code>，<code>--dir</code> 指定另一個資料夾。
       </p>
     </div>
 
@@ -27,6 +30,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only，以及隨附了什麼</span>
+<span class="p">chrono</span> presets        <span class="c"># 依 --preset 讀取方式列出的目錄</span>
 <span class="p">chrono</span> --help          <span class="c"># 檢視所有命令的用法</span></pre>
   </section>
 
@@ -94,8 +98,20 @@
             <td>即使開場判定表示替換沒有生效，也保留工作階段——預設會停止目標程式，因為什麼也沒證明的工作階段比沒有工作階段更糟。<strong>判定不會改變</strong>，結束代碼也不會改變。它只決定目標程式是否繼續執行。</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>讓應用程式內部的網頁（WebView2、Qt WebEngine）保持在真實時鐘上，並且不開啟偵錯連接埠。不加此參數時，工作階段會請這類引擎開啟本機連接埠，並透過它把其頁面放到工作階段時鐘上。連接埠開啟期間，這台電腦上的任何其他程式都可以用它存取這些頁面。</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>用於以系統管理員身分執行的應用程式，需要從同樣以系統管理員身分執行的 Chrono Mock 啟動。對這類應用程式，WebView2 會忽略工作階段用來存取其頁面的設定，所以工作階段在持續期間向電腦登錄（HKLM，以應用程式的 .exe 命名）寫入一個值，並在結束時刪除。應用程式執行期間，這台電腦上的任何其他程式都可以透過該連接埠存取其頁面，而該應用程式擁有系統管理員權限。不能與 <code>--no-embedded</code> 同用。</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>啟動 Web 引擎（Chromium 或 Electron 應用程式的瀏覽器，或應用程式內部的引擎）時關閉其對隱藏視窗中計時器的減速，這樣最小化的視窗仍保持工作階段速度。此時應用程式在隱藏狀態下也會全速執行。</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>只列印工作階段將會是什麼樣子，不啟動任何東西：解析出的時刻與時區及其來源、預設為每個參數填入了什麼、拆分後的引數，以及目標程式將採用兩種機制中的哪一種。不會啟動任何處理序，也不會寫入任何檔案，包括 <code>--report</code> 指定的那個。計畫可行時以 0 結束，目標程式不存在時以 2 結束，這與真實執行遇到同樣情況時給出的結束代碼一致。計畫不帶判定，並且會如此聲明——只有真實的工作階段才有判定。</td>
+            <td>只列印工作階段將會是什麼樣子，不啟動任何東西：解析出的時刻與時區及其來源、預設為每個參數填入了什麼、拆分後的引數，以及目標程式將採用兩種機制中的哪一種。不會啟動任何處理序，也不會寫入任何檔案，包括 <code>--report</code> 指定的那個。計畫可行時以 0 結束，目標程式不存在時以 2 結束，這與真實執行遇到同樣情況時給出的結束代碼一致。計畫不帶判定，並且會如此聲明——只有真實的工作階段才有判定。 加上 <code>--json</code> 時，計畫以資料形式給出，其中包括 <code>session.elevated_embedded</code> 和 <code>session.elevated_embedded_value</code>。後者是在該選項適用於 <code>.exe</code> 目標時登錄值將以其命名的檔名，其他情況為 null。這裡有名稱並不保證一定會寫入：只有 Chrono Mock 本身以系統管理員身分執行時，工作階段才會寫入該值。</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -189,6 +205,10 @@
             <td>從哪裡開始，預設是 <code>today</code>。依工作階段時區解析。像 <code>2025-02-31</code> 這樣不可能存在的日期會被拒絕，絕不會悄悄規整到下個月。</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>與 <code>--base</code> 類似，但起點是 UTC 中的一個時刻（結尾可帶 <code>Z</code>），而不是工作階段時區中的牆上時鐘讀數。</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>可重複使用。必須帶正負號。單位：<code>s m h d w mo q y bd</code>，或是它們的全名。<strong><code>m</code> 是分鐘，<code>mo</code> 是月。</strong>月、季與年依日曆日期折算，並做截斷處理，因此 1 月 31 日之後的一個月是 2 月月底，而不是固定數目的刻度。<code>bd</code>（工作日）需要 <code>--calendar</code>。</td>
           </tr>
@@ -211,7 +231,7 @@
           </tr>
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
-            <td>載入一份假日日曆。它會在中繼資料中加入工作日與假日，並啟用 <code>bd</code> 與 <code>--nearest</code>。兩份美國日曆的差別在於遇到週末的假日如何順延，這恰恰是測試要找出的那種差一天的錯誤。</td>
+            <td>載入一份假日日曆。它會在中繼資料中加入工作日與假日，並啟用 <code>bd</code> 與 <code>--nearest</code>。兩份美國日曆的差別在於遇到週末的假日如何順延，這恰恰是測試要找出的那種差一天的錯誤。 每個日曆只對一段年份作答：<code>pl</code> 自 2002 年起，<code>us-federal</code> 自 1960 年起，<code>us-banking</code> 自 2008 年起。工作日步驟如果到達這個範圍之前的日子，會以結束代碼 1 被拒絕，範圍之前的日期則顯示為未作判斷。如果日曆的假日上次對照法律檢查已超過一年，它所判斷的較晚日期會被標記為 <code>calendar_outdated</code>，因為可能缺少較新的假日。</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

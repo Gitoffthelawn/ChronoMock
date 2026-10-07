@@ -89,8 +89,10 @@ Chrono Mock - date calculator
         <li><strong>Java nhận múi giờ phiên dưới dạng một độ lệch.</strong> Múi giờ phiên không có giờ mùa
           hè và không có thành phố nào đứng sau, nên Java đặt tên nó theo độ lệch - <code>GMT+05:30</code>
           cho một phiên ở +05:30.</li>
-        <li><strong>Ở chế độ Chromium và Electron, múi giờ đi theo máy chủ.</strong> Thời điểm là giả, các
-          hàm lấy giờ địa phương thì không.</li>
+        <li><strong>Ở chế độ Chromium và Electron, các trang cũng đọc múi giờ của phiên.</strong> Đó
+          là cùng một độ lệch cố định: mỗi trang và mỗi worker được đặt vào đó và kiểm tra điều nó
+          đọc. Tiến trình chính của ứng dụng Electron chạy JavaScript trong Node mà phiên không với
+          tới, nên nó giữ đồng hồ thật.</li>
         <li><strong>Độ lệch chạy từ -14:00 đến +14:00</strong> theo số phút nguyên. Mọi thứ ngoài khoảng đó
           bị từ chối chứ không bị lặng lẽ quay vòng.</li>
       </ul>

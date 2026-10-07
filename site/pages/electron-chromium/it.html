@@ -77,11 +77,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Il fuso orario della sessione segue l'host.</strong></p>
+      <p><strong>Le pagine leggono il fuso orario della sessione.</strong></p>
       <p>
-        In questa modalità l'istante è falsificato, ma i getter dell'ora locale no, quindi un
-        <a href="/it/test-dei-fusi-orari/">fuso orario indipendente</a> è una funzione solo della modalità
-        nativa. È un limite di questa versione, non una decisione.
+        Ogni pagina e ogni worker viene portato sul <a href="/it/test-dei-fusi-orari/">fuso orario
+        della sessione</a>, uno scostamento fisso senza ora legale, e controlla lo scostamento che
+        legge, così una pagina che ha letto un altro fuso viene segnalata. Due limiti:
+        <code>Intl</code> chiama quel fuso con uno scostamento come <code>GMT+02:00</code> e non con
+        una città, e il processo principale di un'applicazione Electron esegue JavaScript in Node,
+        che la sessione non raggiunge, quindi mantiene l'orologio reale - il rapporto lo dice.
       </p>
     </div>
 

@@ -98,8 +98,10 @@ Chrono Mock - date calculator
         <li><strong>Java picks the session zone up as an offset.</strong> The session zone has
           no daylight saving time and no city behind it, so Java names it after its offset -
           <code>GMT+05:30</code> for a session at +05:30.</li>
-        <li><strong>In Chromium and Electron mode the zone follows the host.</strong> The
-          instant is faked, the local-time getters are not.</li>
+        <li><strong>In Chromium and Electron mode the pages read the session zone too.</strong> It
+          is the same fixed offset: each page and worker is put on it and checks what it reads. An
+          Electron application's main process runs in Node, which the session does not reach, so it
+          keeps the real clock.</li>
         <li><strong>Offsets run from -14:00 to +14:00</strong> in whole minutes. Anything
           outside that is refused rather than quietly wrapped.</li>
       </ul>

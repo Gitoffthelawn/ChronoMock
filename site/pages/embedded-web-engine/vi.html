@@ -122,10 +122,11 @@
 
     <div class="prose">
       <p>
-        Hai điều nhỏ hơn, nói thẳng. Các trang giữ <strong>múi giờ của máy này</strong>, nên múi giờ phiên
-        độc lập chỉ là tính năng của chế độ native. Và một bộ hẹn giờ đã được lên lịch <em>trước khi</em> phiên
-        đến được trang giữ nguyên nhịp cũ, giống hệt như trong một phiên Chromium thuần - phiên cảnh báo thay
-        vì để bạn kết luận rằng không có gì xảy ra.
+        Hai điều nhỏ hơn, nói thẳng. Các trang đọc múi giờ của phiên như một độ lệch cố định, nên
+        <code>Intl</code> gọi nó là <code>GMT+02:00</code> chứ không phải tên thành phố. Và một bộ
+        hẹn giờ đã được lên lịch <em>trước khi</em> phiên đến được trang giữ nguyên nhịp cũ, giống
+        hệt như trong một phiên Chromium thuần - phiên cảnh báo thay vì để bạn kết luận rằng không
+        có gì xảy ra.
       </p>
       <p>
         Nếu động cơ được cấu hình qua chính sách đối số trình duyệt trong registry, biến của phiên được ưu

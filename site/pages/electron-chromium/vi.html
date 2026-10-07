@@ -76,11 +76,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Múi giờ của phiên đi theo máy chủ.</strong></p>
+      <p><strong>Các trang đọc múi giờ của phiên.</strong></p>
       <p>
-        Ở chế độ này, thời điểm là giả, nhưng các hàm lấy giờ địa phương thì không, nên
-        <a href="/vi/kiem-thu-mui-gio/">múi giờ độc lập</a> chỉ là tính năng của chế độ native. Đó là hạn chế
-        của phiên bản này, không phải một quyết định.
+        Mỗi trang và mỗi worker được đặt vào <a href="/vi/kiem-thu-mui-gio/">múi giờ của phiên</a>,
+        một độ lệch cố định không có giờ mùa hè, và kiểm tra độ lệch mà nó đọc, nên trang nào đọc
+        múi giờ khác sẽ được báo cáo. Hai giới hạn: <code>Intl</code> gọi múi giờ đó bằng một độ
+        lệch như <code>GMT+02:00</code> chứ không phải tên thành phố, và tiến trình chính của ứng
+        dụng Electron chạy JavaScript trong Node mà phiên không với tới, nên nó giữ đồng hồ thật -
+        báo cáo có nói điều này.
       </p>
     </div>
 

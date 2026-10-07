@@ -90,8 +90,10 @@ Chrono Mock - date calculator
         <li><strong>Java oturum dilimini bir kayma olarak alır.</strong> Oturum diliminin yaz saati
           uygulaması ve arkasında bir şehir yoktur; bu yüzden Java ona kaymasından bir ad verir -
           +05:30’daki bir oturum için <code>GMT+05:30</code>.</li>
-        <li><strong>Chromium ve Electron kipinde dilim ana makineyi izler.</strong> An sahtelenir, yerel
-          saat getter’ları sahtelenmez.</li>
+        <li><strong>Chromium ve Electron kipinde sayfalar da oturum dilimini okur.</strong> Aynı
+          sabit farktır: her sayfa ve worker ona alınır ve okuduğunu denetler. Bir Electron
+          uygulamasının ana süreci JavaScript'i oturumun erişemediği Node içinde çalıştırır, bu
+          yüzden gerçek saati korur.</li>
         <li><strong>Kaymalar -14:00 ile +14:00 arasındadır</strong>, tam dakikalar halinde. Bunun dışındaki
           her şey sessizce sarılmak yerine reddedilir.</li>
       </ul>

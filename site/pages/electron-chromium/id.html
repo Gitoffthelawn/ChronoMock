@@ -78,11 +78,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Zona waktu sesi mengikuti host.</strong></p>
+      <p><strong>Halaman membaca zona waktu sesi.</strong></p>
       <p>
-        Dalam mode ini instan dipalsukan, tetapi getter waktu lokal tidak, sehingga
-        <a href="/id/pengujian-zona-waktu/">zona waktu mandiri</a> hanyalah fitur mode native. Itu adalah
-        keterbatasan versi ini, bukan keputusan.
+        Setiap halaman dan worker ditempatkan pada <a href="/id/pengujian-zona-waktu/">zona waktu
+        sesi</a>, selisih tetap tanpa waktu musim panas, dan memeriksa selisih yang dibacanya,
+        sehingga halaman yang membaca zona lain dilaporkan. Dua batasan: <code>Intl</code> menamai
+        zona itu sebagai selisih seperti <code>GMT+02:00</code>, bukan sebagai kota, dan proses
+        utama aplikasi Electron menjalankan JavaScript di Node, yang tidak dijangkau sesi, sehingga
+        ia tetap memakai jam asli - laporan menyebutkannya.
       </p>
     </div>
 

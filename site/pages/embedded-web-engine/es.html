@@ -127,11 +127,11 @@
 
     <div class="prose">
       <p>
-        Dos más pequeños, dichos claramente. Las páginas conservan <strong>la zona horaria de este
-        equipo</strong>, así que una zona de sesión independiente es una función solo del modo nativo. Y
-        un temporizador ya programado <em>antes</em> de que la sesión llegara a la página conserva su
-        ritmo anterior, igual que en una sesión puramente Chromium - la sesión avisa en lugar de dejar que
-        concluyas que no pasó nada.
+        Dos más pequeños, dichos claramente. Las páginas leen la zona de la sesión como un desfase
+        fijo, así que <code>Intl</code> la nombra <code>GMT+02:00</code> y no una ciudad. Y un
+        temporizador ya programado <em>antes</em> de que la sesión llegara a la página conserva su
+        ritmo anterior, igual que en una sesión puramente Chromium - la sesión avisa en lugar de
+        dejar que concluyas que no pasó nada.
       </p>
       <p>
         Si el motor se configura mediante una directiva de argumentos del navegador en el registro, la

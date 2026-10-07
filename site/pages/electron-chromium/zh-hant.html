@@ -57,9 +57,9 @@
     </div>
 
     <div class="note">
-      <p><strong>工作階段時區跟隨主機。</strong></p>
+      <p><strong>頁面讀取工作階段的時區。</strong></p>
       <p>
-        在這種模式下，時刻是偽造的，但本地時間的取值方法沒有被偽造，所以<a href="/zh-hant/timezone-testing/">獨立的時區</a>只是原生模式的功能。這是目前版本的限制，而不是刻意的決定。
+        每個頁面和 worker 都會被放到<a href="/zh-hant/timezone-testing/">工作階段時區</a>，這是不含日光節約時間的固定位移，並會檢查自己讀到的位移，因此讀到其他時區的頁面會被回報。有兩項限制：<code>Intl</code> 會把該時區稱為 <code>GMT+02:00</code> 這樣的位移，而不是城市。另外，Electron 應用程式的主處理程序在 Node 中執行 JavaScript，工作階段無法觸及，所以它保持真實時鐘，報告也會這樣說明。
       </p>
     </div>
 

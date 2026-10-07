@@ -79,11 +79,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Strefa czasowa sesji idzie za hostem.</strong></p>
+      <p><strong>Strony czytają strefę czasową sesji.</strong></p>
       <p>
-        W tym trybie fałszowana jest chwila, ale nie funkcje czasu lokalnego, więc
-        <a href="/pl/testowanie-stref-czasowych/">niezależna strefa czasowa</a> jest funkcją
-        wyłącznie trybu natywnego. To ograniczenie tej wersji, a nie decyzja.
+        Każda strona i worker dostaje <a href="/pl/testowanie-stref-czasowych/">strefę czasową
+        sesji</a>, stałe przesunięcie bez czasu letniego, i sprawdza przesunięcie, które odczytuje,
+        więc strona, która odczytała inną strefę, jest zgłaszana. Dwa ograniczenia:
+        <code>Intl</code> nazywa tę strefę przesunięciem, takim jak <code>GMT+02:00</code>, a nie
+        miastem, a proces główny aplikacji Electron uruchamia JavaScript w Node, do którego sesja
+        nie sięga, więc zostaje na prawdziwym zegarze - raport to mówi.
       </p>
     </div>
 
