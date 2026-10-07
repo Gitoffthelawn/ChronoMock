@@ -33,4 +33,8 @@ Add `--json` for machine-readable output. Run `chrono` with no arguments for the
 
 Time substitution injects a small library into the target process. Antivirus software,
 Microsoft Defender included, may flag this legitimate technique. If `run` is blocked, add a
-Defender exclusion for this folder. The Chromium / Electron mode does not inject.
+**File** exclusion for the injected library (Windows Security, Virus and threat protection,
+Manage settings, Exclusions): `chrono_hook.dll` in this folder, plus `x86\chrono_hook.dll` if
+you test 32-bit applications. A folder exclusion would leave unscanned the very folder the tool
+injects from - exclude the whole folder only if the file exclusion is not enough. The
+Chromium / Electron mode does not inject.

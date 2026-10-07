@@ -28,10 +28,13 @@ documented Windows technique, and it is also one that malware uses, so antivirus
 Microsoft Defender included - may flag the injected library or block the injection. This is
 a false positive triggered by the technique, not by anything the tool does to your machine.
 
-If a session fails to start and Defender reports a threat, add a Defender exclusion for this
-folder (Windows Security, Virus and threat protection, Manage settings, Exclusions), or run
-it on a machine where you are permitted to do so. The Chromium / Electron mode does not
-inject and is not affected.
+If a session fails to start and Defender reports a threat, add a **File** exclusion for the
+injected library (Windows Security, Virus and threat protection, Manage settings, Exclusions):
+`core\x64\chrono_hook.dll` in this folder, plus `core\x86\chrono_hook.dll` if you test 32-bit
+applications. Every exclusion is a gap in protection, and a folder exclusion would leave
+unscanned the very folder the tool injects from - exclude the whole folder only if the file
+exclusion is not enough. Or run it on a machine where you are permitted to do so. The
+Chromium / Electron mode does not inject and is not affected.
 
 ## ⚠️ Before you run an application in a future date
 
