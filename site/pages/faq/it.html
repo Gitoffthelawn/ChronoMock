@@ -24,8 +24,10 @@
     <div class="qa">
       <h3>Servono i diritti di amministratore?</h3>
       <p>
-        No. Non c'è un installer, non viene scritto nulla nel registro e funziona da una cartella che puoi
-        portare su una chiavetta USB.
+        Non per eseguirlo. Gli zip non richiedono un installer, non scrivono nulla nel registro e
+        funzionano da una cartella che puoi portare su una chiavetta USB. L'<code>.msi</code>
+        facoltativo richiede diritti di amministratore una volta, per installare, perché si installa
+        per ogni account del computer.
       </p>
     </div>
 
@@ -74,8 +76,9 @@
         i Web Worker, dove spesso si trova davvero il timer.
       </p>
       <p>
-        Un limite da conoscere: in questa modalità la sessione segue il fuso orario dell'host. L'istante è
-        falsificato, i getter dell'ora locale no.
+        Un limite da conoscere: il processo principale di un'applicazione Electron gira in Node, che
+        la sessione non raggiunge, quindi mantiene l'orologio reale, e il rapporto lo dice. Le
+        pagine e i loro worker leggono il fuso orario della sessione.
       </p>
       <p>
         <a href="/it/electron-chromium/">Come funziona la modalità Chromium ed Electron</a> - cosa

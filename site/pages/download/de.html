@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Chrono Mock herunterladen</h1>
     <p class="sub">
-      Zwei Builds derselben Engine: ein Fenster zum Ausprobieren, eine Kommandozeile für die CI.
-      Entpacken Sie eines davon irgendwohin und starten Sie es - es gibt keinen Installer, nichts wird
-      in die Registry geschrieben, und Administratorrechte sind nicht nötig.
+      Zwei Builds derselben Engine: ein Fenster zum Erkunden, eine Kommandozeile für CI. Beide
+      lassen sich überall entpacken und starten - ohne Installer, ohne Registry-Einträge, ohne
+      Administratorrechte. Oder die signierte <code>.msi</code> für jedes Konto auf dem Rechner
+      installieren: einmal Administratorrechte zum Installieren, keine zum Ausführen.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Die Desktop-Anwendung, eigenständig - keine .NET-Installation nötig</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Die Desktop-Anwendung und die Kommandozeile, für jedes Konto auf dem Rechner
+              installiert: ein Startmenüeintrag und <code>chrono</code> im PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -121,6 +128,15 @@
         Tools nicht beschreibbar ist, und, bei einem Electron- oder Chromium-Ziel, ein Wegwerf-Browserprofil
         unter <code>%TEMP%</code>, das am Ende der Sitzung gelöscht wird und, falls das nicht gelang, in
         der Sitzungszusammenfassung genannt wird.
+      </p>
+      <p>
+        Das beschreibt die ZIP-Dateien. Der Installer ist die Ausnahme und sagt, was er hinzufügt:
+        das Programm in <code>Program Files</code>, einen Startmenüeintrag, <code>chrono</code> im
+        PATH des Rechners, einen Eintrag unter Einstellungen, Apps und den Schlüssel
+        <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Das Deinstallieren entfernt alles davon
+        und lässt <code>%LOCALAPPDATA%\ChronoMock\</code> in Ruhe. Eine weitere Option,
+        standardmäßig aus, schreibt für die Dauer einer Sitzung einen Registry-Wert und entfernt ihn
+        danach wieder: <code>--elevated-embedded</code>.
       </p>
       <p>
         Es verbindet sich nie mit dem Internet, führt kein Konto und sendet keine Telemetrie.

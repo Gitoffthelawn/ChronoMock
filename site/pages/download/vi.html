@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Tải Chrono Mock</h1>
     <p class="sub">
-      Hai bản dựng của cùng một động cơ: một cửa sổ để khám phá, một dòng lệnh cho CI.
-      Giải nén một trong hai ở bất cứ đâu rồi chạy - không có trình cài đặt, không ghi gì vào registry,
-      và không cần quyền quản trị viên.
+      Hai bản dựng của cùng một công cụ: một cửa sổ để khám phá và một dòng lệnh cho CI. Giải nén
+      bản nào cũng được ở bất kỳ đâu rồi chạy - không trình cài đặt, không mục registry, không cần
+      quyền quản trị viên. Hoặc cài tệp <code>.msi</code> đã ký cho mọi tài khoản trên máy: quyền
+      quản trị viên một lần, để cài đặt, không cần để chạy.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Ứng dụng máy tính để bàn, độc lập - không cần cài .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Ứng dụng máy tính để bàn và dòng lệnh, được cài cho mọi tài khoản trên máy: một mục
+              trong menu Start và <code>chrono</code> trong PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -118,6 +125,14 @@
         riêng của công cụ không ghi được, và, với mục tiêu Electron hoặc Chromium, một hồ sơ trình duyệt
         dùng một lần trong <code>%TEMP%</code>, được xóa khi phiên kết thúc và được báo trong bản tóm tắt
         phiên nếu không xóa được.
+      </p>
+      <p>
+        Điều đó mô tả các tệp zip. Trình cài đặt là ngoại lệ và nói rõ nó thêm gì: chương trình
+        trong <code>Program Files</code>, một mục menu Start, <code>chrono</code> trong PATH của
+        máy, một mục trong Cài đặt, Ứng dụng và khóa <code>HKLM\Software\DonislawDev\Chrono
+        Mock</code>. Gỡ cài đặt xóa tất cả những thứ đó và để yên
+        <code>%LOCALAPPDATA%\ChronoMock\</code>. Một tùy chọn nữa, mặc định tắt, ghi một giá trị
+        registry trong suốt một phiên rồi xóa nó sau đó: <code>--elevated-embedded</code>.
       </p>
       <p>
         Không bao giờ kết nối internet, không giữ tài khoản và không gửi telemetry.

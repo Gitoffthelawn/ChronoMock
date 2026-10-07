@@ -23,8 +23,9 @@
     <div class="qa">
       <h3>Tôi có cần quyền quản trị viên không?</h3>
       <p>
-        Không. Không có trình cài đặt, không ghi gì vào registry, và nó chạy từ một thư mục mà bạn có thể
-        để trên USB.
+        Không cần để chạy. Các tệp zip không cần trình cài đặt, không ghi gì vào registry và chạy từ
+        một thư mục bạn có thể mang theo trên USB. Tệp <code>.msi</code> tùy chọn cần quyền quản trị
+        viên một lần, để cài đặt, vì nó cài cho mọi tài khoản trên máy.
       </p>
     </div>
 
@@ -70,8 +71,9 @@
         giờ thường thực sự nằm.
       </p>
       <p>
-        Một giới hạn đáng biết: ở chế độ này phiên đi theo múi giờ của máy chủ. Thời điểm là giả, các hàm
-        lấy giờ địa phương thì không.
+        Một giới hạn đáng biết: tiến trình chính của ứng dụng Electron chạy trong Node mà phiên
+        không với tới, nên nó giữ đồng hồ thật, và báo cáo có nói điều này. Các trang và worker của
+        chúng đọc múi giờ của phiên.
       </p>
       <p>
         <a href="/vi/electron-chromium/">Chế độ Chromium và Electron hoạt động thế nào</a> - nó với tới đâu,

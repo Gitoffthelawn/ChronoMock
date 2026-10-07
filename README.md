@@ -42,7 +42,8 @@ it exists.
   engine to open a local debugging port and puts those pages on the same clock as the rest of the
   application, through it. On by default, off with one switch.
 - **A window and a command line** - the same engine behind both, exit codes for CI.
-- **Portable** - no installer, no administrator rights, runs from a USB stick.
+- **Portable, or installed** - the zips need no installer and no administrator rights and run from a USB
+  stick, and a signed installer is there for a whole machine.
 
 ![Chrono Mock running another Windows application at a fake date. The left window is Chrono Mock: the application's clock reads 19 January 2038 and climbs at sixty times real speed while the real clock beside it moves a few seconds. The right window is the application under test, whose own session record shows it started on 19 January 2038 and has been running for minutes while barely half a minute has passed in the room.](site/assets/chrono-in-action.gif)
 
@@ -61,12 +62,23 @@ Grab the latest build from the **[Releases page](https://github.com/donislawdev/
 | File | What it is | Size |
 |---|---|---|
 | `ChronoMock-app-win-x64.zip` | The desktop app, self-contained - no .NET install needed | ~69 MB |
+| `ChronoMock-app-win-x64.msi` | The same desktop app and the command line, installed for every account on the machine | ~58 MB |
 | `ChronoMock-cli-win.zip` | Just the command-line tool, for CI and scripts | ~1.6 MB |
 
-Unzip anywhere and run `ChronoMock.exe` (or `chrono.exe` for the CLI). There is no installer and no
-administrator rights are needed. Nothing is written to the registry either, with one exception you
-have to ask for: reaching the web pages of an application that itself runs as administrator (the
-paragraph on elevated applications, further down, says what it writes and what it costs).
+Unzip anywhere and run `ChronoMock.exe` (or `chrono.exe` for the CLI). The zips need no installer and
+no administrator rights, and they write nothing to the registry, with one exception you have to ask
+for: reaching the web pages of an application that itself runs as administrator (the paragraph on
+elevated applications, further down, says what it writes and what it costs).
+
+The `.msi` is the other way in. It installs the window and the command line for every account on the
+machine, into `Program Files\Chrono Mock`: a Start menu entry for the window and the 64-bit `chrono` on
+the machine's PATH (the 32-bit one is `core\x86\chrono.exe` in the same folder). Installing needs
+administrator rights, running does not. Besides the program it adds the Start menu entry, the PATH
+entry, an entry in Settings, Apps and the key `HKLM\SOFTWARE\DonislawDev\Chrono Mock`. Uninstalling
+removes all of that and leaves `%LOCALAPPDATA%\ChronoMock`, where the window keeps its session history
+and diagnostics logs, alone. A newer version installs over an older one. The installer closes nothing
+that is running: a file still held by a running program is replaced at the next restart, and the
+installer says so with exit code 3010.
 
 **Checking what you downloaded.** From v0.2.0 onward, each release also carries `SHA256SUMS`,
 a bill of materials per package (`*.spdx.json`, SPDX 2.3), and an attestation of that bill of

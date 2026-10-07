@@ -6,9 +6,10 @@
   <section class="plain">
     <h1>Pobierz Chrono Mock</h1>
     <p class="sub">
-      Dwa warianty tego samego silnika: okno do eksploracji, wiersz poleceń do CI.
-      Rozpakuj którykolwiek gdziekolwiek i uruchom - nie ma instalatora, nic nie trafia
-      do rejestru i nie są potrzebne uprawnienia administratora.
+      Dwie wersje tego samego silnika: okno do eksploracji i wiersz poleceń do CI. Rozpakuj
+      którąkolwiek gdziekolwiek i uruchom - bez instalatora, bez wpisów w rejestrze, bez uprawnień
+      administratora. Albo zainstaluj podpisany plik <code>.msi</code> dla każdego konta na
+      komputerze: uprawnienia administratora raz, do instalacji, a do uruchamiania żadne.
     </p>
 
     <div class="cta">
@@ -26,6 +27,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Aplikacja okienkowa, samowystarczalna - nie wymaga instalacji .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Aplikacja okienkowa i wiersz poleceń, zainstalowane dla każdego konta na komputerze:
+              wpis w menu Start i <code>chrono</code> w PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -123,6 +130,14 @@
         zapisywalny, oraz, dla celu w Electronie lub Chromium, jednorazowego profilu
         przeglądarki w <code>%TEMP%</code>, kasowanego po zakończeniu sesji i zgłaszanego w
         podsumowaniu, jeśli skasować się nie dał.
+      </p>
+      <p>
+        To opisuje archiwa zip. Wyjątkiem jest instalator i mówi, co dodaje: program w <code>Program
+        Files</code>, wpis w menu Start, <code>chrono</code> w PATH komputera, wpis w Ustawieniach,
+        Aplikacje oraz klucz <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Odinstalowanie
+        usuwa to wszystko i zostawia <code>%LOCALAPPDATA%\ChronoMock\</code> w spokoju. Jeszcze
+        jedna opcja, domyślnie wyłączona, zapisuje wartość w rejestrze na czas sesji i potem ją
+        usuwa: <code>--elevated-embedded</code>.
       </p>
       <p>
         Nigdy nie łączy się z internetem, nie zakłada konta i nie wysyła telemetrii.

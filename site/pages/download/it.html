@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Scarica Chrono Mock</h1>
     <p class="sub">
-      Due build dello stesso motore: una finestra per esplorare, una riga di comando per la CI.
-      Decomprimi l'una o l'altra dove vuoi ed eseguila - non c'è installer, non viene scritto nulla nel
-      registro e non servono diritti di amministratore.
+      Due build dello stesso motore: una finestra per esplorare e una riga di comando per la CI.
+      Decomprimi l'una o l'altra dove vuoi ed eseguila - senza installer, senza voci nel registro,
+      senza diritti di amministratore. Oppure installa l'<code>.msi</code> firmato per ogni account
+      del computer: diritti di amministratore una volta, per installare, nessuno per eseguire.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>L'applicazione desktop, autonoma - non serve installare .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>L'applicazione desktop e la riga di comando, installate per ogni account del
+              computer: una voce nel menu Start e <code>chrono</code> nel PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -119,6 +126,15 @@
         strumento non è scrivibile, e, per un target Electron o Chromium, un profilo di browser usa e getta
         in <code>%TEMP%</code> che viene eliminato alla fine della sessione e, se non è stato possibile,
         segnalato nel riepilogo della sessione.
+      </p>
+      <p>
+        Questo descrive gli zip. L'installer è l'eccezione e dice cosa aggiunge: il programma in
+        <code>Program Files</code>, una voce nel menu Start, <code>chrono</code> nel PATH del
+        computer, una voce in Impostazioni, App e la chiave <code>HKLM\Software\DonislawDev\Chrono
+        Mock</code>. La disinstallazione rimuove tutto questo e lascia in pace
+        <code>%LOCALAPPDATA%\ChronoMock\</code>. Un'altra opzione, disattivata per impostazione
+        predefinita, scrive un valore di registro per la durata di una sessione e poi lo rimuove:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Non si connette mai a internet, non tiene alcun account e non invia telemetria.

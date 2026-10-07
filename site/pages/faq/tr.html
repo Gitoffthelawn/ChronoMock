@@ -23,8 +23,10 @@
     <div class="qa">
       <h3>Yönetici hakkı gerekir mi?</h3>
       <p>
-        Hayır. Yükleyici yok, kayıt defterine hiçbir şey yazılmaz ve bir USB belleğe koyabileceğiniz bir
-        klasörden çalışır.
+        Çalıştırmak için hayır. Zip sürümleri yükleyici gerektirmez, kayıt defterine hiçbir şey
+        yazmaz ve bir USB belleğe koyabileceğiniz bir klasörden çalışır. İsteğe bağlı
+        <code>.msi</code>, bilgisayardaki her hesap için kurulduğundan yalnızca kurulum sırasında
+        bir kez yönetici hakkı ister.
       </p>
     </div>
 
@@ -72,8 +74,9 @@
         yaşadığı Web Worker’ların içi dahil.
       </p>
       <p>
-        Bilmeye değer bir sınırlama: bu kipte oturum ana makinenin saat dilimini izler. An sahtelenir,
-        yerel saat getter’ları sahtelenmez.
+        Bilinmeye değer bir sınır: bir Electron uygulamasının ana süreci oturumun erişemediği Node
+        içinde çalışır, bu yüzden gerçek saati korur ve rapor bunu söyler. Sayfalar ve onların
+        worker'ları oturumun saat dilimini okur.
       </p>
       <p>
         <a href="/tr/electron-chromium/">Chromium ve Electron kipi nasıl çalışır</a> - neye ulaşır, neye

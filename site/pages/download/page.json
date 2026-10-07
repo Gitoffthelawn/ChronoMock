@@ -10,134 +10,134 @@
     "en": {
       "slug": "download",
       "link_text": "Download",
-      "title": "Download Chrono Mock for Windows - free, no installer",
-      "description": "Get the free Windows build: a desktop app and a command-line tool. No installer, no administrator rights, and nothing written to the registry."
+      "title": "Download Chrono Mock for Windows - free, portable or installer",
+      "description": "Get the free Windows build: a desktop app and a command-line tool, as portable zips or a signed installer. The zips need no administrator rights and write nothing to the registry."
     },
     "pl": {
       "slug": "pobieranie",
       "link_text": "Pobierz",
-      "title": "Pobierz Chrono Mock na Windows - darmowe, bez instalatora",
-      "description": "Pobierz darmową wersję na Windows: aplikację okienkową i narzędzie wiersza poleceń. Bez instalatora, bez uprawnień administratora, bez wpisów w rejestrze."
+      "title": "Pobierz Chrono Mock na Windows - darmowe, przenośne albo z instalatorem",
+      "description": "Pobierz darmową wersję na Windows: aplikację okienkową i narzędzie wiersza poleceń, jako przenośne archiwa zip albo podpisany instalator. Archiwa zip nie wymagają uprawnień administratora i niczego nie zapisują w rejestrze."
     },
     "de": {
       "slug": "herunterladen",
       "link_text": "Download",
-      "title": "Chrono Mock für Windows herunterladen - kostenlos, ohne Installer",
-      "description": "Die kostenlose Windows-Version: Desktop-App und Kommandozeilen-Tool. Kein Installer, keine Administratorrechte und keine Einträge in der Registry."
+      "title": "Chrono Mock für Windows herunterladen - kostenlos, portabel oder als Installer",
+      "description": "Die kostenlose Windows-Version: Desktop-App und Kommandozeilen-Tool, als portable ZIP-Dateien oder signierter Installer. Die ZIP-Dateien brauchen keine Administratorrechte und schreiben nichts in die Registry."
     },
     "fr": {
       "slug": "telecharger",
       "link_text": "Télécharger",
-      "title": "Télécharger Chrono Mock pour Windows - gratuit, sans installateur",
-      "description": "Obtenez la version Windows gratuite : une application de bureau et un outil en ligne de commande. Sans installateur, sans droits d'administrateur, rien d'écrit dans le registre."
+      "title": "Télécharger Chrono Mock pour Windows - gratuit, portable ou avec installateur",
+      "description": "Obtenez la version Windows gratuite : une application de bureau et un outil en ligne de commande, en archives zip portables ou avec un installateur signé. Les archives zip n'exigent aucun droit d'administrateur et n'écrivent rien dans le registre."
     },
     "es": {
       "slug": "descargar",
       "link_text": "Descargar",
-      "title": "Descargar Chrono Mock para Windows - gratis, sin instalador",
-      "description": "Consigue la versión gratuita para Windows: una aplicación de escritorio y una herramienta de línea de comandos. Sin instalador, sin permisos de administrador y sin escribir en el registro."
+      "title": "Descargar Chrono Mock para Windows - gratis, portátil o con instalador",
+      "description": "Consigue la versión gratuita para Windows: una aplicación de escritorio y una herramienta de línea de comandos, en zip portátiles o con un instalador firmado. Los zip no necesitan permisos de administrador ni escriben nada en el registro."
     },
     "pt-br": {
       "slug": "baixar",
       "link_text": "Baixar",
-      "title": "Baixar o Chrono Mock para Windows - grátis, sem instalador",
-      "description": "Baixe a versão gratuita para Windows: um aplicativo de desktop e uma ferramenta de linha de comando. Sem instalador, sem direitos de administrador e sem gravar nada no registro."
+      "title": "Baixar o Chrono Mock para Windows - grátis, portátil ou com instalador",
+      "description": "Baixe a versão gratuita para Windows: um aplicativo de desktop e uma ferramenta de linha de comando, em zips portáteis ou com um instalador assinado. Os zips não exigem direitos de administrador nem gravam nada no registro."
     },
     "it": {
       "slug": "scarica",
       "link_text": "Scarica",
-      "title": "Scarica Chrono Mock per Windows - gratis, senza installer",
-      "description": "Ottieni la versione gratuita per Windows: un'applicazione desktop e uno strumento da riga di comando. Nessun installer, nessun diritto di amministratore e nulla scritto nel registro."
+      "title": "Scarica Chrono Mock per Windows - gratis, portatile o con installer",
+      "description": "Ottieni la versione gratuita per Windows: un'applicazione desktop e uno strumento da riga di comando, come zip portatili o con un installer firmato. Gli zip non richiedono diritti di amministratore e non scrivono nulla nel registro."
     },
     "nl": {
       "slug": "downloaden",
       "link_text": "Downloaden",
-      "title": "Chrono Mock downloaden voor Windows - gratis, zonder installatie",
-      "description": "Download de gratis Windows-versie: een desktopapplicatie en een opdrachtregelprogramma. Geen installatieprogramma, geen beheerdersrechten en niets in het register."
+      "title": "Chrono Mock downloaden voor Windows - gratis, draagbaar of met installatieprogramma",
+      "description": "Download de gratis Windows-versie: een desktopapplicatie en een opdrachtregelprogramma, als draagbare zip-bestanden of met een ondertekend installatieprogramma. De zip-bestanden vragen geen beheerdersrechten en schrijven niets naar het register."
     },
     "ro": {
       "slug": "descarcare",
       "link_text": "Descărcare",
-      "title": "Descarcă Chrono Mock pentru Windows - gratuit, portabil",
-      "description": "Descarcă versiunea gratuită pentru Windows: o aplicație desktop și un instrument de linie de comandă. Fără instalator, fără drepturi de administrator, nimic în registru."
+      "title": "Descarcă Chrono Mock pentru Windows - gratuit, portabil sau cu instalator",
+      "description": "Descarcă versiunea gratuită pentru Windows: o aplicație desktop și un instrument de linie de comandă, ca arhive zip portabile sau cu un instalator semnat. Arhivele zip nu cer drepturi de administrator și nu scriu nimic în registru."
     },
     "cs": {
       "slug": "stazeni",
       "link_text": "Stažení",
-      "title": "Stáhnout Chrono Mock pro Windows - zdarma, bez instalace",
-      "description": "Stáhněte si bezplatnou verzi pro Windows: desktopovou aplikaci a nástroj pro příkazový řádek. Bez instalátoru, bez práv správce a bez zásahu do registru."
+      "title": "Stáhnout Chrono Mock pro Windows - zdarma, přenosně nebo s instalátorem",
+      "description": "Stáhněte si bezplatnou verzi pro Windows: desktopovou aplikaci a nástroj pro příkazový řádek, jako přenosné archivy zip nebo s podepsaným instalátorem. Archivy zip nevyžadují práva správce a nezapisují do registru nic."
     },
     "tr": {
       "slug": "indir",
       "link_text": "İndir",
-      "title": "Chrono Mock’u Windows için indirin - ücretsiz, kurulumsuz",
-      "description": "Ücretsiz Windows sürümünü indirin: bir masaüstü uygulaması ve bir komut satırı aracı. Yükleyici yok, yönetici hakkı yok ve kayıt defterinde hiçbir şey yok."
+      "title": "Chrono Mock’u Windows için indirin - ücretsiz, taşınabilir ya da yükleyiciyle",
+      "description": "Ücretsiz Windows sürümünü indirin: bir masaüstü uygulaması ve bir komut satırı aracı, taşınabilir zip dosyaları ya da imzalı bir yükleyici olarak. Zip dosyaları yönetici hakkı gerektirmez ve kayıt defterine hiçbir şey yazmaz."
     },
     "id": {
       "slug": "unduh",
       "link_text": "Unduh",
-      "title": "Unduh Chrono Mock untuk Windows - gratis, tanpa instalasi",
-      "description": "Unduh versi Windows gratis: aplikasi desktop dan alat baris perintah. Tanpa installer, tanpa hak administrator, dan tidak ada yang ditulis ke registry."
+      "title": "Unduh Chrono Mock untuk Windows - gratis, portabel atau dengan installer",
+      "description": "Unduh versi Windows gratis: aplikasi desktop dan alat baris perintah, sebagai zip portabel atau installer bertanda tangan. Berkas zip tidak memerlukan hak administrator dan tidak menulis apa pun ke registry."
     },
     "vi": {
       "slug": "tai-xuong",
       "link_text": "Tải về",
-      "title": "Tải Chrono Mock cho Windows - miễn phí, không cần cài đặt",
-      "description": "Tải bản Windows miễn phí: một ứng dụng máy tính để bàn và một công cụ dòng lệnh. Không có trình cài đặt, không cần quyền quản trị viên và không ghi gì vào registry."
+      "title": "Tải Chrono Mock cho Windows - miễn phí, bản di động hoặc trình cài đặt",
+      "description": "Tải bản Windows miễn phí: một ứng dụng máy tính để bàn và một công cụ dòng lệnh, dưới dạng tệp zip di động hoặc trình cài đặt đã ký. Các tệp zip không cần quyền quản trị viên và không ghi gì vào registry."
     },
     "ru": {
       "slug": "download",
       "link_text": "Скачать",
-      "title": "Скачать Chrono Mock для Windows — бесплатно, без установки",
-      "description": "Скачайте бесплатную версию для Windows: настольное приложение и инструмент командной строки. Без установщика, без прав администратора и без записей в реестр."
+      "title": "Скачать Chrono Mock для Windows - бесплатно, портативно или с установщиком",
+      "description": "Скачайте бесплатную версию для Windows: настольное приложение и инструмент командной строки, в виде портативных zip-архивов или подписанного установщика. Zip-архивам не нужны права администратора, и они ничего не пишут в реестр."
     },
     "uk": {
       "slug": "download",
       "link_text": "Завантажити",
-      "title": "Завантажити Chrono Mock для Windows — безкоштовно, без встановлення",
-      "description": "Завантажте безкоштовну версію для Windows: настільний застосунок і інструмент командного рядка. Без інсталятора, без прав адміністратора й без записів у реєстр."
+      "title": "Завантажити Chrono Mock для Windows - безкоштовно, портативно або з інсталятором",
+      "description": "Завантажте безкоштовну версію для Windows: настільний застосунок і інструмент командного рядка, у вигляді портативних zip-архівів або підписаного інсталятора. Zip-архівам не потрібні права адміністратора, і вони нічого не пишуть у реєстр."
     },
     "ja": {
       "slug": "download",
       "link_text": "ダウンロード",
-      "title": "Chrono Mock for Windows をダウンロード - 無料・インストール不要",
-      "description": "無料の Windows 版をダウンロード。デスクトップアプリとコマンドラインツールの 2 種類があり、インストーラー、管理者権限、レジストリへの書き込みは不要です。"
+      "title": "Chrono Mock for Windows をダウンロード - 無料・ポータブル版もインストーラーも",
+      "description": "無料の Windows 版をダウンロード。デスクトップアプリとコマンドラインツールを、ポータブルな zip または署名済みのインストーラーで提供します。zip 版は管理者権限が不要で、レジストリにも何も書き込みません。"
     },
     "ko": {
       "slug": "download",
       "link_text": "다운로드",
-      "title": "Chrono Mock Windows 다운로드 - 무료, 설치 불필요",
-      "description": "무료 Windows 버전을 다운로드하세요. 데스크톱 앱과 명령줄 도구가 있으며, 설치 프로그램, 관리자 권한, 레지스트리 기록이 필요 없습니다."
+      "title": "Chrono Mock Windows 다운로드 - 무료, 휴대용 또는 설치 프로그램",
+      "description": "무료 Windows 버전을 다운로드하세요. 데스크톱 앱과 명령줄 도구를 휴대용 zip 또는 서명된 설치 프로그램으로 제공합니다. zip 버전은 관리자 권한이 필요 없고 레지스트리에 아무것도 기록하지 않습니다."
     },
     "zh-hans": {
       "slug": "download",
       "link_text": "下载",
-      "title": "下载 Chrono Mock Windows 版 - 免费，无需安装",
-      "description": "下载免费的 Windows 版本：桌面应用和命令行工具，无需安装程序、管理员权限，也不写注册表。"
+      "title": "下载 Chrono Mock Windows 版 - 免费，便携版或安装程序",
+      "description": "下载免费的 Windows 版本：桌面应用和命令行工具，提供便携 zip 包或已签名的安装程序。zip 包无需管理员权限，也不写注册表。"
     },
     "zh-hant": {
       "slug": "download",
       "link_text": "下載",
-      "title": "下載 Chrono Mock Windows 版 - 免費，無需安裝",
-      "description": "下載免費的 Windows 版本：桌面應用程式與命令列工具，無需安裝程式、系統管理員權限，也不寫入登錄。"
+      "title": "下載 Chrono Mock Windows 版 - 免費，可攜版或安裝程式",
+      "description": "下載免費的 Windows 版本：桌面應用程式與命令列工具，提供可攜 zip 套件或已簽署的安裝程式。zip 套件無需系統管理員權限，也不寫入登錄。"
     },
     "ar": {
       "slug": "download",
       "link_text": "التنزيل",
-      "title": "تنزيل Chrono Mock لنظام Windows - مجاني دون تثبيت",
-      "description": "نزّل نسخة Windows المجانية: تطبيق سطح مكتب وأداة سطر أوامر، بلا برنامج تثبيت ولا صلاحيات مسؤول ولا كتابة في السجل."
+      "title": "تنزيل Chrono Mock لنظام Windows - مجاني، محمول أو ببرنامج تثبيت",
+      "description": "نزّل نسخة Windows المجانية: تطبيق سطح مكتب وأداة سطر أوامر، بصيغة ملفات zip محمولة أو ببرنامج تثبيت موقّع. لا تحتاج ملفات zip إلى صلاحيات مسؤول ولا تكتب شيئًا في السجل."
     },
     "hi": {
       "slug": "download",
       "link_text": "डाउनलोड",
-      "title": "Chrono Mock Windows डाउनलोड - मुफ़्त, इंस्टॉल की ज़रूरत नहीं",
-      "description": "मुफ़्त Windows बिल्ड डाउनलोड करें: डेस्कटॉप ऐप और कमांड-लाइन टूल, बिना इंस्टॉलर, बिना एडमिनिस्ट्रेटर अधिकार, रजिस्ट्री में कुछ लिखे बिना।"
+      "title": "Chrono Mock Windows डाउनलोड - मुफ़्त, पोर्टेबल या इंस्टॉलर के साथ",
+      "description": "मुफ़्त Windows बिल्ड डाउनलोड करें: डेस्कटॉप ऐप और कमांड-लाइन टूल, पोर्टेबल zip के रूप में या हस्ताक्षरित इंस्टॉलर के साथ। zip को एडमिनिस्ट्रेटर अधिकार नहीं चाहिए और वे रजिस्ट्री में कुछ नहीं लिखते।"
     },
     "th": {
       "slug": "download",
       "link_text": "ดาวน์โหลด",
-      "title": "ดาวน์โหลด Chrono Mock สำหรับ Windows - ฟรี ไม่ต้องติดตั้ง",
-      "description": "ดาวน์โหลดบิลด์ Windows ฟรี: แอปเดสก์ท็อปและเครื่องมือบรรทัดคำสั่ง ไม่มีตัวติดตั้ง ไม่ต้องใช้สิทธิ์ผู้ดูแลระบบ และไม่เขียนอะไรลงรีจิสทรี"
+      "title": "ดาวน์โหลด Chrono Mock สำหรับ Windows - ฟรี แบบพกพาหรือตัวติดตั้ง",
+      "description": "ดาวน์โหลดบิลด์ Windows ฟรี: แอปเดสก์ท็อปและเครื่องมือบรรทัดคำสั่ง ในรูปแบบ zip แบบพกพาหรือตัวติดตั้งที่ลงนามแล้ว ไฟล์ zip ไม่ต้องใช้สิทธิ์ผู้ดูแลระบบและไม่เขียนอะไรลงรีจิสทรี"
     }
   }
 }

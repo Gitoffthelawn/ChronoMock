@@ -23,8 +23,10 @@
     <div class="qa">
       <h3>Apakah saya memerlukan hak administrator?</h3>
       <p>
-        Tidak. Tidak ada installer, tidak ada yang ditulis ke registry, dan ia berjalan dari folder yang
-        dapat Anda taruh di flash disk USB.
+        Tidak untuk menjalankannya. Berkas zip tidak memerlukan installer, tidak menulis apa pun ke
+        registry, dan berjalan dari folder yang bisa Anda bawa di flash disk USB. <code>.msi</code>
+        opsional memerlukan hak administrator satu kali, untuk memasang, karena ia dipasang untuk
+        setiap akun di komputer.
       </p>
     </div>
 
@@ -71,8 +73,9 @@
         kali benar-benar berada.
       </p>
       <p>
-        Satu batasan yang perlu diketahui: dalam mode ini sesi mengikuti zona waktu host. Instan
-        dipalsukan, getter waktu lokal tidak.
+        Satu batasan yang perlu diketahui: proses utama aplikasi Electron berjalan di Node, yang
+        tidak dijangkau sesi, sehingga ia tetap memakai jam asli, dan laporan menyebutkannya.
+        Halaman dan worker-nya membaca zona waktu sesi.
       </p>
       <p>
         <a href="/id/electron-chromium/">Cara kerja mode Chromium dan Electron</a> - apa yang

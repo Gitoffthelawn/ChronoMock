@@ -24,8 +24,10 @@
     <div class="qa">
       <h3>Ai-je besoin des droits d'administrateur&nbsp;?</h3>
       <p>
-        Non. Il n'y a pas d'installateur, rien n'est écrit dans le registre, et il fonctionne depuis un
-        dossier que vous pouvez emporter sur une clé USB.
+        Pas pour l'exécuter. Les archives zip n'ont pas besoin d'installateur, n'écrivent rien dans
+        le registre et fonctionnent depuis un dossier qu'on peut mettre sur une clé USB. Le
+        <code>.msi</code> facultatif demande des droits d'administrateur une fois, pour installer,
+        car il s'installe pour chaque compte de la machine.
       </p>
     </div>
 
@@ -74,8 +76,9 @@
         compris dans les Web Workers, où le minuteur se trouve souvent en réalité.
       </p>
       <p>
-        Une limite à connaître : dans ce mode, la session suit le fuseau horaire de l'hôte. L'instant est
-        falsifié, pas les accesseurs d'heure locale.
+        Une limite à connaître : le processus principal d'une application Electron s'exécute dans
+        Node, que la session n'atteint pas, donc il garde l'horloge réelle, et le rapport le dit.
+        Les pages et leurs workers lisent le fuseau horaire de la session.
       </p>
       <p>
         <a href="/fr/electron-chromium/">Comment fonctionne le mode Chromium et Electron</a> - ce qu'il

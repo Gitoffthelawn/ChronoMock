@@ -6,8 +6,9 @@
     <h1>Descargar Chrono Mock</h1>
     <p class="sub">
       Dos compilaciones del mismo motor: una ventana para explorar y una línea de comandos para CI.
-      Descomprime cualquiera de las dos donde quieras y ejecútala - no hay instalador, no se escribe nada
-      en el registro y no hacen falta permisos de administrador.
+      Descomprime cualquiera en cualquier sitio y ejecútala - sin instalador, sin entradas en el
+      registro, sin permisos de administrador. O instala el <code>.msi</code> firmado para todas las
+      cuentas del equipo: permisos de administrador una vez, para instalar, ninguno para ejecutar.
     </p>
 
     <div class="cta">
@@ -25,6 +26,13 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>La aplicación de escritorio, autónoma - no necesita instalar .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>La aplicación de escritorio y la línea de comandos, instaladas para todas las
+              cuentas del equipo: una entrada en el menú Inicio y <code>chrono</code> en el
+              PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -119,6 +127,15 @@
         escritura, y, para un objetivo Electron o Chromium, un perfil de navegador desechable en
         <code>%TEMP%</code> que se borra al terminar la sesión y se indica en el resumen de la sesión si no
         se pudo borrar.
+      </p>
+      <p>
+        Eso describe los zip. El instalador es la excepción y dice lo que añade: el programa en
+        <code>Program Files</code>, una entrada en el menú Inicio, <code>chrono</code> en el PATH
+        del equipo, una entrada en Configuración, Aplicaciones y la clave
+        <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Al desinstalar se quita todo eso y se
+        deja en paz <code>%LOCALAPPDATA%\ChronoMock\</code>. Otra opción, desactivada por defecto,
+        escribe un valor del registro mientras dura una sesión y lo elimina después:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Nunca se conecta a internet, no guarda ninguna cuenta y no envía telemetría.

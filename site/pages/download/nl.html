@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Chrono Mock downloaden</h1>
     <p class="sub">
-      Twee builds van dezelfde engine: een venster om te verkennen en een opdrachtregel voor CI. Pak een
-      van beide ergens uit en start hem - er is geen installatieprogramma, er wordt niets in het register
-      geschreven en beheerdersrechten zijn niet nodig.
+      Twee builds van dezelfde engine: een venster om te verkennen en een opdrachtregel voor CI. Pak
+      een van beide ergens uit en start hem - geen installatieprogramma, geen registervermeldingen,
+      geen beheerdersrechten. Of installeer de ondertekende <code>.msi</code> voor elk account op de
+      machine: eenmalig beheerdersrechten om te installeren, geen om te draaien.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>De desktopapplicatie, zelfstandig - geen .NET-installatie nodig</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>De desktoptoepassing en de opdrachtregel, geïnstalleerd voor elk account op de
+              machine: een item in het Startmenu en <code>chrono</code> in het PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -120,6 +127,15 @@
         beschrijfbaar is, en, voor een Electron- of Chromium-doel, een wegwerpbrowserprofiel onder
         <code>%TEMP%</code> dat aan het einde van de sessie wordt verwijderd en, als dat niet lukte, in
         de sessiesamenvatting wordt gemeld.
+      </p>
+      <p>
+        Dat beschrijft de zip-bestanden. Het installatieprogramma is de uitzondering en zegt wat het
+        toevoegt: het programma in <code>Program Files</code>, een item in het Startmenu,
+        <code>chrono</code> in het PATH van de machine, een item onder Instellingen, Apps en de
+        sleutel <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Verwijderen haalt dat alles weg
+        en laat <code>%LOCALAPPDATA%\ChronoMock\</code> met rust. Nog één optie, standaard uit,
+        schrijft voor de duur van een sessie een registerwaarde en verwijdert die daarna weer:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Het maakt nooit verbinding met internet, houdt geen account bij en verstuurt geen telemetrie.

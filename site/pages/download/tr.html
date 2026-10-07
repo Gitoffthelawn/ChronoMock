@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Chrono Mock’u indirin</h1>
     <p class="sub">
-      Aynı motorun iki derlemesi: keşfetmek için bir pencere, CI için bir komut satırı.
-      İkisinden birini istediğiniz yere açıp çalıştırın - yükleyici yok, kayıt defterine hiçbir şey
-      yazılmaz ve yönetici hakkı gerekmez.
+      Aynı motorun iki yapısı: keşfetmek için bir pencere, CI için bir komut satırı. İkisinden
+      birini istediğiniz yere açıp çalıştırın - yükleyici yok, kayıt defteri girdisi yok, yönetici
+      hakkı yok. Ya da imzalı <code>.msi</code>'yi bilgisayardaki her hesap için kurun: yönetici
+      hakkı yalnızca kurulum için bir kez gerekir, çalıştırmak için gerekmez.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Masaüstü uygulaması, kendi kendine yeten - .NET kurulumu gerekmez</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Masaüstü uygulaması ve komut satırı, bilgisayardaki her hesap için kurulur: bir
+              Başlat menüsü girdisi ve PATH içinde <code>chrono</code></td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -117,6 +124,15 @@
         olmadığında <code>%LOCALAPPDATA%\ChronoMock\</code> altına taşınan oturum geçmişi ve tanılama
         günlüğü ve bir Electron ya da Chromium hedefi için, oturum bittiğinde silinen ve silinemediyse
         oturum özetinde bildirilen, <code>%TEMP%</code> altındaki tek kullanımlık bir tarayıcı profili.
+      </p>
+      <p>
+        Bu, zip sürümlerini anlatır. Yükleyici bunun istisnasıdır ve neleri eklediğini söyler:
+        <code>Program Files</code> içindeki program, bir Başlat menüsü girdisi, makinenin PATH'inde
+        <code>chrono</code>, Ayarlar, Uygulamalar içinde bir girdi ve
+        <code>HKLM\Software\DonislawDev\Chrono Mock</code> anahtarı. Kaldırma bunların hepsini siler
+        ve <code>%LOCALAPPDATA%\ChronoMock\</code> klasörüne dokunmaz. Varsayılan olarak kapalı bir
+        seçenek daha, bir oturum süresince kayıt defterine bir değer yazar ve sonra siler:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         İnternetle asla konuşmaz, hesap tutmaz ve telemetri göndermez.

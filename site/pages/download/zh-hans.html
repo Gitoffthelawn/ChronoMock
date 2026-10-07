@@ -5,7 +5,7 @@
   <section class="plain">
     <h1>下载 Chrono Mock</h1>
     <p class="sub">
-      同一个引擎的两个版本：用来探索的窗口版，用来跑 CI 的命令行版。任选其一，解压到任意位置即可运行——没有安装程序，不会往注册表写任何内容，也不需要管理员权限。
+      同一引擎的两个版本：用于探索的窗口，和用于 CI 的命令行。任意一个解压到哪里都能运行，无需安装程序、不写注册表、不需要管理员权限。也可以安装已签名的 <code>.msi</code>，供这台计算机上的每个账户使用：只在安装时需要一次管理员权限，运行时不需要。
     </p>
 
     <div class="cta">
@@ -23,6 +23,11 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>桌面应用，自包含——无需另外安装 .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>桌面应用和命令行，为这台计算机上的每个账户安装：开始菜单项，以及 PATH 中的 <code>chrono</code></td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -92,6 +97,9 @@
     <div class="prose">
       <p>
         系统里什么都不留：没有常驻的钩子，没有注册表项，除了三样它会明确告知你的东西之外，也不会在自己的文件夹以外留下任何内容——会话历史和诊断日志，在工具自己的文件夹不可写时会移到 <code>%LOCALAPPDATA%\ChronoMock\</code>；还有，对 Electron 或 Chromium 目标来说，在 <code>%TEMP%</code> 下的一个一次性浏览器配置文件，它会在会话结束时删除，如果删除不了，会在会话摘要中报告。
+      </p>
+      <p>
+        这指的是 zip 包。安装程序是例外，并会说明它添加了什么：<code>Program Files</code> 中的程序、开始菜单项、计算机 PATH 中的 <code>chrono</code>、「设置」「应用」中的一项，以及注册表项 <code>HKLM\Software\DonislawDev\Chrono Mock</code>。卸载会全部移除，并保留 <code>%LOCALAPPDATA%\ChronoMock\</code> 不动。另有一个默认关闭的选项会在会话期间写入一个注册表值，并在结束后删除：<code>--elevated-embedded</code>。
       </p>
       <p>
         它从不连接互联网，不需要账号，也不发送遥测数据。

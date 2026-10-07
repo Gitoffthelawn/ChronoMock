@@ -6,9 +6,10 @@
   <section class="plain">
     <h1>Download Chrono Mock</h1>
     <p class="sub">
-      Two builds of the same engine: a window for exploring, a command line for CI.
-      Unzip either one anywhere and run it - there is no installer, nothing is written
-      to the registry, and no administrator rights are needed.
+      Two builds of the same engine: a window for exploring, a command line for CI. Unzip either one
+      anywhere and run it - no installer, no registry entries, no administrator rights. Or install
+      the signed <code>.msi</code> for every account on the machine: administrator rights once, to
+      install, none to run.
     </p>
 
     <div class="cta">
@@ -26,6 +27,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>The desktop application, self-contained - no .NET install needed</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>The desktop application and the command line, installed for every account on the
+              machine: a Start menu entry and <code>chrono</code> on the PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -123,6 +130,14 @@
         and, for an Electron or Chromium target, a throwaway browser profile under
         <code>%TEMP%</code> that is deleted when the session ends and reported in the
         session summary if it could not be.
+      </p>
+      <p>
+        That describes the zips. The installer is the exception and says what it adds: the program
+        in <code>Program Files</code>, a Start menu entry, <code>chrono</code> on the machine PATH,
+        an entry in Settings, Apps and the key <code>HKLM\Software\DonislawDev\Chrono Mock</code>.
+        Uninstalling removes all of it and leaves <code>%LOCALAPPDATA%\ChronoMock\</code> alone. One
+        more option, off by default, writes a registry value for the length of a session and removes
+        it afterwards: <code>--elevated-embedded</code>.
       </p>
       <p>
         It never talks to the internet, keeps no account and sends no telemetry.

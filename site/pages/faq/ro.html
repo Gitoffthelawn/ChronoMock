@@ -24,8 +24,10 @@
     <div class="qa">
       <h3>Am nevoie de drepturi de administrator?</h3>
       <p>
-        Nu. Nu există instalator, nu se scrie nimic în registru, iar rulează dintr-un folder pe care îl
-        poți pune pe un stick USB.
+        Nu pentru a-l rula. Arhivele zip nu au nevoie de instalator, nu scriu nimic în registru și
+        rulează dintr-un folder pe care îl poți ține pe un stick USB. <code>.msi</code>-ul opțional
+        are nevoie o dată de drepturi de administrator, pentru instalare, pentru că se instalează
+        pentru fiecare cont de pe calculator.
       </p>
     </div>
 
@@ -73,8 +75,9 @@
         Web Worker-e, unde de multe ori trăiește de fapt temporizatorul.
       </p>
       <p>
-        O limită bună de știut: în acest mod, sesiunea urmează fusul orar al gazdei. Momentul este
-        falsificat, dar getter-ele de oră locală nu.
+        O limită de știut: procesul principal al unei aplicații Electron rulează în Node, la care
+        sesiunea nu ajunge, deci păstrează ceasul real, iar raportul spune asta. Paginile și
+        workerii lor citesc fusul orar al sesiunii.
       </p>
       <p>
         <a href="/ro/electron-chromium/">Cum funcționează modul Chromium și Electron</a> - la ce ajunge, la
