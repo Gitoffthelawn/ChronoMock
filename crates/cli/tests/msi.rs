@@ -524,6 +524,18 @@ fn the_installer_is_installed_on_a_runner() {
         assert!(body.contains(&want), "{what}: job {job:?} does not contain {want:?}");
     }
     assert!(!body.contains("continue-on-error"), "job {job:?} may fail without failing the workflow");
+    // Nor may anything skip the question: GitHub reports a skipped job, and a skipped step, as a success, so a
+    // condition on either leaves a green check over an installer nobody asked (review of #97). The step that
+    // keeps the logs has a condition of its own, and is not the one that asks.
+    let lines: Vec<&str> = body.lines().collect();
+    assert!(!lines.iter().any(|l| l.starts_with("    if:")), "job {job:?} has a condition that can skip it");
+    let call_at = lines.iter().position(|l| l.contains("packaging/test-installer.ps1")).expect("the call");
+    let step_from = (0..=call_at).rev().find(|&i| lines[i].starts_with("      - ")).expect("the step that holds the call");
+    let step_to = (call_at + 1..lines.len()).find(|&i| lines[i].starts_with("      - ")).unwrap_or(lines.len());
+    assert!(
+        !lines[step_from..step_to].iter().any(|l| l.trim_start().trim_start_matches("- ").starts_with("if:")),
+        "the step that runs the script has a condition that can skip it"
+    );
     // The script is the whole of its step, so its exit code is the step's: nothing is chained after it that
     // could swallow a failure (`; exit 0`, `|| true`, a pipe into something that always succeeds).
     let call = body.lines().find(|l| l.contains("packaging/test-installer.ps1")).expect("the call");
@@ -546,7 +558,11 @@ fn the_installer_script_keeps_asking_what_it_asked() {
     let script = active_powershell(&read("packaging/test-installer.ps1"));
     for (what, fragment) in [
         ("whether it starts from nothing of ours", "something of ours is here already"),
-        ("the exit code of every step", "the installer installs (exit"),
+        ("the exit code of the install", "the installer installs (exit"),
+        ("the exit code of the rebuild", "the rebuild installs over the first (exit"),
+        ("the exit code of the refusal", "the older version is refused (exit"),
+        ("the exit code of the uninstall", "the uninstall succeeds (exit"),
+        ("that the upgrade needs no restart", "installs and needs no restart (exit"),
         ("every file against the package it was built from", "every file is the package's bytes"),
         ("nothing in the folder that is not the package's", "nothing else is in the folder"),
         ("the machine PATH, once, with the entry", "is on the machine PATH once"),
@@ -561,11 +577,61 @@ fn the_installer_script_keeps_asking_what_it_asked() {
         ("the refusal of an older version", "the older version is refused"),
         ("the uninstall with a file of somebody else's", "the folder holds only the planted file"),
         ("the machine PATH as it was", "the machine PATH is what it was before"),
+        ("the machine PATH keeping its kind while it holds references", "the machine PATH keeps its kind while it holds references"),
         ("the per-user folder left alone", "is as it was, byte for byte"),
         ("the window as administrator", "keeps nothing of its own there"),
+        ("that a second run on the machine is refused", "another run of this script holds this machine"),
         ("the control the window question needs", "proves nothing"),
         ("what is left behind on any way out", "uninstalling it, so this run leaves nothing behind"),
     ] {
         assert!(script.contains(fragment), "test-installer.ps1 no longer asks {what}: no {fragment:?}");
     }
+}
+
+/// test-installer.ps1 with the given arguments, run the way the job runs it.
+fn test_installer(args: &[&str]) -> Run {
+    let out = Command::new(pwsh())
+        .args(["-NoProfile", "-NonInteractive", "-File"])
+        .arg(repo_root().join("packaging").join("test-installer.ps1"))
+        .args(args)
+        .output()
+        .expect("pwsh could not be started");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    Run { code: out.status.code().unwrap_or(-1), said }
+}
+
+/// The script refuses what it cannot pass on safely BEFORE it touches the machine, with one line and exit 2:
+/// a double quote in the survivor's arguments (it goes into one quoted argument of a command line and would
+/// split it), and a kit that names an installer by a path or does not hold the file it names (the kit is a
+/// folder somebody else may be able to write to, and msiexec runs elevated). Both come before the check that
+/// the session is elevated, so this runs anywhere (review of #97).
+#[test]
+fn the_installer_script_refuses_what_it_cannot_pass_on_before_it_touches_the_machine() {
+    let base = std::env::temp_dir().join(format!("chrono-msi-refuse-{}", std::process::id()));
+    let work = base.join("work");
+    let kit = base.join("kit");
+    std::fs::create_dir_all(&kit).expect("a kit folder");
+    let (work_s, kit_s) = (work.to_string_lossy().into_owned(), kit.to_string_lossy().into_owned());
+
+    let run = test_installer(&["-WorkFolder", &work_s, "-KitFolder", &kit_s, "-SurvivorArguments", "a\"b"]);
+    assert!(run.code == 2 && run.said.contains("double quote"), "a quote in -SurvivorArguments: exit {} and said:\n{}", run.code, run.said);
+
+    for (what, manifest, says) in [
+        (
+            "a path as the name of an installer",
+            r#"{"old":{"file":"..\\evil.msi"},"new":{"file":"new.msi"},"same":{"file":"same.msi"}}"#,
+            "a plain file name ending in .msi",
+        ),
+        (
+            "an installer the kit does not hold",
+            r#"{"old":{"file":"old.msi"},"new":{"file":"new.msi"},"same":{"file":"same.msi"}}"#,
+            "holds no old.msi",
+        ),
+        ("a kit that names no installers", r#"{"product":{}}"#, "a plain file name ending in .msi"),
+    ] {
+        std::fs::write(kit.join("kit.json"), manifest).expect("a manifest");
+        let run = test_installer(&["-WorkFolder", &work_s, "-KitFolder", &kit_s]);
+        assert!(run.code == 2 && run.said.contains(says), "{what}: exit {} and said:\n{}\nwant exit 2 and {says:?}", run.code, run.said);
+    }
+    let _ = std::fs::remove_dir_all(&base);
 }

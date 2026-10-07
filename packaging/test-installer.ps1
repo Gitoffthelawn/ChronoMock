@@ -113,6 +113,14 @@ function Skip([string] $what) {
 
 function Note([string] $what) { Say "note    $what" }
 
+# A heading, remembered, so that a run that stops on an error can say which step it was in.
+$script:Step = 'the start'
+function Step([string] $title) {
+    $script:Step = $title
+    Say ''
+    Say "== $title"
+}
+
 # A refusal of the inputs is one line and exit 2, before anything on the machine is touched.
 function Stop-Run([string] $message) {
     [Console]::Error.WriteLine("test-installer: $message")
@@ -203,9 +211,18 @@ function Invoke-Msi([string] $verb, [string] $target, [string] $logName) {
     $began = Get-Date
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -ArgumentList $arguments -PassThru
     $null = $process.Handle
-    if (-not $process.WaitForExit(600000)) {
+    # A line every half minute: an upgrade over a held library has taken six minutes on a busy machine, and a
+    # log that says nothing for that long reads as a hang (review of #97).
+    $waited = 0
+    $finished = $true
+    while (-not $process.WaitForExit(30000)) {
+        $waited += 30
+        Say "  ... msiexec $verb $(Split-Path -Leaf $target) is still running after $waited s"
+        if ($waited -ge 900) { $finished = $false; break }
+    }
+    if (-not $finished) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        $result = [pscustomobject]@{ Code = -1; Seconds = 600; Log = $log }
+        $result = [pscustomobject]@{ Code = -1; Seconds = $waited; Log = $log }
     }
     else {
         $result = [pscustomobject]@{ Code = $process.ExitCode; Seconds = [int]((Get-Date) - $began).TotalSeconds; Log = $log }
@@ -356,13 +373,16 @@ function Start-Survivor([string] $installDir) {
     $err = Join-Path $script:LogFolder 'survivor-session-err.txt'
     $session = Start-Process -FilePath $core -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
     $null = $session.Handle
-    if (-not $session.WaitForExit(90000)) {
-        Stop-Process -Id $session.Id -Force -ErrorAction SilentlyContinue
+    $ended = $session.WaitForExit(90000)
+    if (-not $ended) { Stop-Process -Id $session.Id -Force -ErrorAction SilentlyContinue }
+    # Registered on every path, the timeout's too: a program the session started is this run's to stop, and
+    # one that was left running here would hold a library of the install the run is about to remove.
+    $after = @(Get-Process -Name $name -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Id })
+    foreach ($process in $after) { $script:Started.Add($process.Id) }
+    if (-not $ended) {
         Skip 'an application that outlives its session: the session did not end in 90 s'
         return $null
     }
-    $after = @(Get-Process -Name $name -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Id })
-    foreach ($process in $after) { $script:Started.Add($process.Id) }
     if ($after.Count -eq 0) {
         $reason = (Get-Content -LiteralPath $err -ErrorAction SilentlyContinue | Select-Object -First 3) -join ' | '
         Skip "an application that outlives its session: nothing of $name is left after the session (chrono exited $($session.ExitCode)) $reason"
@@ -521,11 +541,24 @@ if ($Cleanup) {
     $script:Product = [pscustomobject]@{ name = [string]$productName }
     $script:LogFolder = if ($WorkFolder) { New-Item -ItemType Directory -Force -Path $WorkFolder | Select-Object -ExpandProperty FullName } else { $env:TEMP }
     Invoke-Cleanup
+    # A run that was killed after a broken installer put its entry on the PATH leaves the entry there. It is the
+    # one change a run makes to the machine outside the install, and this takes just that entry off again.
+    $cleanFolder = Join-Path $env:ProgramFiles $script:Product.name
+    $current = Get-MachinePath
+    $want = (Join-Path $cleanFolder 'core\x64').TrimEnd('\')
+    $kept = @($current.Value.Split(';') | Where-Object { $_.Trim().TrimEnd('\') -ine $want })
+    if (($kept -join ';') -cne $current.Value) {
+        Restore-MachinePath ([pscustomobject]@{ Value = ($kept -join ';'); Kind = $current.Kind })
+        Say "took $want off the machine PATH"
+    }
     exit 0
 }
 
 if (-not $WorkFolder) { Stop-Run 'pass -WorkFolder, where the kit, the logs and the report go' }
 if (-not $KitFolder -and -not $PackageFolder) { Stop-Run 'pass -PackageFolder (the folder that holds ChronoMock.exe) to build a kit from, or -KitFolder to run one' }
+# Said before anything is created or installed: the value is passed on inside ONE quoted argument of the
+# command line the survivor is started with, and a quote in it would split that argument (review of #97).
+if ($SurvivorArguments.Contains('"')) { Stop-Run '-SurvivorArguments cannot hold a double quote, it is passed on inside one quoted argument' }
 $script:WorkFolderResolved = (New-Item -ItemType Directory -Force -Path $WorkFolder).FullName
 $script:LogFolder = (New-Item -ItemType Directory -Force -Path (Join-Path $script:WorkFolderResolved 'logs')).FullName
 $script:LogPath = Join-Path $script:LogFolder "installer-$($env:COMPUTERNAME).txt"
@@ -539,6 +572,15 @@ if (-not $KitFolder) {
 }
 if (-not (Test-Path -LiteralPath (Join-Path $KitFolder 'kit.json'))) { Stop-Run "$KitFolder holds no kit.json - build one with -BuildKitOnly" }
 $kit = Get-Content -Raw -LiteralPath (Join-Path $KitFolder 'kit.json') | ConvertFrom-Json -AsHashtable
+# The three installers a kit names are plain file names that exist in the kit's own folder. The manifest is
+# written by this script, and a folder somebody else can write to could hold another one: a name with a path
+# in it would send msiexec outside the kit (review of #97).
+foreach ($which in 'old', 'new', 'same') {
+    $file = ''
+    if ($kit.Contains($which) -and $kit[$which] -is [System.Collections.IDictionary]) { $file = [string]$kit[$which].file }
+    if ($file -notmatch '^[A-Za-z0-9._-]+\.msi$') { Stop-Run "kit.json names '$file' as the $which installer, and a kit names a plain file name ending in .msi" }
+    if (-not (Test-Path -LiteralPath (Join-Path $KitFolder $file) -PathType Leaf)) { Stop-Run "$KitFolder holds no $file, which kit.json names as the $which installer" }
+}
 $script:Product = [pscustomobject]$kit.product
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Stop-Run 'run this from an elevated session - an installer for every account needs one' }
@@ -555,6 +597,14 @@ foreach ($entry in $kit.treeB.GetEnumerator()) { $treeB[$entry.Key] = $entry.Val
 
 Say "machine $($env:COMPUTERNAME), $((Get-CimInstance Win32_OperatingSystem).Caption) $([Environment]::OSVersion.Version), pwsh $($PSVersionTable.PSVersion), $(Get-Date -Format s)"
 
+# One run on a machine at a time. Two would both pass the clean-state check below and then install over each
+# other. A mutex outlives nothing: a run that is killed leaves it abandoned, which the next one takes over.
+$script:Lock = New-Object System.Threading.Mutex($false, 'Global\ChronoMockInstallerTest')
+$locked = $false
+try { $locked = $script:Lock.WaitOne(0) }
+catch [System.Threading.AbandonedMutexException] { $locked = $true }
+if (-not $locked) { Stop-Run 'another run of this script holds this machine (the mutex Global\ChronoMockInstallerTest), wait for it to end. Nothing was touched' }
+
 # 0. the state this starts from is asserted, not assumed
 $dirty = @()
 if (@(Get-ArpEntries).Count -ne 0) { $dirty += "$(@(Get-ArpEntries).Count) entr(y/ies) in Programs and Features" }
@@ -566,6 +616,9 @@ if ($dirty.Count -gt 0) { Stop-Run "something of ours is here already: $($dirty 
 
 $startPath = Get-MachinePath
 Note "machine PATH written down ($($startPath.Value.Length) characters, stored as $($startPath.Kind))"
+# Also on disk, beside the logs: a run that is killed cannot put the PATH back from memory, and this is what a
+# person restores it from. -Cleanup takes our entry off the PATH by itself, which is the one change a run makes.
+Set-Content -LiteralPath (Join-Path $script:LogFolder 'machine-path-before.txt') -Value @("kind: $($startPath.Kind)", $startPath.Value)
 $ownedPerUser = -not (Test-Path -LiteralPath $perUser)
 $sentinel = Join-Path $perUser 'logs\installer-test-sentinel.txt'
 if ($ownedPerUser) {
@@ -583,15 +636,13 @@ try {
         Check ($fact.versionA -eq $fact.versionB) "kit: $($fact.path) has the same file version in both packages ('$($fact.versionA)')"
     }
 
-    Say ''
-    Say "== install $($kit.old.version)"
+    Step "install $($kit.old.version)"
     $result = Invoke-Msi '/i' $old 'install-old.log'
     Check ($result.Code -eq 0) "the installer installs (exit $($result.Code))"
     Test-Installed $kit $kit.old.version $treeA 'installed'
     if ($Window) { Test-WindowKeepsNothing $installDir $kit.extras.marker } else { Note 'the window as administrator is not asked without -Window' }
 
-    Say ''
-    Say "== upgrade to $($kit.new.version) while an application holds the injected library"
+    Step "upgrade to $($kit.new.version) while an application holds the injected library"
     $held = Start-Survivor $installDir
     $holds = $false
     if ($held) {
@@ -610,9 +661,11 @@ try {
         if (-not $locked) { $holds = $false }
     }
     $result = Invoke-Msi '/i' $new 'upgrade.log'
-    # Exit 0 and 3010 are both an upgrade that worked: 3010 would say the restart is needed to finish it, 0 says
-    # only a leftover waits for one. Which of the two is a measurement, said below, not an expectation.
-    Check ($result.Code -in 0, 3010) "the upgrade over the held library installs (exit $($result.Code) in $($result.Seconds) s)"
+    # Exit 0, and not 3010. The old copy of a library that is in use is set aside and the new one is put in
+    # place at once, so the upgrade needs no restart - measured on Windows Server 2025 twice, on Windows 11 and
+    # on a build runner. 3010 is what the upgrade scheduled after the new files gives (the probe `schedule` in
+    # tools/probes/msi), with old programs left behind, so it fails here by name (review of #97).
+    Check ($result.Code -eq 0) "the upgrade over the held library installs and needs no restart (exit $($result.Code) in $($result.Seconds) s, and 3010 would mean it left files for one)"
     if ($holds) {
         Check (-not $held.HasExited) 'the application that held the library is still running - nothing ended it'
         $said = (Get-Content -LiteralPath $result.Log -Encoding Unicode -ErrorAction SilentlyContinue) -join "`n"
@@ -626,26 +679,27 @@ try {
         Note "after the upgrade $($queued.Count) file(s) under Config.Msi wait for a restart to be deleted"
     }
     Test-Installed $kit $kit.new.version $treeB 'upgraded'
-    $firstCode = @(Get-ArpEntries)[0].Code
+    # An upgrade that left no entry is already a failure above. The run goes on to say what else is wrong,
+    # which `@()[0].Code` would stop under strict mode (review of #97).
+    $afterUpgrade = @(Get-ArpEntries)
+    $firstCode = ''
+    if ($afterUpgrade.Count -ge 1) { $firstCode = $afterUpgrade[0].Code }
 
-    Say ''
-    Say "== a rebuild of $($kit.same.version), the same version with other bytes and another product code"
+    Step "a rebuild of $($kit.same.version), the same version with other bytes and another product code"
     $result = Invoke-Msi '/i' $same 'rebuild.log'
     Check ($result.Code -in 0, 3010) "the rebuild installs over the first (exit $($result.Code))"
     Test-Installed $kit $kit.same.version $treeA 'rebuilt'
     $entries = @(Get-ArpEntries)
     Check ($entries.Count -eq 1 -and $entries[0].Code -ne $firstCode) "the rebuild replaced the first build instead of standing beside it ($firstCode -> $(($entries | ForEach-Object { $_.Code }) -join ', '))"
 
-    Say ''
-    Say "== $($kit.old.version) over $($kit.same.version)"
+    Step "$($kit.old.version) over $($kit.same.version)"
     $result = Invoke-Msi '/i' $old 'downgrade.log'
     Check ($result.Code -ne 0) "the older version is refused (exit $($result.Code))"
     $log = Get-Content -LiteralPath (Join-Path $script:LogFolder 'downgrade.log') -Raw -ErrorAction SilentlyContinue
     Check ($log -match [regex]::Escape("A newer version of $name is already installed")) 'and the log carries the sentence the package gives'
     Test-Installed $kit $kit.same.version $treeA 'after the refusal'
 
-    Say ''
-    Say '== uninstall, with a file of somebody else in the folder'
+    Step 'uninstall, with a file of somebody else in the folder'
     Stop-Survivors
     # Taken here, after everything the window may have written during the run: what the uninstall must leave
     # alone is the folder as it is when the uninstall starts.
@@ -668,16 +722,24 @@ try {
     Note "the publisher's key HKLM:\SOFTWARE\$($script:Product.publisher) is $(if (Test-Path -LiteralPath "HKLM:\SOFTWARE\$($script:Product.publisher)") { 'still there' } else { 'gone' })"
     $endPath = Get-MachinePath
     Check ($endPath.Value -ceq $startPath.Value) "the machine PATH is what it was before, character for character ($($endPath.Value.Length) against $($startPath.Value.Length))"
-    if ($endPath.Kind -ne $startPath.Kind) { Note "the machine PATH was stored as $($startPath.Kind) and is now stored as $($endPath.Kind)" }
+    # A PATH stored as expandable and now stored as plain text stops expanding the %references% in it. That is
+    # harmless when it holds none (a build runner's does not: measured) and breaks every program's lookup when
+    # it holds some (a default Windows PATH has %SystemRoot%), so the kind is asked together with the references.
+    $references = [regex]::Matches($endPath.Value, '%[^%;]+%').Count
+    $kindLost = ($endPath.Kind -ne $startPath.Kind) -and ($references -gt 0)
+    Check (-not $kindLost) "the machine PATH keeps its kind while it holds references ($references of them, stored as $($startPath.Kind) before and $($endPath.Kind) after)"
+    if (($endPath.Kind -ne $startPath.Kind) -and ($references -eq 0)) { Note "the machine PATH was stored as $($startPath.Kind) and is now stored as $($endPath.Kind), and it holds no %reference%, so nothing in it stops expanding" }
     $perUserAfter = Get-FileHashes $perUser
     $changed = @($perUserBefore.Keys | Where-Object { -not $perUserAfter.ContainsKey($_) -or $perUserAfter[$_] -ne $perUserBefore[$_] }) + @($perUserAfter.Keys | Where-Object { -not $perUserBefore.ContainsKey($_) })
     Check ($changed.Count -eq 0) "$perUser is as it was, byte for byte ($($perUserAfter.Count) file(s), $($changed.Count) changed)"
     $completed = $true
 }
 catch {
-    # Said and counted, so the summary below is printed and the exit code is not the one of a crash.
+    # Said and counted, so the summary below is printed and the exit code is not the one of a crash. It says
+    # where it was and where to read on, and what the machine is left with is said by the lines after it.
     $script:Failed++
-    Say "FAILED  the run stopped on an error: $($_.Exception.Message) ($($_.InvocationInfo.ScriptLineNumber))"
+    Say "FAILED  the run stopped during '$script:Step' at line $($_.InvocationInfo.ScriptLineNumber) of this script, and nothing after that step was asked: $($_.Exception.Message)"
+    Say "        what it asked before is in $script:LogPath, the installer's own logs are beside it, and the machine is put back below"
 }
 finally {
     Stop-Survivors
@@ -694,6 +756,8 @@ finally {
     if (Test-Path -LiteralPath $vendorKey) { Remove-Item -LiteralPath $vendorKey -Recurse -Force -ErrorAction SilentlyContinue; Say "cleaned: the registry key $vendorKey the installer left" }
     if ((Get-MachinePath).Value -cne $startPath.Value) { Restore-MachinePath $startPath; Say 'cleaned: the machine PATH put back to the text written down at the start' }
 }
+# Given back last, when the machine is as it was found, so a waiting run starts on a clean one.
+$script:Lock.ReleaseMutex()
 
 Say ''
 Say "ok: $script:Passed, failed: $script:Failed, not measured: $script:NotMeasured$(if (-not $completed) { ' - the run did not reach its end' })"
