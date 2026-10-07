@@ -232,6 +232,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The readme inside each zip tells a tester to exclude the library file from Defender, not the
+  folder.** The repository README and the installer's readme already said to add a File exclusion
+  for `chrono_hook.dll`, because a Folder exclusion leaves unscanned the very folder the tool
+  injects from. The readmes in `ChronoMock-app-win-x64.zip` and `ChronoMock-cli-win.zip` still said
+  to exclude the folder, so the same product gave opposite advice depending on the download. Both now
+  name the file (`core\x64\chrono_hook.dll` in the window's package, `chrono_hook.dll` in the
+  command-line one, plus the `x86` copy) and keep the folder as the fallback.
 - **"90 business days" reads in full.** The unit list had a fixed width that cut the last letter
   of its longest unit, so the builder and a scenario's parameter showed "90 business day" at every
   window size. The list is now as wide as its longest unit in the window's language, whichever unit
