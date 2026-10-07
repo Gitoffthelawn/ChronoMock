@@ -126,10 +126,11 @@
 
     <div class="prose">
       <p>
-        Dois menores, ditos com clareza. As páginas mantêm o <strong>fuso horário desta máquina</strong>,
-        então um fuso de sessão independente é um recurso apenas do modo nativo. E um temporizador já
-        agendado <em>antes</em> de a sessão alcançar a página mantém o ritmo antigo, do mesmo jeito que em
-        uma sessão Chromium pura - a sessão avisa em vez de deixar você concluir que nada aconteceu.
+        Dois menores, ditos com clareza. As páginas leem o fuso da sessão como um deslocamento fixo,
+        então o <code>Intl</code> o chama de <code>GMT+02:00</code> e não de uma cidade. E um
+        temporizador já agendado <em>antes</em> de a sessão alcançar a página mantém o ritmo antigo,
+        do mesmo jeito que em uma sessão Chromium pura - a sessão avisa em vez de deixar você
+        concluir que nada aconteceu.
       </p>
       <p>
         Se o motor é configurado por uma política de argumentos do navegador no registro, a variável da

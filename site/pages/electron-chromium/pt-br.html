@@ -76,11 +76,14 @@
     </div>
 
     <div class="note">
-      <p><strong>O fuso horário da sessão acompanha o host.</strong></p>
+      <p><strong>As páginas leem o fuso horário da sessão.</strong></p>
       <p>
-        Nesse modo o instante é falsificado, mas os métodos de hora local não são, então um
-        <a href="/pt-br/teste-de-fuso-horario/">fuso horário independente</a> é um recurso apenas do modo
-        nativo. Isso é uma limitação desta versão, não uma decisão.
+        Cada página e cada worker é colocado no <a href="/pt-br/teste-de-fuso-horario/">fuso horário
+        da sessão</a>, um deslocamento fixo sem horário de verão, e confere o deslocamento que lê,
+        então uma página que leu outro fuso é reportada. Dois limites: o <code>Intl</code> nomeia
+        esse fuso como um deslocamento, como <code>GMT+02:00</code>, e não como uma cidade, e o
+        processo principal de um aplicativo Electron executa JavaScript no Node, que a sessão não
+        alcança, então ele mantém o relógio real - o relatório diz isso.
       </p>
     </div>
 

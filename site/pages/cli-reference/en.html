@@ -29,10 +29,17 @@
         line on stdout, so a script can capture it.
       </p>
       <p>
-        <code>chrono license</code> answers the fourth: the licence this build is distributed
-        under, the warranty disclaimer, and the third-party components linked into it. It also
-        says where the full licence text and the third-party notices are on disk, or admits it
-        when the copy you are running does not have them beside it.
+        <code>chrono license</code> answers the fourth: the licence this build is distributed under,
+        the warranty disclaimer, and the third-party components linked into it. It also says where
+        the full licence text and the third-party notices are on disk, or admits it when the copy
+        you are running does not have them beside it. <code>--components</code> lists every bundled
+        component with its version instead of a summary.
+      </p>
+      <p>
+        <code>chrono presets</code> lists the preset catalogue the way <code>--preset</code> reads
+        it: every preset in the folder, written in the words the calculator's grammar reads, and
+        every file it would refuse, with the reason. <code>--json</code> writes
+        <code>chronomock.presets/1</code> and <code>--dir</code> names another folder.
       </p>
     </div>
 
@@ -40,6 +47,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, and what is bundled</span>
+<span class="p">chrono</span> presets        <span class="c"># the catalogue, as --preset reads it</span>
 <span class="p">chrono</span> --help          <span class="c"># usage for all of them</span></pre>
   </section>
 
@@ -144,6 +152,30 @@
               neither does the exit code. This only decides whether the target keeps running.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Leave the web pages inside the application (WebView2, Qt WebEngine) on the real
+              clock and open no debugging port. Without it the session asks such an engine to open a
+              local port and puts its pages on the session clock through it - while the port is
+              open, any other program on this computer can use it to reach those pages.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>For an application that runs as administrator, from a Chrono Mock that runs as
+              administrator too. WebView2 ignores the setting the session reaches its pages through
+              for such an application, so the session writes one value to the machine registry
+              (HKLM, named after the application's .exe) for its duration and removes it at the end.
+              While the application runs, any other program on this computer can reach its pages
+              through the port, and the application has administrator rights. Not with
+              <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Start the web engine - the browser of a Chromium or Electron application, or the
+              engine inside an application - with its slowdown of timers in hidden windows switched
+              off, so a minimised window keeps the session speed. The application then also works at
+              full pace while it is hidden.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
             <td>Print what the session would be and start nothing: the resolved moment and zone and
               where they came from, what a preset filled each parameter with, the arguments after
@@ -151,7 +183,12 @@
               started and no file is written, including the one <code>--report</code> names. It
               exits 0 for a workable plan and 2 for a target that is not there, which is the code a
               real run gives for the same fact. A plan carries no verdict and says so - only a real
-              session has one.</td>
+              session has one. With <code>--json</code> the plan is data, including
+              <code>session.elevated_embedded</code> and
+              <code>session.elevated_embedded_value</code>, the file name the registry value would
+              be named after when the option applies to an <code>.exe</code> target, null otherwise.
+              A name there is not a promise of a write: the session writes the value only when
+              Chrono Mock itself runs as administrator.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -268,6 +305,11 @@
               normalised into the next month.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Like <code>--base</code>, but the start is an instant in UTC, with an optional
+              trailing <code>Z</code>, instead of a wall-clock reading in the session zone.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Repeatable. The sign is required. Units: <code>s m h d w mo q y bd</code>, or
               their full names. <strong><code>m</code> is minutes, <code>mo</code> is
@@ -303,7 +345,12 @@
             <td>Load a holiday calendar. It adds business day and holiday to the metadata and
               enables <code>bd</code> and <code>--nearest</code>. The two American calendars differ
               in how they observe a holiday falling at a weekend, which is exactly the kind of
-              off-by-one day a test is meant to find.</td>
+              off-by-one day a test is meant to find. Each calendar answers for a range of years:
+              <code>pl</code> from 2002, <code>us-federal</code> from 1960 and
+              <code>us-banking</code> from 2008. A business-day step that reaches a day before it is
+              refused with exit 1, and a date before it is shown as not judged. When a calendar's
+              holidays were last checked against the law more than a year ago, a later day it judged
+              is marked <code>calendar_outdated</code>, because a newer holiday may be missing.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

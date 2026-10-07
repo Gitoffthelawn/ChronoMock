@@ -30,6 +30,15 @@
         penafian garansi, dan komponen pihak ketiga yang ditautkan ke dalamnya. Perintah ini juga
         menyebutkan di mana teks lisensi lengkap dan pemberitahuan pihak ketiga berada di disk, atau
         mengakui bila salinan yang Anda jalankan tidak memilikinya di sampingnya.
+        <code>--components</code> mencantumkan setiap komponen yang disertakan beserta versinya,
+        bukan ringkasan.
+      </p>
+      <p>
+        <code>chrono presets</code> mencantumkan katalog skenario seperti yang dibaca
+        <code>--preset</code>: setiap skenario di folder, ditulis dengan kata-kata yang dibaca tata
+        bahasa kalkulator, dan setiap berkas yang akan ditolaknya, beserta alasannya.
+        <code>--json</code> menulis <code>chronomock.presets/1</code> dan <code>--dir</code>
+        menyebut folder lain.
       </p>
     </div>
 
@@ -37,6 +46,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, dan apa yang disertakan</span>
+<span class="p">chrono</span> presets        <span class="c"># katalog, seperti yang dibaca --preset</span>
 <span class="p">chrono</span> --help          <span class="c"># penggunaan untuk semuanya</span></pre>
   </section>
 
@@ -140,14 +150,45 @@
               keluar. Flag ini hanya menentukan apakah target terus berjalan.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Membiarkan halaman web di dalam aplikasi (WebView2, Qt WebEngine) pada jam asli dan
+              tidak membuka port debugging. Tanpa opsi ini, sesi meminta mesin semacam itu membuka
+              port lokal dan menaruh halamannya pada jam sesi melaluinya - selama port terbuka,
+              program lain mana pun di komputer ini dapat memakainya untuk menjangkau halaman
+              tersebut.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Untuk aplikasi yang berjalan sebagai administrator, dari Chrono Mock yang juga
+              berjalan sebagai administrator. WebView2 mengabaikan untuk aplikasi seperti itu
+              pengaturan yang dipakai sesi untuk menjangkau halamannya, sehingga sesi menulis satu
+              nilai ke registry mesin (HKLM, dinamai sesuai .exe aplikasi) selama sesi berlangsung
+              dan menghapusnya di akhir. Selama aplikasi berjalan, program lain mana pun di komputer
+              ini dapat menjangkau halamannya lewat port, dan aplikasi memiliki hak administrator.
+              Tidak bersama <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Memulai mesin web - peramban aplikasi Chromium atau Electron, atau mesin di dalam
+              sebuah aplikasi - dengan perlambatan timer pada jendela tersembunyi dimatikan,
+              sehingga jendela yang diminimalkan tetap memakai kecepatan sesi. Aplikasi pun bekerja
+              dengan kecepatan penuh saat tersembunyi.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Mencetak seperti apa sesi nantinya dan tidak memulai apa pun: momen dan zona yang telah
-              diselesaikan beserta asalnya, apa yang diisikan skenario ke setiap parameter, argumen setelah
-              dipisah, dan mana dari kedua mekanisme yang akan dipakai target. Tidak ada proses yang
-              dimulai dan tidak ada file yang ditulis, termasuk yang dinamai <code>--report</code>.
-              Keluar dengan 0 untuk rencana yang dapat dijalankan dan 2 untuk target yang tidak ada, yang
-              merupakan kode yang diberikan eksekusi nyata untuk fakta yang sama. Rencana tidak membawa
-              putusan dan menyatakannya - hanya sesi nyata yang memilikinya.</td>
+            <td>Mencetak seperti apa sesi nantinya dan tidak memulai apa pun: momen dan zona yang
+              telah diselesaikan beserta asalnya, apa yang diisikan skenario ke setiap parameter,
+              argumen setelah dipisah, dan mana dari kedua mekanisme yang akan dipakai target. Tidak
+              ada proses yang dimulai dan tidak ada file yang ditulis, termasuk yang dinamai
+              <code>--report</code>. Keluar dengan 0 untuk rencana yang dapat dijalankan dan 2 untuk
+              target yang tidak ada, yang merupakan kode yang diberikan eksekusi nyata untuk fakta
+              yang sama. Rencana tidak membawa putusan dan menyatakannya - hanya sesi nyata yang
+              memilikinya. Dengan <code>--json</code> rencana berupa data, termasuk
+              <code>session.elevated_embedded</code> dan
+              <code>session.elevated_embedded_value</code>, yaitu nama berkas yang akan menjadi nama
+              nilai registry saat opsi berlaku untuk target <code>.exe</code>, dan null bila tidak.
+              Adanya nama di sana bukan jaminan penulisan: sesi menulis nilai itu hanya bila Chrono
+              Mock sendiri berjalan sebagai administrator.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -266,6 +307,11 @@
               bulan berikutnya.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Seperti <code>--base</code>, tetapi awalnya adalah satu instan dalam UTC, dengan
+              <code>Z</code> di akhir yang opsional, bukan pembacaan jam dinding di zona sesi.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Dapat diulang. Tanda wajib. Satuan: <code>s m h d w mo q y bd</code>, atau nama lengkapnya.
               <strong><code>m</code> adalah menit, <code>mo</code> adalah bulan.</strong> Bulan, kuartal,
@@ -299,9 +345,16 @@
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
             <td>Memuat kalender hari libur. Menambahkan hari kerja dan hari libur ke metadata serta
-              mengaktifkan <code>bd</code> dan <code>--nearest</code>. Kedua kalender Amerika berbeda dalam
-              cara menetapkan hari libur yang jatuh pada akhir pekan, yang persis jenis selisih satu hari
-              yang seharusnya ditemukan oleh pengujian.</td>
+              mengaktifkan <code>bd</code> dan <code>--nearest</code>. Kedua kalender Amerika
+              berbeda dalam cara menetapkan hari libur yang jatuh pada akhir pekan, yang persis
+              jenis selisih satu hari yang seharusnya ditemukan oleh pengujian. Setiap kalender
+              menjawab untuk satu rentang tahun: <code>pl</code> mulai 2002, <code>us-federal</code>
+              mulai 1960, dan <code>us-banking</code> mulai 2008. Langkah hari kerja yang mencapai
+              hari sebelum rentang itu ditolak dengan kode 1, dan tanggal sebelum rentang
+              ditampilkan sebagai tidak dinilai. Bila hari libur sebuah kalender terakhir dicocokkan
+              dengan undang-undang lebih dari setahun lalu, hari yang lebih baru yang dinilainya
+              diberi tanda <code>calendar_outdated</code>, karena hari libur yang lebih baru mungkin
+              belum ada.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

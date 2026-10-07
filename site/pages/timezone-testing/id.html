@@ -91,8 +91,10 @@ Chrono Mock - date calculator
         <li><strong>Java mengambil zona sesi sebagai selisih.</strong> Zona sesi tidak punya waktu musim
           panas dan tidak ada kota di baliknya, sehingga Java menamainya menurut selisihnya -
           <code>GMT+05:30</code> untuk sesi pada +05:30.</li>
-        <li><strong>Dalam mode Chromium dan Electron, zona mengikuti host.</strong> Instan dipalsukan,
-          getter waktu lokal tidak.</li>
+        <li><strong>Pada mode Chromium dan Electron, halaman juga membaca zona sesi.</strong>
+          Selisih tetapnya sama: setiap halaman dan worker ditempatkan padanya dan memeriksa apa
+          yang dibacanya. Proses utama aplikasi Electron menjalankan JavaScript di Node, yang tidak
+          dijangkau sesi, sehingga ia tetap memakai jam asli.</li>
         <li><strong>Selisih berkisar dari -14:00 sampai +14:00</strong> dalam menit penuh. Apa pun di luar
           itu ditolak, bukan diam-diam dililitkan.</li>
       </ul>

@@ -28,9 +28,18 @@
       </p>
       <p>
         <code>chrono license</code> responde a la cuarta: bajo qué licencia se distribuye esta
-        compilación, el descargo de garantía y los componentes de terceros enlazados en ella. También
-        dice dónde están en el disco el texto completo de la licencia y los avisos de terceros, o admite
-        que la copia que ejecutas no los tiene a su lado.
+        compilación, el descargo de garantía y los componentes de terceros enlazados en ella.
+        También dice dónde están en el disco el texto completo de la licencia y los avisos de
+        terceros, o admite que la copia que ejecutas no los tiene a su lado.
+        <code>--components</code> lista cada componente incluido con su versión, en lugar de un
+        resumen.
+      </p>
+      <p>
+        <code>chrono presets</code> lista el catálogo de escenarios tal como lo lee
+        <code>--preset</code>: cada escenario de la carpeta, escrito con las palabras que lee la
+        gramática de la calculadora, y cada archivo que rechazaría, con el motivo.
+        <code>--json</code> escribe <code>chronomock.presets/1</code> y <code>--dir</code> indica
+        otra carpeta.
       </p>
     </div>
 
@@ -38,6 +47,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, and what is bundled</span>
+<span class="p">chrono</span> presets        <span class="c"># el catálogo, tal como lo lee --preset</span>
 <span class="p">chrono</span> --help          <span class="c"># usage for all of them</span></pre>
   </section>
 
@@ -143,13 +153,46 @@
               el objetivo sigue ejecutándose.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Deja las páginas web dentro de la aplicación (WebView2, Qt WebEngine) en el reloj
+              real y no abre ningún puerto de depuración. Sin ella, la sesión pide a ese motor que
+              abra un puerto local y pone sus páginas en el reloj de la sesión a través de él:
+              mientras el puerto está abierto, cualquier otro programa de este equipo puede usarlo
+              para llegar a esas páginas.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Para una aplicación que se ejecuta como administrador, desde un Chrono Mock que
+              también se ejecuta como administrador. WebView2 ignora para una aplicación así el
+              ajuste por el que la sesión llega a sus páginas, de modo que la sesión escribe un
+              valor en el registro de la máquina (HKLM, con el nombre del .exe de la aplicación)
+              durante su duración y lo elimina al final. Mientras la aplicación se ejecuta,
+              cualquier otro programa de este equipo puede llegar a sus páginas por el puerto, y la
+              aplicación tiene derechos de administrador. No con <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Inicia el motor web - el navegador de una aplicación Chromium o Electron, o el motor
+              dentro de una aplicación - con la ralentización de los temporizadores en ventanas
+              ocultas desactivada, de modo que una ventana minimizada conserva la velocidad de la
+              sesión. La aplicación también trabaja entonces a pleno ritmo mientras está
+              oculta.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Imprime lo que sería la sesión sin iniciar nada: el momento y la zona resueltos y de dónde
-              salieron, con qué rellenó un escenario cada parámetro, los argumentos tras dividirlos y cuál
-              de los dos mecanismos usaría el objetivo. No se inicia ningún proceso ni se escribe ningún
-              archivo, tampoco el que nombra <code>--report</code>. Sale con 0 para un plan viable y con 2
-              para un objetivo que no existe, que es el código que da una ejecución real ante el mismo
-              hecho. Un plan no lleva veredicto y lo dice - solo una sesión real lo tiene.</td>
+            <td>Imprime lo que sería la sesión sin iniciar nada: el momento y la zona resueltos y de
+              dónde salieron, con qué rellenó un escenario cada parámetro, los argumentos tras
+              dividirlos y cuál de los dos mecanismos usaría el objetivo. No se inicia ningún
+              proceso ni se escribe ningún archivo, tampoco el que nombra <code>--report</code>.
+              Sale con 0 para un plan viable y con 2 para un objetivo que no existe, que es el
+              código que da una ejecución real ante el mismo hecho. Un plan no lleva veredicto y lo
+              dice - solo una sesión real lo tiene. Con <code>--json</code> el plan se da como
+              datos, incluidos <code>session.elevated_embedded</code> y
+              <code>session.elevated_embedded_value</code>, el nombre de archivo con el que se
+              nombraría el valor del registro cuando la opción se aplica a un destino
+              <code>.exe</code>, y null en otro caso. Un nombre ahí no es una promesa de escritura:
+              la sesión solo escribe el valor cuando el propio Chrono Mock se ejecuta como
+              administrador.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -268,6 +311,12 @@
               siguiente.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Como <code>--base</code>, pero el inicio es un instante en UTC, con una
+              <code>Z</code> final opcional, en lugar de una lectura de reloj de pared en la zona de
+              la sesión.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Repetible. El signo es obligatorio. Unidades: <code>s m h d w mo q y bd</code>, o sus
               nombres completos. <strong><code>m</code> son minutos, <code>mo</code> son
@@ -300,10 +349,16 @@
           </tr>
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
-            <td>Carga un calendario de festivos. Añade día laborable y festivo a los metadatos y habilita
-              <code>bd</code> y <code>--nearest</code>. Los dos calendarios estadounidenses difieren en
-              cómo observan un festivo que cae en fin de semana, que es exactamente el tipo de desfase de
-              un día que una prueba debe encontrar.</td>
+            <td>Carga un calendario de festivos. Añade día laborable y festivo a los metadatos y
+              habilita <code>bd</code> y <code>--nearest</code>. Los dos calendarios estadounidenses
+              difieren en cómo observan un festivo que cae en fin de semana, que es exactamente el
+              tipo de desfase de un día que una prueba debe encontrar. Cada calendario responde por
+              un rango de años: <code>pl</code> desde 2002, <code>us-federal</code> desde 1960 y
+              <code>us-banking</code> desde 2008. Un paso de días hábiles que llegue a un día
+              anterior se rechaza con el código 1, y una fecha anterior se muestra como no juzgada.
+              Cuando los festivos de un calendario se comprobaron con la ley hace más de un año, un
+              día posterior que juzgó lleva la marca <code>calendar_outdated</code>, porque puede
+              faltar un festivo más reciente.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

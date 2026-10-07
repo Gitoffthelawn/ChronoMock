@@ -91,8 +91,10 @@ Chrono Mock - date calculator
         <li><strong>Java přebírá pásmo sezení jako posun.</strong> Pásmo sezení nemá letní čas ani město
           za sebou, takže ho Java pojmenuje podle jeho posunu - <code>GMT+05:30</code> pro sezení na
           +05:30.</li>
-        <li><strong>V režimu Chromium a Electron se pásmo řídí hostitelem.</strong> Okamžik je falešný,
-          getery místního času ne.</li>
+        <li><strong>V režimu Chromium a Electron čtou pásmo sezení i stránky.</strong> Je to týž
+          pevný posun: každá stránka a každý worker se na něj přepne a kontroluje, co čte. Hlavní
+          proces aplikace Electron spouští JavaScript v Node, kam sezení nedosáhne, takže si
+          ponechává skutečné hodiny.</li>
         <li><strong>Posuny jdou od -14:00 do +14:00</strong> v celých minutách. Cokoli mimo se odmítne,
           ne tiše zalomí.</li>
       </ul>

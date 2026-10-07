@@ -27,10 +27,17 @@
         para que um script possa capturá-la.
       </p>
       <p>
-        <code>chrono license</code> responde à quarta: sob qual licença esta versão é distribuída, o aviso
-        de isenção de garantia e os componentes de terceiros vinculados a ela. Também diz onde ficam no
-        disco o texto completo da licença e os avisos de terceiros, ou admite quando a cópia que você está
-        executando não os tem ao lado.
+        <code>chrono license</code> responde à quarta: sob qual licença esta versão é distribuída, o
+        aviso de isenção de garantia e os componentes de terceiros vinculados a ela. Também diz onde
+        ficam no disco o texto completo da licença e os avisos de terceiros, ou admite quando a
+        cópia que você está executando não os tem ao lado. <code>--components</code> lista cada
+        componente incluído com a sua versão, em vez de um resumo.
+      </p>
+      <p>
+        <code>chrono presets</code> lista o catálogo de cenários do jeito que <code>--preset</code>
+        o lê: cada cenário da pasta, escrito com as palavras que a gramática da calculadora lê, e
+        cada arquivo que ele recusaria, com o motivo. <code>--json</code> escreve
+        <code>chronomock.presets/1</code> e <code>--dir</code> indica outra pasta.
       </p>
     </div>
 
@@ -38,6 +45,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, and what is bundled</span>
+<span class="p">chrono</span> presets        <span class="c"># o catálogo, do jeito que --preset o lê</span>
 <span class="p">chrono</span> --help          <span class="c"># usage for all of them</span></pre>
   </section>
 
@@ -143,13 +151,43 @@
               continua rodando.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Deixa as páginas web dentro do aplicativo (WebView2, Qt WebEngine) no relógio real e
+              não abre porta de depuração. Sem ela, a sessão pede a esse motor que abra uma porta
+              local e coloca as páginas dele no relógio da sessão por meio dela - enquanto a porta
+              está aberta, qualquer outro programa neste computador pode usá-la para alcançar essas
+              páginas.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Para um aplicativo que roda como administrador, a partir de um Chrono Mock que
+              também roda como administrador. O WebView2 ignora, para um aplicativo assim, a
+              configuração pela qual a sessão alcança as páginas dele, então a sessão grava um valor
+              no Registro da máquina (HKLM, com o nome do .exe do aplicativo) durante a sua duração
+              e o remove no final. Enquanto o aplicativo roda, qualquer outro programa neste
+              computador pode alcançar as páginas dele pela porta, e o aplicativo tem direitos de
+              administrador. Não com <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Inicia o motor web - o navegador de um aplicativo Chromium ou Electron, ou o motor
+              dentro de um aplicativo - com a desaceleração dos temporizadores em janelas ocultas
+              desligada, para que uma janela minimizada mantenha a velocidade da sessão. O
+              aplicativo também trabalha então em ritmo total enquanto está oculto.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Imprime o que a sessão seria e não inicia nada: o momento e o fuso resolvidos e de onde
-              vieram, com o que um cenário preencheu cada parâmetro, os argumentos depois da divisão e
-              qual dos dois mecanismos o alvo usaria. Nenhum processo é iniciado e nenhum arquivo é
-              gravado, inclusive o que <code>--report</code> nomeia. Sai com 0 para um plano viável e com 2
-              para um alvo que não existe, que é o código que uma execução real dá para o mesmo fato. Um
-              plano não traz veredito e diz isso - só uma sessão real tem um.</td>
+            <td>Imprime o que a sessão seria e não inicia nada: o momento e o fuso resolvidos e de
+              onde vieram, com o que um cenário preencheu cada parâmetro, os argumentos depois da
+              divisão e qual dos dois mecanismos o alvo usaria. Nenhum processo é iniciado e nenhum
+              arquivo é gravado, inclusive o que <code>--report</code> nomeia. Sai com 0 para um
+              plano viável e com 2 para um alvo que não existe, que é o código que uma execução real
+              dá para o mesmo fato. Um plano não traz veredito e diz isso - só uma sessão real tem
+              um. Com <code>--json</code> o plano sai como dados, incluindo
+              <code>session.elevated_embedded</code> e <code>session.elevated_embedded_value</code>,
+              o nome de arquivo que daria nome ao valor do Registro quando a opção se aplica a um
+              alvo <code>.exe</code>, e null caso contrário. Um nome ali não é promessa de gravação:
+              a sessão só grava o valor quando o próprio Chrono Mock roda como administrador.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -267,6 +305,11 @@
               seguinte.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Como <code>--base</code>, mas o início é um instante em UTC, com um <code>Z</code>
+              final opcional, e não uma leitura de relógio de parede no fuso da sessão.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Repetível. O sinal é obrigatório. Unidades: <code>s m h d w mo q y bd</code>, ou seus nomes
               completos. <strong><code>m</code> é minuto, <code>mo</code> é mês.</strong> Meses,
@@ -300,9 +343,15 @@
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
             <td>Carrega um calendário de feriados. Ele acrescenta dia útil e feriado aos metadados e
-              habilita <code>bd</code> e <code>--nearest</code>. Os dois calendários americanos diferem na
-              forma como observam um feriado que cai no fim de semana, que é exatamente o tipo de erro de
-              um dia que um teste deve encontrar.</td>
+              habilita <code>bd</code> e <code>--nearest</code>. Os dois calendários americanos
+              diferem na forma como observam um feriado que cai no fim de semana, que é exatamente o
+              tipo de erro de um dia que um teste deve encontrar. Cada calendário responde por uma
+              faixa de anos: <code>pl</code> a partir de 2002, <code>us-federal</code> a partir de
+              1960 e <code>us-banking</code> a partir de 2008. Um passo de dias úteis que chegue a
+              um dia anterior é recusado com o código 1, e uma data anterior é mostrada como não
+              julgada. Quando os feriados de um calendário foram conferidos com a lei há mais de um
+              ano, um dia posterior que ele julgou recebe a marca <code>calendar_outdated</code>,
+              porque pode faltar um feriado mais recente.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

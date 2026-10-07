@@ -127,11 +127,11 @@
 
     <div class="prose">
       <p>
-        Twee kleinere, duidelijk gezegd. De pagina's behouden <strong>de tijdzone van deze machine</strong>,
-        dus een onafhankelijke sessiezone is alleen een functie van de native modus. En een timer die al
-        was ingepland <em>voordat</em> de sessie de pagina bereikte, behoudt zijn oude tempo, op dezelfde
-        manier als in een zuivere Chromium-sessie - de sessie waarschuwt in plaats van je te laten
-        concluderen dat er niets gebeurde.
+        Twee kleinere, duidelijk gezegd. De pagina's lezen de sessiezone als een vaste afwijking,
+        dus <code>Intl</code> noemt hem <code>GMT+02:00</code>, geen stad. En een timer die al was
+        ingepland <em>voordat</em> de sessie de pagina bereikte, behoudt zijn oude tempo, op
+        dezelfde manier als in een zuivere Chromium-sessie - de sessie waarschuwt in plaats van je
+        te laten concluderen dat er niets gebeurde.
       </p>
       <p>
         Als de engine is geconfigureerd via een browserargumentenbeleid in het register, heeft de variabele

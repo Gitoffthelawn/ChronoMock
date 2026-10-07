@@ -30,8 +30,15 @@
       <p>
         <code>chrono license</code> odpowiada na czwarte: na jakiej licencji jest ta wersja, jaka
         jest klauzula braku gwarancji i jakie komponenty obce są w niej wkompilowane. Mówi też,
-        gdzie na dysku leży pełny tekst licencji i noty komponentów obcych, a gdy uruchomiona
-        kopia ich obok siebie nie ma, przyznaje to wprost.
+        gdzie na dysku leży pełny tekst licencji i noty komponentów obcych, a gdy uruchomiona kopia
+        ich obok siebie nie ma, przyznaje to wprost. <code>--components</code> wypisuje każdy
+        dołączony komponent wraz z wersją zamiast podsumowania.
+      </p>
+      <p>
+        <code>chrono presets</code> wypisuje katalog presetów tak, jak czyta go
+        <code>--preset</code>: każdy preset z folderu, zapisany słowami, które czyta gramatyka
+        kalkulatora, oraz każdy plik, który zostałby odrzucony, wraz z powodem. <code>--json</code>
+        zapisuje <code>chronomock.presets/1</code>, a <code>--dir</code> wskazuje inny folder.
       </p>
     </div>
 
@@ -39,6 +46,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, and what is bundled</span>
+<span class="p">chrono</span> presets        <span class="c"># katalog tak, jak czyta go --preset</span>
 <span class="p">chrono</span> --help          <span class="c"># usage for all of them</span></pre>
   </section>
 
@@ -144,6 +152,31 @@
               Ta flaga rozstrzyga wyłącznie, czy cel biegnie dalej.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Zostawia strony internetowe wewnątrz aplikacji (WebView2, Qt WebEngine) na
+              prawdziwym zegarze i nie otwiera portu diagnostycznego. Bez tej flagi sesja prosi taki
+              silnik o otwarcie lokalnego portu i przez niego przenosi jego strony na zegar sesji -
+              gdy port jest otwarty, każdy inny program na tym komputerze może go użyć, by dotrzeć
+              do tych stron.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Dla aplikacji uruchomionej jako administrator, z Chrono Mock uruchomionego również
+              jako administrator. WebView2 pomija dla takiej aplikacji ustawienie, przez które sesja
+              dociera do jej stron, więc sesja zapisuje na czas swojego trwania jedną wartość w
+              rejestrze maszyny (HKLM, nazwaną od pliku .exe aplikacji) i usuwa ją na końcu. Gdy
+              aplikacja działa, każdy inny program na tym komputerze może dotrzeć do jej stron przez
+              port, a aplikacja ma uprawnienia administratora. Nie z
+              <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Uruchamia silnik webowy - przeglądarkę aplikacji Chromium lub Electron albo silnik
+              wewnątrz aplikacji - z wyłączonym spowalnianiem timerów w ukrytych oknach, więc
+              zminimalizowane okno zachowuje tempo sesji. Aplikacja pracuje wtedy pełnym tempem
+              także wtedy, gdy jest ukryta.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
             <td>Wypisuje, czym byłaby sesja, i nie uruchamia niczego: rozwiązany moment i strefę
               wraz z ich pochodzeniem, wartości, którymi preset wypełnił swoje parametry, argumenty
@@ -151,7 +184,11 @@
               ani żaden plik, także ten wskazany przez <code>--report</code>. Kończy 0 dla planu,
               który da się wykonać, i 2 dla celu, którego nie ma - tym samym kodem, który za ten sam
               fakt daje prawdziwy przebieg. Plan nie niesie werdyktu i mówi to wprost, bo werdykt ma
-              wyłącznie prawdziwa sesja.</td>
+              wyłącznie prawdziwa sesja. Z <code>--json</code> plan jest danymi, w tym
+              <code>session.elevated_embedded</code> i <code>session.elevated_embedded_value</code>,
+              czyli nazwą pliku, po której nazwano by wartość w rejestrze, gdy opcja dotyczy celu
+              <code>.exe</code>, a poza tym null. Nazwa tam nie jest obietnicą zapisu: sesja
+              zapisuje wartość tylko wtedy, gdy sam Chrono Mock działa jako administrator.</td>
           </tr>
           <tr>
             <td><code>--report &lt;plik&gt;</code></td>
@@ -270,6 +307,11 @@
               normalizowany na następny miesiąc.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Jak <code>--base</code>, ale początek to chwila w UTC, z opcjonalnym końcowym
+              <code>Z</code>, a nie odczyt zegara ściennego w strefie sesji.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;jednostka&gt;</code></td>
             <td>Powtarzalna. Znak obowiązkowy. Jednostki: <code>s m h d w mo q y bd</code> albo
               ich pełne nazwy. <strong><code>m</code> to minuty, <code>mo</code> miesiące.</strong>
@@ -305,7 +347,12 @@
             <td>Wczytuje kalendarz świąt. Dokłada do metadanych dzień roboczy i święto oraz włącza
               <code>bd</code> i <code>--nearest</code>. Dwa kalendarze amerykańskie różnią się tym,
               jak obserwują święto wypadające w weekend - czyli dokładnie tym błędem o jeden dzień,
-              który test ma znaleźć.</td>
+              który test ma znaleźć. Każdy kalendarz odpowiada za zakres lat: <code>pl</code> od
+              2002, <code>us-federal</code> od 1960 i <code>us-banking</code> od 2008. Krok w dniach
+              roboczych, który sięga dnia sprzed zakresu, jest odrzucany z kodem 1, a data sprzed
+              zakresu jest pokazana jako nieoceniona. Gdy święta kalendarza sprawdzono z prawem
+              ponad rok temu, późniejszy dzień, który ocenił, dostaje znacznik
+              <code>calendar_outdated</code>, bo może brakować nowszego święta.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

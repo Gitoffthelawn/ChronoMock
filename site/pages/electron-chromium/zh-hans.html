@@ -57,9 +57,9 @@
     </div>
 
     <div class="note">
-      <p><strong>会话时区跟随宿主机。</strong></p>
+      <p><strong>页面读取会话的时区。</strong></p>
       <p>
-        在这种模式下，时刻是伪造的，但本地时间的取值方法没有被伪造，所以<a href="/zh-hans/timezone-testing/">独立的时区</a>只是原生模式的功能。这是当前版本的局限，而不是有意的决定。
+        每个页面和 worker 都会被放到<a href="/zh-hans/timezone-testing/">会话时区</a>，这是不含夏令时的固定偏移，并会检查自己读到的偏移，因此读到其他时区的页面会被报告。有两项限制：<code>Intl</code> 会把该时区称为 <code>GMT+02:00</code> 这样的偏移，而不是城市。另外，Electron 应用的主进程在 Node 中运行 JavaScript，会话无法触及，所以它保持真实时钟，报告也会这样说明。
       </p>
     </div>
 

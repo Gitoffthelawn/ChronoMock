@@ -26,9 +26,16 @@
       </p>
       <p>
         <code>chrono license</code> odpovídá na čtvrtou: pod jakou licencí je toto sestavení šířeno,
-        prohlášení o záruce a komponenty třetích stran, které jsou do něj zalinkované. Říká také, kde na
-        disku najdete plné znění licence a upozornění k součástem třetích stran, nebo přizná, že
-        spuštěná kopie je vedle sebe nemá.
+        prohlášení o záruce a komponenty třetích stran, které jsou do něj zalinkované. Říká také,
+        kde na disku najdete plné znění licence a upozornění k součástem třetích stran, nebo přizná,
+        že spuštěná kopie je vedle sebe nemá. <code>--components</code> vypíše každou přibalenou
+        komponentu s její verzí místo souhrnu.
+      </p>
+      <p>
+        <code>chrono presets</code> vypíše katalog presetů tak, jak ho čte <code>--preset</code>:
+        každý preset ve složce zapsaný slovy, která čte gramatika kalkulačky, a každý soubor, který
+        by odmítl, s důvodem. <code>--json</code> zapíše <code>chronomock.presets/1</code> a
+        <code>--dir</code> určí jinou složku.
       </p>
     </div>
 
@@ -36,6 +43,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only a co je přibaleno</span>
+<span class="p">chrono</span> presets        <span class="c"># katalog tak, jak ho čte --preset</span>
 <span class="p">chrono</span> --help          <span class="c"># nápověda ke všem</span></pre>
   </section>
 
@@ -137,13 +145,42 @@
               tom, zda cíl běží dál.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Nechá webové stránky uvnitř aplikace (WebView2, Qt WebEngine) na skutečných hodinách
+              a neotevře žádný ladicí port. Bez něj sezení požádá takový engine, aby otevřel místní
+              port, a jeho stránky přes něj přepne na hodiny sezení - dokud je port otevřený, může
+              ho kterýkoli jiný program na tomto počítači použít k tomu, aby se k těm stránkám
+              dostal.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Pro aplikaci spuštěnou jako správce, z Chrono Mock, který běží také jako správce.
+              WebView2 u takové aplikace ignoruje nastavení, kterým se sezení dostává k jejím
+              stránkám, takže sezení po dobu svého trvání zapíše do registru počítače jednu hodnotu
+              (HKLM, pojmenovanou podle .exe aplikace) a na konci ji odstraní. Dokud aplikace běží,
+              může se k jejím stránkám přes port dostat kterýkoli jiný program na tomto počítači a
+              aplikace má práva správce. Ne s <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Spustí webový engine - prohlížeč aplikace Chromium nebo Electron, nebo engine uvnitř
+              aplikace - s vypnutým zpomalováním časovačů ve skrytých oknech, takže minimalizované
+              okno zachová rychlost sezení. Aplikace pak pracuje plnou rychlostí i tehdy, když je
+              skrytá.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Vypíše, jaké by sezení bylo, a nic nespustí: vyřešený okamžik a pásmo a odkud pocházejí,
-              čím preset vyplnil jednotlivé parametry, argumenty po rozdělení a který ze dvou mechanismů
-              by cíl použil. Nespustí se žádný proces a nezapíše se žádný soubor, včetně toho, který
-              pojmenovává <code>--report</code>. Skončí kódem 0 pro proveditelný plán a 2 pro cíl, který
-              neexistuje, což je kód, který pro stejné zjištění vrací skutečný běh. Plán nemá verdikt a
-              říká to - verdikt má jen skutečné sezení.</td>
+            <td>Vypíše, jaké by sezení bylo, a nic nespustí: vyřešený okamžik a pásmo a odkud
+              pocházejí, čím preset vyplnil jednotlivé parametry, argumenty po rozdělení a který ze
+              dvou mechanismů by cíl použil. Nespustí se žádný proces a nezapíše se žádný soubor,
+              včetně toho, který pojmenovává <code>--report</code>. Skončí kódem 0 pro proveditelný
+              plán a 2 pro cíl, který neexistuje, což je kód, který pro stejné zjištění vrací
+              skutečný běh. Plán nemá verdikt a říká to - verdikt má jen skutečné sezení. S
+              <code>--json</code> je plán datem, včetně <code>session.elevated_embedded</code> a
+              <code>session.elevated_embedded_value</code>, tedy názvu souboru, podle kterého by se
+              pojmenovala hodnota v registru, když se volba vztahuje na cíl <code>.exe</code>, jinak
+              null. Název tam není příslib zápisu: sezení hodnotu zapíše, jen když sám Chrono Mock
+              běží jako správce.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -260,6 +297,11 @@
               měsíc.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Jako <code>--base</code>, ale začátek je okamžik v UTC s volitelným koncovým
+              <code>Z</code>, ne údaj nástěnných hodin v pásmu sezení.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Lze opakovat. Znaménko je povinné. Jednotky: <code>s m h d w mo q y bd</code> nebo jejich
               plné názvy. <strong><code>m</code> jsou minuty, <code>mo</code> jsou
@@ -292,9 +334,15 @@
           </tr>
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
-            <td>Načte kalendář svátků. Přidá do metadat pracovní den a svátek a zapne <code>bd</code> a
-              <code>--nearest</code>. Oba americké kalendáře se liší tím, jak řeší svátek připadající na
-              víkend, což je přesně ten druh chyby o jeden den, který má test odhalit.</td>
+            <td>Načte kalendář svátků. Přidá do metadat pracovní den a svátek a zapne
+              <code>bd</code> a <code>--nearest</code>. Oba americké kalendáře se liší tím, jak řeší
+              svátek připadající na víkend, což je přesně ten druh chyby o jeden den, který má test
+              odhalit. Každý kalendář odpovídá za rozsah let: <code>pl</code> od roku 2002,
+              <code>us-federal</code> od roku 1960 a <code>us-banking</code> od roku 2008. Krok v
+              pracovních dnech, který dosáhne dne před tímto rozsahem, je odmítnut s kódem 1 a datum
+              před ním je zobrazeno jako neposouzené. Pokud byly svátky kalendáře naposledy ověřeny
+              podle zákona před více než rokem, pozdější den, který posoudil, nese značku
+              <code>calendar_outdated</code>, protože může chybět novější svátek.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

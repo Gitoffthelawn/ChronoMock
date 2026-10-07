@@ -77,11 +77,15 @@
     </div>
 
     <div class="note">
-      <p><strong>Die Sitzungszeitzone folgt dem Host.</strong></p>
+      <p><strong>Die Seiten lesen die Zeitzone der Sitzung.</strong></p>
       <p>
-        In diesem Modus wird der Zeitpunkt gefälscht, die Getter für die Ortszeit aber nicht, sodass
-        <a href="/de/zeitzonen-testen/">eine unabhängige Zeitzone</a> nur im nativen Modus verfügbar ist.
-        Das ist eine Einschränkung dieser Version, keine Entscheidung.
+        Jede Seite und jeder Worker wird auf die
+        <a href="/de/zeitzonen-testen/">Sitzungszeitzone</a> gesetzt, einen festen Versatz ohne
+        Sommerzeit, und prüft den Versatz, den er liest, sodass eine Seite, die eine andere Zone
+        gelesen hat, gemeldet wird. Zwei Grenzen: <code>Intl</code> nennt diese Zone einen Versatz
+        wie <code>GMT+02:00</code> und keine Stadt, und der Hauptprozess einer Electron-Anwendung
+        führt JavaScript in Node aus, das die Sitzung nicht erreicht, sodass er die echte Uhr behält
+        - der Bericht sagt das.
       </p>
     </div>
 

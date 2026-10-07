@@ -135,8 +135,8 @@
 
     <div class="prose">
       <p>
-        Two smaller ones, said plainly. The pages keep <strong>this machine's time zone</strong>,
-        so an independent session zone is a native-mode feature only. And a timer already scheduled
+        Two smaller ones, said plainly. The pages read the session time zone as a fixed offset, so
+        <code>Intl</code> names it <code>GMT+02:00</code>, not a city. And a timer already scheduled
         <em>before</em> the session reached the page keeps its old rate, the same way it does in a
         pure Chromium session - the session warns rather than letting you conclude nothing happened.
       </p>

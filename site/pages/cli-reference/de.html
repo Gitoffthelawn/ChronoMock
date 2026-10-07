@@ -27,10 +27,19 @@
         Zeile auf stdout, sodass ein Skript sie abgreifen kann.
       </p>
       <p>
-        <code>chrono license</code> beantwortet die vierte: unter welcher Lizenz dieser Build vertrieben
-        wird, den Gewährleistungsausschluss und die Komponenten Dritter, die eingebunden sind. Außerdem
-        nennt es, wo auf dem Datenträger der volle Lizenztext und die Hinweise zu Komponenten Dritter
-        liegen, oder gibt zu, dass die ausgeführte Kopie sie nicht neben sich hat.
+        <code>chrono license</code> beantwortet die vierte: unter welcher Lizenz dieser Build
+        vertrieben wird, den Gewährleistungsausschluss und die Komponenten Dritter, die eingebunden
+        sind. Außerdem nennt es, wo auf dem Datenträger der volle Lizenztext und die Hinweise zu
+        Komponenten Dritter liegen, oder gibt zu, dass die ausgeführte Kopie sie nicht neben sich
+        hat. <code>--components</code> listet jede mitgelieferte Komponente mit ihrer Version auf,
+        statt nur eine Zusammenfassung zu geben.
+      </p>
+      <p>
+        <code>chrono presets</code> listet den Szenarienkatalog so auf, wie <code>--preset</code>
+        ihn liest: jedes Szenario im Ordner, in den Worten geschrieben, die die Grammatik des
+        Rechners liest, und jede Datei, die es ablehnen würde, mit dem Grund. <code>--json</code>
+        schreibt <code>chronomock.presets/1</code>, und <code>--dir</code> nennt einen anderen
+        Ordner.
       </p>
     </div>
 
@@ -38,6 +47,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, and what is bundled</span>
+<span class="p">chrono</span> presets        <span class="c"># der Katalog, wie --preset ihn liest</span>
 <span class="p">chrono</span> --help          <span class="c"># usage for all of them</span></pre>
   </section>
 
@@ -144,14 +154,46 @@
               und der Exit-Code auch nicht. Das entscheidet nur, ob das Ziel weiterläuft.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Lässt die Webseiten innerhalb der Anwendung (WebView2, Qt WebEngine) auf der echten
+              Uhr und öffnet keinen Debugging-Port. Ohne die Option bittet die Sitzung eine solche
+              Engine, einen lokalen Port zu öffnen, und stellt ihre Seiten darüber auf die
+              Sitzungsuhr - solange der Port offen ist, kann jedes andere Programm auf diesem
+              Rechner ihn nutzen, um diese Seiten zu erreichen.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Für eine Anwendung, die als Administrator läuft, aus einem Chrono Mock, das
+              ebenfalls als Administrator läuft. WebView2 ignoriert für eine solche Anwendung die
+              Einstellung, über die die Sitzung ihre Seiten erreicht, daher schreibt die Sitzung für
+              ihre Dauer einen Wert in die Registrierung des Rechners (HKLM, benannt nach der .exe
+              der Anwendung) und entfernt ihn am Ende. Solange die Anwendung läuft, kann jedes
+              andere Programm auf diesem Rechner ihre Seiten über den Port erreichen, und die
+              Anwendung hat Administratorrechte. Nicht zusammen mit <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Startet die Web-Engine - den Browser einer Chromium- oder Electron-Anwendung oder
+              die Engine innerhalb einer Anwendung - mit ausgeschalteter Drosselung der Timer in
+              verborgenen Fenstern, sodass ein minimiertes Fenster die Sitzungsgeschwindigkeit
+              behält. Die Anwendung arbeitet dann auch im verborgenen Zustand mit voller
+              Geschwindigkeit.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>Gibt aus, was die Sitzung wäre, und startet nichts: den aufgelösten Zeitpunkt und die Zone
-              samt Herkunft, womit ein Szenario jeden Parameter gefüllt hat, die Argumente nach dem
-              Aufteilen und welchen der beiden Mechanismen das Ziel nehmen würde. Es wird kein Prozess
-              gestartet und keine Datei geschrieben, auch nicht die, die <code>--report</code> nennt. Es
-              endet mit 0 bei einem ausführbaren Plan und mit 2 bei einem Ziel, das nicht da ist - dem
-              Code, den ein echter Lauf für dieselbe Tatsache gibt. Ein Plan trägt kein Urteil und sagt
-              das auch - nur eine echte Sitzung hat eines.</td>
+            <td>Gibt aus, was die Sitzung wäre, und startet nichts: den aufgelösten Zeitpunkt und
+              die Zone samt Herkunft, womit ein Szenario jeden Parameter gefüllt hat, die Argumente
+              nach dem Aufteilen und welchen der beiden Mechanismen das Ziel nehmen würde. Es wird
+              kein Prozess gestartet und keine Datei geschrieben, auch nicht die, die
+              <code>--report</code> nennt. Es endet mit 0 bei einem ausführbaren Plan und mit 2 bei
+              einem Ziel, das nicht da ist - dem Code, den ein echter Lauf für dieselbe Tatsache
+              gibt. Ein Plan trägt kein Urteil und sagt das auch - nur eine echte Sitzung hat eines.
+              Mit <code>--json</code> ist der Plan Daten, darunter
+              <code>session.elevated_embedded</code> und
+              <code>session.elevated_embedded_value</code>, der Dateiname, nach dem der
+              Registrierungswert benannt würde, wenn die Option auf ein <code>.exe</code>-Ziel
+              zutrifft, sonst null. Ein Name dort ist kein Versprechen, dass geschrieben wird: Die
+              Sitzung schreibt den Wert nur, wenn Chrono Mock selbst als Administrator läuft.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -270,6 +312,11 @@
               nächsten Monat normalisiert.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Wie <code>--base</code>, aber der Start ist ein Zeitpunkt in UTC, mit optionalem
+              abschließendem <code>Z</code>, und keine Wanduhrzeit in der Sitzungszone.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Wiederholbar. Das Vorzeichen ist Pflicht. Einheiten: <code>s m h d w mo q y bd</code> oder
               ihre vollen Namen. <strong><code>m</code> sind Minuten, <code>mo</code> Monate.</strong>
@@ -303,9 +350,16 @@
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
             <td>Lädt einen Feiertagskalender. Er ergänzt Werktag und Feiertag in den Metadaten und
-              schaltet <code>bd</code> und <code>--nearest</code> frei. Die beiden amerikanischen Kalender
-              unterscheiden sich darin, wie sie einen auf ein Wochenende fallenden Feiertag begehen, und
-              genau das ist die Art Abweichung um einen Tag, die ein Test finden soll.</td>
+              schaltet <code>bd</code> und <code>--nearest</code> frei. Die beiden amerikanischen
+              Kalender unterscheiden sich darin, wie sie einen auf ein Wochenende fallenden Feiertag
+              begehen, und genau das ist die Art Abweichung um einen Tag, die ein Test finden soll.
+              Jeder Kalender gilt für einen Bereich von Jahren: <code>pl</code> ab 2002,
+              <code>us-federal</code> ab 1960 und <code>us-banking</code> ab 2008. Ein
+              Werktagsschritt, der einen Tag davor erreicht, wird mit Exit 1 abgelehnt, und ein
+              Datum davor wird als nicht beurteilt angezeigt. Wurden die Feiertage eines Kalenders
+              zuletzt vor mehr als einem Jahr gegen das Recht geprüft, trägt ein später beurteilter
+              Tag die Markierung <code>calendar_outdated</code>, weil ein neuerer Feiertag fehlen
+              kann.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

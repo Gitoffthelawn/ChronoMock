@@ -78,11 +78,15 @@
     </div>
 
     <div class="note">
-      <p><strong>Le fuseau horaire de la session suit l'hôte.</strong></p>
+      <p><strong>Les pages lisent le fuseau horaire de la session.</strong></p>
       <p>
-        Dans ce mode, l'instant est falsifié, mais pas les accesseurs d'heure locale : un
-        <a href="/fr/tester-les-fuseaux-horaires/">fuseau horaire indépendant</a> est donc une
-        fonctionnalité du mode natif uniquement. C'est une limite de cette version, pas une décision.
+        Chaque page et chaque worker est placé sur le
+        <a href="/fr/tester-les-fuseaux-horaires/">fuseau horaire de la session</a>, un décalage
+        fixe sans heure d'été, et vérifie le décalage qu'il lit, de sorte qu'une page qui a lu un
+        autre fuseau est signalée. Deux limites : <code>Intl</code> nomme ce fuseau par un décalage
+        comme <code>GMT+02:00</code> et non par une ville, et le processus principal d'une
+        application Electron exécute du JavaScript dans Node, que la session n'atteint pas, donc il
+        garde l'horloge réelle - le rapport le dit.
       </p>
     </div>
 

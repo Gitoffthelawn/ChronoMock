@@ -94,8 +94,10 @@ Chrono Mock - date calculator
         <li><strong>Java przejmuje strefę sesji jako offset.</strong> Strefa sesji nie ma czasu
           letniego ani miasta za sobą, więc Java nazywa ją od offsetu -
           <code>GMT+05:30</code> dla sesji na +05:30.</li>
-        <li><strong>W trybie Chromium i Electron strefa idzie za hostem.</strong> Fałszowana
-          jest chwila, a nie funkcje czasu lokalnego.</li>
+        <li><strong>W trybie Chromium i Electron strony też czytają strefę sesji.</strong> To samo
+          stałe przesunięcie: każda strona i worker dostaje je i sprawdza, co odczytuje. Proces
+          główny aplikacji Electron uruchamia JavaScript w Node, do którego sesja nie sięga, więc
+          zostaje na prawdziwym zegarze.</li>
         <li><strong>Offsety mieszczą się od -14:00 do +14:00</strong>, w pełnych minutach.
           Cokolwiek poza tym jest odrzucane, a nie po cichu zawijane.</li>
       </ul>

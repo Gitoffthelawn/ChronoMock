@@ -97,8 +97,10 @@ Chrono Mock - date calculator
         <li><strong>Java toma la zona de la sesión como un desfase.</strong> La zona de la sesión no tiene
           horario de verano ni ciudad detrás, así que Java la nombra por su desfase - <code>GMT+05:30</code>
           para una sesión en +05:30.</li>
-        <li><strong>En el modo Chromium y Electron la zona sigue la del equipo.</strong> Se falsea el
-          instante, no los métodos de hora local.</li>
+        <li><strong>En el modo Chromium y Electron, las páginas también leen la zona de la
+          sesión.</strong> Es el mismo desfase fijo: cada página y cada worker se coloca en él y
+          comprueba lo que lee. El proceso principal de una aplicación Electron ejecuta JavaScript
+          en Node, al que la sesión no llega, así que conserva el reloj real.</li>
         <li><strong>Los desfases van de -14:00 a +14:00</strong> en minutos enteros. Todo lo que quede
           fuera se rechaza en lugar de envolverse en silencio.</li>
       </ul>

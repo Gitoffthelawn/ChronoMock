@@ -77,11 +77,14 @@
     </div>
 
     <div class="note">
-      <p><strong>De sessietijdzone volgt de host.</strong></p>
+      <p><strong>De pagina's lezen de tijdzone van de sessie.</strong></p>
       <p>
-        In deze modus wordt het moment vervalst, maar de getters voor de lokale tijd niet, dus een
-        <a href="/nl/tijdzones-testen/">onafhankelijke tijdzone</a> is alleen een functie van de native
-        modus. Dat is een beperking van deze versie, geen beslissing.
+        Elke pagina en elke worker wordt op de <a href="/nl/tijdzones-testen/">sessietijdzone</a>
+        gezet, een vaste afwijking zonder zomertijd, en controleert de afwijking die hij leest, dus
+        een pagina die een andere zone las, wordt gemeld. Twee grenzen: <code>Intl</code> noemt die
+        zone een afwijking zoals <code>GMT+02:00</code> en geen stad, en het hoofdproces van een
+        Electron-toepassing draait JavaScript in Node, waar de sessie niet bij kan, dus het houdt de
+        echte klok - het rapport zegt dat.
       </p>
     </div>
 

@@ -129,11 +129,11 @@
 
     <div class="prose">
       <p>
-        Zwei kleinere, klar gesagt. Die Seiten behalten die <strong>Zeitzone dieses Rechners</strong>,
-        sodass eine unabhängige Sitzungszone nur im nativen Modus verfügbar ist. Und ein Timer, der
-        <em>bevor</em> die Sitzung die Seite erreichte, schon geplant war, behält seine alte Rate, genau
-        wie in einer reinen Chromium-Sitzung - die Sitzung warnt, statt Sie schließen zu lassen, es sei
-        nichts passiert.
+        Zwei kleinere, klar gesagt. Die Seiten lesen die Sitzungszone als festen Versatz, sodass
+        <code>Intl</code> sie <code>GMT+02:00</code> nennt und nicht eine Stadt. Und ein Timer, der
+        <em>bevor</em> die Sitzung die Seite erreichte, schon geplant war, behält seine alte Rate,
+        genau wie in einer reinen Chromium-Sitzung - die Sitzung warnt, statt Sie schließen zu
+        lassen, es sei nichts passiert.
       </p>
       <p>
         Wird die Engine über eine Browser-Argumente-Richtlinie in der Registry konfiguriert, hat die

@@ -96,8 +96,11 @@ Chrono Mock - date calculator
         <li><strong>Java recepisce il fuso della sessione come scostamento.</strong> Il fuso della sessione
           non ha ora legale né una città dietro, quindi Java lo chiama con il suo scostamento -
           <code>GMT+05:30</code> per una sessione a +05:30.</li>
-        <li><strong>In modalità Chromium ed Electron il fuso segue l'host.</strong> L'istante è
-          falsificato, i getter dell'ora locale no.</li>
+        <li><strong>In modalità Chromium ed Electron anche le pagine leggono il fuso della
+          sessione.</strong> È lo stesso scostamento fisso: ogni pagina e ogni worker viene portato
+          su di esso e controlla ciò che legge. Il processo principale di un'applicazione Electron
+          esegue JavaScript in Node, che la sessione non raggiunge, quindi mantiene l'orologio
+          reale.</li>
         <li><strong>Gli scostamenti vanno da -14:00 a +14:00</strong> in minuti interi. Tutto ciò che sta
           fuori viene rifiutato invece di essere riavvolto in silenzio.</li>
       </ul>

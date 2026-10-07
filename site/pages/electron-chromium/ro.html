@@ -77,11 +77,14 @@
     </div>
 
     <div class="note">
-      <p><strong>Fusul orar al sesiunii urmează gazda.</strong></p>
+      <p><strong>Paginile citesc fusul orar al sesiunii.</strong></p>
       <p>
-        În acest mod momentul este falsificat, dar getter-ele de oră locală nu sunt, așa că
-        <a href="/ro/testarea-fusurilor-orare/">un fus orar independent</a> este o funcție doar a
-        modului nativ. Aceasta este o limitare a acestei versiuni, nu o decizie.
+        Fiecare pagină și fiecare worker este mutat pe <a href="/ro/testarea-fusurilor-orare/">fusul
+        orar al sesiunii</a>, o decalare fixă fără ora de vară, și verifică decalarea pe care o
+        citește, așa că o pagină care a citit alt fus este raportată. Două limite: <code>Intl</code>
+        numește acel fus printr-o decalare precum <code>GMT+02:00</code>, nu printr-un oraș, iar
+        procesul principal al unei aplicații Electron rulează JavaScript în Node, la care sesiunea
+        nu ajunge, deci păstrează ceasul real - raportul spune asta.
       </p>
     </div>
 

@@ -19,7 +19,10 @@
         <code>chrono version</code> 回答第三个小得多的问题：这是哪个构建、可执行文件是两个内核中的哪一个，以及它使用的协议版本。在 stdout 上只输出一行，方便脚本捕获。
       </p>
       <p>
-        <code>chrono license</code> 回答第四个问题：这个构建以什么许可证分发、免责声明，以及链接进来的第三方组件。它还会告诉你完整许可证文本和第三方声明在磁盘上的位置；如果你运行的这份副本旁边没有它们，也会如实说明。
+        <code>chrono license</code> 回答第四个问题：这个构建以什么许可证分发、免责声明，以及链接进来的第三方组件。它还会告诉你完整许可证文本和第三方声明在磁盘上的位置；如果你运行的这份副本旁边没有它们，也会如实说明。 <code>--components</code> 会列出每个随附组件及其版本，而不是只给出摘要。
+      </p>
+      <p>
+        <code>chrono presets</code> 按 <code>--preset</code> 读取的方式列出预设目录：文件夹中的每个预设，用计算器语法读取的词语写出，以及每个会被拒绝的文件和原因。<code>--json</code> 输出 <code>chronomock.presets/1</code>，<code>--dir</code> 指定另一个文件夹。
       </p>
     </div>
 
@@ -27,6 +30,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only，以及随附了什么</span>
+<span class="p">chrono</span> presets        <span class="c"># 按 --preset 读取方式列出的目录</span>
 <span class="p">chrono</span> --help          <span class="c"># 查看所有命令的用法</span></pre>
   </section>
 
@@ -94,8 +98,20 @@
             <td>即使开场判定表明替换没有生效，也保留会话——默认会停止目标程序，因为什么也没证明的会话比没有会话更糟。<strong>判定不会改变</strong>，退出码也不会改变。它只决定目标程序是否继续运行。</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>让应用内部的网页（WebView2、Qt WebEngine）保持在真实时钟上，并且不打开调试端口。不加此参数时，会话会请这类引擎打开本地端口，并通过它把其页面放到会话时钟上。端口开启期间，这台计算机上的任何其他程序都可以用它访问这些页面。</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>用于以管理员身份运行的应用，需要从同样以管理员身份运行的 Chrono Mock 启动。对于这类应用，WebView2 会忽略会话用来访问其页面的设置，所以会话在持续期间向计算机注册表（HKLM，以应用的 .exe 命名）写入一个值，并在结束时删除。应用运行期间，这台计算机上的任何其他程序都可以通过该端口访问其页面，而该应用拥有管理员权限。不能与 <code>--no-embedded</code> 同用。</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>启动 Web 引擎（Chromium 或 Electron 应用的浏览器，或应用内部的引擎）时关闭其对隐藏窗口中定时器的减速，这样最小化的窗口仍保持会话速度。此时应用在隐藏状态下也会全速运行。</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>只打印会话将会是什么样子，不启动任何东西：解析出的时刻和时区及其来源、预设为每个参数填入了什么、拆分后的参数，以及目标程序将采用两种机制中的哪一种。不会启动任何进程，也不会写任何文件，包括 <code>--report</code> 指定的那个。计划可行时以 0 退出，目标程序不存在时以 2 退出，这与真实运行遇到同样情况时给出的退出码一致。计划不带判定，并且会如此声明——只有真实的会话才有判定。</td>
+            <td>只打印会话将会是什么样子，不启动任何东西：解析出的时刻和时区及其来源、预设为每个参数填入了什么、拆分后的参数，以及目标程序将采用两种机制中的哪一种。不会启动任何进程，也不会写任何文件，包括 <code>--report</code> 指定的那个。计划可行时以 0 退出，目标程序不存在时以 2 退出，这与真实运行遇到同样情况时给出的退出码一致。计划不带判定，并且会如此声明——只有真实的会话才有判定。 加上 <code>--json</code> 时，计划以数据形式给出，其中包括 <code>session.elevated_embedded</code> 和 <code>session.elevated_embedded_value</code>。后者是在该选项适用于 <code>.exe</code> 目标时注册表值将以其命名的文件名，其他情况为 null。这里有名称并不保证一定会写入：只有 Chrono Mock 本身以管理员身份运行时，会话才会写入该值。</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -189,6 +205,10 @@
             <td>从哪里开始，默认是 <code>today</code>。按会话时区解析。像 <code>2025-02-31</code> 这样不可能存在的日期会被拒绝，绝不会悄悄规整到下个月。</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>与 <code>--base</code> 类似，但起点是 UTC 中的一个时刻（末尾可带 <code>Z</code>），而不是会话时区中的墙钟读数。</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>可重复使用。必须带符号。单位：<code>s m h d w mo q y bd</code>，或者它们的全称。<strong><code>m</code> 是分钟，<code>mo</code> 是月。</strong>月、季度和年按日历日期折算，并做截断处理，因此 1 月 31 日之后的一个月是 2 月月底，而不是固定数目的滴答。<code>bd</code>（工作日）需要 <code>--calendar</code>。</td>
           </tr>
@@ -211,7 +231,7 @@
           </tr>
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
-            <td>加载一份节假日日历。它会在元数据中加入工作日和节假日，并启用 <code>bd</code> 和 <code>--nearest</code>。两份美国日历的区别在于遇到周末的节假日如何顺延，这恰恰是测试要找出的那种差一天的错误。</td>
+            <td>加载一份节假日日历。它会在元数据中加入工作日和节假日，并启用 <code>bd</code> 和 <code>--nearest</code>。两份美国日历的区别在于遇到周末的节假日如何顺延，这恰恰是测试要找出的那种差一天的错误。 每个日历只对一段年份作答：<code>pl</code> 自 2002 年起，<code>us-federal</code> 自 1960 年起，<code>us-banking</code> 自 2008 年起。工作日步骤如果到达这个范围之前的日子，会以退出码 1 被拒绝，范围之前的日期则显示为未作判断。如果日历的节假日上次对照法律检查已超过一年，它所判断的较晚日期会被标记为 <code>calendar_outdated</code>，因为可能缺少较新的节日。</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

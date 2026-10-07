@@ -82,11 +82,13 @@
     </div>
 
     <div class="note">
-      <p><strong>The session time zone follows the host.</strong></p>
+      <p><strong>The pages read the session time zone.</strong></p>
       <p>
-        In this mode the instant is faked, but the local-time getters are not, so
-        <a href="/timezone-testing/">an independent time zone</a> is a native-mode feature
-        only. That is a limitation of this version, not a decision.
+        Each page and worker is put on the <a href="/timezone-testing/">session time zone</a>, a
+        fixed offset with no daylight saving, and checks the offset it reads, so a page that read
+        another zone is reported. Two limits: <code>Intl</code> names that zone as an offset such as
+        <code>GMT+02:00</code>, not as a city, and an Electron application's main process runs in
+        Node, which the session does not reach, so it keeps the real clock - the report says so.
       </p>
     </div>
 

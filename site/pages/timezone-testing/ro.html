@@ -92,8 +92,10 @@ Chrono Mock - date calculator
         <li><strong>Java preia fusul sesiunii ca decalaj.</strong> Fusul sesiunii nu are ora de vară și nici
           un oraș în spate, așa că Java îl numește după decalajul lui - <code>GMT+05:30</code> pentru o
           sesiune la +05:30.</li>
-        <li><strong>În modul Chromium și Electron, fusul urmează gazda.</strong> Momentul este falsificat,
-          getter-ele de oră locală nu.</li>
+        <li><strong>În modul Chromium și Electron, paginile citesc și ele fusul orar al
+          sesiunii.</strong> Este aceeași decalare fixă: fiecare pagină și fiecare worker este mutat
+          pe ea și verifică ce citește. Procesul principal al unei aplicații Electron rulează
+          JavaScript în Node, la care sesiunea nu ajunge, deci păstrează ceasul real.</li>
         <li><strong>Decalajele merg de la -14:00 la +14:00</strong>, în minute întregi. Orice în afara
           acestui interval este refuzat, nu rotit pe tăcute.</li>
       </ul>

@@ -25,10 +25,17 @@
         bắt lấy.
       </p>
       <p>
-        <code>chrono license</code> trả lời câu hỏi thứ tư: giấy phép mà bản dựng này được phân phối theo,
-        tuyên bố miễn trừ bảo hành, và các thành phần của bên thứ ba được liên kết vào. Nó cũng cho biết
-        văn bản giấy phép đầy đủ và thông báo của bên thứ ba nằm ở đâu trên đĩa, hoặc thừa nhận rằng bản
-        bạn đang chạy không có chúng bên cạnh.
+        <code>chrono license</code> trả lời câu hỏi thứ tư: giấy phép mà bản dựng này được phân phối
+        theo, tuyên bố miễn trừ bảo hành, và các thành phần của bên thứ ba được liên kết vào. Nó
+        cũng cho biết văn bản giấy phép đầy đủ và thông báo của bên thứ ba nằm ở đâu trên đĩa, hoặc
+        thừa nhận rằng bản bạn đang chạy không có chúng bên cạnh. <code>--components</code> liệt kê
+        từng thành phần đi kèm cùng phiên bản của nó thay vì bản tóm tắt.
+      </p>
+      <p>
+        <code>chrono presets</code> liệt kê danh mục kịch bản đúng như <code>--preset</code> đọc nó:
+        mọi kịch bản trong thư mục, viết bằng các từ mà ngữ pháp của máy tính ngày đọc, và mọi tệp
+        mà nó sẽ từ chối, kèm lý do. <code>--json</code> ghi <code>chronomock.presets/1</code> và
+        <code>--dir</code> chỉ định một thư mục khác.
       </p>
     </div>
 
@@ -36,6 +43,7 @@
 <span class="p">chrono</span> calc [options]
 <span class="p">chrono</span> version        <span class="c"># chrono {{version}} (x64, protocol 1)</span>
 <span class="p">chrono</span> license        <span class="c"># GPL-3.0-only, và những gì được đi kèm</span>
+<span class="p">chrono</span> presets        <span class="c"># danh mục, đúng như --preset đọc</span>
 <span class="p">chrono</span> --help          <span class="c"># cách dùng của tất cả</span></pre>
   </section>
 
@@ -138,13 +146,43 @@
               tục chạy hay không.</td>
           </tr>
           <tr>
+            <td><code>--no-embedded</code></td>
+            <td>Để các trang web bên trong ứng dụng (WebView2, Qt WebEngine) chạy trên đồng hồ thật
+              và không mở cổng gỡ lỗi. Nếu không dùng, phiên sẽ nhờ công cụ đó mở một cổng cục bộ và
+              đưa các trang của nó sang đồng hồ của phiên qua cổng ấy - khi cổng đang mở, mọi chương
+              trình khác trên máy tính này đều có thể dùng nó để truy cập các trang đó.</td>
+          </tr>
+          <tr>
+            <td><code>--elevated-embedded</code></td>
+            <td>Dành cho ứng dụng chạy với quyền quản trị viên, từ một Chrono Mock cũng chạy với
+              quyền quản trị viên. Với ứng dụng như vậy, WebView2 bỏ qua thiết lập mà phiên dùng để
+              tiếp cận các trang của nó, nên phiên ghi một giá trị vào registry của máy (HKLM, đặt
+              tên theo tệp .exe của ứng dụng) trong suốt thời gian chạy và xóa nó khi kết thúc. Khi
+              ứng dụng đang chạy, mọi chương trình khác trên máy tính này đều có thể tiếp cận các
+              trang của nó qua cổng, và ứng dụng có quyền quản trị viên. Không dùng cùng
+              <code>--no-embedded</code>.</td>
+          </tr>
+          <tr>
+            <td><code>--keep-background-timers</code></td>
+            <td>Khởi động công cụ web - trình duyệt của ứng dụng Chromium hoặc Electron, hay công cụ
+              bên trong một ứng dụng - với việc làm chậm bộ hẹn giờ trong cửa sổ bị ẩn được tắt, để
+              cửa sổ thu nhỏ vẫn giữ tốc độ của phiên. Khi đó ứng dụng cũng chạy hết tốc độ ngay cả
+              lúc bị ẩn.</td>
+          </tr>
+          <tr>
             <td><code>--dry-run</code></td>
-            <td>In ra phiên sẽ như thế nào và không khởi động gì: thời điểm và múi giờ đã được giải quyết
-              cùng nguồn gốc của chúng, kịch bản đã điền gì vào từng tham số, các đối số sau khi tách, và
-              mục tiêu sẽ dùng cơ chế nào trong hai cơ chế. Không tiến trình nào được khởi động và không
-              tệp nào được ghi, kể cả tệp mà <code>--report</code> nêu tên. Thoát với mã 0 cho một kế hoạch
-              khả thi và 2 cho mục tiêu không tồn tại, đúng là mã mà một lần chạy thật trả về cho cùng sự
-              thật đó. Một kế hoạch không có kết luận và nói rõ như vậy - chỉ phiên thật mới có.</td>
+            <td>In ra phiên sẽ như thế nào và không khởi động gì: thời điểm và múi giờ đã được giải
+              quyết cùng nguồn gốc của chúng, kịch bản đã điền gì vào từng tham số, các đối số sau
+              khi tách, và mục tiêu sẽ dùng cơ chế nào trong hai cơ chế. Không tiến trình nào được
+              khởi động và không tệp nào được ghi, kể cả tệp mà <code>--report</code> nêu tên. Thoát
+              với mã 0 cho một kế hoạch khả thi và 2 cho mục tiêu không tồn tại, đúng là mã mà một
+              lần chạy thật trả về cho cùng sự thật đó. Một kế hoạch không có kết luận và nói rõ như
+              vậy - chỉ phiên thật mới có. Với <code>--json</code>, kế hoạch là dữ liệu, gồm
+              <code>session.elevated_embedded</code> và
+              <code>session.elevated_embedded_value</code>, tức tên tệp dùng để đặt tên cho giá trị
+              registry khi tùy chọn áp dụng cho đích <code>.exe</code>, còn lại là null. Có tên ở đó
+              không phải lời hứa sẽ ghi: phiên chỉ ghi giá trị khi chính Chrono Mock chạy với quyền
+              quản trị viên.</td>
           </tr>
           <tr>
             <td><code>--report &lt;path&gt;</code></td>
@@ -260,6 +298,11 @@
               tháng sau.</td>
           </tr>
           <tr>
+            <td><code>--base-utc &lt;moment&gt;</code></td>
+            <td>Giống <code>--base</code>, nhưng điểm bắt đầu là một thời điểm theo UTC, có thể kèm
+              <code>Z</code> ở cuối, thay vì số đọc đồng hồ treo tường trong múi giờ phiên.</td>
+          </tr>
+          <tr>
             <td><code>--shift ±N&lt;unit&gt;</code></td>
             <td>Lặp lại được. Bắt buộc có dấu. Đơn vị: <code>s m h d w mo q y bd</code>, hoặc tên đầy đủ
               của chúng. <strong><code>m</code> là phút, <code>mo</code> là tháng.</strong> Tháng, quý và
@@ -292,8 +335,14 @@
           <tr>
             <td><code>--calendar us-banking|us-federal|pl</code></td>
             <td>Tải một lịch ngày lễ. Nó thêm ngày làm việc và ngày lễ vào siêu dữ liệu, và bật
-              <code>bd</code> cùng <code>--nearest</code>. Hai lịch của Mỹ khác nhau ở cách xử lý ngày lễ
-              rơi vào cuối tuần, đúng loại lệch một ngày mà một bài kiểm thử cần tìm ra.</td>
+              <code>bd</code> cùng <code>--nearest</code>. Hai lịch của Mỹ khác nhau ở cách xử lý
+              ngày lễ rơi vào cuối tuần, đúng loại lệch một ngày mà một bài kiểm thử cần tìm ra. Mỗi
+              lịch chỉ trả lời cho một khoảng năm: <code>pl</code> từ 2002, <code>us-federal</code>
+              từ 1960 và <code>us-banking</code> từ 2008. Một bước theo ngày làm việc chạm tới ngày
+              trước khoảng đó sẽ bị từ chối với mã 1, còn ngày trước khoảng đó được hiển thị là chưa
+              đánh giá. Khi ngày lễ của một lịch được đối chiếu với luật lần cuối cách đây hơn một
+              năm, một ngày muộn hơn mà nó đã đánh giá sẽ được đánh dấu
+              <code>calendar_outdated</code>, vì có thể thiếu một ngày lễ mới hơn.</td>
           </tr>
           <tr>
             <td><code>--preset &lt;id&gt;</code> <code>--param id=value</code></td>

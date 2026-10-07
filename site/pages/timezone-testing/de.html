@@ -98,8 +98,10 @@ Chrono Mock - date calculator
         <li><strong>Java übernimmt die Sitzungszone als Offset.</strong> Die Sitzungszone hat keine
           Sommerzeit und keine Stadt dahinter, deshalb benennt Java sie nach ihrem Offset -
           <code>GMT+05:30</code> für eine Sitzung bei +05:30.</li>
-        <li><strong>Im Chromium- und Electron-Modus folgt die Zone dem Host.</strong> Der Zeitpunkt wird
-          gefälscht, die Getter für die Ortszeit nicht.</li>
+        <li><strong>Im Chromium- und Electron-Modus lesen auch die Seiten die Sitzungszone.</strong>
+          Es ist derselbe feste Versatz: Jede Seite und jeder Worker wird darauf gesetzt und prüft,
+          was er liest. Der Hauptprozess einer Electron-Anwendung führt JavaScript in Node aus, das
+          die Sitzung nicht erreicht, sodass er die echte Uhr behält.</li>
         <li><strong>Offsets reichen von -14:00 bis +14:00</strong> in ganzen Minuten. Alles außerhalb wird
           abgelehnt, statt stillschweigend umzubrechen.</li>
       </ul>
