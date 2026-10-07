@@ -24,8 +24,10 @@
     <div class="qa">
       <h3>¿Necesito permisos de administrador?</h3>
       <p>
-        No. No hay instalador, no se escribe nada en el registro y funciona desde una carpeta que puedes
-        llevar en una memoria USB.
+        No para ejecutarlo. Los zip no necesitan instalador, no escriben nada en el registro y
+        funcionan desde una carpeta que puedes llevar en una memoria USB. El <code>.msi</code>
+        opcional necesita permisos de administrador una vez, para instalar, porque se instala para
+        todas las cuentas del equipo.
       </p>
     </div>
 
@@ -74,8 +76,9 @@
         Workers, donde a menudo vive de verdad el temporizador.
       </p>
       <p>
-        Un límite que conviene conocer: en este modo la sesión sigue la zona horaria del equipo. El
-        instante se falsea, los métodos de hora local no.
+        Un límite que conviene conocer: el proceso principal de una aplicación Electron se ejecuta
+        en Node, al que la sesión no llega, así que conserva el reloj real, y el informe lo dice.
+        Las páginas y sus workers leen la zona horaria de la sesión.
       </p>
       <p>
         <a href="/es/electron-chromium/">Cómo funciona el modo Chromium y Electron</a> - qué alcanza, qué

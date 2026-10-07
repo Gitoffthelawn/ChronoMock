@@ -6,8 +6,10 @@
     <h1>Télécharger Chrono Mock</h1>
     <p class="sub">
       Deux versions du même moteur : une fenêtre pour explorer, une ligne de commande pour la CI.
-      Décompressez l'une ou l'autre où vous voulez et lancez-la - il n'y a pas d'installateur, rien n'est
-      écrit dans le registre, et aucun droit d'administrateur n'est nécessaire.
+      Décompressez l'une ou l'autre n'importe où et lancez-la - sans installateur, sans entrée de
+      registre, sans droits d'administrateur. Ou installez le <code>.msi</code> signé pour chaque
+      compte de la machine : des droits d'administrateur une fois, pour installer, aucun pour
+      exécuter.
     </p>
 
     <div class="cta">
@@ -25,6 +27,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>L'application de bureau, autonome - aucune installation de .NET nécessaire</td>
             <td>~69 Mo</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>L'application de bureau et la ligne de commande, installées pour chaque compte de la
+              machine : une entrée du menu Démarrer et <code>chrono</code> dans le PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -121,6 +129,15 @@
         n'est pas accessible en écriture, et, pour une cible Electron ou Chromium, un profil de navigateur
         jetable sous <code>%TEMP%</code>, supprimé à la fin de la session et signalé dans le résumé de la
         session s'il n'a pas pu l'être.
+      </p>
+      <p>
+        Cela décrit les archives zip. L'installateur fait exception et dit ce qu'il ajoute : le
+        programme dans <code>Program Files</code>, une entrée du menu Démarrer, <code>chrono</code>
+        dans le PATH de la machine, une entrée dans Paramètres, Applications et la clé
+        <code>HKLM\Software\DonislawDev\Chrono Mock</code>. La désinstallation retire tout cela et
+        laisse <code>%LOCALAPPDATA%\ChronoMock\</code> tranquille. Une autre option, désactivée par
+        défaut, écrit une valeur de registre pour la durée d'une session et la supprime ensuite :
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Il ne se connecte jamais à Internet, ne tient aucun compte et n'envoie aucune télémétrie.

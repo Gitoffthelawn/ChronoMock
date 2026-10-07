@@ -24,8 +24,10 @@
     <div class="qa">
       <h3>Heb ik beheerdersrechten nodig?</h3>
       <p>
-        Nee. Er is geen installatieprogramma, er wordt niets in het register geschreven en het draait
-        vanuit een map die je op een usb-stick kunt meenemen.
+        Niet om het te draaien. De zip-bestanden hebben geen installatieprogramma nodig, schrijven
+        niets naar het register en draaien vanuit een map die je op een USB-stick kunt zetten. De
+        optionele <code>.msi</code> heeft eenmalig beheerdersrechten nodig, om te installeren, omdat
+        hij voor elk account op de machine wordt geïnstalleerd.
       </p>
     </div>
 
@@ -73,8 +75,9 @@
         timer vaak echt zit.
       </p>
       <p>
-        Een beperking om te kennen: in deze modus volgt de sessie de tijdzone van de host. Het moment wordt
-        vervalst, de getters voor de lokale tijd niet.
+        Eén grens die je moet kennen: het hoofdproces van een Electron-toepassing draait in Node,
+        waar de sessie niet bij kan, dus het houdt de echte klok en het rapport zegt dat. De
+        pagina's en hun workers lezen de sessietijdzone.
       </p>
       <p>
         <a href="/nl/electron-chromium/">Hoe de Chromium- en Electron-modus werkt</a> - wat het bereikt,

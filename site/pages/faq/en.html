@@ -26,8 +26,9 @@
     <div class="qa">
       <h3>Do I need administrator rights?</h3>
       <p>
-        No. There is no installer, nothing is written to the registry, and it runs from a
-        folder you can put on a USB stick.
+        Not to run it. The zips need no installer, write nothing to the registry, and run from a
+        folder you can put on a USB stick. The optional <code>.msi</code> needs administrator rights
+        once, to install, because it installs for every account on the machine.
       </p>
     </div>
 
@@ -75,8 +76,9 @@
         clock - including inside the Web Workers, where the timer often actually lives.
       </p>
       <p>
-        One limit worth knowing: in this mode the session follows the host time zone. The
-        instant is faked, the local-time getters are not.
+        One limit worth knowing: an Electron application's main process runs in Node, which the
+        session does not reach, so it keeps the real clock, and the report says so. The pages and
+        their workers read the session time zone.
       </p>
       <p>
         <a href="/electron-chromium/">How the Chromium and Electron mode works</a> - what it

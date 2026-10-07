@@ -25,8 +25,10 @@
     <div class="qa">
       <h3>Czy potrzebuję uprawnień administratora?</h3>
       <p>
-        Nie. Nie ma instalatora, nic nie trafia do rejestru, a całość działa z folderu, który
-        możesz nosić na pendrive.
+        Nie, żeby go uruchomić. Archiwa zip nie potrzebują instalatora, niczego nie zapisują w
+        rejestrze i działają z folderu, który możesz trzymać na pendrive. Opcjonalny plik
+        <code>.msi</code> wymaga uprawnień administratora raz, do instalacji, bo instaluje się dla
+        każdego konta na komputerze.
       </p>
     </div>
 
@@ -75,8 +77,9 @@
         mieszka odliczanie.
       </p>
       <p>
-        Jedno ograniczenie warto znać: w tym trybie sesja idzie za strefą hosta. Fałszowana
-        jest chwila, a nie funkcje czasu lokalnego.
+        Jedno ograniczenie warto znać: proces główny aplikacji Electron uruchamia JavaScript w Node,
+        do którego sesja nie sięga, więc zostaje na prawdziwym zegarze, a raport to mówi. Strony i
+        ich workery czytają strefę czasową sesji.
       </p>
       <p>
         <a href="/pl/electron-chromium/">Jak działa tryb Chromium i Electron</a> - co obejmuje,

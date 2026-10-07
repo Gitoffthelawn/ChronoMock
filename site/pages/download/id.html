@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Unduh Chrono Mock</h1>
     <p class="sub">
-      Dua build dari engine yang sama: satu jendela untuk menjelajah, satu baris perintah untuk CI.
-      Ekstrak salah satunya di mana saja dan jalankan - tidak ada installer, tidak ada yang ditulis ke
-      registry, dan tidak diperlukan hak administrator.
+      Dua build dari mesin yang sama: jendela untuk menjelajah dan baris perintah untuk CI. Ekstrak
+      salah satunya di mana saja lalu jalankan - tanpa installer, tanpa entri registry, tanpa hak
+      administrator. Atau pasang <code>.msi</code> bertanda tangan untuk setiap akun di komputer:
+      hak administrator satu kali, untuk memasang, tidak perlu untuk menjalankan.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Aplikasi desktop, mandiri - tidak perlu memasang .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Aplikasi desktop dan baris perintah, dipasang untuk setiap akun di komputer: entri
+              menu Start dan <code>chrono</code> di PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -119,6 +126,15 @@
         tidak dapat ditulisi, dan, untuk target Electron atau Chromium, profil peramban sekali pakai di
         bawah <code>%TEMP%</code> yang dihapus ketika sesi berakhir dan dilaporkan dalam ringkasan sesi
         jika tidak dapat dihapus.
+      </p>
+      <p>
+        Itu menggambarkan berkas zip. Installer adalah pengecualian dan menyebutkan apa yang
+        ditambahkannya: program di <code>Program Files</code>, entri menu Start, <code>chrono</code>
+        di PATH komputer, entri di Pengaturan, Aplikasi, dan kunci
+        <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Pencopotan menghapus semuanya dan
+        membiarkan <code>%LOCALAPPDATA%\ChronoMock\</code>. Satu opsi lagi, mati secara bawaan,
+        menulis nilai registry selama sesi dan menghapusnya sesudahnya:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Tidak pernah terhubung ke internet, tidak menyimpan akun, dan tidak mengirim telemetri.

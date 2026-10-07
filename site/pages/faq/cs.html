@@ -23,8 +23,9 @@
     <div class="qa">
       <h3>Potřebuji práva správce?</h3>
       <p>
-        Ne. Není tu instalátor, nic se nezapisuje do registru a běží ze složky, kterou můžete mít na
-        USB disku.
+        Ke spuštění ne. Archivy zip nepotřebují instalátor, nezapisují do registru nic a běží ze
+        složky, kterou můžete nosit na USB disku. Volitelný soubor <code>.msi</code> potřebuje práva
+        správce jednou, při instalaci, protože se instaluje pro každý účet na počítači.
       </p>
     </div>
 
@@ -70,8 +71,9 @@
         JavaScriptu se přepnou na hodiny sezení - včetně Web Workerů, kde časovač často skutečně žije.
       </p>
       <p>
-        Jedno omezení, které stojí za to znát: v tomto režimu sezení sleduje časové pásmo hostitele.
-        Okamžik je falešný, getery místního času ne.
+        Jedno omezení stojí za to znát: hlavní proces aplikace Electron běží v Node, kam sezení
+        nedosáhne, takže si ponechává skutečné hodiny a zpráva to říká. Stránky a jejich workery
+        čtou časové pásmo sezení.
       </p>
       <p>
         <a href="/cs/electron-chromium/">Jak funguje režim Chromium a Electron</a> - čeho dosáhne, čeho

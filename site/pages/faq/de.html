@@ -24,8 +24,10 @@
     <div class="qa">
       <h3>Brauche ich Administratorrechte?</h3>
       <p>
-        Nein. Es gibt keinen Installer, nichts wird in die Registry geschrieben, und es läuft aus einem
-        Ordner, den Sie auf einem USB-Stick mitnehmen können.
+        Nicht zum Ausführen. Die ZIP-Dateien brauchen keinen Installer, schreiben nichts in die
+        Registry und laufen aus einem Ordner, den man auf einen USB-Stick legen kann. Die optionale
+        <code>.msi</code> braucht einmal Administratorrechte, zum Installieren, weil sie für jedes
+        Konto auf dem Rechner installiert.
       </p>
     </div>
 
@@ -73,8 +75,9 @@
         gelegt - auch in den Web Workern, wo der Timer oft tatsächlich sitzt.
       </p>
       <p>
-        Eine Einschränkung sollten Sie kennen: In diesem Modus folgt die Sitzung der Zeitzone des Hosts.
-        Der Zeitpunkt wird gefälscht, die Getter für die Ortszeit nicht.
+        Eine Grenze ist gut zu wissen: Der Hauptprozess einer Electron-Anwendung läuft in Node, das
+        die Sitzung nicht erreicht, also behält er die echte Uhr, und der Bericht sagt das. Die
+        Seiten und ihre Worker lesen die Sitzungszeitzone.
       </p>
       <p>
         <a href="/de/electron-chromium/">So funktioniert der Chromium- und Electron-Modus</a> - was er

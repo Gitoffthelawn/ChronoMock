@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Descarcă Chrono Mock</h1>
     <p class="sub">
-      Două build-uri ale aceluiași motor: o fereastră pentru explorat, o linie de comandă pentru CI.
-      Dezarhivează oricare dintre ele oriunde și rulează-l - nu există instalator, nu se scrie nimic în
-      registru și nu sunt necesare drepturi de administrator.
+      Două variante ale aceluiași motor: o fereastră pentru explorare și o linie de comandă pentru
+      CI. Dezarhivează oricare oriunde și rulează-o - fără instalator, fără intrări în registru,
+      fără drepturi de administrator. Sau instalează <code>.msi</code>-ul semnat pentru fiecare cont
+      de pe calculator: drepturi de administrator o dată, pentru instalare, niciunul pentru rulare.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Aplicația desktop, autonomă - nu este nevoie de instalarea .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Aplicația desktop și linia de comandă, instalate pentru fiecare cont de pe
+              calculator: o intrare în meniul Start și <code>chrono</code> în PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -120,6 +127,15 @@
         propriu al instrumentului nu poate fi scris și, pentru o țintă Electron sau Chromium, un profil de
         browser de unică folosință în <code>%TEMP%</code>, care este șters când se încheie sesiunea și
         raportat în rezumatul sesiunii dacă nu a putut fi șters.
+      </p>
+      <p>
+        Asta descrie arhivele zip. Instalatorul este excepția și spune ce adaugă: programul în
+        <code>Program Files</code>, o intrare în meniul Start, <code>chrono</code> în PATH-ul
+        calculatorului, o intrare în Setări, Aplicații și cheia
+        <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Dezinstalarea elimină toate acestea și
+        lasă în pace <code>%LOCALAPPDATA%\ChronoMock\</code>. Încă o opțiune, oprită implicit, scrie
+        o valoare în registru pe durata unei sesiuni și o elimină după aceea:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Nu comunică niciodată cu internetul, nu ține niciun cont și nu trimite telemetrie.

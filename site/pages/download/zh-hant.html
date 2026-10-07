@@ -5,7 +5,7 @@
   <section class="plain">
     <h1>下載 Chrono Mock</h1>
     <p class="sub">
-      同一個引擎的兩個版本：用來探索的視窗版，用來跑 CI 的命令列版。任選其一，解壓縮到任意位置即可執行——沒有安裝程式，不會往登錄寫入任何內容，也不需要系統管理員權限。
+      同一引擎的兩個版本：用於探索的視窗，和用於 CI 的命令列。任意一個解壓縮到哪裡都能執行，無需安裝程式、不寫登錄、不需要系統管理員權限。也可以安裝已簽署的 <code>.msi</code>，供這台電腦上的每個帳戶使用：只在安裝時需要一次系統管理員權限，執行時不需要。
     </p>
 
     <div class="cta">
@@ -23,6 +23,11 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>桌面應用程式，自成一體——無需另外安裝 .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>桌面應用程式和命令列，為這台電腦上的每個帳戶安裝：開始功能表項目，以及 PATH 中的 <code>chrono</code></td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -92,6 +97,9 @@
     <div class="prose">
       <p>
         系統裡什麼都不留：沒有常駐的掛鉤，沒有登錄項目，除了三樣它會明確告知你的東西之外，也不會在自己的資料夾以外留下任何內容——工作階段歷程與診斷記錄檔，在工具自己的資料夾無法寫入時會移到 <code>%LOCALAPPDATA%\ChronoMock\</code>；還有，對 Electron 或 Chromium 目標來說，在 <code>%TEMP%</code> 下的一個一次性瀏覽器設定檔，它會在工作階段結束時刪除，如果刪除不了，會在工作階段摘要中回報。
+      </p>
+      <p>
+        這指的是 zip 套件。安裝程式是例外，並會說明它新增了什麼：<code>Program Files</code> 中的程式、開始功能表項目、電腦 PATH 中的 <code>chrono</code>、「設定」「應用程式」中的一項，以及登錄機碼 <code>HKLM\Software\DonislawDev\Chrono Mock</code>。解除安裝會全部移除，並保留 <code>%LOCALAPPDATA%\ChronoMock\</code> 不動。另有一個預設關閉的選項會在工作階段期間寫入一個登錄值，並在結束後刪除：<code>--elevated-embedded</code>。
       </p>
       <p>
         它從不連上網際網路，不需要帳號，也不傳送遙測資料。

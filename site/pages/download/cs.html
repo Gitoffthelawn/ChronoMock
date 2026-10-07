@@ -5,9 +5,10 @@
   <section class="plain">
     <h1>Stáhnout Chrono Mock</h1>
     <p class="sub">
-      Dvě sestavení téhož jádra: okno pro zkoumání, příkazový řádek pro CI.
-      Rozbalte kterékoli kamkoli a spusťte - není tu instalátor, nic se nezapisuje do registru
-      a nejsou potřeba práva správce.
+      Dvě sestavení stejného jádra: okno k prozkoumávání a příkazový řádek pro CI. Kterékoli
+      rozbalte kamkoli a spusťte - bez instalátoru, bez záznamů v registru, bez práv správce. Nebo
+      nainstalujte podepsaný soubor <code>.msi</code> pro každý účet na počítači: práva správce
+      jednou, k instalaci, ke spuštění žádná.
     </p>
 
     <div class="cta">
@@ -25,6 +26,12 @@
             <td><code>ChronoMock-app-win-x64.zip</code></td>
             <td>Desktopová aplikace, samostatná - není třeba instalovat .NET</td>
             <td>~69 MB</td>
+          </tr>
+          <tr>
+            <td><code>ChronoMock-app-win-x64.msi</code></td>
+            <td>Desktopová aplikace a příkazový řádek nainstalované pro každý účet na počítači:
+              položka v nabídce Start a <code>chrono</code> v PATH</td>
+            <td>~58 MB</td>
           </tr>
           <tr>
             <td><code>ChronoMock-cli-win.zip</code></td>
@@ -116,6 +123,14 @@
         <code>%LOCALAPPDATA%\ChronoMock\</code>, když do vlastní složky nástroje nelze zapisovat, a u
         cíle Electron nebo Chromium jednorázový profil prohlížeče v <code>%TEMP%</code>, který se po
         skončení sezení smaže a v souhrnu sezení se ohlásí, pokud to nešlo.
+      </p>
+      <p>
+        To popisuje archivy zip. Instalátor je výjimka a říká, co přidává: program v <code>Program
+        Files</code>, položku v nabídce Start, <code>chrono</code> v PATH počítače, položku v
+        Nastavení, Aplikace a klíč <code>HKLM\Software\DonislawDev\Chrono Mock</code>. Odinstalace
+        vše odstraní a složku <code>%LOCALAPPDATA%\ChronoMock\</code> nechá být. Ještě jedna volba,
+        ve výchozím stavu vypnutá, zapíše na dobu sezení hodnotu do registru a poté ji odstraní:
+        <code>--elevated-embedded</code>.
       </p>
       <p>
         Nikdy nekomunikuje s internetem, nevede žádný účet a neposílá telemetrii.
