@@ -467,3 +467,105 @@ fn the_window_keeps_nothing_of_its_own_in_an_installed_folder() {
     let log = without_line_comments(&read("gui/ChronoMock.App/Session/DiagnosticsLog.cs"), "//");
     assert!(log.contains("WritableFolder.ForApp(\"logs\")"), "the diagnostics log chooses its folder some other way");
 }
+
+/// The jobs of a workflow file as (name, body) pairs: a job starts at a line indented by two spaces that ends
+/// in a colon, directly under `jobs:`, and runs to the next one. A reader this small is enough for a file this
+/// plain, and a dev-dependency would be a rule-8 licence-sieve event.
+fn workflow_jobs(workflow: &str) -> Vec<(String, String)> {
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    let mut in_jobs = false;
+    for line in workflow.lines() {
+        if line.starts_with("jobs:") {
+            in_jobs = true;
+            continue;
+        }
+        if !in_jobs {
+            continue;
+        }
+        let is_header = line.starts_with("  ") && !line.starts_with("   ") && line.trim_end().ends_with(':') && !line.trim().is_empty();
+        if is_header {
+            jobs.push((line.trim().trim_end_matches(':').to_string(), String::new()));
+        } else if let Some((_, body)) = jobs.last_mut() {
+            body.push_str(line);
+            body.push('\n');
+        }
+    }
+    jobs
+}
+
+/// What the installer does on a machine is asked by ONE job in ci.yml. The guards above hold the source of the
+/// installer, and a line being there is not the installer working - so the job is held here: a job that stopped
+/// building the package, stopped asking, or stopped failing on a failed question would leave every guard green
+/// and the installer asked by nobody.
+///
+/// The WiX version is read out of build-msi.ps1 rather than typed here, because that script refuses every other
+/// version and a job installing another one would stop at that refusal instead of at the question.
+#[test]
+fn the_installer_is_installed_on_a_runner() {
+    let jobs = workflow_jobs(&without_line_comments(&read(".github/workflows/ci.yml"), "#"));
+    assert!(jobs.len() >= 2, "{} job(s) were read out of ci.yml, so this guard is not reading the file it thinks it is", jobs.len());
+    let askers: Vec<&(String, String)> = jobs.iter().filter(|(_, body)| body.contains("packaging/test-installer.ps1")).collect();
+    assert_eq!(
+        askers.len(),
+        1,
+        "{} job(s) in ci.yml run packaging/test-installer.ps1, and exactly one has to: {:?}",
+        askers.len(),
+        askers.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>()
+    );
+    let (job, body) = askers[0];
+    let wix = powershell_literal(&read("packaging/build-msi.ps1"), "WixVersion");
+    for (what, want) in [
+        ("it runs on Windows, the only system that installs it", "runs-on: windows-latest".to_string()),
+        ("it installs the WiX version build-msi.ps1 builds with", format!("dotnet tool install --global wix --version {wix}")),
+        ("it assembles the package the way a release's first phase does", "./packaging/build-dist.ps1".to_string()),
+        ("it hands the script that package", "-PackageFolder dist/ChronoMock".to_string()),
+        ("it gives a run that hangs an end", "timeout-minutes:".to_string()),
+    ] {
+        assert!(body.contains(&want), "{what}: job {job:?} does not contain {want:?}");
+    }
+    assert!(!body.contains("continue-on-error"), "job {job:?} may fail without failing the workflow");
+    // The script is the whole of its step, so its exit code is the step's: nothing is chained after it that
+    // could swallow a failure (`; exit 0`, `|| true`, a pipe into something that always succeeds).
+    let call = body.lines().find(|l| l.contains("packaging/test-installer.ps1")).expect("the call");
+    assert!(
+        call.trim_start().starts_with("run: ./packaging/test-installer.ps1"),
+        "the script is not what its step runs ({call:?})"
+    );
+    let after_script = call.split("test-installer.ps1").nth(1).expect("the arguments");
+    assert!(
+        !after_script.contains([';', '|', '&']),
+        "something is chained after the script ({after_script:?}), so its exit code may not be the step's"
+    );
+}
+
+/// The questions the script asks, one fragment each. Taking one out leaves a script that still runs, still
+/// exits 0 and asks less - which nothing else would notice. A message reworded is a conscious change, so it is
+/// made here too.
+#[test]
+fn the_installer_script_keeps_asking_what_it_asked() {
+    let script = active_powershell(&read("packaging/test-installer.ps1"));
+    for (what, fragment) in [
+        ("whether it starts from nothing of ours", "something of ours is here already"),
+        ("the exit code of every step", "the installer installs (exit"),
+        ("every file against the package it was built from", "every file is the package's bytes"),
+        ("nothing in the folder that is not the package's", "nothing else is in the folder"),
+        ("the machine PATH, once, with the entry", "is on the machine PATH once"),
+        ("the command line found by a new process", "a new process finds chrono first in the install folder"),
+        ("the catalogue read from the install, from an empty folder", "it reads the catalogue of the install"),
+        ("the Start menu entry and where it starts", "it starts in the install folder"),
+        ("that the library the upgrade meets is really held", "the injected library is locked by the running application"),
+        ("an upgrade over a loaded library", "the upgrade over the held library installs"),
+        ("that the installer saw the library in use", "the installer saw the library in use"),
+        ("that nothing running was ended by it", "the application that held the library is still running"),
+        ("a rebuild of a version replacing the first build", "the rebuild replaced the first build"),
+        ("the refusal of an older version", "the older version is refused"),
+        ("the uninstall with a file of somebody else's", "the folder holds only the planted file"),
+        ("the machine PATH as it was", "the machine PATH is what it was before"),
+        ("the per-user folder left alone", "is as it was, byte for byte"),
+        ("the window as administrator", "keeps nothing of its own there"),
+        ("the control the window question needs", "proves nothing"),
+        ("what is left behind on any way out", "uninstalling it, so this run leaves nothing behind"),
+    ] {
+        assert!(script.contains(fragment), "test-installer.ps1 no longer asks {what}: no {fragment:?}");
+    }
+}

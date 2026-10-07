@@ -7,7 +7,8 @@
 # between jobs as artifacts would work, but a dependent job waits for the same build anyway, so it would
 # only add a transfer. The argument is the dependency, not the minutes: it holds whether or not runner
 # time is free. If faster feedback is ever wanted, the split worth making is a SECOND job running only the
-# checks that need no cargo output (dotnet format), in parallel - not a re-split of these.
+# checks that need no cargo output (dotnet format), in parallel - not a re-split of these. The one second job
+# that exists, the installer's at the bottom, is not a re-split either: it shares nothing with these checks.
 #
 # What is deliberately NOT here: the environment harness (tools/probes/run-targets.ps1). It injects a DLL
 # into live processes and needs JDK, .NET Framework and the hand-built probes - and `tools/` is outside git,
@@ -219,3 +220,61 @@ jobs:
       # tests in total, 268 after this filter, 8 carrying the trait.
       - name: C# tests
         run: dotnet test --solution gui/ChronoMock.slnx --filter-not-trait "Category=Integration"
+
+  # What the Windows installer DOES, asked on a clean Windows machine rather than read off its source.
+  # crates/cli/tests/msi.rs holds the lines the installer's behaviour rests on, and a line being there is not
+  # the installer working: it has to be installed, upgraded, refused, and removed, and the machine asked after
+  # each step (packaging/test-installer.ps1, which says what it asks in its own header).
+  #
+  # A SECOND job, against the argument at the top of this file, and for the reason that argument gives: that
+  # one is about checks that need the cargo outputs of the C# tests, and this job needs neither those tests nor
+  # the Gates job's debug builds. It builds the window package itself, by the script a release's first phase
+  # runs (packaging/build-dist.ps1, without its gates, which the job above already runs), so what it installs
+  # is what a release would carry, minus the signature. Running beside Gates, the installer adds about as
+  # much to a pull request's wait as its slower half.
+  #
+  # The installer is built unsigned here and three times, because the script rebuilds a version under its
+  # own number and refuses an older one. WiX is installed by the job and nowhere else, at the one version
+  # packaging/build-msi.ps1 builds with: it is a build tool, never a dependency (docs/06-adr.md, ADR-23).
+  installer:
+    name: The installer installs and leaves
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Add the 32-bit target
+        run: rustup target add i686-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # Both cores and the window, packaged the way a release packages them. The gates are skipped on purpose:
+      # clippy, the tests and the format check are the Gates job's, and running them twice would only slow
+      # the one job that is ever waited for.
+      - name: Assemble the window package
+        run: ./packaging/build-dist.ps1 -SkipGates
+
+      # The version packaging/build-msi.ps1 refuses to build without, installed where it looks for it.
+      - name: Install WiX
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          if ($LASTEXITCODE -ne 0) { throw "could not install WiX 5.0.2" }
+
+      # Exit 0 only when every question was asked and answered well. Exit 3 (something could not be asked)
+      # fails the job as well: a question nobody can ask is not an answer, and a runner that stopped
+      # supporting one should be seen on the day it does.
+      - name: Install, upgrade, refuse an older one, uninstall
+        run: ./packaging/test-installer.ps1 -PackageFolder dist/ChronoMock -WorkFolder "$env:RUNNER_TEMP/installer"
+
+      # The installer's own logs say why a step failed, and nothing else on a runner keeps them.
+      - name: Keep the installer logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installer-logs
+          path: ${{ runner.temp }}/installer/logs
+          if-no-files-found: warn
