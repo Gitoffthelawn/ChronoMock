@@ -39,6 +39,23 @@ internal static class AppPaths
             .OfType<System.Reflection.AssemblyMetadataAttribute>()
             .Any(a => a.Key == LayoutKey && a.Value == PortableLayout);
 
+    /// <summary>The file the Windows installer lays beside the executable, and nothing else does
+    /// (<c>packaging/build-msi.ps1</c> writes it, <c>crates/cli/tests/msi.rs</c> holds the two names together).</summary>
+    internal const string InstalledMarker = "installed.txt";
+
+    /// <summary>
+    /// Whether this copy was put here by the Windows installer, which owns the folder - so the window keeps
+    /// nothing of its own in it (<see cref="WritableFolder.Choose"/>). The installer is built from the signed
+    /// portable package, so the build cannot say so: a second build would be a second set of files to sign. The
+    /// installer adds one file instead. Without it the copy is portable, which is the behaviour every copy had
+    /// before, so a lost marker costs a history in the old place and nothing worse. Read once, like the layout.
+    /// </summary>
+    internal static bool IsInstalled { get; } = IsInstalledLayout(IsPortable, AppContext.BaseDirectory);
+
+    /// <summary>The installed layout for a given folder - separate so a test can ask it of a folder it made.</summary>
+    internal static bool IsInstalledLayout(bool portable, string exeDir)
+        => portable && File.Exists(Path.Combine(exeDir, InstalledMarker));
+
     /// <summary>Root holding calendars/ and presets/ (and, when portable, core/).</summary>
     public static string DataRoot => IsPortable ? AppContext.BaseDirectory : DevPaths.RepoRoot();
 

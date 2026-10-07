@@ -311,6 +311,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          linking it. Naming a module in a register is the opposite of opening one",
     ),
     (
+        "crates/cli/tests/msi.rs",
+        "spawn",
+        "the installer guard runs packaging/build-msi.ps1 under PowerShell 7 to render the installer source \
+         and to ask its refusals, with arguments it chose and on a fixture package in a scratch folder. \
+         Nothing is built, installed or downloaded, and WiX is kept out of its reach",
+    ),
+    (
         "gui/ChronoMock.Protocol/CoreClient.cs",
         "spawn",
         "the window launches the core process, exactly as the command line does",

@@ -56,6 +56,9 @@ jobs:
       TAG: ${{ inputs.tag }}
       DIGESTS: ${{ inputs.digests }}
       REPO: ${{ github.repository }}
+      # The installer phase B builds from the signed window package, named as packaging/components.json
+      # names it (crates/cli/tests/msi.rs holds the two together).
+      INSTALLER: ChronoMock-app-win-x64.msi
     steps:
       # 🔴 The archives come FROM THE RELEASE, not from the caller. Attesting a digest somebody handed
       # us would attest a number rather than a file, and the number and the file are the same thing
@@ -65,8 +68,27 @@ jobs:
         run: |
           mkdir -p assets
           gh release download "$TAG" --repo "$REPO" \
-            --pattern '*.zip' --pattern '*.spdx.json' --dir assets
+            --pattern '*.zip' --pattern '*.msi' --pattern '*.spdx.json' --dir assets
           ls -l assets
+
+      # 🔴 A release carries the installer and a candidate does not - the rule phase B builds by (a hyphen
+      # in the tag, Test-Candidate in sign-release.ps1). Asked in both directions, so an installer missing
+      # from a release fails here instead of being skipped in silence, and one on a candidate fails too.
+      - name: The installer is there exactly when the tag is a release
+        id: installer
+        run: |
+          case "$TAG" in
+            *-*) want=false ;;
+            *) want=true ;;
+          esac
+          have=false
+          if [ -f "assets/$INSTALLER" ]; then have=true; fi
+          if [ "$want" != "$have" ]; then
+            echo "::error::$TAG expects the installer: $want, and the release carries it: $have"
+            exit 1
+          fi
+          echo "present=$want" >> "$GITHUB_OUTPUT"
+          echo "the installer is expected: $want, and present: $have"
 
       - name: The bytes on the release must be the bytes phase B signed
         run: |
@@ -105,6 +127,14 @@ jobs:
           subject-path: assets/ChronoMock-cli-win.zip
           sbom-path: assets/ChronoMock-cli-win.zip.spdx.json
 
+      - name: Attest the bill of materials for the installer
+        id: msi
+        if: steps.installer.outputs.present == 'true'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: assets/ChronoMock-app-win-x64.msi
+          sbom-path: assets/ChronoMock-app-win-x64.msi.spdx.json
+
       # Published as assets, with the extension the tooling and the scanners recognise, so the
       # attestation can be checked offline with `--bundle` by someone who would rather not call the
       # API - and so a security scanner looking over the release page finds it at all.
@@ -112,10 +142,16 @@ jobs:
         env:
           GUI_BUNDLE: ${{ steps.gui.outputs.bundle-path }}
           CLI_BUNDLE: ${{ steps.cli.outputs.bundle-path }}
+          MSI_BUNDLE: ${{ steps.msi.outputs.bundle-path }}
+          MSI_PRESENT: ${{ steps.installer.outputs.present }}
         run: |
           cp "$GUI_BUNDLE" ChronoMock-app-win-x64.zip.sigstore.json
           cp "$CLI_BUNDLE" ChronoMock-cli-win.zip.sigstore.json
-          gh release upload "$TAG" \
-            ChronoMock-app-win-x64.zip.sigstore.json \
-            ChronoMock-cli-win.zip.sigstore.json \
-            --repo "$REPO" --clobber
+          bundles="ChronoMock-app-win-x64.zip.sigstore.json ChronoMock-cli-win.zip.sigstore.json"
+          if [ "$MSI_PRESENT" = "true" ]; then
+            cp "$MSI_BUNDLE" "$INSTALLER.sigstore.json"
+            bundles="$bundles $INSTALLER.sigstore.json"
+          fi
+          # Word-split on purpose: the three names are fixed above and carry no spaces.
+          # shellcheck disable=SC2086
+          gh release upload "$TAG" $bundles --repo "$REPO" --clobber
