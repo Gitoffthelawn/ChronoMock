@@ -66,6 +66,12 @@ Notable changes to Chrono Mock, newest first. The format follows
   loaded later, so an application that frees it cannot leave the report claiming a function whose
   hook went away with the library.
 
+### Security
+
+- **The window package carries .NET 10.0.13.** It is the .NET security release of 2026-10-13, and
+  the window, which brings its own runtime, bundles it in place of 10.0.12. The command line does not
+  run on .NET and is unchanged.
+
 ## [0.4.0] - 2026-10-07
 
 ### Added
