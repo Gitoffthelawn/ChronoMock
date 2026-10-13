@@ -204,7 +204,9 @@
                                   Margin="{StaticResource StackGapSm}"
                                   ItemTemplate="{StaticResource ProcessRowTemplate}">
             <!-- Two lists, because a renderer row cannot be read without both: the processes the hook
-                 never entered, and the engines the session reached. Same fold, more of the truth. -->
+                 never entered, and the engines the session reached, each with the pages it put on the
+                 session clock through that engine - reaching an engine is not reaching its pages (R5,
+                 P15). Same fold, more of the truth. -->
             <controls:TextNamedList.ItemsSource>
               <MultiBinding Converter="{StaticResource UncoveredProcessRows}">
                 <Binding Path="UncoveredChildren" />
@@ -245,7 +247,8 @@
             </controls:TextNamedList.Header>
           </controls:TextNamedList>
           <TextBlock x:Name="EngineNote" Style="{StaticResource PartNote}" TextWrapping="Wrap"
-                     Margin="{StaticResource StackGapSm}" Text="{DynamicResource audit.engines_note}" />
+                     Margin="{StaticResource StackGapSm}"
+                     Text="{Binding EnginesNoteKey, Converter={StaticResource KeyToText}, Mode=OneWay}" />
         </StackPanel>
 
         <!-- The warnings, each in its own box so a run of them reads as separate things to act on rather

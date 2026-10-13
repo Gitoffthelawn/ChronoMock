@@ -86,3 +86,21 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # ---- The scanner behind the Semgrep merge gate ---------------------------------------
+  # The one Python package anything here installs, pinned in .github/semgrep/requirements.txt
+  # rather than in the workflow's install command - a version written into a `run:` step is one
+  # this bot cannot see, which is how the scanner sat on one version while newer ones came out.
+  # A proposal from this entry is a proposal to MEASURE again, not to merge as it stands:
+  # security.yml says what the gate was measured with and what a bump has to repeat.
+  - package-ecosystem: "pip"
+    directory: "/.github/semgrep"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # The same week as every entry above, for the same reason.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "chore(ci)"

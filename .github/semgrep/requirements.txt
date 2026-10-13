@@ -1,0 +1,11 @@
+# The scanner behind the Semgrep merge gate (.github/workflows/security.yml), and nothing else.
+#
+# In a file of its own rather than in the workflow's install command, because a version written
+# into a `run:` step is one Dependabot cannot see, and the pip entry in .github/dependabot.yml reads
+# this file to propose the next one. The pin stays exact: a scanner that updates itself changes the
+# gate's verdict without anybody changing the code. A proposal for a newer version is a proposal to
+# measure again, as security.yml says above the install step, not one to merge as it stands.
+#
+# Installed only on a runner and never shipped, which is why the licence gate leaves this file out
+# (CI_ONLY_MANIFESTS in .github/scripts/dependency_gate.py).
+semgrep==1.179.0

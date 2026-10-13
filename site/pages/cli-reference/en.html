@@ -195,7 +195,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Write the human report to a file. A verdict other than <em>works</em> leads that
               file with an unreliable-evidence banner, because evidence that hides its own doubt
-              is worse than none.</td>
+              is worse than none. A <em>works</em> session gets this banner too when the application read none of the clocks the session replaces, or when it is a Go program, whose wall clock Chrono Mock cannot reach. The file also names the run itself: the version, when it started, the target, its folder and the flags.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Together with <code>--report</code>, also write the target's arguments into that file, word for word. Off by default, because an argument can carry a password - the file then says only how many there were.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -234,6 +238,7 @@
           <tr><td>3</td><td>internal error - the engine could not start, hit an unexpected state, or stopped before it closed the session (whatever its own exit code). Such a run carries no verdict</td></tr>
           <tr><td>5</td><td>the operation is not built in this release - for example a preset whose moment needs a calendar, which <code>run</code> cannot load yet. Deliberately distinct from a usage error: you asked for something that does not exist yet, not for something wrong</td></tr>
           <tr><td>6</td><td>the run was cut short - <code>--timeout</code> expired, or the engine stopped answering for 15 seconds and was stopped. This is not a verdict: the session was interrupted, so it proves nothing about the target either way</td></tr>
+          <tr><td>7</td><td>another session is already running - one session at a time. Trying again once it has ended is enough</td></tr>
         </tbody>
       </table>
     </div>

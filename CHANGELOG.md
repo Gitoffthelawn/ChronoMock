@@ -6,6 +6,72 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The report says when timers could not keep the session speed** (`timer.interval_floored`). A
+  window timer (`SetTimer`) never fires more often than every 10 ms, a limit Windows sets, and a
+  periodic waitable or thread-pool timer is never given a period under 1 ms, so at a high speed such
+  a timer runs slower than the rest of the session. Waits held at their floor were already reported
+  (`wait.timeout_collapsed`), timers were not.
+- **The evidence file names the run, not only the time it ran at.** Under the `requested:` line,
+  `chrono run --report` now writes the version and the core's bitness, when the run started (UTC, from
+  the real clock), the target, the folder it started in, how many arguments it got, and the switches
+  the run was given. The arguments themselves are left out unless the new `--report-args` asks for
+  them, because an argument can carry a password and the file is made to be handed on.
+  `--report-args` without `--report` is refused.
+
+### Changed
+
+- **Another running session ends a start with exit code 7.** It used to be exit code 3, the code of
+  an internal error, with a line saying the core ended without a verdict - so a pipeline could not
+  tell a busy machine from a crash. It is the one start failure that waiting fixes. The `error` event
+  carries the same 7.
+- **A works session can still be unreliable evidence.** The evidence file and the copied report now
+  lead with the unreliable-evidence banner also when the application read none of the clocks the
+  session replaces (`coverage.session_clock_never_read`), or is a Go program whose wall clock no hook
+  reaches (`runtime.go_wall_clock_unreachable`). The verdict and the exit code stay as they were. The
+  window's result screen shows those warnings under the verdict's reason, where it used to keep them
+  folded inside the audit.
+- **The web engines line claims pages only when some were put on the session clock.** It said that
+  the engines' pages ran on the session clock whenever an engine was reached. When the session
+  reached an engine but put none of its pages on its clock that way, the line, the window's note and
+  the copied report now say so, and the window's process table no longer marks that engine's renderer
+  as one whose pages were reached. Each engine in `session_verdict.engines` now carries its own
+  `context_count`, and the process table and the warning about a renderer read that one, so with two
+  engines reached and pages in only one of them, the other engine's renderer is no longer said to have
+  had its pages reached. A core older than this field reads as zero, which claims no pages.
+- **A refused session names the way to run anyway.** Under the refusal the report now says that
+  `--force` starts the application regardless, and that the report then marks the session unreliable.
+- **The audit no longer claims a time function that part of the application reads past.** Most time
+  functions live in kernelbase, and kernel32 only passes the call on, so Chrono Mock places its hook
+  where the two meet. When it cannot - another program hooked kernelbase first, or a Windows build
+  where kernel32 has a copy of its own - the hook stays on kernel32: a program that calls kernel32
+  still reads the session clock, but the C runtime and anything else that goes to kernelbase directly
+  read the real one. The report used to list such a function as covered. It now lists it as not
+  covered, so the session works partially (exit code 10). On the Windows builds measured so far,
+  kernel32 leads into kernelbase for every one of these functions.
+- **The note about more than 256 processes says what happened to them.** It said that some of them
+  ran with no fake clock at all. They were put on the session clock, and only the audit could not
+  check them, which is what the note now says, on the command line and in the window.
+- **A session waiting for a library that never loads wakes the application less often.** The hook
+  looks for a window, sound or network library that the application loads after the start: often in
+  the first two seconds, then every 250 ms for as long as the session lasts. It now backs off to once
+  a second, so a console program that never loads those libraries is woken once a second instead of
+  four times. A library loaded later than that is hooked up to a second after it arrives.
+
+### Fixed
+
+- **A window, sound or network library present at the start can no longer take the hook with it.**
+  The hook keeps such a library loaded for as long as the application runs, as it already did for one
+  loaded later, so an application that frees it cannot leave the report claiming a function whose
+  hook went away with the library.
+
+### Security
+
+- **The window package carries .NET 10.0.13.** It is the .NET security release of 2026-10-13, and
+  the window, which brings its own runtime, bundles it in place of 10.0.12. The command line does not
+  run on .NET and is unchanged.
+
 ## [0.4.0] - 2026-10-07
 
 ### Added

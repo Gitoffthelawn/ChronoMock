@@ -221,15 +221,21 @@ public class ParserTests
         const string line = "{\"type\":\"session_verdict\",\"v\":1,\"verdict\":\"partial\"," +
             "\"reason_key\":\"session.family_partial_children\",\"process_count\":3," +
             "\"warning_keys\":[\"embedded.debug_port_open\"],\"context_count\":2," +
-            "\"engines\":[{\"pid\":8072,\"port\":51234,\"browser\":\"Engine/1.0\"}]}";
+            "\"engines\":[{\"pid\":8072,\"port\":51234,\"browser\":\"Engine/1.0\",\"context_count\":2}," +
+            "{\"pid\":9000,\"port\":51235,\"browser\":\"Engine/1.0\"}]}";
 
         var ev = Assert.IsType<SessionVerdictEvent>(EventParser.Parse(line));
         Assert.Equal(3, ev.ProcessCount);
         Assert.Equal(2, ev.ContextCount);
-        var engine = Assert.Single(ev.Engines);
+        Assert.Equal(2, ev.Engines.Count);
+        var engine = ev.Engines[0];
         Assert.Equal(8072u, engine.Pid);
         Assert.Equal(51234, engine.Port);
         Assert.Equal("Engine/1.0", engine.Browser);
+        // Each engine's own share of the pages (R5, P15). The second is written the way an older core wrote
+        // every engine, without its count: zero, the side that claims none of its pages.
+        Assert.Equal(2, engine.ContextCount);
+        Assert.Equal(0, ev.Engines[1].ContextCount);
         // The field the family session added (ADR-16): absent is empty, never a parse failure.
         Assert.Empty(ev.Followed);
     }

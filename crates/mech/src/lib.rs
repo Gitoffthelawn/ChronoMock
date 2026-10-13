@@ -57,6 +57,7 @@ use chrono_ctl::{
     read_late_installed, read_pid,
     read_pid_count, rebase,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
+    read_timers_at_floor,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header, FullAnchor,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, IDX_TIMEGETTIME, MAX_COV_PIDS,
@@ -1201,6 +1202,29 @@ fn network_timeouts_follow_session(installed: u64, connected: bool, scale_durati
     scale_duration && connected && installed & (CH_GTC64 | CH_GTC) != 0
 }
 
+/// The warnings for scaled waits and timers that could not be divided by the full multiplier and ran
+/// at a floor instead, so part of this application did NOT accelerate: a wait at this tool's 1 ms
+/// (`wait.timeout_collapsed`), a timer at Windows' 10 ms window-timer minimum or at the 1 ms period
+/// floor (`timer.interval_floored`, R5 D8). Said out loud rather than left as an unexplained
+/// difference in behaviour - the honest half of the floors themselves, which exist because the
+/// alternative (an interval truncated to zero) turned a polling loop into a spin and a periodic timer
+/// into a one-shot. Coverage first, and name what is left over (rule 27, rule 4).
+///
+/// Its own function so `gather_coverage` stays under its pinned complexity ceiling.
+///
+/// # Safety
+/// `cov` must point to a live, correctly aligned `Cov`.
+unsafe fn floor_warning_keys(cov: *const Cov) -> Vec<String> { unsafe {
+    let mut keys = Vec::new();
+    if read_waits_at_floor(cov) > 0 {
+        keys.push("wait.timeout_collapsed".to_string());
+    }
+    if read_timers_at_floor(cov) > 0 {
+        keys.push("timer.interval_floored".to_string());
+    }
+    keys
+}}
+
 /// Build one process's coverage from its `Cov` section: the install bitmask and the
 /// live per-channel call counters. Iterates the single-source `CHANNELS` table so the
 /// report names exactly what the hook installs.
@@ -1294,14 +1318,7 @@ unsafe fn gather_coverage(
     if any_wait_observed {
         out.warning_keys.push("wait.object_waits_not_scaled".to_string());
     }
-    // A wait too short to divide by the full multiplier ran at the floor instead, so part of this
-    // application did NOT accelerate. Said out loud rather than left as an unexplained difference in
-    // behaviour - and it is the honest half of the floor itself, which exists because the alternative
-    // (a timeout truncated to zero) turned a polling loop into a spin. Coverage first, and name what
-    // is left over (rule 27, rule 4).
-    if read_waits_at_floor(cov) > 0 {
-        out.warning_keys.push("wait.timeout_collapsed".to_string());
-    }
+    out.warning_keys.extend(floor_warning_keys(cov));
     if any_timer_observed {
         out.warning_keys.push("timer.multimedia_not_scaled".to_string());
     }
@@ -2456,6 +2473,28 @@ mod tests {
         let quiet = zeroed_cov();
         let gathered = unsafe { gather_coverage(&quiet as *const Cov, 0, true, false) };
         assert!(!says_collapsed(&gathered));
+    }
+
+    /// A timer held at a floor is reported under its own key, and a wait at the floor does not stand
+    /// in for it: the two name different parts of the application and different floors (R5, D8).
+    #[test]
+    fn a_timer_held_at_a_floor_is_reported_apart_from_the_waits() {
+        let says = |c: &Coverage, key: &str| c.warning_keys.iter().any(|k| k == key);
+
+        let mut timers = zeroed_cov();
+        timers.timers_at_floor = 3;
+        let gathered = unsafe { gather_coverage(&timers as *const Cov, 0, true, false) };
+        assert!(says(&gathered, "timer.interval_floored"), "three timers ran at a floor and nothing said so");
+        assert!(!says(&gathered, "wait.timeout_collapsed"), "no wait was held, yet the wait warning came");
+
+        let mut waits = zeroed_cov();
+        waits.waits_at_floor = 3;
+        let gathered = unsafe { gather_coverage(&waits as *const Cov, 0, true, false) };
+        assert!(!says(&gathered, "timer.interval_floored"), "no timer was held, yet the timer warning came");
+
+        let quiet = zeroed_cov();
+        let gathered = unsafe { gather_coverage(&quiet as *const Cov, 0, true, false) };
+        assert!(!says(&gathered, "timer.interval_floored"));
     }
 
     /// A channel hooked late is covered, and the audit says the count is a floor.

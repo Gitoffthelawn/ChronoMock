@@ -62,6 +62,28 @@ EXCEPTIONS = {
 # a commit SHA, and Dependabot moves the SHA and its version comment together.
 SKIPPED_ECOSYSTEMS = frozenset({"actions"})
 
+# The same reason for a manifest that only CI installs from, named one file at a
+# time and never a directory, so a manifest added next to one of these is checked
+# as usual. What such a file pins runs on a runner, reads this repository and
+# reaches no user. The vulnerability half (dependency-review-action) still reads
+# it, and the gate says in its log what it left out here, so nothing is skipped
+# silently.
+CI_ONLY_MANIFESTS = frozenset({
+    # The scanner behind the Semgrep merge gate (security.yml), pinned in a file of
+    # its own so Dependabot can propose the next version. LGPL-2.1-or-later, which
+    # deny.toml does not allow and should not: that list also guards what the
+    # binary ships.
+    ".github/semgrep/requirements.txt",
+})
+
+
+def manifest_path(dependency):
+    """The manifest a dependency came from, as a path from the repository root."""
+    path = str(dependency.get("manifest", "")).replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path.lstrip("/")
+
 
 def allowed_licences(deny_toml):
     """The `[licenses] allow` list out of deny.toml, as a set of SPDX ids."""
@@ -76,7 +98,16 @@ def allowed_licences(deny_toml):
 def added(review):
     return [d for d in review
             if str(d.get("change_type", "")) == "added"
-            and str(d.get("ecosystem", "")).lower() not in SKIPPED_ECOSYSTEMS]
+            and str(d.get("ecosystem", "")).lower() not in SKIPPED_ECOSYSTEMS
+            and manifest_path(d) not in CI_ONLY_MANIFESTS]
+
+
+def added_for_ci_only(review):
+    """What the pull request adds through a CI-only manifest - left out of the
+    licence check, and named in the log for that reason."""
+    return [d for d in review
+            if str(d.get("change_type", "")) == "added"
+            and manifest_path(d) in CI_ONLY_MANIFESTS]
 
 
 def verdict(dependency, allowed):
@@ -157,6 +188,10 @@ def main(argv=None):
         return 2
 
     blocked, passed = split(review, allowed)
+    for dependency in added_for_ci_only(review):
+        print("ci only, licence not checked: %s %s  licence=%s  manifest=%s"
+              % (dependency.get("name", "?"), dependency.get("version", "?"),
+                 dependency.get("license"), manifest_path(dependency)))
     for line in report_lines(blocked, passed, allowed):
         print(line)
     return 1 if blocked else 0

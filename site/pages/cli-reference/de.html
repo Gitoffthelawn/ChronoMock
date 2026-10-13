@@ -200,7 +200,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Schreibt den Bericht für Menschen in eine Datei. Ein anderes Urteil als
               <em>funktioniert</em> setzt einen Hinweis auf unzuverlässige Nachweise an den Anfang dieser
-              Datei, denn ein Nachweis, der seinen eigenen Zweifel verbirgt, ist schlimmer als keiner.</td>
+              Datei, denn ein Nachweis, der seinen eigenen Zweifel verbirgt, ist schlimmer als keiner. Diesen Hinweis bekommt auch eine Sitzung mit dem Urteil <em>funktioniert</em>, wenn die Anwendung keine der Uhren gelesen hat, die die Sitzung ersetzt, oder wenn sie ein Go-Programm ist, dessen Wanduhr Chrono Mock nicht erreicht. Die Datei nennt außerdem den Lauf selbst: die Version, den Startzeitpunkt, das Ziel, seinen Ordner und die Optionen.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Schreibt zusammen mit <code>--report</code> auch die Argumente des Ziels wörtlich in diese Datei. Standardmäßig aus, weil ein Argument ein Passwort enthalten kann - die Datei nennt dann nur ihre Anzahl.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -239,6 +243,7 @@
           <tr><td>3</td><td>interner Fehler - die Engine konnte nicht starten, geriet in einen unerwarteten Zustand oder hielt an, bevor sie die Sitzung abschloss (gleich welchen Code sie selbst hatte). Ein solcher Lauf trägt kein Urteil</td></tr>
           <tr><td>5</td><td>die Operation ist in diesem Release nicht enthalten - zum Beispiel ein Szenario, dessen Zeitpunkt einen Kalender braucht, den <code>run</code> noch nicht laden kann. Bewusst verschieden von einem Aufruffehler: Sie haben nach etwas gefragt, das es noch nicht gibt, nicht nach etwas Falschem</td></tr>
           <tr><td>6</td><td>der Lauf wurde abgebrochen - <code>--timeout</code> ist abgelaufen, oder die Engine antwortete 15 Sekunden lang nicht und wurde angehalten. Das ist kein Urteil: Die Sitzung wurde unterbrochen und beweist daher weder in die eine noch in die andere Richtung etwas über das Ziel</td></tr>
+          <tr><td>7</td><td>eine andere Sitzung läuft bereits - immer nur eine Sitzung zur Zeit. Es genügt, es nach ihrem Ende erneut zu versuchen</td></tr>
         </tbody>
       </table>
     </div>

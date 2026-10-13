@@ -339,6 +339,11 @@ pub(crate) fn describe_warning(key: &str) -> String {
             "some waits were too short to divide by the full speed factor and ran at this tool's \
              shortest step (1 ms) instead - that part of the application did not accelerate"
         }
+        "timer.interval_floored" => {
+            "some timers were too short to divide by the full speed factor and fired at the shortest \
+             interval allowed (10 ms for window timers, set by Windows, 1 ms for the others) - that part \
+             of the application ran slower than the rest of the session"
+        }
         // Sits next to the object-wait line on purpose: that one says an I/O timeout is not shortened,
         // and for a library that measures its own timeout from the tick count this one says otherwise.
         "wait.network_timeouts_scaled" => {
@@ -419,7 +424,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
             "Chrono Mock set the WebView2 option for the program it started, but WebView2 was loaded by a different program, which the option does not apply to - start that program directly to reach its pages"
         }
         "coverage.pid_registry_full" => {
-            "this session ran more processes than the audit can track (256), so some ran uncovered and are missing from the process count and the channel lists below"
+            "this session ran more processes than the audit can follow (256) - the ones past that limit were still put on the session clock, but the audit could not check them, so they are missing from the process count and the channel lists below"
         }
         // Says what the verdict above it does NOT say. The verdict answers "did the substitution take
         // effect", and it can be `works` over an application that read its time somewhere we cannot
@@ -783,16 +788,18 @@ fn render_refusal(refused: Option<&[chrono_proto::FollowedProcess]>, incomplete:
     if incomplete {
         out.push_str("            not every process the application started could be looked for - some may still run on the REAL clock\n");
     }
-    if left.is_empty() {
-        return out;
+    if !left.is_empty() {
+        out.push_str("            except these, which it could not end - they run on the REAL clock:\n");
     }
-    out.push_str("            except these, which it could not end - they run on the REAL clock:\n");
     for p in left {
         match &p.image {
             Some(image) => out.push_str(&format!("            - {image} (pid {})\n", p.pid)),
             None => out.push_str(&format!("            - pid {}\n", p.pid)),
         }
     }
+    // The way past the refusal, said where the refusal is (R5, D4-1). The window has the same choice as
+    // a box on its start screen, with its own explanation there.
+    out.push_str("            to run it anyway, start it again with --force - the report then marks the session unreliable\n");
     out
 }
 
@@ -847,11 +854,21 @@ fn render_channel_names(heading: &str, rows: &[(UnitId, String)]) -> String {
 /// The DevTools endpoints the session reached inside the application, one line each, or nothing.
 /// The port is the actionable half: a debugging port stands open in the application for as long as
 /// its engine runs, and a tester who wants their own DevTools on those pages attaches to this one.
-fn render_engines(engines: &[chrono_proto::ReachedEngine]) -> String {
+///
+/// The heading says what the session's page count says (R5, P15). It used to say that their pages ran
+/// on the session clock whenever an engine was reached, also when no page was put on it - the session
+/// attached to an engine whose pages it then could not shim, or found them all on the clock already
+/// through the hook (their rows are under their process then). The count is one for every engine, so
+/// the heading never claims every page.
+fn render_engines(engines: &[chrono_proto::ReachedEngine], context_count: u32) -> String {
     if engines.is_empty() {
         return String::new();
     }
-    let mut out = String::from("  web engines reached inside the app (their pages ran on the session clock):\n");
+    let mut out = String::from(if context_count > 0 {
+        "  web engines reached inside the app (pages put on the session clock through them are the context rows above):\n"
+    } else {
+        "  web engines reached inside the app (none of their pages was put on the session clock through the debugging port):\n"
+    });
     for e in engines {
         let name = if e.browser.is_empty() { "engine" } else { e.browser.as_str() };
         out.push_str(&format!("            - {name} on port {} (pid {})\n", e.port, e.pid));
@@ -1000,7 +1017,7 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
         &r.installed_late,
     ));
     out.push_str(&render_uncovered_children(&r.uncovered_children, r.uncovered_children_total));
-    out.push_str(&render_engines(&r.engines));
+    out.push_str(&render_engines(&r.engines, r.context_count));
 
     if !r.warnings.is_empty() {
         out.push_str("  warnings:\n");
@@ -1022,14 +1039,58 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
 }
 
 /// Session parameters echoed into an evidence export so the file stands alone as proof (8.8).
+#[derive(Default)]
 pub(crate) struct EvidenceParams {
     pub(crate) moment: String,
     pub(crate) zone: String,
     pub(crate) mode: String,
+    /// The run itself, which the file used to leave out (R5, D4-5).
+    pub(crate) run: RunFacts,
 }
 
-/// A clean WORKS session (no vanish, no partial/fails). Anything else must carry the unreliable
-/// banner in an evidence export - evidence that hides doubt is worse than none (8.8).
+/// What a reader of an evidence file needs to know about the run besides the time it ran at: which
+/// build ran what, when, where and with which switches (R5, D4-5). The file is the one a tester hands
+/// on, and before this it named the moment and the mode but not the program it ran. Every field is
+/// text the driver composed, rendered as it is.
+#[derive(Default)]
+pub(crate) struct RunFacts {
+    /// The version and the core's bitness, "0.4.0, 64-bit core".
+    pub(crate) build: String,
+    /// When the run started, in UTC from the real clock - the driver is not hooked.
+    pub(crate) started_utc: String,
+    pub(crate) target: String,
+    /// The folder the target started in, and whether it was asked for or inherited.
+    pub(crate) folder: String,
+    /// See [`arguments_line`].
+    pub(crate) arguments: String,
+    /// The switches the run was given beyond its moment, zone and mode, or "none".
+    pub(crate) flags: String,
+}
+
+/// The arguments line of an evidence file (R5-D16): how many the target got, and the arguments
+/// themselves only when the run asked for them with `--report-args`. An argument can carry a password
+/// or a token, and the file is made to be handed to someone, so the count is the default. Recorded
+/// arguments are quoted with escapes, so one with a space, a quote or a control character reads back
+/// exactly and cannot pass for a line of the report.
+pub(crate) fn arguments_line(args: &[String], record: bool) -> String {
+    match (args.len(), record) {
+        (0, _) => "none".to_string(),
+        (n, true) => format!("{n} - {args:?}"),
+        (n, false) => format!("{n}, left out (--report-args writes them word for word)"),
+    }
+}
+
+/// The warnings that undo a WORKS verdict as evidence (R5-D3, P14). The verdict answers whether the
+/// substitution took effect on the channels it covers, and it stands - but the file a tester cites
+/// claims more: that what the application did came from the session clock. A Go program reads its
+/// wall clock where no hook reaches, and a session in which no process ever read a clock the session
+/// substitutes proves nothing about time at all. Mirrored by the window (`SessionViewModel.IsReliable`).
+pub(crate) const WARNINGS_THAT_UNDO_EVIDENCE: [&str; 2] =
+    ["runtime.go_wall_clock_unreachable", "coverage.session_clock_never_read"];
+
+/// A clean WORKS session (no vanish, no partial/fails, no warning that undoes it as evidence).
+/// Anything else must carry the unreliable banner in an evidence export - evidence that hides doubt is
+/// worse than none (8.8).
 pub(crate) fn session_is_reliable(r: &SessionReport) -> bool {
     // A run the driver cut short is not evidence of anything, whatever verdict happened to arrive
     // before the knife. The core emits the parent's verdict early, so a timed-out session CAN carry a
@@ -1038,6 +1099,9 @@ pub(crate) fn session_is_reliable(r: &SessionReport) -> bool {
         return false;
     }
     if r.vanished.is_some() {
+        return false;
+    }
+    if r.warnings.iter().any(|w| WARNINGS_THAT_UNDO_EVIDENCE.contains(&w.as_str())) {
         return false;
     }
     if let Some((v, _, _)) = &r.session_verdict {
@@ -1071,6 +1135,11 @@ pub(crate) fn render_evidence(r: &SessionReport, p: &EvidenceParams) -> String {
     out.push_str(&format!(
         "  requested:  {} (zone {}, mode {})\n",
         p.moment, p.zone, p.mode
+    ));
+    let f = &p.run;
+    out.push_str(&format!(
+        "  chrono:     {}\n  started:    {} (real clock)\n  target:     {}\n  folder:     {}\n  arguments:  {}\n  flags:      {}\n",
+        f.build, f.started_utc, f.target, f.folder, f.arguments, f.flags
     ));
     out
 }
@@ -1194,7 +1263,12 @@ mod tests {
                 (context(4), "page Date.now".into(), 12),
             ],
             context_count: 2,
-            engines: vec![chrono_proto::ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into() }],
+            engines: vec![chrono_proto::ReachedEngine {
+                pid: 8072,
+                port: 51234,
+                browser: "Engine/1.0".into(),
+                context_count: 2,
+            }],
             ..empty_report()
         };
         let out = render_report(&r);
@@ -1210,6 +1284,35 @@ mod tests {
         });
         assert!(plain.contains("(processes: 1)"), "got:\n{plain}");
         assert!(!plain.contains("web engines"), "got:\n{plain}");
+    }
+
+    /// The engines heading says only what the page count says (R5, P15): pages put on the session clock
+    /// when there are some, and that none was when an engine was reached but no page was shimmed. It
+    /// used to say their pages ran on the session clock in both cases.
+    #[test]
+    fn the_engines_heading_claims_pages_only_when_some_were_put_on_the_clock() {
+        let reached = |contexts: u32| SessionReport {
+            session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
+            context_count: contexts,
+            engines: vec![chrono_proto::ReachedEngine {
+                pid: 8072,
+                port: 51234,
+                browser: "Engine/1.0".into(),
+                context_count: contexts,
+            }],
+            ..empty_report()
+        };
+        let with_pages = render_report(&reached(2));
+        assert!(with_pages.contains("(pages put on the session clock through them are the context rows above):"), "got:\n{with_pages}");
+        let without = render_report(&reached(0));
+        assert!(
+            without.contains("(none of their pages was put on the session clock through the debugging port):"),
+            "got:\n{without}"
+        );
+        for out in [&with_pages, &without] {
+            assert!(!out.contains("their pages ran on the session clock"), "the old claim is back, got:\n{out}");
+            assert!(out.contains("- Engine/1.0 on port 51234 (pid 8072)"), "got:\n{out}");
+        }
     }
 
     /// A kind this build does not know - a newer core naming a unit this driver has never heard of -
@@ -1375,6 +1478,28 @@ mod tests {
         assert!(ended < caveat, "got:\n{out}");
 
         assert!(!render_report(&empty_report()).contains("refused:"));
+    }
+
+    /// A refusal names the way past it, after everything it says about what was ended - with or without
+    /// processes left behind - and a session that was not refused does not (R5, D4-1).
+    #[test]
+    fn a_refusal_names_force_as_the_way_to_run_anyway() {
+        const FORCE: &str = "            to run it anyway, start it again with --force - the report then marks the session unreliable\n";
+        let refused = |left: Vec<chrono_proto::FollowedProcess>| SessionReport {
+            parent_verdict: Some(("fails".into(), "coverage.time_channels_uncovered".into())),
+            refused: Some(left),
+            ..empty_report()
+        };
+        for left in [Vec::new(), vec![chrono_proto::FollowedProcess { pid: 5150, image: Some("helper.exe".into()) }]] {
+            let named = !left.is_empty();
+            let out = render_report(&refused(left));
+            let force = out.find(FORCE).unwrap_or_else(|| panic!("no --force line, got:\n{out}"));
+            assert!(out.find("refused:").is_some_and(|at| at < force), "got:\n{out}");
+            if named {
+                assert!(out.find("helper.exe").is_some_and(|at| at < force), "the way past comes after the list, got:\n{out}");
+            }
+        }
+        assert!(!render_report(&empty_report()).contains("--force"));
     }
 
     #[test]
@@ -1553,6 +1678,7 @@ mod tests {
             moment: "2038-01-19T03:14:07".into(),
             zone: "+00:00".into(),
             mode: "x60".into(),
+            ..Default::default()
         };
         let out = render_evidence(&r, &p);
         assert!(out.contains("the target closed itself with code 2"), "got:\n{out}");
@@ -1637,6 +1763,7 @@ mod tests {
             moment: "2038-01-19T03:14:07".into(),
             zone: "+00:00".into(),
             mode: "x60".into(),
+            ..Default::default()
         };
         let out = render_evidence(&r, &p);
         assert!(
@@ -1664,7 +1791,12 @@ mod tests {
         let verdict = text.find("WORKS").expect("verdict");
         assert!(caveat < verdict, "the caveat must come before the verdict it qualifies, got:\n{text}");
 
-        let p = EvidenceParams { moment: "2030-06-15T12:00:00".into(), zone: "+00:00".into(), mode: "flow".into() };
+        let p = EvidenceParams {
+            moment: "2030-06-15T12:00:00".into(),
+            zone: "+00:00".into(),
+            mode: "flow".into(),
+            ..Default::default()
+        };
         let out = render_evidence(&r, &p);
         assert!(out.starts_with("!! UNRELIABLE EVIDENCE"), "a session the core never closed is not proof, got:\n{out}");
     }
@@ -1680,6 +1812,7 @@ mod tests {
             moment: "2038-01-19T03:14:07".into(),
             zone: "+00:00".into(),
             mode: "x60".into(),
+            ..Default::default()
         };
         let out = render_evidence(&r, &p);
         assert!(!out.contains("UNRELIABLE"), "a works session must not be flagged, got:\n{out}");
@@ -1700,10 +1833,72 @@ mod tests {
             moment: "2038-01-19T03:14:07".into(),
             zone: "+00:00".into(),
             mode: "flow".into(),
+            ..Default::default()
         };
         let out = render_evidence(&r, &p);
         assert!(out.starts_with("!! UNRELIABLE EVIDENCE"), "non-works must lead with the banner, got:\n{out}");
         assert!(out.contains("DID NOT TAKE EFFECT"), "got:\n{out}");
+    }
+
+    /// A WORKS verdict is not evidence when the application read its time where no hook reaches, or
+    /// read no substituted clock at all (R5-D3, P14). The verdict stays, the file gets the banner - for
+    /// each key alone, and not for a warning that leaves the evidence standing.
+    #[test]
+    fn a_works_session_that_proves_nothing_about_time_is_flagged_as_unreliable_evidence() {
+        let works_with = |warning: &str| SessionReport {
+            session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
+            covered: vec![(pid(1), "GetSystemTime".into(), 2)],
+            warnings: vec![warning.to_string()],
+            ..empty_report()
+        };
+        for key in WARNINGS_THAT_UNDO_EVIDENCE {
+            let r = works_with(key);
+            assert!(!session_is_reliable(&r), "{key} left a works session reliable");
+            let out = render_evidence(&r, &EvidenceParams::default());
+            assert!(out.starts_with("!! UNRELIABLE EVIDENCE"), "{key}: no banner, got:\n{out}");
+            assert!(out.contains("WORKS"), "the verdict itself is not changed, got:\n{out}");
+        }
+        assert!(session_is_reliable(&works_with("wait.timeout_collapsed")), "a caution is not a reason to doubt the file");
+    }
+
+    /// The evidence file names the run itself, not only the moment it ran at (R5, D4-5), and the target's
+    /// arguments only on request, because one can carry a password (R5-D16).
+    #[test]
+    fn the_evidence_file_names_the_run_and_keeps_the_arguments_out_unless_asked() {
+        let r = SessionReport {
+            session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
+            ..empty_report()
+        };
+        let p = EvidenceParams {
+            moment: "2038-01-19T03:14:07".into(),
+            zone: "+00:00".into(),
+            mode: "x60".into(),
+            run: RunFacts {
+                build: "0.4.0, 64-bit core".into(),
+                started_utc: "2026-10-13T19:05:12Z".into(),
+                target: r"C:\apps\test.exe".into(),
+                folder: r"C:\work".into(),
+                arguments: arguments_line(&["--token".into(), "s3cret".into()], false),
+                flags: "--scale-duration --ticks 10".into(),
+            },
+        };
+        let out = render_evidence(&r, &p);
+        for line in [
+            "  chrono:     0.4.0, 64-bit core\n",
+            "  started:    2026-10-13T19:05:12Z (real clock)\n",
+            "  target:     C:\\apps\\test.exe\n",
+            "  folder:     C:\\work\n",
+            "  arguments:  2, left out (--report-args writes them word for word)\n",
+            "  flags:      --scale-duration --ticks 10\n",
+        ] {
+            assert!(out.contains(line), "missing {line:?}, got:\n{out}");
+        }
+        assert!(!out.contains("s3cret"), "an argument reached the file without --report-args, got:\n{out}");
+
+        assert_eq!(arguments_line(&[], false), "none");
+        assert_eq!(arguments_line(&[], true), "none");
+        let odd = ["a b".to_string(), "say \"hi\"".to_string(), "line\nbreak".to_string()];
+        assert_eq!(arguments_line(&odd, true), r#"3 - ["a b", "say \"hi\"", "line\nbreak"]"#, "recorded arguments read back exactly");
     }
 
     #[test]

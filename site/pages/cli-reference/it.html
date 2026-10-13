@@ -200,7 +200,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Scrive il report per le persone in un file. Un verdetto diverso da <em>funziona</em> apre
               quel file con un avviso di prova inaffidabile, perché una prova che nasconde il proprio dubbio
-              è peggio di nessuna.</td>
+              è peggio di nessuna. Anche una sessione con verdetto <em>funziona</em> riceve questo avviso quando l'applicazione non ha letto nessuno degli orologi che la sessione sostituisce, o quando è un programma Go, il cui orologio di sistema Chrono Mock non raggiunge. Il file nomina anche l'esecuzione stessa: la versione, quando è partita, il target, la sua cartella e le opzioni.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Insieme a <code>--report</code>, scrive in quel file anche gli argomenti del target, parola per parola. Disattivato per impostazione predefinita, perché un argomento può contenere una password - il file dice allora solo quanti erano.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -239,6 +243,7 @@
           <tr><td>3</td><td>errore interno - il motore non è riuscito ad avviarsi, ha incontrato uno stato imprevisto o si è fermato prima di chiudere la sessione (qualunque fosse il suo codice di uscita). Un'esecuzione così non porta alcun verdetto</td></tr>
           <tr><td>5</td><td>l'operazione non è inclusa in questa versione - per esempio uno scenario il cui momento richiede un calendario che <code>run</code> non sa ancora caricare. Volutamente distinto da un errore d'uso: hai chiesto qualcosa che non esiste ancora, non qualcosa di sbagliato</td></tr>
           <tr><td>6</td><td>l'esecuzione è stata interrotta - <code>--timeout</code> è scaduto, oppure il motore ha smesso di rispondere per 15 secondi ed è stato fermato. Non è un verdetto: la sessione è stata interrotta, quindi non dimostra nulla sul target né in un senso né nell'altro</td></tr>
+          <tr><td>7</td><td>un'altra sessione è già in corso - una sessione alla volta. Basta riprovare quando è terminata</td></tr>
         </tbody>
       </table>
     </div>

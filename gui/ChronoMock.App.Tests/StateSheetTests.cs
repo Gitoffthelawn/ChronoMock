@@ -222,9 +222,19 @@ public class StateSheetTests
             var total = 0;
 
             total += RenderResult("result-works", PhaseStates.ResultWorks()).Count;
+            // A works that proves nothing about time, its caveats under the reason with the audit folded (R5-D3).
+            total += Shows(
+                RenderResult("result-not-evidence", PhaseStates.ResultWorksButNotEvidence()),
+                "runtime.go_wall_clock_unreachable");
             total += RenderResult("result-partial", PhaseStates.ResultPartial()).Count;
             total += RenderResult("result-processes", PhaseStates.ResultPartialWithUncoveredProcesses(), "AuditSection").Count;
-            total += RenderResult("result-embedded", PhaseStates.ResultPartialWithEmbeddedPages(), "AuditSection").Count;
+            total += Shows(
+                RenderResult("result-embedded", PhaseStates.ResultPartialWithEmbeddedPages(), "AuditSection"),
+                "audit.engines_note");
+            // An engine reached with none of its pages put on the clock, and the note that says so (R5, P15).
+            total += Shows(
+                RenderResult("result-engine-no-pages", PhaseStates.ResultPartialWithEngineButNoPages(), "AuditSection"),
+                "audit.engines_note_none");
             // The registry value an elevated session wrote: taken away again, and - the one that is worded
             // as a problem because it is one - left behind.
             total += Shows(

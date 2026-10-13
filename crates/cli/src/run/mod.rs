@@ -22,7 +22,7 @@ use std::process::{Command as PCommand, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use chrono_proto::{Command, Event, MomentSpec, PROTOCOL_VERSION};
+use chrono_proto::{Command, Event, MomentSpec, TimeSpec, PROTOCOL_VERSION};
 
 use args::{elevation_problem, parse_run_args, target_spec_for, RunArgs};
 use collect::Collector;
@@ -30,9 +30,9 @@ use moment::resolve_time_spec;
 use crate::cdp;
 use crate::cli::print_usage;
 use crate::output::{diag, out, outln};
-use crate::report::{mode_label, render_evidence, render_report, EvidenceParams};
+use crate::report::{arguments_line, mode_label, render_evidence, render_report, EvidenceParams, RunFacts};
 use crate::wire::{read_line_bytes, LineRead};
-use crate::zone::{format_bias, session_zone_default};
+use crate::zone::{format_bias, now_filetime_utc, session_zone_default};
 /// How long `chrono run` waits for ANY event from the core before calling it hung.
 ///
 /// Deliberately the same 15 s the GUI uses (`SessionViewModel.IdleTimeout`), because it is the same
@@ -73,6 +73,74 @@ pub(crate) fn send_command(stdin: &mut std::process::ChildStdin, cmd: &Command) 
         let _ = stdin.write_all(line.as_bytes());
         let _ = stdin.flush();
     }
+}
+
+/// What the evidence file says beside the report: the time the session ran at, and the run itself -
+/// which build, when, what, where and with which switches (8.8, R5 D4-5).
+fn evidence_params(ra: &RunArgs, spec: &TimeSpec, now_bias: i32, started_utc: String) -> EvidenceParams {
+    EvidenceParams {
+        moment: spec.moment.local.clone().unwrap_or_else(|| "(default)".into()),
+        // The zone the session ACTUALLY ran in, not the flag. This line used to read
+        // "(host default)" for a session running on UTC - a false statement in the file a tester
+        // is meant to cite as proof (untouchable rule 4).
+        zone: match ra.zone_bias_min {
+            Some(b) => format_bias(b),
+            None => format!("{} (host default)", format_bias(now_bias)),
+        },
+        mode: mode_label(&spec.mode, spec.multiplier),
+        run: RunFacts {
+            build: format!("{}, {}-bit core", env!("CARGO_PKG_VERSION"), usize::BITS),
+            started_utc,
+            target: ra.target.clone(),
+            folder: match &ra.cwd {
+                Some(dir) => dir.clone(),
+                // The target inherits this command's directory, so that is where it ran.
+                None => match std::env::current_dir() {
+                    Ok(dir) => format!("{} (inherited from this command)", dir.display()),
+                    Err(_) => "(inherited from this command, which could not name it)".to_string(),
+                },
+            },
+            arguments: arguments_line(&ra.args, ra.report_args),
+            flags: evidence_flags(ra),
+        },
+    }
+}
+
+/// The switches a run was given beyond its moment, zone and mode, which the evidence file names on a
+/// line of their own, in one stable order, or "none" (R5, D4-5). Rebuilt from what was parsed rather
+/// than copied from the command line, so the target's arguments never ride along with them.
+fn evidence_flags(ra: &RunArgs) -> String {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(id) = &ra.preset {
+        out.push(format!("--preset {id}"));
+    }
+    let mut params: Vec<(&String, &String)> = ra.params.iter().collect();
+    params.sort();
+    out.extend(params.into_iter().map(|(id, value)| format!("--param {id}={value}")));
+    let switches = [
+        (ra.scale_duration, "--scale-duration"),
+        (ra.scale_qpc, "--scale-qpc"),
+        (ra.force, "--force"),
+        (!ra.embedded, "--no-embedded"),
+        (ra.elevated_embedded, "--elevated-embedded"),
+        (ra.keep_background_timers, "--keep-background-timers"),
+        (ra.json, "--json"),
+        (ra.report_args, "--report-args"),
+    ];
+    out.extend(switches.into_iter().filter(|(on, _)| *on).map(|(_, flag)| flag.to_string()));
+    if ra.ticks > 0 {
+        out.push(format!("--ticks {}", ra.ticks));
+    }
+    if let Some(secs) = ra.timeout_secs {
+        out.push(format!("--timeout {secs}"));
+    }
+    if let Some((tick, m)) = ra.set_after {
+        out.push(format!("--set-after {tick}:{m}"));
+    }
+    if let Some((tick, moment)) = &ra.jump_after {
+        out.push(format!("--jump-after {tick}:{moment}"));
+    }
+    if out.is_empty() { "none".to_string() } else { out.join(" ") }
 }
 
 pub(crate) fn driver_run(argv: &[String]) -> i32 {
@@ -125,6 +193,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         }
     };
 
+    let started_utc = format!("{}Z", chrono_core::filetime_utc_to_wall(now_filetime_utc(), 0));
     let mut child = match PCommand::new(exe)
         .arg("__core")
         .stdin(Stdio::piped())
@@ -187,17 +256,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         timed_out.or(core_lost.then_some("core_lost")),
     );
     if let Some(path) = &ra.report {
-        let params = EvidenceParams {
-            moment: spec.moment.local.clone().unwrap_or_else(|| "(default)".into()),
-            // The zone the session ACTUALLY ran in, not the flag. This line used to read
-            // "(host default)" for a session running on UTC - a false statement in the file a tester
-            // is meant to cite as proof (untouchable rule 4).
-            zone: match ra.zone_bias_min {
-                Some(b) => format_bias(b),
-                None => format!("{} (host default)", format_bias(now_bias)),
-            },
-            mode: mode_label(&spec.mode, spec.multiplier),
-        };
+        let params = evidence_params(&ra, &spec, now_bias, started_utc);
         match std::fs::write(path, render_evidence(&report, &params)) {
             Ok(()) => diag!("chrono: evidence written to {path}"),
             Err(e) => diag!("chrono: cannot write evidence to {path}: {e}"),
@@ -637,7 +696,7 @@ const STDERR_HELD_BY_TARGET: &str = "chrono: the application is still running an
 /// the internal-error code with a line saying what happened (rules 4 and 6).
 pub(crate) fn driver_exit_code(core_code: Option<i32>) -> i32 {
     match core_code {
-        Some(c) if matches!(c, 0 | 1 | 2 | 3 | 4 | 5 | 6 | 10 | 11 | 12) => c,
+        Some(c) if matches!(c, 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 10 | 11 | 12) => c,
         _ => 3,
     }
 }
@@ -645,6 +704,24 @@ pub(crate) fn driver_exit_code(core_code: Option<i32>) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The flags line of the evidence file names every switch the run was given, in one order, and
+    /// never the target's arguments, which have a line of their own (R5, D4-5).
+    #[test]
+    fn the_evidence_flags_name_the_switches_and_never_the_target_arguments() {
+        let parsed = |s: &[&str]| parse_run_args(&s.iter().map(|a| a.to_string()).collect::<Vec<_>>()).unwrap();
+        assert_eq!(evidence_flags(&parsed(&["app.exe"])), "none");
+        let busy = parsed(&[
+            "app.exe", "--args", "--token s3cret", "--scale-duration", "--ticks", "10", "--no-embedded", "--report",
+            "e.txt", "--report-args", "--timeout", "30", "--set-after", "3:60", "--json",
+        ]);
+        assert_eq!(
+            evidence_flags(&busy),
+            "--scale-duration --no-embedded --json --report-args --ticks 10 --timeout 30 --set-after 3:60"
+        );
+        let preset = parsed(&["app.exe", "--preset", "month-end", "--param", "b=2", "--param", "a=1"]);
+        assert_eq!(evidence_flags(&preset), "--preset month-end --param a=1 --param b=2", "parameters in a stable order");
+    }
 
     /// The driver's reader goes on past a line it cannot use (R4-W1). It used to stop at the first
     /// byte that was not UTF-8 - the whole rest of the session, verdict included, was then lost.
@@ -872,11 +949,11 @@ mod tests {
     /// (R3-5).
     #[test]
     fn an_exit_code_outside_the_contract_becomes_the_internal_error_code() {
-        for verdict in [0, 1, 2, 3, 4, 5, 6, 10, 11, 12] {
+        for verdict in [0, 1, 2, 3, 4, 5, 6, crate::core::SESSION_BUSY_EXIT, 10, 11, 12] {
             assert_eq!(driver_exit_code(Some(verdict)), verdict);
         }
         assert_eq!(driver_exit_code(Some(-1)), 3, "a killed core must not look like a verdict");
-        assert_eq!(driver_exit_code(Some(7)), 3);
+        assert_eq!(driver_exit_code(Some(8)), 3);
         assert_eq!(driver_exit_code(Some(0xC000_0005u32 as i32)), 3, "an access violation is not a verdict");
         assert_eq!(driver_exit_code(None), 3, "no code at all is not a verdict either");
     }

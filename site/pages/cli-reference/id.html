@@ -195,7 +195,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Menulis laporan untuk manusia ke file. Putusan selain <em>berhasil</em> membuka file itu
               dengan banner bukti tidak andal, karena bukti yang menyembunyikan keraguannya sendiri lebih
-              buruk daripada tidak ada bukti.</td>
+              buruk daripada tidak ada bukti. Sesi dengan putusan <em>berhasil</em> juga mendapat banner ini bila aplikasi tidak membaca satu pun jam yang diganti oleh sesi, atau bila aplikasi itu program Go, yang jam dindingnya tidak terjangkau Chrono Mock. File juga menyebut eksekusinya sendiri: versi, waktu mulai, target, foldernya, dan flag.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Bersama <code>--report</code>, juga menulis argumen target ke file itu apa adanya. Mati secara bawaan, karena argumen bisa berisi kata sandi - file lalu hanya menyebut jumlahnya.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -234,6 +238,7 @@
           <tr><td>3</td><td>kesalahan internal - engine tidak dapat dimulai, menemui keadaan tak terduga, atau berhenti sebelum menutup sesi (apa pun kode keluarnya sendiri). Eksekusi seperti itu tidak membawa putusan</td></tr>
           <tr><td>5</td><td>operasi tidak disertakan dalam rilis ini - misalnya skenario yang momennya memerlukan kalender, yang belum dapat dimuat <code>run</code>. Sengaja dibedakan dari kesalahan penggunaan: Anda meminta sesuatu yang belum ada, bukan sesuatu yang salah</td></tr>
           <tr><td>6</td><td>eksekusi terpotong - <code>--timeout</code> habis, atau engine berhenti merespons selama 15 detik dan dihentikan. Ini bukan putusan: sesi terputus, sehingga tidak membuktikan apa pun tentang target ke arah mana pun</td></tr>
+          <tr><td>7</td><td>sesi lain sudah berjalan - hanya satu sesi dalam satu waktu. Cukup coba lagi setelah sesi itu selesai</td></tr>
         </tbody>
       </table>
     </div>

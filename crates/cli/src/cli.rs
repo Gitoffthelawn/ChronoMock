@@ -223,7 +223,7 @@ pub(crate) fn print_license(argv: &[String]) -> i32 {
 }
 
 pub(crate) fn print_usage() {
-    diag!("usage: chrono run <target> [--at <local-moment>] [--preset <id>] [--param id=value]... [--zone <+HH:MM>] [--mode <flow|frozen|xN>] [--scale-duration] [--scale-qpc] [--ticks N] [--timeout <s>] [--set-after T:M] [--jump-after T:moment] [--args \"...\"] [--cwd <dir>] [--report <path>] [--force] [--no-embedded] [--elevated-embedded] [--keep-background-timers] [--dry-run] [--json]");
+    diag!("usage: chrono run <target> [--at <local-moment>] [--preset <id>] [--param id=value]... [--zone <+HH:MM>] [--mode <flow|frozen|xN>] [--scale-duration] [--scale-qpc] [--ticks N] [--timeout <s>] [--set-after T:M] [--jump-after T:moment] [--args \"...\"] [--cwd <dir>] [--report <path> [--report-args]] [--force] [--no-embedded] [--elevated-embedded] [--keep-background-timers] [--dry-run] [--json]");
     diag!("       --dry-run prints what the session would be and starts nothing - the resolved moment and zone, what a preset filled its parameters with, and which mechanism the target would take");
     diag!("       without --at (or --preset) the session clock starts at the real current time, so `--mode xN` alone just runs the target faster");
     diag!("       --scale-qpc also scales the high-resolution counter, which is where Python 3.13+ monotonic, .NET Stopwatch and Java nanoTime read elapsed time");
