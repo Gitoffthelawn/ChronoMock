@@ -6,6 +6,40 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The report says when timers could not keep the session speed** (`timer.interval_floored`). A
+  window timer (`SetTimer`) never fires more often than every 10 ms, a limit Windows sets, and a
+  periodic waitable or thread-pool timer is never given a period under 1 ms, so at a high speed such
+  a timer runs slower than the rest of the session. Waits held at their floor were already reported
+  (`wait.timeout_collapsed`), timers were not.
+
+### Changed
+
+- **The audit no longer claims a time function that part of the application reads past.** Most time
+  functions live in kernelbase, and kernel32 only passes the call on, so Chrono Mock places its hook
+  where the two meet. When it cannot - another program hooked kernelbase first, or a Windows build
+  where kernel32 has a copy of its own - the hook stays on kernel32: a program that calls kernel32
+  still reads the session clock, but the C runtime and anything else that goes to kernelbase directly
+  read the real one. The report used to list such a function as covered. It now lists it as not
+  covered, so the session works partially (exit code 10). On the Windows builds measured so far,
+  kernel32 leads into kernelbase for every one of these functions.
+- **The note about more than 256 processes says what happened to them.** It said that some of them
+  ran with no fake clock at all. They were put on the session clock, and only the audit could not
+  check them, which is what the note now says, on the command line and in the window.
+- **A session waiting for a library that never loads wakes the application less often.** The hook
+  looks for a window, sound or network library that the application loads after the start: often in
+  the first two seconds, then every 250 ms for as long as the session lasts. It now backs off to once
+  a second, so a console program that never loads those libraries is woken once a second instead of
+  four times. A library loaded later than that is hooked up to a second after it arrives.
+
+### Fixed
+
+- **A window, sound or network library present at the start can no longer take the hook with it.**
+  The hook keeps such a library loaded for as long as the application runs, as it already did for one
+  loaded later, so an application that frees it cannot leave the report claiming a function whose
+  hook went away with the library.
+
 ## [0.4.0] - 2026-10-07
 
 ### Added

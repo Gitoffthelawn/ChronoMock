@@ -420,6 +420,7 @@
   "source.network_at_start": "Aplikacja otworzyła połączenie sieciowe - może czytać czas z serwera, na który żaden lokalny zegar nie ma wpływu.",
   "wait.object_waits_not_scaled": "Oczekiwania na obiekty systemowe są świadomie zostawione na prawdziwym zegarze - limit czasu I/O albo sprzętu nie jest skracany.",
   "wait.timeout_collapsed": "Część oczekiwań tej aplikacji była za krótka, żeby podzielić je przez pełny mnożnik, więc przebiegły w najkrótszym kroku, jakiego to narzędzie używa (1 ms). Ta część aplikacji nie przyspieszyła - mniejsza prędkość sprawi, że będzie dokładnie.",
+  "timer.interval_floored": "Część timerów tej aplikacji była za krótka, żeby podzielić je przez pełny mnożnik, więc biegły w najkrótszym dozwolonym odstępie (10 ms dla timerów okien, tyle wymusza Windows, i 1 ms dla pozostałych). Ta część aplikacji działała wolniej niż reszta sesji - mniejsza prędkość sprawi, że będzie dokładnie.",
   "wait.network_timeouts_scaled": "Ta aplikacja otworzyła połączenie sieciowe. Biblioteka sieciowa, która sama odmierza limit czasu z systemowego licznika, na przykład WinHTTP, idzie za prędkością sesji - więc serwer wolniejszy niż ten limit podzielony przez prędkość sprawi, że żądanie się nie powiedzie, choć oczekiwania pod spodem zostają na prawdziwym zegarze.",
   "timer.multimedia_not_scaled": "Timer multimedialny (timeSetEvent) jest obserwowany, ale nie skalowany.",
   "clock.timegettime_scaled_audio_may_shift": "Zegar winmm timeGetTime jest skalowany razem z resztą osi trwania, więc aplikacja odmierzająca z niego własne tempo podąża za sesją - ale aplikacja multimedialna pozycjonująca dźwięk z tego zegara może dryfować.",
@@ -455,7 +456,7 @@
   "embedded.web_engine_processes_uncovered": "Są wśród nich procesy osadzonego silnika web (WebView2 albo Qt WebEngine), więc część tego silnika działała na prawdziwym zegarze. Czy jego strony też - nie da się ustalić: wśród nazwanych procesów nie było renderera.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
-  "coverage.pid_registry_full": "Ta sesja uruchomiła więcej procesów, niż audyt potrafi śledzić (256). Część działała całkiem bez fałszywego zegara i nie ma jej w liczbie procesów ani na listach powyżej.",
+  "coverage.pid_registry_full": "Ta sesja uruchomiła więcej procesów, niż audyt potrafi śledzić (256). Te ponad limit też dostały fałszywy zegar, ale audyt nie mógł ich sprawdzić, więc nie ma ich w liczbie procesów ani na listach powyżej.",
   // Session-level for the same reason as the one above: the question is whether the FAMILY read the
   // clock, and a parent that reads nothing while its child reads the fake date is a session that
   // worked. Deliberately does not touch the verdict - what the session achieved and what the

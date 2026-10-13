@@ -339,6 +339,11 @@ pub(crate) fn describe_warning(key: &str) -> String {
             "some waits were too short to divide by the full speed factor and ran at this tool's \
              shortest step (1 ms) instead - that part of the application did not accelerate"
         }
+        "timer.interval_floored" => {
+            "some timers were too short to divide by the full speed factor and fired at the shortest \
+             interval allowed (10 ms for window timers, set by Windows, 1 ms for the others) - that part \
+             of the application ran slower than the rest of the session"
+        }
         // Sits next to the object-wait line on purpose: that one says an I/O timeout is not shortened,
         // and for a library that measures its own timeout from the tick count this one says otherwise.
         "wait.network_timeouts_scaled" => {
@@ -419,7 +424,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
             "Chrono Mock set the WebView2 option for the program it started, but WebView2 was loaded by a different program, which the option does not apply to - start that program directly to reach its pages"
         }
         "coverage.pid_registry_full" => {
-            "this session ran more processes than the audit can track (256), so some ran uncovered and are missing from the process count and the channel lists below"
+            "this session ran more processes than the audit can follow (256) - the ones past that limit were still put on the session clock, but the audit could not check them, so they are missing from the process count and the channel lists below"
         }
         // Says what the verdict above it does NOT say. The verdict answers "did the substitution take
         // effect", and it can be `works` over an application that read its time somewhere we cannot

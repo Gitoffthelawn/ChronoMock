@@ -74,7 +74,7 @@ use chrono_ctl::{
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
-    wait_hit_floor, ChannelModule, Cov,
+    wait_hit_floor, bump_timers_at_floor, timer_elapse_hit_floor, timer_period_hit_floor, ChannelModule, Cov,
     Ctl, CHANNELS, IDX_GDTZI, IDX_GLT, IDX_GST, IDX_GSTAFT, IDX_GSTPAFT, IDX_GTC, IDX_GTC64,
     IDX_GTZI, IDX_NTDELAY, IDX_NTQSI, IDX_NTQST, IDX_QUIT, IDX_SLEEP, IDX_SLEEPEX, IDX_STSL,
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
@@ -409,13 +409,31 @@ const WAIT_TIMEOUT_CODE: u32 = 258;
 /// module and the hook.
 const LATE_POLL_FAST_MS: u32 = 20;
 
-/// The interval after the startup burst is over.
+/// The first interval after the startup burst is over. It doubles from here up to
+/// [`LATE_POLL_CEILING_MS`].
 const LATE_POLL_SLOW_MS: u32 = 250;
+
+/// The longest interval, kept for the rest of the session once reached (R5, WY13). A target that never
+/// loads one of the late modules - a console program never loads user32 - looks for it as long as the
+/// session lasts, and at a flat 250 ms that was four wake-ups a second for hours. The price is a module
+/// pulled in late being hooked up to a second after it arrives instead of a quarter, a window the
+/// audit already reports, since its counts are floors.
+const LATE_POLL_CEILING_MS: u32 = 1_000;
 
 /// How many fast looks before backing off - 100 x 20 ms covers the first two seconds of the target's
 /// life. A target that pulls in a module later than that (a plugin loaded on demand) is still picked
-/// up, just at the slow interval, where a wake-up costs four a second instead of fifty.
+/// up, just at the backed-off interval, where a wake-up costs at most four a second instead of fifty.
 const LATE_FAST_TRIES: u32 = 100;
+
+/// How long the watcher waits before its next look for a late module, after `tries` looks: the fast
+/// interval through the startup burst, then 250, 500 and 1 000 ms, and the ceiling from there on.
+fn late_poll_interval(tries: u32) -> u32 {
+    let Some(slow) = tries.checked_sub(LATE_FAST_TRIES) else {
+        return LATE_POLL_FAST_MS;
+    };
+    // The shift is capped, so it cannot overflow however long the session runs.
+    LATE_POLL_SLOW_MS.saturating_mul(1 << slow.min(4)).min(LATE_POLL_CEILING_MS)
+}
 
 /// Watch the core AND look for modules that arrive after `DllMain`.
 ///
@@ -425,8 +443,9 @@ const LATE_FAST_TRIES: u32 = 100;
 /// stack.
 ///
 /// The loop degenerates to the original INFINITE block as soon as `late_scan` reports nothing left to
-/// settle, which for a target whose modules were all present at `DllMain` is the FIRST call - so the
-/// common case pays one extra wait of 100 ms and nothing after that.
+/// settle, which for a target whose modules were all present at `DllMain` is the FIRST look - so that
+/// case pays no timed wait at all. A target that never loads one of them keeps looking for the whole
+/// session, backing off to one look a second (`late_poll_interval`).
 unsafe extern "system" fn watcher_proc(_p: *mut c_void) -> u32 { unsafe {
     if let Some(&h) = CORE_HANDLE.get() {
         let handle = HANDLE(h as *mut c_void);
@@ -438,13 +457,7 @@ unsafe extern "system" fn watcher_proc(_p: *mut c_void) -> u32 { unsafe {
             // pulls in early may already be there, and sleeping before the first look would hand
             // back a whole interval for nothing.
             late_scan();
-            let interval = if !late_pending() {
-                INFINITE
-            } else if tries < LATE_FAST_TRIES {
-                LATE_POLL_FAST_MS
-            } else {
-                LATE_POLL_SLOW_MS
-            };
+            let interval = if late_pending() { late_poll_interval(tries) } else { INFINITE };
             tries = tries.saturating_add(1);
             match read_core_wait(wait_raw(handle, interval), || core_exit_code(handle)) {
                 CoreWait::Running => {}
@@ -1735,6 +1748,24 @@ fn note_wait_at_floor() {
     }
 }
 
+/// Record that one timer could not be divided by the full multiplier (R5, D8) - the timer twin of
+/// `note_wait_at_floor`, for the same reason: a timer held at a floor still runs faster, just not by M,
+/// and rule 27 says that part is named rather than left silent.
+fn note_timer_at_floor() {
+    if let Some(p) = live_cov() {
+        unsafe { bump_timers_at_floor(p) }
+    }
+}
+
+/// A waitable or thread-pool timer period scaled by `scale`, counting the case where the 1 ms floor
+/// had to hold it.
+fn scaled_timer_period<P: Copy + Into<i64>>(period: P, m: i64, scale: fn(P, i64) -> P) -> P {
+    if timer_period_hit_floor(period.into(), m) {
+        note_timer_at_floor();
+    }
+    scale(period, m)
+}
+
 /// The scaled timeout, counting the case where the floor had to hold it.
 fn scaled_wait_ms(ms: u32, m: i64) -> u32 {
     if wait_hit_floor(ms, m) {
@@ -2069,7 +2100,7 @@ unsafe extern "system" fn h_swt(
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
                 let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
-                let scaled_period = scale_timer_period(period, m);
+                let scaled_period = scaled_timer_period(period, m, scale_timer_period);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, resume)
             }
             _ => o(timer, due, period, pfn, arg, resume),
@@ -2095,7 +2126,7 @@ unsafe extern "system" fn h_swtex(
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
                 let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
-                let scaled_period = scale_timer_period(period, m);
+                let scaled_period = scaled_timer_period(period, m, scale_timer_period);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, wake_context, tolerable_delay)
             }
             _ => o(timer, due, period, pfn, arg, wake_context, tolerable_delay),
@@ -2123,7 +2154,13 @@ unsafe extern "system" fn h_settimer(
     if detached() {
         return o(hwnd, id, elapse, timer_proc);
     }
-    o(hwnd, id, scale_timer_elapse(elapse, dur_multiplier()), timer_proc)
+    let m = dur_multiplier();
+    // Windows lifts the scaled interval to its minimum, so this timer runs slower than the session.
+    // Counted, because nothing else would say so (R5, D8).
+    if timer_elapse_hit_floor(elapse, m) {
+        note_timer_at_floor();
+    }
+    o(hwnd, id, scale_timer_elapse(elapse, m), timer_proc)
 }}
 
 // timeSetEvent (winmm, ADR-7 class C, OBSERVED): count the multimedia timer but never scale its
@@ -2253,7 +2290,8 @@ unsafe fn scale_tp_timer(pft: *const FILETIME, period: u32, window: u32) -> Opti
     // the rate that belongs to this `fake_now` and not to whatever the block said a moment earlier.
     let (fake_now, m) = fake_now_and_dur_m()?; // detached: forward untouched
     let scaled_due = scale_timer_due(ft_to_i64(core::ptr::read_unaligned(pft)), fake_now, m);
-    Some((i64_to_ft(scaled_due), scale_timer_period_ms(period, m), scale_timer_elapse(window, m)))
+    let scaled_period = scaled_timer_period(period, m, scale_timer_period_ms);
+    Some((i64_to_ft(scaled_due), scaled_period, scale_timer_elapse(window, m)))
 }}
 
 unsafe extern "system" fn h_set_tp_timer(pti: *mut c_void, pft: *const FILETIME, period: u32, window: u32) { unsafe {
@@ -2697,33 +2735,51 @@ fn log(msg: &str) {
     }
 }
 
-/// Where the code behind a kernel32 export actually runs, for `ChannelModule::KernelBaseBehindKernel32`:
-/// kernelbase's own export of the same name when kernel32's entry leads there (a forwarder already
-/// resolved to it, or a stub one indirect jump away), and kernel32's entry otherwise.
+/// Where a channel's detour goes, and whether every caller of the channel passes through that address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DetourSite {
+    at: usize,
+    every_caller: bool,
+}
+
+/// Where a channel's detour goes, from where its kernel32 entry leads (`side`, `None` for a channel
+/// of any other kind, whose detour stands on its own entry).
 ///
-/// Falling back is the safety argument. An entry of a shape nobody measured keeps the detour exactly
-/// where it was before this function existed, and `make_hook` does the same when the detour cannot be
-/// created at the address returned here. So the worst a Windows build we have never seen can do is
-/// the old coverage, never less, and the log says which channel it was. The slot read cannot fault:
-/// it is the very pointer the CPU loads whenever it executes this entry.
+/// One body under both names (`KernelBaseSide::Same`: a forwarder already resolved to kernelbase, or
+/// a stub one indirect jump away) is detoured in kernelbase, where both paths meet. Otherwise the
+/// detour stays on kernel32's entry, and what that covers depends on the kind:
+/// - `KernelBaseBehindKernel32` with two bodies (`Separate`): the callers that go through kernel32
+///   keep the session clock, but the callers that reach kernelbase through the api-set - the dynamic
+///   C runtime among them - read the real one. The site does not cover every caller, so the channel
+///   is reported uncovered. Until R5 (P4) the bit was set and the report said covered.
+/// - `KernelBaseAndKernel32` with two bodies: kernel32's half, and `make_kernelbase_copy_hook` takes
+///   kernelbase's and settles the bit.
+/// - `Absent`: kernelbase has no export of that name for the api-set to reach.
 ///
-/// # Safety
-/// `entry` must be the address of a function exported by kernel32 in this process.
-unsafe fn code_behind_kernel32(entry: usize, name: PCSTR, label: &str) -> usize { unsafe {
-    match kernelbase_side(entry, name, label) {
-        KernelBaseSide::Same(own) => own,
-        KernelBaseSide::Separate(_) => {
-            log(&format!(
-                "[chrono_hook] kernel32's {label} does not lead to kernelbase, so it stays hooked on \
-                 kernel32 and a caller that goes through the api-set is not covered"
-            ));
-            entry
+/// Staying on kernel32 is the safety argument. An entry of a shape nobody measured keeps the detour
+/// exactly where it was before the move into kernelbase, and `make_hook` does the same when the detour
+/// cannot be created at the site. So the worst a Windows build we have never seen can do is the old
+/// coverage, never less - and since R5 the audit says so instead of claiming the channel.
+fn detour_site(module: ChannelModule, entry: usize, side: Option<KernelBaseSide>) -> DetourSite {
+    match (module, side) {
+        (_, Some(KernelBaseSide::Same(own))) => DetourSite { at: own, every_caller: true },
+        (ChannelModule::KernelBaseBehindKernel32, Some(KernelBaseSide::Separate(_))) => {
+            DetourSite { at: entry, every_caller: false }
         }
-        KernelBaseSide::Absent => entry,
+        _ => DetourSite { at: entry, every_caller: true },
     }
-}}
+}
+
+/// Whether a detour created at `placed` may set its channel's coverage bit: only when it stands at
+/// a site every caller passes. A detour that could not be made in kernelbase and went onto kernel32's
+/// entry instead keeps the kernel32 callers on the session clock, while the callers that reach
+/// kernelbase through the api-set run past it - so the audit says uncovered (R5, P4).
+fn claims_every_caller(site: DetourSite, placed: usize) -> bool {
+    site.every_caller && placed == site.at
+}
 
 /// What kernelbase holds under a kernel32 export's name, seen from kernel32's entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KernelBaseSide {
     /// Kernel32's entry IS kernelbase's export (a forwarder `GetProcAddress` already resolved) or one
     /// indirect jump away from it, so one detour at this address sees both paths.
@@ -2849,27 +2905,31 @@ unsafe fn make_hook<T: Copy>(
         ChannelModule::Ntdll => ntdll,
         // user32 may be absent in a console/service target - resolve it here rather than force-load it
         // (forcing a DLL the target never needed would change its behavior). Absent -> honest partial.
-        ChannelModule::User32 => match GetModuleHandleA(s!("user32.dll")) {
-            Ok(h) => h,
-            Err(_) => {
+        // Pinned when present, as the late scan does (R5, P27): a module the target frees later would
+        // take our detour bytes with it while the mask still claims the channel.
+        ChannelModule::User32 => match pin_module(s!("user32.dll")) {
+            Some(h) => h,
+            None => {
                 log(&format!("[chrono_hook] user32 not loaded, skipping: {}", ch.name));
                 return;
             }
         },
         // winmm may be absent in a console/service target - resolve it here rather than force-load it
         // (forcing a DLL the target never needed would change its behavior). Absent -> honest partial.
-        ChannelModule::Winmm => match GetModuleHandleA(s!("winmm.dll")) {
-            Ok(h) => h,
-            Err(_) => {
+        // Pinned when present, for the reason given at user32.
+        ChannelModule::Winmm => match pin_module(s!("winmm.dll")) {
+            Some(h) => h,
+            None => {
                 log(&format!("[chrono_hook] winmm not loaded, skipping: {}", ch.name));
                 return;
             }
         },
         // ws2_32 may be absent in a target that never touches the network - resolve it here rather than
         // force-load it (forcing a DLL the target never needed would change its behavior). Absent -> honest partial.
-        ChannelModule::Ws2_32 => match GetModuleHandleA(s!("ws2_32.dll")) {
-            Ok(h) => h,
-            Err(_) => {
+        // Pinned when present, for the reason given at user32.
+        ChannelModule::Ws2_32 => match pin_module(s!("ws2_32.dll")) {
+            Some(h) => h,
+            None => {
                 log(&format!("[chrono_hook] ws2_32 not loaded, skipping: {}", ch.name));
                 return;
             }
@@ -2902,26 +2962,34 @@ unsafe fn make_hook<T: Copy>(
     };
     let entry = target as *const () as usize;
     let name = PCSTR(cname.as_ptr() as *const u8);
-    let at = match ch.module {
-        ChannelModule::KernelBaseBehindKernel32 => code_behind_kernel32(entry, name, ch.name),
-        // One body: detour it where both paths meet. Two bodies: kernel32's here, and
-        // `make_kernelbase_copy_hook` takes kernelbase's.
-        ChannelModule::KernelBaseAndKernel32 => match kernelbase_side(entry, name, ch.name) {
-            KernelBaseSide::Same(own) => own,
-            KernelBaseSide::Separate(_) | KernelBaseSide::Absent => entry,
-        },
-        _ => entry,
+    let side = match ch.module {
+        ChannelModule::KernelBaseBehindKernel32 | ChannelModule::KernelBaseAndKernel32 => {
+            Some(kernelbase_side(entry, name, ch.name))
+        }
+        _ => None,
     };
+    let site = detour_site(ch.module, entry, side);
+    if !site.every_caller {
+        log(&format!(
+            "[chrono_hook] kernel32's {} does not lead to kernelbase, so it stays hooked on kernel32, a \
+             caller that goes through the api-set is not covered, and the channel is reported uncovered",
+            ch.name
+        ));
+    }
     // A detour that cannot be created in kernelbase (a prologue MinHook cannot relocate, another
     // hooking library there first) retries on kernel32's entry, which is where it stood before the
     // move. Without this the channel would install nowhere, and the kernel32 callers it covered
-    // before would lose it - the one outcome the move promises never to cause.
-    let created = match MinHook::create_hook(at as *mut c_void, detour) {
-        Err(e) if at != entry => {
+    // before would lose it - the one outcome the move promises never to cause. It does not claim the
+    // channel, though: the api-set callers go straight to kernelbase (`claims_every_caller`).
+    let mut placed = site.at;
+    let created = match MinHook::create_hook(site.at as *mut c_void, detour) {
+        Err(e) if site.at != entry => {
             log(&format!(
-                "[chrono_hook] create_hook {} in kernelbase failed: {e:?}, retrying on kernel32's entry",
+                "[chrono_hook] create_hook {} in kernelbase failed: {e:?}, retrying on kernel32's entry - \
+                 a caller that goes through the api-set is not covered, so the channel is reported uncovered",
                 ch.name
             ));
+            placed = entry;
             MinHook::create_hook(entry as *mut c_void, detour)
         }
         other => other,
@@ -2929,7 +2997,9 @@ unsafe fn make_hook<T: Copy>(
     match created {
         Ok(original) => {
             let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
-            *pending |= ch.bit;
+            if claims_every_caller(site, placed) {
+                *pending |= ch.bit;
+            }
         }
         Err(e) => {
             // The module and the export are there, so the application can call this and will reach the
@@ -3525,6 +3595,17 @@ mod tests {
         assert!(block_says_over(false, || false), "a block naming another session read as running");
     }
 
+    /// The late scan looks fast through the startup burst, then backs off to a ceiling and stays
+    /// there, so a module that never arrives costs one wake-up a second rather than four (R5, WY13).
+    #[test]
+    fn the_late_scan_backs_off_to_one_look_a_second() {
+        assert_eq!(late_poll_interval(0), LATE_POLL_FAST_MS);
+        assert_eq!(late_poll_interval(LATE_FAST_TRIES - 1), LATE_POLL_FAST_MS);
+        let backed_off: Vec<u32> = (LATE_FAST_TRIES..LATE_FAST_TRIES + 5).map(late_poll_interval).collect();
+        assert_eq!(backed_off, [250, 500, 1_000, 1_000, 1_000]);
+        assert_eq!(late_poll_interval(u32::MAX), LATE_POLL_CEILING_MS, "a long session overflowed the back-off");
+    }
+
     /// A watcher that failed to start gets more chances than the one it had, and not endless ones.
     #[test]
     fn a_watcher_that_failed_to_start_is_tried_again_a_bounded_number_of_times() {
@@ -3664,6 +3745,38 @@ mod tests {
         assert_eq!(settle_second_body(bit | other, bit, false), other, "the second body failed");
         assert_eq!(settle_second_body(other, bit, true), other, "the first body failed, the second went live");
         assert_eq!(settle_second_body(other, bit, false), other, "neither body detoured");
+    }
+
+    /// A channel is claimed only by a detour that every caller passes (R5, P4). Kernel32's entry is
+    /// such a site when kernelbase has nothing else under the name, and not when the api-set callers
+    /// reach a body of their own - a separate one, or the kernelbase export a failed detour fell back
+    /// from. Those callers read the real clock, and the report used to say covered.
+    #[test]
+    fn a_channel_is_claimed_only_by_a_detour_every_caller_passes() {
+        use ChannelModule::{Kernel32, KernelBaseAndKernel32, KernelBaseBehindKernel32};
+        const ENTRY: usize = 0x1000;
+        const OWN: usize = 0x2000;
+        let claimed = |module, side, fell_back: bool| {
+            let site = detour_site(module, ENTRY, side);
+            claims_every_caller(site, if fell_back { ENTRY } else { site.at })
+        };
+        let same_stub = Some(KernelBaseSide::Same(OWN));
+        let same_forwarder = Some(KernelBaseSide::Same(ENTRY));
+        let separate = Some(KernelBaseSide::Separate(OWN));
+        let absent = Some(KernelBaseSide::Absent);
+
+        assert_eq!(detour_site(KernelBaseBehindKernel32, ENTRY, same_stub).at, OWN, "one body is detoured in kernelbase");
+        assert!(claimed(KernelBaseBehindKernel32, same_stub, false), "the meeting point covers both paths");
+        assert!(claimed(KernelBaseBehindKernel32, same_forwarder, false), "a forwarder is kernelbase's own export");
+        assert!(!claimed(KernelBaseBehindKernel32, separate, false), "two bodies, only kernel32's detoured, claimed");
+        assert!(!claimed(KernelBaseBehindKernel32, same_stub, true), "a detour that fell back to the stub claimed");
+        assert!(!claimed(KernelBaseAndKernel32, same_stub, true), "a two-body kind that fell back to the stub claimed");
+        assert!(claimed(KernelBaseBehindKernel32, absent, false), "no kernelbase export, kernel32 is every caller");
+        assert!(
+            claimed(KernelBaseAndKernel32, separate, false),
+            "kernel32's half of a two-body channel - the second detour settles the bit"
+        );
+        assert!(claimed(Kernel32, None, false), "a plain kernel32 channel");
     }
 
     /// The codes the connection observer counts, and the neighbours it must not, all measured on this

@@ -439,6 +439,7 @@
   "source.network_at_start": "The application opened a network connection - it may read the time from a server, which no local clock can change.",
   "wait.object_waits_not_scaled": "Waits on system objects are left on the real clock on purpose - an I/O or hardware timeout is not shortened.",
   "wait.timeout_collapsed": "Some of this application's waits were too short to divide by the full speed factor, so they ran at the shortest step this tool uses (1 ms) instead. That part of the application did not accelerate - a lower speed makes it exact again.",
+  "timer.interval_floored": "Some of this application's timers were too short to divide by the full speed factor, so they fired at the shortest interval allowed (10 ms for window timers, set by Windows, and 1 ms for the others). That part of the application ran slower than the rest of the session - a lower speed makes it exact again.",
   "wait.network_timeouts_scaled": "This application opened a network connection. A network library that measures its own timeout from the system tick count, such as WinHTTP, follows the session speed - so a server slower than that timeout divided by the speed makes a request fail, even though the waits underneath stay on the real clock.",
   "timer.multimedia_not_scaled": "The multimedia timer (timeSetEvent) is observed but not scaled.",
   "clock.timegettime_scaled_audio_may_shift": "The winmm clock timeGetTime is being scaled with the rest of the duration axis, so an application that paces itself from it follows the session - but a media application that positions audio from that clock may drift.",
@@ -479,7 +480,7 @@
   "embedded.zone_kept": "The application outlived the session, and some of its pages may still be on the session's time zone - asked after the session, they did not show this computer's time zone. A local time they show can differ from the rest of the application by the zone offset until the application restarts.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
-  "coverage.pid_registry_full": "This session ran more processes than the audit can track (256). Some ran with no fake clock at all and are missing from the process count and the lists above.",
+  "coverage.pid_registry_full": "This session ran more processes than the audit can follow (256). The ones past that limit were still put on the fake clock, but the audit could not check them, so they are missing from the process count and the lists above.",
   // Session-level for the same reason as the one above: the question is whether the FAMILY read the
   // clock, and a parent that reads nothing while its child reads the fake date is a session that
   // worked. Deliberately does not touch the verdict - what the session achieved and what the

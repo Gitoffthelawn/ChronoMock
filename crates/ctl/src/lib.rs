@@ -637,7 +637,10 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 /// 9: the millisecond tick base became an offset from the fake QUIT (`dur_tick_offset`, R4/10a). Same
 /// offset and size, a different meaning: a hook of the old build would read the offset as a base and
 /// hand the application a tick count near zero.
-pub const CTL_LAYOUT_VERSION: u32 = 9;
+///
+/// 10: `Cov` gained `timers_at_floor` (R5, D8), appended after every other field like `failed_channels`,
+/// which widens every slot for the same reason version 3 did.
+pub const CTL_LAYOUT_VERSION: u32 = 10;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -822,6 +825,14 @@ pub struct Cov {
     /// application could read the real `timeGetTime` beside a scaled tick count while the report looked
     /// complete (untouchable rule 4). Appended after every other field, so no offset inside a slot moves.
     pub failed_channels: u64,
+    /// Timers this process set whose scaled interval could not be divided by the full multiplier and
+    /// ran at a floor instead (R5, D8): a `SetTimer` interval Windows lifted to `USER_TIMER_MINIMUM`
+    /// ([`timer_elapse_hit_floor`]), or a waitable or thread-pool timer period held at 1 ms
+    /// ([`timer_period_hit_floor`]). The timer twin of `waits_at_floor`, kept apart because it names
+    /// a different part of the application and a different floor, and counted the same way: a
+    /// volatile RMW that can lose a bump and never invents one. Appended after every other field, so
+    /// no offset inside a slot moves.
+    pub timers_at_floor: u64,
 }
 
 impl Cov {
@@ -838,6 +849,7 @@ impl Cov {
         uncovered_children_pad: 0,
         created: 0,
         failed_channels: 0,
+        timers_at_floor: 0,
     };
 }
 
@@ -1900,6 +1912,24 @@ pub unsafe fn read_waits_at_floor(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).waits_at_floor))
 }}
 
+/// Count one timer held at a floor (hook side, this process's own `Cov`).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn bump_timers_at_floor(p: *mut Cov) { unsafe {
+    let slot = addr_of_mut!((*p).timers_at_floor);
+    let cur = read_volatile(slot);
+    write_volatile(slot, cur.wrapping_add(1));
+}}
+
+/// How many of this process's timers were held at a floor (mechanism side, per-process `Cov`).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_timers_at_floor(p: *const Cov) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).timers_at_floor))
+}}
+
 /// The shortest real wait a scaled timeout is allowed to become.
 ///
 /// 🔴 One millisecond, and the difference between it and zero is the whole reason it exists. Integer
@@ -2046,6 +2076,26 @@ pub fn scale_timer_period_ms(period_ms: u32, m: i64) -> u32 {
     (period_ms as u64 / m.max(1) as u64).max(1) as u32
 }
 
+/// `USER_TIMER_MINIMUM` from the Windows SDK: `SetTimer` lifts any shorter interval to it (the
+/// function's documentation, "If uElapse is less than USER_TIMER_MINIMUM (0x0000000A)").
+pub const USER_TIMER_MINIMUM_MS: u32 = 10;
+
+/// Whether a `SetTimer` interval scaled by [`scale_timer_elapse`] lands under the minimum Windows
+/// lifts it to, so this timer runs slower than the session (R5, D8). Only an interval the application
+/// asked for at or above that minimum counts: a shorter one sits at the floor with or without a
+/// session, so the floor takes nothing from it that the session gave.
+pub fn timer_elapse_hit_floor(elapse_ms: u32, m: i64) -> bool {
+    elapse_ms >= USER_TIMER_MINIMUM_MS && scale_timer_elapse(elapse_ms, m) < USER_TIMER_MINIMUM_MS
+}
+
+/// Whether a periodic timer's period scaled by [`scale_timer_period`] or [`scale_timer_period_ms`]
+/// was held at their 1 ms floor instead of being divided by the full multiplier (R5, D8). Takes the
+/// period widened to `i64`, which holds both the signed and the unsigned form. A one-shot (0) and a
+/// period the API rejects (negative) are passed through by contract, not clamped.
+pub fn timer_period_hit_floor(period_ms: i64, m: i64) -> bool {
+    period_ms > 0 && period_ms / m.max(1) < 1
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -2108,6 +2158,7 @@ mod tests {
         assert_eq!(offset_of!(Ctl, core_created) % 8, 0, "core_created is not 8-byte aligned");
         assert_eq!(offset_of!(Cov, created) % 8, 0, "Cov.created is not 8-byte aligned");
         assert_eq!(offset_of!(Cov, failed_channels) % 8, 0, "Cov.failed_channels is not 8-byte aligned");
+        assert_eq!(offset_of!(Cov, timers_at_floor) % 8, 0, "Cov.timers_at_floor is not 8-byte aligned");
         assert_eq!(size_of::<Cov>() % 8, 0, "a slot would misalign the next one");
         assert_eq!(
             offset_of!(Ctl, covs),
@@ -2984,6 +3035,28 @@ mod tests {
         // Frozen and slow motion clamp to real length (>= 1) - rule 3.
         assert_eq!(scale_timer_period_ms(6000, 0), 6000);
         assert_eq!(scale_timer_period_ms(6000, -5), 6000);
+    }
+
+    /// A timer counts as held at a floor exactly when the scaling could not give it the session's
+    /// rate (R5, D8): a `SetTimer` interval asked at or above Windows' minimum that lands under it, and
+    /// a positive period divided below 1 ms. Each half pinned against the scaling it describes.
+    #[test]
+    fn a_timer_counts_as_floored_only_when_the_scaling_could_not_reach_the_session_rate() {
+        assert!(timer_elapse_hit_floor(100, 60), "100 ms at x60 is 1 ms, under the 10 ms Windows lifts it to");
+        assert!(!timer_elapse_hit_floor(600, 60), "600 ms at x60 is exactly the minimum");
+        assert!(timer_elapse_hit_floor(599, 60), "one below that is under it");
+        assert!(!timer_elapse_hit_floor(5, 60), "an interval under the minimum sits there without a session too");
+        assert!(!timer_elapse_hit_floor(0, 60), "zero asks for the minimum itself");
+        assert!(!timer_elapse_hit_floor(100, 1), "real speed divides nothing");
+        assert!(!timer_elapse_hit_floor(100, 0), "frozen leaves the interval real");
+
+        assert!(timer_period_hit_floor(30, 60), "30 ms at x60 is held at 1 ms");
+        assert_eq!(scale_timer_period(30, 60), 1, "the floor the check describes");
+        assert!(!timer_period_hit_floor(60, 60), "exactly 1 ms is the floor, not below it");
+        assert!(!timer_period_hit_floor(0, 60), "a one-shot passes through");
+        assert!(!timer_period_hit_floor(-5, 60), "a rejected period passes through");
+        assert!(timer_period_hit_floor(i64::from(u32::MAX), i64::MAX), "the unsigned form widens without loss");
+        assert!(!timer_period_hit_floor(30, 0), "frozen leaves the period real");
     }
 
     #[test]
