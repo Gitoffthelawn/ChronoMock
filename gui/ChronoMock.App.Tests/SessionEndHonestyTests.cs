@@ -98,6 +98,40 @@ public class SessionEndHonestyTests
         Assert.Equal(string.Empty, vm.DiagnosticsText);
     }
 
+    /// <summary>
+    /// A works session whose application read no substituted clock, or read its wall clock where no hook
+    /// reaches, keeps its verdict but is not evidence (R5-D3) - the rule the CLI's evidence file follows.
+    /// The control above carries two other warnings and no banner.
+    /// </summary>
+    [Theory]
+    [InlineData("coverage.session_clock_never_read")]
+    [InlineData("runtime.go_wall_clock_unreachable")]
+    public void A_works_session_that_proves_nothing_about_time_keeps_its_verdict_but_is_not_evidence(string warning)
+    {
+        var vm = SessionStates.RunningWithCoverageWarnings();
+        vm.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "verdict.time_channels_covered",
+            ProcessCount = 1,
+            WarningKeys = [warning],
+        });
+        vm.Apply(new EndedEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Clean = true,
+            TargetExitCode = 0,
+            ElapsedRealMs = 1_000,
+            ElapsedFakeMs = 60_000,
+            FakeEndWall = "2038-01-19T03:15:07",
+        });
+        vm.OnStreamEnded(watchdogFired: false, stopRequested: false);
+
+        Assert.Equal("verdict.works", vm.ResultHeadlineKey);
+        Assert.StartsWith("report.unreliable_banner", vm.BuildSummary(Key), StringComparison.Ordinal);
+    }
+
     /// <summary>An error after the first heartbeat keeps the verdict on screen, because the substitution did
     /// work while the session lasted - but the session failed, so it is not evidence either.</summary>
     [Fact]

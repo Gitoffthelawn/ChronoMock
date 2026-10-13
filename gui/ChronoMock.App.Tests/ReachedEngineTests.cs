@@ -22,16 +22,49 @@ public class ReachedEngineTests
         _ => key,
     };
 
-    private static SessionVerdictEvent Verdict(IReadOnlyList<ReachedEngine> engines) => new()
+    private static SessionVerdictEvent Verdict(IReadOnlyList<ReachedEngine> engines, int contexts = 2) => new()
     {
         V = ProtocolJson.ProtocolVersion,
         Verdict = "partial",
         ReasonKey = "session.family_partial_children",
         ProcessCount = 2,
         WarningKeys = ["embedded.web_engine_reached", "embedded.debug_port_open"],
-        ContextCount = 2,
+        ContextCount = contexts,
         Engines = engines,
     };
+
+    /// <summary>
+    /// The note under the table and the copied summary claim pages only when the session put some on its
+    /// clock (R5, P15) - the verdict's context count, which is what the CLI report reads. An engine reached
+    /// with no page shimmed used to read as if its pages ran on the session clock. A new session forgets
+    /// the last one's answer, so its note is not carried over either.
+    /// </summary>
+    [Fact]
+    public void The_engines_claim_pages_only_when_the_session_put_some_on_its_clock()
+    {
+        var vm = new SessionViewModel();
+        vm.SetTarget(@"C:\apps\Host.exe");
+
+        vm.Apply(Verdict([Engine(4300, 61868)], contexts: 0));
+        Assert.False(vm.EnginePagesReached);
+        Assert.Equal("audit.engines_note_none", vm.EnginesNoteKey);
+        Assert.Contains("report.engines_reached_none:\n", vm.BuildSummary(T), StringComparison.Ordinal);
+
+        vm.Apply(Verdict([Engine(4300, 61868)], contexts: 3));
+        Assert.True(vm.EnginePagesReached);
+        Assert.Equal("audit.engines_note", vm.EnginesNoteKey);
+        var summary = vm.BuildSummary(T);
+        Assert.Contains("report.engines_reached:\n", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("report.engines_reached_none", summary, StringComparison.Ordinal);
+
+        // A finished session, as in the test above, since only one can be followed by a new one.
+        var ended = SessionStates.Ended();
+        ended.Apply(Verdict([Engine(4300, 61868)], contexts: 3));
+        Assert.True(ended.EnginePagesReached);
+        ended.BeginNewSession();
+        Assert.False(ended.EnginePagesReached);
+        Assert.Equal("audit.engines_note_none", ended.EnginesNoteKey);
+    }
 
     private static ReachedEngine Engine(uint pid, int port, string browser = "Engine/153.0")
         => new() { Pid = pid, Port = port, Browser = browser };

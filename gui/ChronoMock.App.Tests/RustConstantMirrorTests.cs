@@ -135,6 +135,29 @@ public class RustConstantMirrorTests
     }
 
     /// <summary>
+    /// The window and the CLI put the unreliable-evidence banner over a works session for the same
+    /// warnings (R5-D3). A key on one list only would make the copied report and the evidence file of one
+    /// session disagree about whether it proves anything.
+    /// </summary>
+    [Fact]
+    public void The_warnings_that_undo_evidence_match_the_ones_the_cli_names()
+    {
+        var report = ReadRustSource("crates", "cli", "src", "report.rs");
+        var list = CaptureOne(
+            report,
+            @"WARNINGS_THAT_UNDO_EVIDENCE: \[&str; \d+\] =\s*\[([^\]]*)\];",
+            "WARNINGS_THAT_UNDO_EVIDENCE");
+        var rust = Regex.Matches(list, @"""([^""]+)""").Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+        var window = SessionViewModel.WarningsThatUndoEvidence.Order(StringComparer.Ordinal).ToArray();
+
+        Assert.True(rust.Length > 0, "the guard read no key from the CLI list, which is worse than not reading it");
+        Assert.True(
+            rust.SequenceEqual(window),
+            $"the CLI flags evidence for [{string.Join(", ", rust)}] but the window for "
+                + $"[{string.Join(", ", window)}] - change both together");
+    }
+
+    /// <summary>
     /// Both sides decide "is this a Chromium app?" from the same runtime files next to the exe, and
     /// they must decide it the same way: the GUI skips the bitness gate for a CDP target, so a
     /// disagreement means either a gate applied to a session that never needed it, or a native

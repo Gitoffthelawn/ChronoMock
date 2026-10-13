@@ -427,7 +427,8 @@
   "audit.col_engine": "Engine",
   "audit.col_port": "Port",
   "audit.engine_unnamed": "engine",
-  "audit.engines_note": "Their pages ran on the session clock. The port is where your own DevTools would attach to those pages.",
+  "audit.engines_note": "Pages put on the session clock through them are the page rows in the table. The port is where your own DevTools would attach to those pages.",
+  "audit.engines_note_none": "The session attached to them, but none of their pages was put on the session clock this way. The port is where your own DevTools would attach to those pages.",
   // The read count on a covered or observed channel, in prose so it does not read like the speed multiplier
   // the raw count sat beside - built in code (SessionViewModel.FormatChannel), P6.
   "coverage.reads": "{0} - read {1} times",
@@ -569,7 +570,8 @@
   "report.processes_more": "and {0} more this report could not name",
   // The engine lines of the copied summary. The pid is here and not on the screen: a ticket about one
   // engine wants it, and this is the line the CLI report prints too.
-  "report.engines_reached": "web engines reached inside the application, whose pages ran on the session clock",
+  "report.engines_reached": "web engines reached inside the application - pages put on the session clock through them are the page rows above",
+  "report.engines_reached_none": "web engines reached inside the application - none of their pages was put on the session clock this way",
   "report.engine_line": "{0} on port {1} (pid {2})",
   "report.requested": "requested: {0} (zone {1}, mode {2})",
 

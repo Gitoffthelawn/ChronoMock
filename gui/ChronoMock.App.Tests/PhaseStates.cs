@@ -343,6 +343,41 @@ internal static class PhaseStates
     }
 
     /// <summary>
+    /// An engine reached whose pages the session did not put on its clock (R5, P15): the engine row stands,
+    /// there are no page rows, the renderer is among the processes on the real clock, and the note under
+    /// the engines table says that no page was put on the session clock that way. It used to say they were.
+    /// </summary>
+    public static SessionViewModel ResultPartialWithEngineButNoPages()
+    {
+        var model = ResultRunning();
+        model.Apply(new CoverageEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Pid = 4242,
+            Covered =
+            [
+                new CoveredChannel { Channel = "GetSystemTimeAsFileTime", Calls = 130_020 },
+                new CoveredChannel { Channel = "GetTickCount64", Calls = 45_118 },
+            ],
+            WarningKeys = [],
+        });
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "partial",
+            ReasonKey = "session.family_partial_children",
+            ProcessCount = 2,
+            WarningKeys = ["inheritance.children_uncovered", "embedded.web_engine_uncovered", "embedded.debug_port_open"],
+            UncoveredChildren = [new UncoveredChild { Pid = 5180, ParentPid = 4300, Image = "msedgewebview2.exe", Role = "renderer" }],
+            UncoveredChildrenTotal = 1,
+            ContextCount = 0,
+            Engines = [new ReachedEngine { Pid = 4300, Port = 61868, Browser = "Engine/153.0" }],
+        });
+        model.Apply(Ended());
+        return model;
+    }
+
+    /// <summary>
     /// The family verdict naming <paramref name="total"/> processes the hook never got into, applied to
     /// a model in whatever state it is - for a guard that reads a count off the screen and wants that
     /// count to be one no other list shares - or, with an <paramref name="image"/>, for a guard that

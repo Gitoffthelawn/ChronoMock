@@ -1372,6 +1372,32 @@ public class LayoutGuardTests
     }
 
     /// <summary>
+    /// The other side of the guard above (R5, P15): an engine reached with none of its pages put on the
+    /// session clock leaves its renderer what it is - a process whose pages read the real clock, in the
+    /// failure ink and without the sentence. Reaching the engine used to be enough for the row to say its
+    /// pages were reached. Measured on the render, like the guard above.
+    /// </summary>
+    [Fact]
+    public void A_renderer_under_an_engine_whose_pages_were_not_put_on_the_clock_stays_a_failure()
+    {
+        var (rendererText, rendererInk, fails) = WpfTestHost.InvokeSettled(() =>
+        {
+            var view = ResultView(PhaseStates.ResultPartialWithEngineButNoPages());
+            LayoutProbe.Settle(view);
+            var renderer = LayoutProbe.Walk(view)
+                .Where(e => e.Kind == nameof(TextBlock) && e.IsVisible)
+                .Single(e => e.Text.StartsWith("renderer", StringComparison.Ordinal));
+            return (
+                renderer.Text,
+                renderer.Foreground,
+                ((System.Windows.Media.SolidColorBrush)view.FindResource("BrushStatusFails")).Color);
+        });
+
+        Assert.Equal("renderer", rendererText);
+        Assert.Equal(fails, rendererInk);
+    }
+
+    /// <summary>
     /// A session that reached a web engine inside the application names it and the port it was reached on,
     /// under the process table and above the warnings.
     /// </summary>

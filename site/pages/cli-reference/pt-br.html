@@ -195,7 +195,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Grava o relatório para pessoas em um arquivo. Um veredito diferente de
               <em>funciona</em> abre esse arquivo com um aviso de evidência não confiável, porque uma
-              evidência que esconde a própria dúvida é pior que nenhuma.</td>
+              evidência que esconde a própria dúvida é pior que nenhuma. Uma sessão com veredito <em>funciona</em> também recebe esse aviso quando a aplicação não leu nenhum dos relógios que a sessão substitui, ou quando é um programa em Go, cujo relógio de parede o Chrono Mock não alcança. O arquivo também nomeia a própria execução: a versão, quando começou, o alvo, a pasta dele e as opções.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Junto com <code>--report</code>, grava também os argumentos do alvo nesse arquivo, palavra por palavra. Desligado por padrão, porque um argumento pode conter uma senha - o arquivo diz então só quantos eram.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -234,6 +238,7 @@
           <tr><td>3</td><td>erro interno - o motor não conseguiu iniciar, chegou a um estado inesperado ou parou antes de encerrar a sessão (qualquer que fosse o seu próprio código de saída). Uma execução assim não traz veredito</td></tr>
           <tr><td>5</td><td>a operação não está incluída nesta versão - por exemplo, um cenário cujo momento precisa de um calendário que o <code>run</code> ainda não consegue carregar. Deliberadamente distinto de um erro de uso: você pediu algo que ainda não existe, não algo errado</td></tr>
           <tr><td>6</td><td>a execução foi interrompida - <code>--timeout</code> expirou, ou o motor parou de responder por 15 segundos e foi parado. Isto não é um veredito: a sessão foi interrompida, então não prova nada sobre o alvo, em nenhum dos sentidos</td></tr>
+          <tr><td>7</td><td>outra sessão já está em execução - uma sessão por vez. Basta tentar de novo quando ela terminar</td></tr>
         </tbody>
       </table>
     </div>

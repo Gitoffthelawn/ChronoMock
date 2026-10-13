@@ -268,6 +268,8 @@ public sealed class SessionViewModel : ObservableObject
     // interface over.
     private IReadOnlyList<ReachedEngine> _engines = [];
 
+    private bool _enginePagesReached;
+
     private bool _hasTiming;
 
     // Whether the core closed the session with `ended` (R4-W3). See IsCutShort.
@@ -1645,7 +1647,8 @@ public sealed class SessionViewModel : ObservableObject
     public bool HasUncoveredChildren => _uncoveredChildrenTotal > 0;
 
     /// <summary>The web engines inside the application the session reached through their debugging ports,
-    /// as the verdict names them - the pages they host ran on the session clock. Raw wire records: the
+    /// as the verdict names them - whether any of their pages was put on the session clock is
+    /// <see cref="EnginePagesReached"/>, not this list. Raw wire records: the
     /// screen folds them into a table of name and port (EngineRowsConverter), the copied summary prints
     /// the pid beside them the way the CLI report does. Empty for a session that found none, and for a
     /// Chromium session, which opens its own port rather than finding one.</summary>
@@ -1656,6 +1659,21 @@ public sealed class SessionViewModel : ObservableObject
     }
 
     public bool HasEngines => _engines.Count > 0;
+
+    /// <summary>
+    /// Whether the session put any page on its clock through an engine's debugging port - the session
+    /// verdict's context count, read as the CLI report reads it (R5, P15). The engines note and the copied
+    /// summary say only what this says: they used to say the engines' pages ran on the session clock
+    /// whenever an engine was reached, also when no page was put on it.
+    /// </summary>
+    public bool EnginePagesReached
+    {
+        get => _enginePagesReached;
+        private set { if (Set(ref _enginePagesReached, value)) { RaisePropertyChanged(nameof(EnginesNoteKey)); } }
+    }
+
+    /// <summary>The note under the engines table, one of two keys by <see cref="EnginePagesReached"/>.</summary>
+    public string EnginesNoteKey => _enginePagesReached ? "audit.engines_note" : "audit.engines_note_none";
 
     public bool HasUnnamedUncoveredChildren => UncoveredChildrenUnnamed > 0;
 
@@ -1856,6 +1874,7 @@ public sealed class SessionViewModel : ObservableObject
                 // red build. Everything the rows need deciding - a nameless engine, an endpoint seen
                 // twice - is decided in the converter, which is where presentation belongs anyway.
                 Engines = sv.Engines;
+                EnginePagesReached = sv.ContextCount > 0;
                 FollowedRows = FollowedLines(sv.Followed);
                 // Session-level warnings join the per-process ones (R2-S9). They are about the family,
                 // not about any one process, so the panel shows them in the same list - a warning the
@@ -2274,6 +2293,7 @@ public sealed class SessionViewModel : ObservableObject
         UncoveredChildren = [];
         UncoveredChildrenTotal = 0;
         Engines = [];
+        EnginePagesReached = false;
 
         _hasTiming = false;
         _endedSeen = false;
@@ -2559,11 +2579,21 @@ public sealed class SessionViewModel : ObservableObject
         return sb.ToString();
     }
 
+    /// <summary>
+    /// The warnings that undo a works verdict as evidence (R5-D3): a Go program reads its wall clock where
+    /// no hook reaches, and a session in which no process read a substituted clock proves nothing about
+    /// time. The verdict stands, the export gets the banner. Mirrors the CLI's WARNINGS_THAT_UNDO_EVIDENCE,
+    /// and RustConstantMirrorTests holds the two lists together.
+    /// </summary>
+    internal static readonly string[] WarningsThatUndoEvidence =
+        ["runtime.go_wall_clock_unreachable", "coverage.session_clock_never_read"];
+
     /// <summary>A clean "works" session is the only reliable one - anything else must carry the unreliable
     /// banner in an export (chrono-mock 8.8), mirroring the CLI's session_is_reliable.</summary>
     private bool IsReliable => _verdictKind == VerdictKind.Works
                               && _statusKind is not (SessionStatusKind.DidNotTakeEffect or SessionStatusKind.Error)
-                              && !IsCutShort;
+                              && !IsCutShort
+                              && !_warnings.Any(WarningsThatUndoEvidence.Contains);
 
     private static string Seconds(long ms) => (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
 
@@ -2619,7 +2649,7 @@ public sealed class SessionViewModel : ObservableObject
             return;
         }
 
-        sb.Append("  ").Append(translate("report.engines_reached")).Append(":\n");
+        sb.Append("  ").Append(translate(_enginePagesReached ? "report.engines_reached" : "report.engines_reached_none")).Append(":\n");
         for (var i = 0; i < _engines.Count; i++)
         {
             // One endpoint once, the same rule the table folds by. The screen deduplicated and this did

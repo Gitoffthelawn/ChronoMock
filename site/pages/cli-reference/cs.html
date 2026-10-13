@@ -187,7 +187,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Zapíše zprávu pro lidi do souboru. Verdikt jiný než <em>funguje</em> začíná tento soubor
               bannerem o nespolehlivých důkazech, protože důkaz, který skrývá vlastní pochybnost, je
-              horší než žádný.</td>
+              horší než žádný. Tento banner dostane i sezení s verdiktem <em>funguje</em>, když aplikace nepřečetla žádné z hodin, které sezení nahrazuje, nebo když jde o program v Go, k jehož nástěnným hodinám Chrono Mock nedosáhne. Soubor také pojmenuje samotný běh: verzi, čas spuštění, cíl, jeho složku a přepínače.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Spolu s <code>--report</code> zapíše do toho souboru i argumenty cíle, doslova. Ve výchozím stavu vypnuto, protože argument může obsahovat heslo - soubor pak uvede jen jejich počet.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -226,6 +230,7 @@
           <tr><td>3</td><td>vnitřní chyba - jádro se nepodařilo spustit, narazilo na nečekaný stav, nebo se zastavilo dřív, než sezení uzavřelo (bez ohledu na vlastní návratový kód cíle). Takový běh nemá verdikt</td></tr>
           <tr><td>5</td><td>operace není v tomto vydání sestavena - například preset, jehož okamžik potřebuje kalendář, který <code>run</code> zatím nedokáže načíst. Záměrně odlišné od chyby použití: požádali jste o něco, co zatím neexistuje, ne o něco špatného</td></tr>
           <tr><td>6</td><td>běh byl přerušen - vypršel <code>--timeout</code>, nebo jádro přestalo na 15 sekund odpovídat a bylo zastaveno. Není to verdikt: sezení bylo přerušeno, takže nic o cíli neprokazuje ani jedním směrem</td></tr>
+          <tr><td>7</td><td>už běží jiné sezení - vždy jen jedno sezení naráz. Stačí to zkusit znovu, až skončí</td></tr>
         </tbody>
       </table>
     </div>

@@ -224,7 +224,13 @@ public class StateSheetTests
             total += RenderResult("result-works", PhaseStates.ResultWorks()).Count;
             total += RenderResult("result-partial", PhaseStates.ResultPartial()).Count;
             total += RenderResult("result-processes", PhaseStates.ResultPartialWithUncoveredProcesses(), "AuditSection").Count;
-            total += RenderResult("result-embedded", PhaseStates.ResultPartialWithEmbeddedPages(), "AuditSection").Count;
+            total += Shows(
+                RenderResult("result-embedded", PhaseStates.ResultPartialWithEmbeddedPages(), "AuditSection"),
+                "audit.engines_note");
+            // An engine reached with none of its pages put on the clock, and the note that says so (R5, P15).
+            total += Shows(
+                RenderResult("result-engine-no-pages", PhaseStates.ResultPartialWithEngineButNoPages(), "AuditSection"),
+                "audit.engines_note_none");
             // The registry value an elevated session wrote: taken away again, and - the one that is worded
             // as a problem because it is one - left behind.
             total += Shows(

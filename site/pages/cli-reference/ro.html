@@ -195,7 +195,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Scrie raportul pentru oameni într-un fișier. Un verdict altul decât <em>funcționează</em>
               deschide fișierul cu un banner de dovezi nesigure, pentru că dovezile care își ascund
-              propria îndoială sunt mai rele decât lipsa lor.</td>
+              propria îndoială sunt mai rele decât lipsa lor. Și o sesiune cu verdictul <em>funcționează</em> primește acest banner când aplicația nu a citit niciunul dintre ceasurile pe care sesiunea le înlocuiește, sau când este un program Go, al cărui ceas de perete Chrono Mock nu îl atinge. Fișierul numește și rularea însăși: versiunea, momentul pornirii, ținta, folderul ei și opțiunile.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Împreună cu <code>--report</code>, scrie în acel fișier și argumentele țintei, cuvânt cu cuvânt. Dezactivat implicit, pentru că un argument poate conține o parolă - fișierul spune atunci doar câte au fost.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -235,6 +239,7 @@
           <tr><td>3</td><td>eroare internă - motorul nu a putut porni, a întâlnit o stare neașteptată sau s-a oprit înainte să închidă sesiunea (indiferent de codul de ieșire al țintei). O astfel de rulare nu are verdict</td></tr>
           <tr><td>5</td><td>operațiunea nu este inclusă în această versiune - de exemplu un preset al cărui moment are nevoie de un calendar, pe care <code>run</code> nu îl poate încărca încă. Distinct în mod deliberat de o eroare de utilizare: ai cerut ceva ce nu există încă, nu ceva greșit</td></tr>
           <tr><td>6</td><td>rularea a fost întreruptă - <code>--timeout</code> a expirat sau motorul a încetat să răspundă timp de 15 secunde și a fost oprit. Nu este un verdict: sesiunea a fost întreruptă, deci nu dovedește nimic despre țintă, într-un sens sau altul</td></tr>
+          <tr><td>7</td><td>rulează deja o altă sesiune - o singură sesiune odată. Ajunge să încercați din nou după ce se încheie</td></tr>
         </tbody>
       </table>
     </div>

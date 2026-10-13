@@ -50,9 +50,18 @@ public sealed class UncoveredProcessRowsConverter : IMultiValueConverter
     /// reached. It takes both because a renderer row cannot be read without the second - the same row
     /// means "this application's pages ran on the real clock" or "its pages were reached anyway",
     /// depending on whether the session got into the engine that spawned it.
+    /// <para>
+    /// The third value is whether the session put any page on its clock through those engines
+    /// (<c>SessionViewModel.EnginePagesReached</c>, R5 P15). Reaching an engine is not reaching its pages:
+    /// the session can attach and then shim none of them, and a row that said "its pages were reached"
+    /// then claimed what the CLI report, since R5, does not. Without it the engines count as not reached,
+    /// which is the side that never claims a page.
+    /// </para>
     /// </summary>
     public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
-        => Fold(At<UncoveredChild>(values, 0), At<ReachedEngine>(values, 1));
+        => Fold(
+            At<UncoveredChild>(values, 0),
+            values is not null && values.Length > 2 && values[2] is true ? At<ReachedEngine>(values, 1) : []);
 
     /// <summary>One binding of a multi-binding as a list, or empty - a view rendered without a data
     /// context hands over UnsetValue, and a shorter array than expected is the same case.</summary>

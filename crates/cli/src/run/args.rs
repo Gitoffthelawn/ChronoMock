@@ -48,6 +48,10 @@ pub(crate) struct RunArgs {
     pub(super) jump_after: Option<(u64, String)>,
     /// Optional path to write the human evidence report to, in addition to stdout.
     pub(super) report: Option<String>,
+    /// Write the target's arguments into the evidence file word for word (`--report-args`, R5-D16).
+    /// Off by default: an argument can carry a password or a token, and the file is made to be handed
+    /// to someone, so without the flag it says only how many there were.
+    pub(super) report_args: bool,
     pub(super) json: bool,
     /// A named preset id (docs/04 4.3): the moment AND the time mode come from `presets/<id>.json`
     /// instead of --at/--mode. None = build them from the flags. Exclusive of --at/--mode/--scale-duration.
@@ -198,14 +202,45 @@ impl EngineFlags {
     }
 }
 
+/// The flags that take no value and only switch something on, apart from the engine's own
+/// (`EngineFlags`). A type of their own for the same reason: `parse_run_args` takes them in one line.
+#[derive(Debug, Default, Clone, Copy)]
+struct Switches {
+    scale_qpc: bool,
+    force: bool,
+    dry_run: bool,
+    json: bool,
+    report_args: bool,
+}
+
+impl Switches {
+    /// Take `flag` if it is one of these, and say whether it was.
+    fn take(&mut self, flag: &str) -> bool {
+        let slot = match flag {
+            // ADR-2 reversal, opt-in. NOT a preset-exclusive time flag: a preset carries its own
+            // scale_duration but never scale_qpc, so --scale-qpc is the only source and composes with
+            // --preset (unlike --scale-duration, which would double a preset's own setting).
+            "--scale-qpc" => &mut self.scale_qpc,
+            "--force" => &mut self.force,
+            "--dry-run" => &mut self.dry_run,
+            "--json" => &mut self.json,
+            "--report-args" => &mut self.report_args,
+            _ => return false,
+        };
+        *slot = true;
+        true
+    }
+}
+
 /// The flags that cannot stand together, refused rather than resolved by picking one silently.
 fn check_combinations(
     has_preset: bool,
     saw_time_flag: bool,
     has_params: bool,
-    embedded: bool,
-    elevated_embedded: bool,
+    engine: EngineFlags,
+    report_args_without_report: bool,
 ) -> Result<(), String> {
+    let EngineFlags { embedded, elevated_embedded, .. } = engine;
     // A preset supplies both the moment and the time mode, so combining it with --at/--mode/
     // --scale-duration would mean two sources.
     if has_preset && saw_time_flag {
@@ -222,6 +257,10 @@ fn check_combinations(
     if elevated_embedded && !embedded {
         return Err("--elevated-embedded cannot be combined with --no-embedded".into());
     }
+    // The arguments go into the evidence file, and without --report there is no file to put them in.
+    if report_args_without_report {
+        return Err("--report-args needs --report (it says what goes into the evidence file)".into());
+    }
     Ok(())
 }
 
@@ -234,15 +273,12 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     let mut mode = String::from("flow");
     let mut multiplier: Option<i64> = None;
     let mut scale_duration = false;
-    let mut scale_qpc = false;
     let mut engine = EngineFlags { embedded: true, elevated_embedded: false, keep_background_timers: false };
-    let mut force = false;
-    let mut dry_run = false;
+    let mut switches = Switches::default();
     let mut ticks: u64 = 0;
     let mut timeout_secs: Option<u64> = None;
     let mut set_after: Option<(u64, i64)> = None;
     let mut jump_after: Option<(u64, String)> = None;
-    let mut json = false;
     let mut report: Option<String> = None;
     let mut preset: Option<String> = None;
     let mut params: HashMap<String, String> = HashMap::new();
@@ -306,15 +342,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
                 scale_duration = true;
                 saw_time_flag = true;
             }
-            "--force" => force = true,
-            flag if engine.take(flag) => {}
-            "--dry-run" => dry_run = true,
-            "--scale-qpc" => {
-                // ADR-2 reversal, opt-in. NOT a preset-exclusive time flag: a preset carries its own
-                // scale_duration but never scale_qpc, so --scale-qpc is the only source and composes with
-                // --preset (unlike --scale-duration, which would double a preset's own setting).
-                scale_qpc = true;
-            }
+            flag if engine.take(flag) || switches.take(flag) => {}
             "--ticks" => {
                 i += 1;
                 let raw = argv.get(i).ok_or("--ticks needs a value")?;
@@ -342,7 +370,6 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
                     .ok_or("--jump-after must be <tick>:<moment>")?;
                 jump_after = Some((t.parse().map_err(|_| format!("bad tick in '{raw}'"))?, mom.to_string()));
             }
-            "--json" => json = true,
             "--report" => {
                 i += 1;
                 report = Some(argv.get(i).ok_or("--report needs a path")?.clone());
@@ -361,7 +388,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         i += 1;
     }
 
-    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), engine.embedded, engine.elevated_embedded)?;
+    check_combinations(preset.is_some(), saw_time_flag, !params.is_empty(), engine, switches.report_args && report.is_none())?;
 
     Ok(RunArgs {
         target: target.ok_or("missing <target>")?,
@@ -372,18 +399,19 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
         mode,
         multiplier,
         scale_duration,
-        scale_qpc,
-        force,
+        scale_qpc: switches.scale_qpc,
+        force: switches.force,
         embedded: engine.embedded,
         elevated_embedded: engine.elevated_embedded,
         keep_background_timers: engine.keep_background_timers,
-        dry_run,
+        dry_run: switches.dry_run,
         ticks,
         timeout_secs,
         set_after,
         jump_after,
         report,
-        json,
+        report_args: switches.report_args,
+        json: switches.json,
         preset,
         params,
     })
@@ -415,6 +443,32 @@ mod tests {
         // the fake clock leaves the representable range mid-session and the channels disagree.
         assert!(parse_mode(&format!("x{}", chrono_core::MULTIPLIER_MAX)).is_ok());
         assert!(parse_mode(&format!("x{}", chrono_core::MULTIPLIER_MAX + 1)).is_err());
+    }
+
+    /// `--report-args` says what goes into the evidence file, so without `--report` it is refused like
+    /// `--param` without `--preset`, and it is off unless given (R5-D16).
+    #[test]
+    fn report_args_needs_a_report_to_write_into() {
+        let argv = |s: &[&str]| s.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        let err = parse_run_args(&argv(&["t", "--report-args"])).err().expect("refused without --report");
+        assert!(err.contains("--report-args needs --report"), "{err}");
+        assert!(parse_run_args(&argv(&["t", "--report", "e.txt", "--report-args"])).unwrap().report_args);
+        assert!(!parse_run_args(&argv(&["t", "--report", "e.txt"])).unwrap().report_args, "on without being asked");
+    }
+
+    /// Each switch moved into `Switches` still lands in its own field, and none of them sets another.
+    #[test]
+    fn every_switch_sets_its_own_field_and_no_other() {
+        let argv = |s: &[&str]| s.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        let none = parse_run_args(&argv(&["t"])).unwrap();
+        assert!(!(none.scale_qpc || none.force || none.dry_run || none.json || none.report_args));
+        let fields = |ra: &RunArgs| [ra.scale_qpc, ra.force, ra.dry_run, ra.json];
+        for (i, flag) in ["--scale-qpc", "--force", "--dry-run", "--json"].into_iter().enumerate() {
+            let set = fields(&parse_run_args(&argv(&["t", flag])).unwrap());
+            let mut want = [false; 4];
+            want[i] = true;
+            assert_eq!(set, want, "{flag}");
+        }
     }
 
     #[test]

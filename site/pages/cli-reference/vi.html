@@ -189,7 +189,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Ghi báo cáo cho người ra tệp. Một kết luận khác <em>hoạt động</em> mở đầu tệp bằng biểu ngữ
               bằng chứng không đáng tin, vì bằng chứng che giấu sự nghi ngờ của chính nó còn tệ hơn không
-              có.</td>
+              có. Một phiên có kết luận <em>hoạt động</em> cũng nhận biểu ngữ này khi ứng dụng không đọc đồng hồ nào mà phiên thay thế, hoặc khi đó là chương trình Go, có đồng hồ thực mà Chrono Mock không với tới. Tệp cũng ghi chính lần chạy: phiên bản, thời điểm bắt đầu, mục tiêu, thư mục của nó và các cờ.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Khi đi cùng <code>--report</code>, ghi cả các đối số của mục tiêu vào tệp đó, nguyên văn. Mặc định tắt, vì một đối số có thể chứa mật khẩu - khi đó tệp chỉ cho biết có bao nhiêu đối số.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -228,6 +232,7 @@
           <tr><td>3</td><td>lỗi nội bộ - lõi không khởi động được, gặp trạng thái bất ngờ, hoặc dừng trước khi đóng phiên (bất kể mã thoát riêng của nó). Lần chạy như vậy không có kết luận</td></tr>
           <tr><td>5</td><td>thao tác chưa được dựng trong bản phát hành này - ví dụ một kịch bản có thời điểm cần lịch, mà <code>run</code> chưa tải được. Cố ý tách khỏi lỗi sử dụng: bạn yêu cầu thứ chưa tồn tại, chứ không phải thứ sai</td></tr>
           <tr><td>6</td><td>lần chạy bị cắt ngang - <code>--timeout</code> đã hết, hoặc lõi ngừng phản hồi trong 15 giây và bị dừng. Đây không phải kết luận: phiên bị gián đoạn, nên không chứng minh được gì về mục tiêu theo hướng nào</td></tr>
+          <tr><td>7</td><td>một phiên khác đang chạy - mỗi lần chỉ một phiên. Chỉ cần thử lại khi phiên đó kết thúc</td></tr>
         </tbody>
       </table>
     </div>

@@ -199,7 +199,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>Escribe el informe para personas en un archivo. Un veredicto distinto de
               <em>funciona</em> abre ese archivo con un aviso de evidencia poco fiable, porque una
-              evidencia que oculta su propia duda es peor que ninguna.</td>
+              evidencia que oculta su propia duda es peor que ninguna. Una sesión con veredicto <em>funciona</em> también recibe este aviso cuando la aplicación no leyó ninguno de los relojes que la sesión sustituye, o cuando es un programa en Go, cuyo reloj de pared Chrono Mock no alcanza. El archivo también nombra la ejecución en sí: la versión, cuándo empezó, el objetivo, su carpeta y las opciones.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td>Junto con <code>--report</code>, escribe también los argumentos del objetivo en ese archivo, palabra por palabra. Desactivado por defecto, porque un argumento puede llevar una contraseña - el archivo dice entonces solo cuántos había.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -238,6 +242,7 @@
           <tr><td>3</td><td>error interno - el motor no pudo arrancar, llegó a un estado inesperado o se detuvo antes de cerrar la sesión (sea cual sea su propio código de salida). Una ejecución así no lleva veredicto</td></tr>
           <tr><td>5</td><td>la operación no está incluida en esta versión - por ejemplo un escenario cuyo momento necesita un calendario que <code>run</code> todavía no puede cargar. Distinto a propósito de un error de uso: pediste algo que aún no existe, no algo incorrecto</td></tr>
           <tr><td>6</td><td>la ejecución se cortó - venció <code>--timeout</code>, o el motor dejó de responder durante 15 segundos y se detuvo. No es un veredicto: la sesión se interrumpió, así que no demuestra nada sobre el objetivo en ningún sentido</td></tr>
+          <tr><td>7</td><td>ya hay otra sesión en marcha - solo una sesión a la vez. Basta con volver a intentarlo cuando termine</td></tr>
         </tbody>
       </table>
     </div>

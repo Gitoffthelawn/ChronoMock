@@ -174,6 +174,30 @@ public class UncoveredProcessRowsTests
         Assert.False(Assert.Single(rows).PagesReached);
     }
 
+    /// <summary>
+    /// Reaching an engine is not reaching its pages (R5, P15). The binding hands the converter whether the
+    /// session put any page on its clock, and a renderer under a reached engine reads as reached only when
+    /// it did - not when the session attached and shimmed nothing, and not when that third value is
+    /// missing. Reversal probe: hand the engines to the fold whatever the third value says, and the second
+    /// and third cases come back reached.
+    /// </summary>
+    [Fact]
+    public void A_renderer_reads_as_reached_only_when_the_session_put_a_page_on_its_clock()
+    {
+        var converter = new UncoveredProcessRowsConverter();
+        IReadOnlyList<UncoveredChild> children = [Child(10, "engine.exe", "renderer")];
+        IReadOnlyList<ReachedEngine> engines = [new ReachedEngine { Pid = 1, Port = 61868, Browser = "Engine/1.0" }];
+        bool Reached(params object[] values)
+        {
+            var rows = converter.Convert(values, typeof(object), null, System.Globalization.CultureInfo.InvariantCulture);
+            return Assert.Single(Assert.IsAssignableFrom<IEnumerable<UncoveredProcessRow>>(rows)).PagesReached;
+        }
+
+        Assert.True(Reached(children, engines, true), "pages were put on the clock through the reached engine");
+        Assert.False(Reached(children, engines, false), "an engine attached to with no page shimmed claimed its pages");
+        Assert.False(Reached(children, engines), "a binding without the third value claimed the pages");
+    }
+
     [Fact]
     public void An_empty_list_folds_to_no_rows()
     {

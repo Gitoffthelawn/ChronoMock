@@ -13,8 +13,30 @@ Notable changes to Chrono Mock, newest first. The format follows
   periodic waitable or thread-pool timer is never given a period under 1 ms, so at a high speed such
   a timer runs slower than the rest of the session. Waits held at their floor were already reported
   (`wait.timeout_collapsed`), timers were not.
+- **The evidence file names the run, not only the time it ran at.** Under the `requested:` line,
+  `chrono run --report` now writes the version and the core's bitness, when the run started (UTC, from
+  the real clock), the target, the folder it started in, how many arguments it got, and the switches
+  the run was given. The arguments themselves are left out unless the new `--report-args` asks for
+  them, because an argument can carry a password and the file is made to be handed on.
+  `--report-args` without `--report` is refused.
 
 ### Changed
+
+- **Another running session ends a start with exit code 7.** It used to be exit code 3, the code of
+  an internal error, with a line saying the core ended without a verdict - so a pipeline could not
+  tell a busy machine from a crash. It is the one start failure that waiting fixes. The `error` event
+  carries the same 7.
+- **A works session can still be unreliable evidence.** The evidence file and the copied report now
+  lead with the unreliable-evidence banner also when the application read none of the clocks the
+  session replaces (`coverage.session_clock_never_read`), or is a Go program whose wall clock no hook
+  reaches (`runtime.go_wall_clock_unreachable`). The verdict and the exit code stay as they were.
+- **The web engines line claims pages only when some were put on the session clock.** It said that
+  the engines' pages ran on the session clock whenever an engine was reached. When the session
+  reached an engine but put none of its pages on its clock that way, the line, the window's note and
+  the copied report now say so, and the window's process table no longer marks that engine's renderer
+  as one whose pages were reached.
+- **A refused session names the way to run anyway.** Under the refusal the report now says that
+  `--force` starts the application regardless, and that the report then marks the session unreliable.
 
 - **The audit no longer claims a time function that part of the application reads past.** Most time
   functions live in kernelbase, and kernel32 only passes the call on, so Chrono Mock places its hook

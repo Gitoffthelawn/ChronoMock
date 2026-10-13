@@ -247,6 +247,10 @@ pub(crate) fn core_mode() -> i32 {
         }
     }
 }
+/// The exit code of a start refused because another session is running (`session.already_active`,
+/// docs/08 section 8, R5-D15). The driver passes it through like every other code in its table.
+pub(crate) const SESSION_BUSY_EXIT: i32 = 7;
+
 /// The keys of the refusals that owe no `ended`, because no session was begun - the only answers a core
 /// gives without an `ended` after them. The driver reads a missing `ended` after any other error as a
 /// session the core left open (`run::collect`), so this list is what tells the two apart, and
@@ -1109,14 +1113,17 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
         ),
         // pid 0 = the other core holds the session lock but has not published its pid yet (it is
         // still starting). Naming "pid 0" would be a lie, so say what is actually known.
+        //
+        // Exit code 7 of its own (R5-D15): the one start failure that trying again later fixes, so a
+        // pipeline can wait and retry instead of reading it as the internal error 3 used to say it was.
         P::SessionActive(0) => (
-            3,
+            SESSION_BUSY_EXIT,
             "session.already_active",
             "mechanism",
             "another session's core is starting or running - one session at a time".to_string(),
         ),
         P::SessionActive(pid) => (
-            3,
+            SESSION_BUSY_EXIT,
             "session.already_active",
             "mechanism",
             format!("another session's core (pid {pid}) is running - one session at a time"),
@@ -1145,6 +1152,18 @@ mod tests {
             let (exit, got, origin, detail) = map_prepare_error(chrono_mech::PrepareError::EndedLoading(code));
             assert_eq!((exit, got, origin), (2, key, "mechanism"), "code 0x{code:08X}");
             assert!(detail.contains(&format!("0x{code:08X}")), "the code is not on the detail line: {detail}");
+        }
+    }
+
+    /// A start refused because another session runs ends with the busy code, not the internal-error
+    /// code it shared with a crashed core (R5-D15), whether or not the other core has named itself yet.
+    #[test]
+    fn another_running_session_is_the_busy_code_not_an_internal_error() {
+        for pid in [0, 4242] {
+            let (exit, key, origin, detail) = map_prepare_error(chrono_mech::PrepareError::SessionActive(pid));
+            assert_eq!((exit, key, origin), (SESSION_BUSY_EXIT, "session.already_active", "mechanism"), "pid {pid}");
+            assert_eq!(exit, 7, "the number docs/08 publishes");
+            assert!(detail.contains("one session at a time"), "got: {detail}");
         }
     }
 

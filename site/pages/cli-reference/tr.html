@@ -190,7 +190,11 @@
             <td><code>--report &lt;path&gt;</code></td>
             <td>İnsan raporunu bir dosyaya yazar. <em>Çalışıyor</em> dışındaki bir karar, dosyayı
               güvenilmez-kanıt başlığıyla başlatır; çünkü kendi şüphesini saklayan kanıt, hiç kanıt
-              olmamasından kötüdür.</td>
+              olmamasından kötüdür. Kararı <em>çalışıyor</em> olan bir oturum da, uygulama oturumun değiştirdiği saatlerin hiçbirini okumadıysa ya da duvar saatine Chrono Mock'un ulaşamadığı bir Go programıysa bu başlığı alır. Dosya çalıştırmanın kendisini de adlandırır: sürüm, başlama zamanı, hedef, klasörü ve seçenekler.</td>
+          </tr>
+          <tr>
+            <td><code>--report-args</code></td>
+            <td><code>--report</code> ile birlikte, hedefin argümanlarını da o dosyaya kelimesi kelimesine yazar. Varsayılan olarak kapalıdır, çünkü bir argüman parola taşıyabilir - dosya o zaman yalnızca kaç tane olduklarını söyler.</td>
           </tr>
           <tr>
             <td><code>--json</code></td>
@@ -229,6 +233,7 @@
           <tr><td>3</td><td>iç hata - motor başlatılamadı, beklenmedik bir durumla karşılaştı ya da oturumu kapatmadan önce durdu (kendi çıkış kodu ne olursa olsun). Böyle bir çalıştırmanın kararı yoktur</td></tr>
           <tr><td>5</td><td>işlem bu sürümde derlenmemiş - örneğin anı bir takvim gerektiren ve <code>run</code>’ın henüz yükleyemediği bir senaryo. Bilerek kullanım hatasından ayrı tutulmuştur: yanlış bir şey istemediniz, henüz var olmayan bir şey istediniz</td></tr>
           <tr><td>6</td><td>çalıştırma yarıda kesildi - <code>--timeout</code> doldu ya da motor 15 saniye boyunca yanıt vermeyi bıraktı ve durduruldu. Bu bir karar değildir: oturum kesintiye uğradığı için hedef hakkında ne bir yönde ne de diğerinde bir şey kanıtlar</td></tr>
+          <tr><td>7</td><td>başka bir oturum zaten çalışıyor - aynı anda tek oturum. O bittikten sonra yeniden denemek yeterli</td></tr>
         </tbody>
       </table>
     </div>
