@@ -337,11 +337,19 @@ public sealed class SessionViewModel : ObservableObject
         RaisePropertyChanged(nameof(ResultKind));
         RaisePropertyChanged(nameof(ResultHasReason));
         RaisePropertyChanged(nameof(ResultHasMeaning));
+        RaiseEvidenceCaveatsChanged();
         RaisePropertyChanged(nameof(ResultHasEnding));
         RaisePropertyChanged(nameof(AuditExplainsVerdict));
         RaisePropertyChanged(nameof(AuditExplainsMeaning));
         RaisePropertyChanged(nameof(AuditStartsOpen));
         RaisePropertyChanged(nameof(IsCutShort));
+    }
+
+    /// <summary>The caveats under a works headline follow the verdict and the warnings alike.</summary>
+    private void RaiseEvidenceCaveatsChanged()
+    {
+        RaisePropertyChanged(nameof(ResultEvidenceCaveats));
+        RaisePropertyChanged(nameof(ResultHasEvidenceCaveats));
     }
 
     /// <summary>
@@ -1385,6 +1393,23 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>The plain-language meaning, under the headline it is about (see <see cref="ResultHasReason"/>).</summary>
     public bool ResultHasMeaning => ResultIsVerdict && _verdictHasMeaning;
 
+    /// <summary>
+    /// The warnings that undo a works headline as evidence (<see cref="WarningsThatUndoEvidence"/>), each as
+    /// its own sentence under the reason. Empty under any other headline.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 THE SCREEN SAYS WHAT THE COPY SAYS. A works session of a Go program, or of an application that read
+    /// none of the clocks the session replaces, gets the unreliable banner in the copied summary (R5-D3), and
+    /// the screen showed a green "Works" with both sentences folded inside the audit, behind a warning count.
+    /// The CLI prints them in its report, so the window was the one place a tester could miss them. The
+    /// verdict stays, as it does in the CLI. A partial or failing verdict has its meaning line and an open
+    /// audit already, so the sentences are not repeated there.
+    /// </remarks>
+    public IReadOnlyList<string> ResultEvidenceCaveats
+        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];
+
+    public bool ResultHasEvidenceCaveats => ResultEvidenceCaveats.Count > 0;
+
     /// <summary>The status line tells how the session ended, unless the headline already did: a target that
     /// vanished has "did not take effect" as its headline and how long it lived under it, and the status
     /// sentence would say the same thing a third time.</summary>
@@ -1598,7 +1623,14 @@ public sealed class SessionViewModel : ObservableObject
     public IReadOnlyList<string> Warnings
     {
         get => _warnings;
-        private set { if (Set(ref _warnings, value)) { RaisePropertyChanged(nameof(HasWarnings)); } }
+        private set
+        {
+            if (Set(ref _warnings, value))
+            {
+                RaisePropertyChanged(nameof(HasWarnings));
+                RaiseEvidenceCaveatsChanged();
+            }
+        }
     }
 
     /// <summary>The processes this session's family spawned without the hook inside them, as the session
@@ -2593,7 +2625,11 @@ public sealed class SessionViewModel : ObservableObject
     private bool IsReliable => _verdictKind == VerdictKind.Works
                               && _statusKind is not (SessionStatusKind.DidNotTakeEffect or SessionStatusKind.Error)
                               && !IsCutShort
-                              && !_warnings.Any(WarningsThatUndoEvidence.Contains);
+                              && !EvidenceUndoingWarnings.Any();
+
+    /// <summary>The session's warnings that are in <see cref="WarningsThatUndoEvidence"/>, in the order the
+    /// session raised them - one list behind both the copied banner and the caveats on the result card.</summary>
+    private IEnumerable<string> EvidenceUndoingWarnings => _warnings.Where(WarningsThatUndoEvidence.Contains);
 
     private static string Seconds(long ms) => (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
 

@@ -29,15 +29,19 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **A works session can still be unreliable evidence.** The evidence file and the copied report now
   lead with the unreliable-evidence banner also when the application read none of the clocks the
   session replaces (`coverage.session_clock_never_read`), or is a Go program whose wall clock no hook
-  reaches (`runtime.go_wall_clock_unreachable`). The verdict and the exit code stay as they were.
+  reaches (`runtime.go_wall_clock_unreachable`). The verdict and the exit code stay as they were. The
+  window's result screen shows those warnings under the verdict's reason, where it used to keep them
+  folded inside the audit.
 - **The web engines line claims pages only when some were put on the session clock.** It said that
   the engines' pages ran on the session clock whenever an engine was reached. When the session
   reached an engine but put none of its pages on its clock that way, the line, the window's note and
   the copied report now say so, and the window's process table no longer marks that engine's renderer
-  as one whose pages were reached.
+  as one whose pages were reached. Each engine in `session_verdict.engines` now carries its own
+  `context_count`, and the process table and the warning about a renderer read that one, so with two
+  engines reached and pages in only one of them, the other engine's renderer is no longer said to have
+  had its pages reached. A core older than this field reads as zero, which claims no pages.
 - **A refused session names the way to run anyway.** Under the refusal the report now says that
   `--force` starts the application regardless, and that the report then marks the session unreliable.
-
 - **The audit no longer claims a time function that part of the application reads past.** Most time
   functions live in kernelbase, and kernel32 only passes the call on, so Chrono Mock places its hook
   where the two meet. When it cannot - another program hooked kernelbase first, or a Windows build

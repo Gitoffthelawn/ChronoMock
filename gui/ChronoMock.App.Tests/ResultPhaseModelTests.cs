@@ -31,6 +31,43 @@ public class ResultPhaseModelTests
         Assert.False(vm.HasVanishReason);
     }
 
+    /// <summary>
+    /// A works session that proves nothing about time (R5-D3) says so under its reason: the warnings that put
+    /// the unreliable banner on the copied summary stand on the card, not only folded in the audit behind a
+    /// count. The headline stays Works, as the CLI's verdict does.
+    /// </summary>
+    [Fact]
+    public void A_works_session_that_proves_nothing_about_time_says_so_under_its_reason()
+    {
+        var vm = PhaseStates.ResultWorksButNotEvidence();
+
+        Assert.Equal("verdict.works", vm.ResultHeadlineKey);
+        Assert.Equal(VerdictKind.Works, vm.ResultKind);
+        Assert.True(vm.ResultHasEvidenceCaveats);
+        Assert.Equal(
+            ["coverage.session_clock_never_read", "runtime.go_wall_clock_unreachable"],
+            vm.ResultEvidenceCaveats);
+        // Every caveat is a warning the audit lists too - the card repeats, it does not invent.
+        Assert.All(vm.ResultEvidenceCaveats, key => Assert.Contains(key, vm.Warnings));
+    }
+
+    /// <summary>The caveats are for a works headline alone: any other warning leaves a works card as it was,
+    /// and a partial verdict has its meaning line and an open audit to say what went wrong.</summary>
+    [Fact]
+    public void The_caveats_stand_only_under_a_works_headline_and_only_for_the_warnings_that_undo_evidence()
+    {
+        var clean = PhaseStates.ResultWorks();
+        Assert.True(clean.HasWarnings);
+        Assert.False(clean.ResultHasEvidenceCaveats);
+        Assert.Empty(clean.ResultEvidenceCaveats);
+
+        var partial = PhaseStates.ResultPartialButNotEvidence();
+        Assert.Contains("runtime.go_wall_clock_unreachable", partial.Warnings);
+        Assert.False(partial.ResultHasEvidenceCaveats);
+        Assert.True(partial.ResultHasMeaning);
+        Assert.True(partial.AuditStartsOpen);
+    }
+
     [Fact]
     public void A_partial_session_explains_itself_twice_under_the_headline_and_not_in_the_audit()
     {

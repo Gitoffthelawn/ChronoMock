@@ -965,6 +965,7 @@ public class LayoutGuardTests
         yield return ("session ended", SessionView(SessionStates.Ended()));
         yield return ("session that did not take effect", SessionView(SessionStates.TargetVanished()));
         yield return ("result that worked", ResultView(PhaseStates.ResultWorks()));
+        yield return ("result that worked and proves nothing about time", ResultView(PhaseStates.ResultWorksButNotEvidence()));
         yield return ("result that partly worked", ResultView(PhaseStates.ResultPartial()));
         yield return ("result refused", ResultView(PhaseStates.ResultRefused()));
         yield return ("result refused, processes left running", ResultView(PhaseStates.ResultRefusedLeftRunning()));
@@ -1395,6 +1396,40 @@ public class LayoutGuardTests
 
         Assert.Equal("renderer", rendererText);
         Assert.Equal(fails, rendererInk);
+    }
+
+    /// <summary>
+    /// The caveats under a works headline (R5-D3), measured on the render: both sentences visible on the
+    /// result card, under the reason and above the status line, in the order the session raised them - and
+    /// neither on a clean works. The audit lists the same sentences, folded, so a visible one here can only
+    /// be the card's.
+    /// </summary>
+    [Fact]
+    public void A_works_that_proves_nothing_about_time_shows_both_caveats_under_its_reason()
+    {
+        var (caveats, reasonBottom, statusTop, onCleanWorks) = WpfTestHost.InvokeSettled(() =>
+        {
+            var expected = new[] { "coverage.session_clock_never_read", "runtime.go_wall_clock_unreachable" }
+                .Select(TranslationKeyConverter.Resolve)
+                .ToList();
+
+            var view = ResultView(PhaseStates.ResultWorksButNotEvidence());
+            LayoutProbe.Settle(view);
+            var shown = LayoutProbe.Walk(view).Where(e => e.Kind == nameof(TextBlock) && e.IsVisible).ToList();
+
+            var clean = ResultView(PhaseStates.ResultWorks());
+            LayoutProbe.Settle(clean);
+            return (
+                expected.Select(text => shown.Single(e => e.Text == text).Bounds).ToList(),
+                shown.Single(e => e.Name == "ResultReason").Bounds.Bottom,
+                shown.Single(e => e.Name == "ResultStatus").Bounds.Top,
+                LayoutProbe.Walk(clean).Count(e => e.Kind == nameof(TextBlock) && e.IsVisible && expected.Contains(e.Text)));
+        });
+
+        Assert.Equal(2, caveats.Count);
+        Assert.All(caveats, bounds => Assert.InRange(bounds.Top, reasonBottom, statusTop));
+        Assert.True(caveats[0].Top < caveats[1].Top, "the caveats keep the order the session raised them in");
+        Assert.Equal(0, onCleanWorks);
     }
 
     /// <summary>

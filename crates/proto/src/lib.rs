@@ -94,6 +94,13 @@ pub struct ReachedEngine {
     pub pid: u32,
     pub port: u16,
     pub browser: String,
+    /// How many pages and workers the session put on its clock through this endpoint - the share of
+    /// `session_verdict.context_count` that is this engine's. Zero for an endpoint the session attached
+    /// to and shimmed nothing in, so a client claims an engine's pages only for the engine that had
+    /// some: with two engines reached, the total alone says nothing about either (R5, P15). Absent in
+    /// messages from an older core, which reads as zero - the side that claims nothing.
+    #[serde(default)]
+    pub context_count: u32,
 }
 
 /// The target moment (session-zone semantics, docs/01 section 4).
@@ -635,7 +642,7 @@ mod tests {
             ],
             uncovered_children_total: 3,
             context_count: 2,
-            engines: vec![ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into() }],
+            engines: vec![ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into(), context_count: 2 }],
             followed: vec![
                 FollowedProcess { pid: 5150, image: Some("app.exe".into()) },
                 FollowedProcess { pid: 5151, image: None },
@@ -644,7 +651,10 @@ mod tests {
         let line = ev.to_ndjson();
         assert!(line.starts_with(r#"{"type":"session_verdict""#), "got {line}");
         assert!(line.contains(r#""context_count":2"#), "got {line}");
-        assert!(line.contains(r#""engines":[{"pid":8072,"port":51234,"browser":"Engine/1.0"}]"#), "got {line}");
+        assert!(
+            line.contains(r#""engines":[{"pid":8072,"port":51234,"browser":"Engine/1.0","context_count":2}]"#),
+            "got {line}"
+        );
         // A process the list did not name carries no `image` key, as an unnamed child does.
         assert!(line.contains(r#""followed":[{"pid":5150,"image":"app.exe"},{"pid":5151}]"#), "got {line}");
         // An unnamed child carries no `image` key at all, rather than a null the panel would render.
@@ -673,7 +683,10 @@ mod tests {
         match parse_event(&line).unwrap() {
             Event::SessionVerdict { context_count, engines, followed, .. } => {
                 assert_eq!(context_count, 2);
-                assert_eq!(engines, vec![ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into() }]);
+                assert_eq!(
+                    engines,
+                    vec![ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into(), context_count: 2 }]
+                );
                 assert_eq!(followed.len(), 2);
                 assert_eq!(followed[0], FollowedProcess { pid: 5150, image: Some("app.exe".into()) });
                 assert_eq!(followed[1].image, None);
@@ -707,6 +720,13 @@ mod tests {
                 assert!(engines.is_empty());
                 assert!(followed.is_empty());
             }
+            _ => panic!("wrong event variant"),
+        }
+        // An engine named by a core older than its per-engine count: the count reads as zero, the side
+        // on which a client claims none of its pages (R5, P15).
+        let older = r#"{"type":"session_verdict","v":1,"verdict":"partial","reason_key":"session.family_partial","process_count":1,"engines":[{"pid":8072,"port":51234,"browser":"Engine/1.0"}]}"#;
+        match parse_event(older).expect("an engine without its count must still parse") {
+            Event::SessionVerdict { engines, .. } => assert_eq!(engines[0].context_count, 0),
             _ => panic!("wrong event variant"),
         }
     }

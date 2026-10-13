@@ -115,7 +115,7 @@ public class UncoveredProcessRowsTests
         var rows = UncoveredProcessRowsConverter.Fold(
             [Child(10, "engine.exe", "renderer"), Child(11, "engine.exe", "renderer")],
             // The pid the Child helper records as the parent - that is the join being exercised.
-            [new ReachedEngine { Pid = 1, Port = 61868, Browser = "Engine/1.0" }]);
+            [new ReachedEngine { Pid = 1, Port = 61868, Browser = "Engine/1.0", ContextCount = 2 }]);
 
         // Both children name that pid as their parent, so both were reached.
         var row = Assert.Single(rows);
@@ -132,7 +132,7 @@ public class UncoveredProcessRowsTests
                 new UncoveredChild { Pid = 10, ParentPid = 4242, Image = "engine.exe", Role = "renderer" },
                 new UncoveredChild { Pid = 11, ParentPid = 9999, Image = "engine.exe", Role = "renderer" },
             ],
-            [new ReachedEngine { Pid = 4242, Port = 61868, Browser = "Engine/1.0" }]);
+            [new ReachedEngine { Pid = 4242, Port = 61868, Browser = "Engine/1.0", ContextCount = 1 }]);
 
         Assert.Equal(2, rows.Count);
         // The one still on the real clock leads: it is the row that changes the answer.
@@ -158,7 +158,7 @@ public class UncoveredProcessRowsTests
                 Child(12, "engine.exe", "crashpad-handler"),
                 Child(13, "engine.exe", "utility"),
             ],
-            [new ReachedEngine { Pid = 1, Port = 61868, Browser = "Engine/1.0" }]);
+            [new ReachedEngine { Pid = 1, Port = 61868, Browser = "Engine/1.0", ContextCount = 1 }]);
 
         Assert.True(rows.Single(r => r.Role == "renderer").PagesReached);
         Assert.All(rows.Where(r => r.Role != "renderer"), r => Assert.False(r.PagesReached));
@@ -175,27 +175,39 @@ public class UncoveredProcessRowsTests
     }
 
     /// <summary>
-    /// Reaching an engine is not reaching its pages (R5, P15). The binding hands the converter whether the
-    /// session put any page on its clock, and a renderer under a reached engine reads as reached only when
-    /// it did - not when the session attached and shimmed nothing, and not when that third value is
-    /// missing. Reversal probe: hand the engines to the fold whatever the third value says, and the second
-    /// and third cases come back reached.
+    /// Reaching an engine is not reaching its pages (R5, P15), and each engine answers for its own. Two
+    /// engines reached, pages put on the clock through one of them: the renderer of that one reads as
+    /// reached, the renderer of the other as what it is - a process whose pages read the real clock. The
+    /// fold took the session's total at first, which was more than zero, so both read as reached. An engine
+    /// named without its count, as an older core names it, claims nothing either. Through the converter, as
+    /// the binding calls it.
     /// </summary>
     [Fact]
-    public void A_renderer_reads_as_reached_only_when_the_session_put_a_page_on_its_clock()
+    public void A_renderer_reads_as_reached_only_through_an_engine_that_put_a_page_on_the_clock()
     {
         var converter = new UncoveredProcessRowsConverter();
-        IReadOnlyList<UncoveredChild> children = [Child(10, "engine.exe", "renderer")];
-        IReadOnlyList<ReachedEngine> engines = [new ReachedEngine { Pid = 1, Port = 61868, Browser = "Engine/1.0" }];
-        bool Reached(params object[] values)
-        {
-            var rows = converter.Convert(values, typeof(object), null, System.Globalization.CultureInfo.InvariantCulture);
-            return Assert.Single(Assert.IsAssignableFrom<IEnumerable<UncoveredProcessRow>>(rows)).PagesReached;
-        }
+        IReadOnlyList<UncoveredChild> children =
+        [
+            new UncoveredChild { Pid = 10, ParentPid = 100, Image = "engine.exe", Role = "renderer" },
+            new UncoveredChild { Pid = 20, ParentPid = 200, Image = "engine.exe", Role = "renderer" },
+            new UncoveredChild { Pid = 30, ParentPid = 300, Image = "engine.exe", Role = "renderer" },
+        ];
+        IReadOnlyList<ReachedEngine> engines =
+        [
+            new ReachedEngine { Pid = 100, Port = 61868, Browser = "Engine/1.0", ContextCount = 3 },
+            new ReachedEngine { Pid = 200, Port = 61869, Browser = "Engine/1.0", ContextCount = 0 },
+            new ReachedEngine { Pid = 300, Port = 61870, Browser = "Engine/1.0" },
+        ];
 
-        Assert.True(Reached(children, engines, true), "pages were put on the clock through the reached engine");
-        Assert.False(Reached(children, engines, false), "an engine attached to with no page shimmed claimed its pages");
-        Assert.False(Reached(children, engines), "a binding without the third value claimed the pages");
+        var rows = Assert.IsAssignableFrom<IEnumerable<UncoveredProcessRow>>(
+            converter.Convert([children, engines], typeof(object), null, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+
+        // One executable, split by the claim: the two still on the real clock lead, the reached one after.
+        Assert.Equal(2, rows.Count);
+        Assert.False(rows[0].PagesReached);
+        Assert.Equal(2, rows[0].Count);
+        Assert.True(rows[1].PagesReached);
+        Assert.Equal(1, rows[1].Count);
     }
 
     [Fact]

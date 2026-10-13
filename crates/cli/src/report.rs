@@ -1263,7 +1263,12 @@ mod tests {
                 (context(4), "page Date.now".into(), 12),
             ],
             context_count: 2,
-            engines: vec![chrono_proto::ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into() }],
+            engines: vec![chrono_proto::ReachedEngine {
+                pid: 8072,
+                port: 51234,
+                browser: "Engine/1.0".into(),
+                context_count: 2,
+            }],
             ..empty_report()
         };
         let out = render_report(&r);
@@ -1289,7 +1294,12 @@ mod tests {
         let reached = |contexts: u32| SessionReport {
             session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
             context_count: contexts,
-            engines: vec![chrono_proto::ReachedEngine { pid: 8072, port: 51234, browser: "Engine/1.0".into() }],
+            engines: vec![chrono_proto::ReachedEngine {
+                pid: 8072,
+                port: 51234,
+                browser: "Engine/1.0".into(),
+                context_count: contexts,
+            }],
             ..empty_report()
         };
         let with_pages = render_report(&reached(2));

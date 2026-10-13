@@ -18,9 +18,10 @@ namespace ChronoMock.App;
 /// empty for a process without one.</param>
 /// <param name="IsRenderer">True when the role is the one web pages run in - the row that means the
 /// application's pages read the real clock, so it takes the failure ink.</param>
-/// <param name="PagesReached">True for a renderer whose engine the session reached through its debugging
-/// port, so the pages it hosts ran on the session clock even though the process itself did not. The row
-/// then reads as partial rather than as a failure - which is what the family verdict says too.</param>
+/// <param name="PagesReached">True for a renderer whose engine the session put pages on its clock through,
+/// over that engine's debugging port, so the pages it hosts ran on the session clock even though the process
+/// itself did not. The row then reads as partial rather than as a failure - which is what the family verdict
+/// says too.</param>
 /// <param name="Count">How many processes this row stands for.</param>
 public sealed record UncoveredProcessRow(
     string Image, bool IsUnnamed, string Role, bool IsRenderer, bool PagesReached, int Count)
@@ -50,18 +51,9 @@ public sealed class UncoveredProcessRowsConverter : IMultiValueConverter
     /// reached. It takes both because a renderer row cannot be read without the second - the same row
     /// means "this application's pages ran on the real clock" or "its pages were reached anyway",
     /// depending on whether the session got into the engine that spawned it.
-    /// <para>
-    /// The third value is whether the session put any page on its clock through those engines
-    /// (<c>SessionViewModel.EnginePagesReached</c>, R5 P15). Reaching an engine is not reaching its pages:
-    /// the session can attach and then shim none of them, and a row that said "its pages were reached"
-    /// then claimed what the CLI report, since R5, does not. Without it the engines count as not reached,
-    /// which is the side that never claims a page.
-    /// </para>
     /// </summary>
     public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
-        => Fold(
-            At<UncoveredChild>(values, 0),
-            values is not null && values.Length > 2 && values[2] is true ? At<ReachedEngine>(values, 1) : []);
+        => Fold(At<UncoveredChild>(values, 0), At<ReachedEngine>(values, 1));
 
     /// <summary>One binding of a multi-binding as a list, or empty - a view rendered without a data
     /// context hands over UnsetValue, and a shorter array than expected is the same case.</summary>
@@ -83,14 +75,22 @@ public sealed class UncoveredProcessRowsConverter : IMultiValueConverter
     public static IReadOnlyList<UncoveredProcessRow> Fold(
         IEnumerable<UncoveredChild> children, IEnumerable<ReachedEngine>? engines = null)
     {
-        // The pids whose engines the session reached. A renderer is spawned BY the browser process that
-        // holds the debugging port, and the core records the hooked process that spawned each uncovered
-        // child - so the parent of a renderer IS the engine's pid when the session got in. Measured on
-        // three recorded sessions across two engines (docs/STAN.md), never assumed.
+        // The pids of the engines the session put pages on its clock through. A renderer is spawned BY the
+        // browser process that holds the debugging port, and the core records the hooked process that
+        // spawned each uncovered child - so the parent of a renderer IS the engine's pid when the session
+        // got in. Measured on three recorded sessions across two engines (docs/STAN.md), never assumed.
+        //
+        // 🔴 EACH ENGINE BY ITS OWN COUNT (R5, P15). Reaching an engine is not reaching its pages: the
+        // session can attach and shim none of them. The fold took the session's total at first, and with
+        // two engines reached and pages in one, the renderer of the other read as reached too. An engine
+        // without a count - an older core - counts as not reached, the side that never claims a page.
         var reached = new HashSet<uint>();
         foreach (var engine in engines ?? [])
         {
-            reached.Add(engine.Pid);
+            if (engine.ContextCount > 0)
+            {
+                reached.Add(engine.Pid);
+            }
         }
 
         var groups = new Dictionary<string, ImageGroup>(StringComparer.OrdinalIgnoreCase);

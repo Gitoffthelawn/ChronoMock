@@ -137,6 +137,15 @@
                        Margin="{StaticResource StackGapSm}"
                        Text="{Binding VerdictReasonKey, Converter={StaticResource KeyToText}}"
                        Visibility="{Binding ResultHasReason, Converter={StaticResource BoolToVis}}" />
+            <!-- What undoes a works headline as evidence (R5-D3): a Go program, whose wall clock no hook
+                 reaches, or an application that read none of the clocks the session replaces. The copied
+                 summary leads with the unreliable banner for it, and this screen kept both sentences folded
+                 in the audit under a green "Works". They are those warnings, so they take the audit's own
+                 callout rows, right under the reason they qualify. The verdict stays, as in the CLI. -->
+            <controls:TextNamedItems x:Name="ResultCaveats"
+                                     ItemsSource="{Binding ResultEvidenceCaveats}"
+                                     ItemTemplate="{StaticResource CalloutRow}"
+                                     Visibility="{Binding ResultHasEvidenceCaveats, Converter={StaticResource BoolToVis}}" />
             <TextBlock x:Name="ResultMeaning" Style="{StaticResource PartNote}"
                        Margin="{StaticResource StackGapSm}"
                        Text="{Binding VerdictMeaningKey, Converter={StaticResource KeyToText}}"

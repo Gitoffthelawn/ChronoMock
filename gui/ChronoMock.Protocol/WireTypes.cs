@@ -46,6 +46,11 @@ public sealed record ReachedEngine
     [JsonPropertyName("pid")] public uint Pid { get; init; }
     [JsonPropertyName("port")] public int Port { get; init; }
     [JsonPropertyName("browser")] public string Browser { get; init; } = "";
+
+    /// <summary>How many pages and workers the session put on its clock through this endpoint - this engine's
+    /// share of the verdict's context count (R5, P15). Zero for an engine the session attached to and shimmed
+    /// nothing in, and in messages from an older core, which is the side that claims none of its pages.</summary>
+    [JsonPropertyName("context_count")] public int ContextCount { get; init; }
 }
 
 /// <summary>The target moment, session-zone semantics (mirrors <c>chrono_proto::MomentSpec</c>).</summary>

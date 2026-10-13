@@ -205,6 +205,33 @@ internal static class PhaseStates
         return model;
     }
 
+    /// <summary>
+    /// A session that works as a mechanism and proves nothing about time (R5-D3): a Go program, whose wall
+    /// clock no hook reaches, and no process read a clock the session replaces. Both warnings at once, because
+    /// the two are raised independently and a Go program that reads only the shared page gets both. The
+    /// headline stays Works and both sentences stand under its reason.
+    /// </summary>
+    public static SessionViewModel ResultWorksButNotEvidence() => NotEvidence("works", "session.family_covered");
+
+    /// <summary>The same two warnings under a partial verdict, whose meaning line and open audit already say
+    /// what went wrong - the caveats under the headline are for a works alone.</summary>
+    public static SessionViewModel ResultPartialButNotEvidence() => NotEvidence("partial", "session.family_partial");
+
+    private static SessionViewModel NotEvidence(string verdict, string reasonKey)
+    {
+        var model = ResultRunning();
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = verdict,
+            ReasonKey = reasonKey,
+            ProcessCount = 1,
+            WarningKeys = ["coverage.session_clock_never_read", "runtime.go_wall_clock_unreachable"],
+        });
+        model.Apply(Ended());
+        return model;
+    }
+
     /// <summary>A session that only partly worked: the reason and the meaning both have to show under the word.</summary>
     public static SessionViewModel ResultPartial()
     {
@@ -336,7 +363,7 @@ internal static class PhaseStates
             ],
             UncoveredChildrenTotal = 4,
             ContextCount = 2,
-            Engines = [new ReachedEngine { Pid = 4300, Port = 61868, Browser = "Engine/153.0" }],
+            Engines = [new ReachedEngine { Pid = 4300, Port = 61868, Browser = "Engine/153.0", ContextCount = 2 }],
         });
         model.Apply(Ended());
         return model;
@@ -371,7 +398,7 @@ internal static class PhaseStates
             UncoveredChildren = [new UncoveredChild { Pid = 5180, ParentPid = 4300, Image = "msedgewebview2.exe", Role = "renderer" }],
             UncoveredChildrenTotal = 1,
             ContextCount = 0,
-            Engines = [new ReachedEngine { Pid = 4300, Port = 61868, Browser = "Engine/153.0" }],
+            Engines = [new ReachedEngine { Pid = 4300, Port = 61868, Browser = "Engine/153.0", ContextCount = 0 }],
         });
         model.Apply(Ended());
         return model;
@@ -416,7 +443,7 @@ internal static class PhaseStates
             ProcessCount = 2,
             WarningKeys = ["embedded.web_engine_reached", "embedded.debug_port_open"],
             ContextCount = 1,
-            Engines = [new ReachedEngine { Pid = 4300, Port = port, Browser = browser }],
+            Engines = [new ReachedEngine { Pid = 4300, Port = port, Browser = browser, ContextCount = 1 }],
         });
         return model;
     }

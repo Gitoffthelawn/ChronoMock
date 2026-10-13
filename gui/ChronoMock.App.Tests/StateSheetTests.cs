@@ -222,6 +222,10 @@ public class StateSheetTests
             var total = 0;
 
             total += RenderResult("result-works", PhaseStates.ResultWorks()).Count;
+            // A works that proves nothing about time, its caveats under the reason with the audit folded (R5-D3).
+            total += Shows(
+                RenderResult("result-not-evidence", PhaseStates.ResultWorksButNotEvidence()),
+                "runtime.go_wall_clock_unreachable");
             total += RenderResult("result-partial", PhaseStates.ResultPartial()).Count;
             total += RenderResult("result-processes", PhaseStates.ResultPartialWithUncoveredProcesses(), "AuditSection").Count;
             total += Shows(

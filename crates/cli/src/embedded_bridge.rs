@@ -15,7 +15,7 @@
 //! to a found endpoint, which can take twenty seconds when an engine has gone quiet, happens on a
 //! short-lived thread of its own, and the loop keeps its heartbeat (docs/09 section 12.17).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
@@ -359,18 +359,15 @@ impl Outcome {
         }
         out
     }
-
-    /// Whether at least one page or worker was put on the session clock.
-    pub(crate) fn pages_reached(&self) -> bool {
-        !self.seen.is_empty()
-    }
 }
 
 /// Reconcile slice A's claim with what this channel did: a renderer the hook never entered still
 /// makes the strong warning, but once its pages were reached over the debugging port the claim that
 /// they read the real clock is false, and the warning that replaces it says what happened instead.
-pub(crate) fn reconcile_engine_warnings(warnings: &mut [String], pages_reached: bool) {
-    if !pages_reached {
+/// `renderers_reached` is about EVERY such renderer, each through its own engine
+/// (`core::every_renderer_reached`): one renderer whose engine had no page keeps the strong warning.
+pub(crate) fn reconcile_engine_warnings(warnings: &mut [String], renderers_reached: bool) {
+    if !renderers_reached {
         return;
     }
     for w in warnings.iter_mut() {
@@ -394,8 +391,13 @@ pub(crate) struct EmbeddedBridge {
     connecting: HashSet<u16>,
     attachers: Vec<Attacher>,
     /// What the attachers the engine closed had covered - kept, because the audit is a record of
-    /// what happened (R2-W1), and an attacher dropped without it takes its evidence along.
-    closed: Vec<AttacherOutcome>,
+    /// what happened (R2-W1), and an attacher dropped without it takes its evidence along. Each with
+    /// the entry of `engines` it was attached through, so its pages are counted to that engine.
+    closed: Vec<(Option<usize>, AttacherOutcome)>,
+    /// The live attacher's entry in `engines`, by port - one attacher per port at a time, so the port
+    /// names it while it lives. An engine that closed and came back on the same port is a new entry,
+    /// and its pages are its own rather than added to the one before (R5, P15).
+    engine_of_port: HashMap<u16, usize>,
     /// One counter for every attacher: the index is a context's identity on the wire, and two
     /// attachers minting their own would both call their first page context 1.
     next_index: u32,
@@ -437,6 +439,7 @@ impl EmbeddedBridge {
             connecting: HashSet::new(),
             attachers: Vec::new(),
             closed: Vec::new(),
+            engine_of_port: HashMap::new(),
             next_index: 0,
             engines: Vec::new(),
             warnings: Vec::new(),
@@ -595,7 +598,8 @@ impl EmbeddedBridge {
                 // engine restarted. Its evidence is handed over before the attacher goes, and a new
                 // endpoint for the same pages will be found as a new port.
                 let gone = self.attachers.swap_remove(i);
-                self.closed.push(gone.into_outcome());
+                let engine = self.engine_of_port.remove(&gone.port());
+                self.closed.push((engine, gone.into_outcome()));
             } else {
                 i += 1;
             }
@@ -668,7 +672,13 @@ impl EmbeddedBridge {
                         diag!("chrono core: engine on port {}: {e}", found.port);
                     }
                     self.reached = true;
-                    self.engines.push(ReachedEngine { pid: found.pid, port: found.port, browser: found.browser });
+                    self.engine_of_port.insert(found.port, self.engines.len());
+                    self.engines.push(ReachedEngine {
+                        pid: found.pid,
+                        port: found.port,
+                        browser: found.browser,
+                        context_count: 0,
+                    });
                     self.attachers.push(attacher);
                 }
                 Ok((found, Err(e))) => {
@@ -791,7 +801,7 @@ impl EmbeddedBridge {
         for attacher in &mut self.attachers {
             attacher.settle(origin, next_index, end_by);
         }
-        let missed = self.closed.iter().map(|c| c.moves_missed).sum::<usize>()
+        let missed = self.closed.iter().map(|(_, c)| c.moves_missed).sum::<usize>()
             + self.attachers.iter().map(Attacher::moves_missed).sum::<usize>();
         if missed > 0 {
             self.warn(KEY_CLOCK_MOVE_MISSED);
@@ -813,13 +823,20 @@ impl EmbeddedBridge {
             hidden_fast: 0,
             timers_kept: self.timers_kept,
         };
+        let engine_of_port = self.engine_of_port;
         let live = self.attachers.into_iter().map(|a| {
             if a.native() > 0 {
                 diag!("chrono core: {} context(s) on port {} were already on the session clock natively", a.native(), a.port());
             }
-            a.into_outcome()
+            (engine_of_port.get(&a.port()).copied(), a.into_outcome())
         });
-        for part in self.closed.into_iter().chain(live) {
+        for (engine, part) in self.closed.into_iter().chain(live) {
+            // Every page counted to the engine it came through, so a client claims an engine's pages
+            // only for the engine that had some (R5, P15). The total stays `seen`.
+            if let Some(reached) = engine.and_then(|i| outcome.engines.get_mut(i)) {
+                let pages = u32::try_from(part.seen.len()).unwrap_or(u32::MAX);
+                reached.context_count = reached.context_count.saturating_add(pages);
+            }
             outcome.seen.extend(part.seen);
             outcome.counts.extend(part.counts);
             outcome.failed += part.failed;
@@ -1264,6 +1281,50 @@ mod tests {
         assert_eq!(attacher.attach_existing(origin, &mut bridge.next_index, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
         bridge.attachers.push(attacher);
         (bridge, browser)
+    }
+
+    /// A browser endpoint holding one page or none, answering whatever an attach, a shim and a settle ask.
+    fn fake_engine(with_a_page: bool) -> (u16, thread::JoinHandle<Vec<serde_json::Value>>) {
+        cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let expr = request["params"]["expression"].as_str().unwrap_or("");
+            let reply = match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" if with_a_page => serde_json::json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }] }),
+                "Target.getTargets" => serde_json::json!({ "targetInfos": [] }),
+                "Target.attachToTarget" => serde_json::json!({ "sessionId": "S1" }),
+                "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({ "identifier": "h" }),
+                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => serde_json::json!({ "result": { "value": [-330, -330] } }),
+                _ => serde_json::json!({}),
+            };
+            vec![(id, reply)]
+        })
+    }
+
+    /// The pages are counted to the engine they came through (R5, P15): two engines reached, a page in
+    /// one and none in the other, and the session's total of one is that engine's alone. The count used
+    /// to exist only as that total, and a client read it as true of every engine on the list. Reached
+    /// through the connect hand-over the session loop takes, so the entry an attacher is counted to is
+    /// the one it was connected as.
+    #[test]
+    fn the_pages_are_counted_to_the_engine_they_came_through() {
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let connected = |port| {
+            let ws = cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+            Ok(Attacher::over(cdp::CdpClient::from_ws(ws), port))
+        };
+        let found = |pid, port| Discovered { pid, host: "127.0.0.1", port, browser: "Engine/1.0".into() };
+        let (none_port, _none) = fake_engine(false);
+        let (page_port, _page) = fake_engine(true);
+
+        let mut bridge = EmbeddedBridge::start(&Launch::off(), vec![1], false, -330);
+        bridge.connects_tx.send((found(200, none_port), connected(none_port))).unwrap();
+        bridge.connects_tx.send((found(100, page_port), connected(page_port))).unwrap();
+        bridge.pump(origin);
+        let outcome = bridge.finish(origin, Instant::now() + Duration::from_secs(2));
+
+        let counts: Vec<(u32, u32)> = outcome.engines.iter().map(|e| (e.pid, e.context_count)).collect();
+        assert_eq!(counts, vec![(200, 0), (100, 1)]);
+        assert_eq!(outcome.seen.len(), 1, "the total is every engine's pages, here the one");
     }
 
     /// ADR-21: the pages of an application that outlives the session go back on this machine's zone by

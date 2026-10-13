@@ -204,14 +204,13 @@
                                   Margin="{StaticResource StackGapSm}"
                                   ItemTemplate="{StaticResource ProcessRowTemplate}">
             <!-- Two lists, because a renderer row cannot be read without both: the processes the hook
-                 never entered, and the engines the session reached. Same fold, more of the truth. The
-                 third value says whether any page was put on the session clock through those engines,
-                 because reaching an engine is not reaching its pages (R5, P15). -->
+                 never entered, and the engines the session reached, each with the pages it put on the
+                 session clock through that engine - reaching an engine is not reaching its pages (R5,
+                 P15). Same fold, more of the truth. -->
             <controls:TextNamedList.ItemsSource>
               <MultiBinding Converter="{StaticResource UncoveredProcessRows}">
                 <Binding Path="UncoveredChildren" />
                 <Binding Path="Engines" />
-                <Binding Path="EnginePagesReached" />
               </MultiBinding>
             </controls:TextNamedList.ItemsSource>
             <controls:TextNamedList.Header>

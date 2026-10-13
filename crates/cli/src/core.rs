@@ -18,8 +18,8 @@ use chrono_core::{
 };
 use chrono_mech::{FamilyMember, UncoveredChild};
 use chrono_proto::{
-    parse_command, Command, Event, FollowedProcess, MomentSpec, TargetConsole, TargetSpec, TimeSpec,
-    PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
+    parse_command, Command, Event, FollowedProcess, MomentSpec, ReachedEngine, TargetConsole, TargetSpec,
+    TimeSpec, PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
 };
 
 use crate::cdp;
@@ -884,7 +884,7 @@ pub(crate) fn close_session(
         substituted_reads(&final_coverage, &page_rows),
     );
     let mut children_warnings = uncovered_children_warnings(&uncovered_children, uncovered_children_total);
-    reconcile_engine_warnings(&mut children_warnings, pages.pages_reached());
+    reconcile_engine_warnings(&mut children_warnings, every_renderer_reached(&uncovered_children, &pages.engines));
     session_warnings.extend(children_warnings);
     session_warnings.extend(pages.session_warnings());
     place_policy_keys(&mut session_warnings, policy_keys);
@@ -988,9 +988,7 @@ pub(crate) fn uncovered_children_warnings(children: &[UncoveredChild], total: u3
     if total > 0 || !children.is_empty() {
         warnings.push("inheritance.children_uncovered".to_string());
     }
-    let renderer = children.iter().any(|c| {
-        c.command_line.as_deref().and_then(role_from_command_line).is_some_and(|r| is_renderer_role(&r))
-    });
+    let renderer = children.iter().any(is_renderer_child);
     let engine = children.iter().any(|c| c.image.as_deref().is_some_and(is_web_engine_subprocess));
     if renderer {
         warnings.push("embedded.web_engine_uncovered".to_string());
@@ -998,6 +996,24 @@ pub(crate) fn uncovered_children_warnings(children: &[UncoveredChild], total: u3
         warnings.push("embedded.web_engine_processes_uncovered".to_string());
     }
     warnings
+}
+
+/// A child whose command line names the role web pages run in.
+fn is_renderer_child(child: &UncoveredChild) -> bool {
+    child.command_line.as_deref().and_then(role_from_command_line).is_some_and(|r| is_renderer_role(&r))
+}
+
+/// Whether every renderer among the uncovered children had pages put on the session clock: its parent is
+/// an engine the session reached and shimmed at least one page or worker through (R5, P15). A renderer is
+/// spawned by the browser process that holds the debugging port, so its parent is that engine's pid - the
+/// relation the window's process table reads too. The session's total used to decide this for every
+/// renderer at once, so with two engines reached and pages in one, the renderer of the other lost the
+/// warning that its pages read the real clock. A renderer whose parent is no engine keeps the warning.
+pub(crate) fn every_renderer_reached(children: &[UncoveredChild], engines: &[ReachedEngine]) -> bool {
+    children
+        .iter()
+        .filter(|c| is_renderer_child(c))
+        .all(|c| engines.iter().any(|e| e.pid == c.parent_pid && e.context_count > 0))
 }
 
 /// Resolve an absolute jump target to a UTC FILETIME, through the same gate a start goes through.
@@ -1798,6 +1814,44 @@ mod tests {
             uncovered_children_warnings(&[cef], 1),
             vec!["inheritance.children_uncovered", "embedded.web_engine_uncovered"]
         );
+    }
+
+    /// The renderer warning gives way only for a renderer whose OWN engine had pages put on the session
+    /// clock (R5, P15). With two engines reached and pages in one, the session's total used to soften the
+    /// warning for both, and the renderer of the engine with none read the real clock all the same.
+    #[test]
+    fn a_renderer_counts_as_reached_only_through_an_engine_that_had_pages() {
+        let renderer_of = |pid, parent_pid| UncoveredChild {
+            pid,
+            parent_pid,
+            image: Some("engine.exe".into()),
+            command_line: Some("engine.exe --type=renderer".into()),
+        };
+        let engine = |pid, context_count| ReachedEngine { pid, port: 9000, browser: "Engine/1.0".into(), context_count };
+        let both = [engine(100, 3), engine(200, 0)];
+
+        assert!(every_renderer_reached(&[renderer_of(1, 100)], &both), "its engine had pages");
+        assert!(!every_renderer_reached(&[renderer_of(2, 200)], &both), "its engine had none, the other's do not count");
+        assert!(!every_renderer_reached(&[renderer_of(1, 100), renderer_of(2, 200)], &both), "one without is enough");
+        assert!(!every_renderer_reached(&[renderer_of(3, 300)], &both), "a renderer under no engine reached");
+        // A helper of the engine without pages hosts no page, so it does not hold the warning.
+        let gpu = UncoveredChild {
+            pid: 4,
+            parent_pid: 200,
+            image: Some("engine.exe".into()),
+            command_line: Some("engine.exe --type=gpu-process".into()),
+        };
+        assert!(every_renderer_reached(&[renderer_of(1, 100), gpu], &both));
+
+        // Through the reconcile, as the session runs it: the strong warning stays while one renderer's
+        // engine had no page, and gives way when every renderer's engine had some.
+        let children = [renderer_of(1, 100), renderer_of(2, 200)];
+        let mut kept = uncovered_children_warnings(&children, 2);
+        reconcile_engine_warnings(&mut kept, every_renderer_reached(&children, &both));
+        assert_eq!(kept, vec!["inheritance.children_uncovered", "embedded.web_engine_uncovered"]);
+        let mut softened = uncovered_children_warnings(&children[..1], 1);
+        reconcile_engine_warnings(&mut softened, every_renderer_reached(&children[..1], &both));
+        assert_eq!(softened, vec!["inheritance.children_uncovered", "embedded.web_engine_reached"]);
     }
 
     /// The reason key names processes when children were uncovered, in the verdict the fold makes
