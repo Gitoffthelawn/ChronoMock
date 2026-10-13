@@ -37,13 +37,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Pinned to the version the numbers in semgrep_gate.py were measured with. A scanner that
-      # updates itself changes the verdict without anybody changing the code, which is the one
-      # thing a merge gate must not do. Bumping this is a deliberate act, and it means measuring
-      # again - `p/default` against this tree, and against the release workflows as they were
-      # before commit 3b94c4e, where it must still report six.
+      # Pinned, in .github/semgrep/requirements.txt, so that Dependabot can propose the next version
+      # (its pip entry). A scanner that updates itself changes the verdict without anybody changing
+      # the code, which is the one thing a merge gate must not do. Bumping this is a deliberate act,
+      # and it means measuring again - `p/default` against this tree, and against the release
+      # workflows as they were before commit 3b94c4e, where it must still report six.
+      #
+      # The numbers above were measured with 1.175.0. The move to 1.179.0 (2026-10-14) is measured
+      # by this job against the tree of the pull request that made it, and NOT against the release
+      # workflows before 3b94c4e - that second measurement is still owed.
       - name: Install the scanner
-        run: pip install semgrep==1.175.0
+        run: pip install -r .github/semgrep/requirements.txt
 
       - name: Scan
         run: |
