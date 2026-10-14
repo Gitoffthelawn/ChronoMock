@@ -67,9 +67,7 @@
         Vì vậy trục khoảng thời gian - số tick, sleep, chờ và bộ hẹn giờ - là một công tắc riêng:
       </p>
       <ul>
-        <li><code>--scale-duration</code> cũng đặt sleep, chờ và bộ hẹn giờ lên đồng hồ phiên. Nếu không có
-          nó, <code>x1440</code> đẩy lịch tiến vùn vụt trong khi một bộ hẹn giờ năm giây vẫn mất năm giây
-          thật.</li>
+        <li><code>--scale-duration</code> cũng đưa bộ đếm tick, các lệnh ngủ và bộ hẹn giờ lên đồng hồ phiên, còn các lệnh chờ đối tượng được đếm và giữ nguyên độ dài thật. Không có nó, <code>x1440</code> đẩy lịch chạy tới trong khi một bộ hẹn giờ năm giây vẫn mất năm giây thật - chỉ bộ hẹn giờ đặt vào một ngày giờ cụ thể mới theo đồng hồ phiên trong mọi phiên.</li>
         <li><code>--scale-qpc</code> còn nhân tỷ lệ cả bộ đếm độ phân giải cao. Đó là nơi
           <code>monotonic</code> của Python 3.13+, <code>Stopwatch</code> của .NET và
           <code>nanoTime</code> của Java đọc thời gian đã trôi, và nó tắt theo mặc định vì nhân tỷ lệ nó làm
@@ -112,9 +110,7 @@
         <li><strong>Nó không đụng đến đồng hồ hệ thống.</strong> Đó là mục đích, không phải hạn chế - nhưng
           nó có nghĩa là bất cứ thứ gì đọc giờ từ máy chủ, cơ sở dữ liệu hay máy khác đều không bị ảnh
           hưởng, và kiểm toán sẽ cho bạn biết khi điều đó xảy ra.</li>
-        <li><strong>Một bước nhảy đổi những gì ứng dụng thấy, không đổi lúc nó thức dậy.</strong> Các bộ hẹn
-          giờ đã giao cho nhân hệ điều hành chạy theo giờ thật. Đa số ứng dụng thăm dò đồng hồ, nên các bước
-          nhảy hoạt động trong thực tế - nhưng không phải tất cả đều vậy.</li>
+        <li><strong>Một cú nhảy thay đổi những gì ứng dụng thấy, không phải lúc nó thức dậy.</strong> Các lệnh ngủ và bộ hẹn giờ đã giao cho nhân giữ nguyên độ dài nhận được khi được đặt. Hầu hết ứng dụng hỏi đồng hồ liên tục, nên các cú nhảy hoạt động trong thực tế - nhưng không phải với tất cả.</li>
         <li><strong>Nó không làm chậm thời gian.</strong> Các hệ số nhân là số nguyên từ một trở lên, cộng
           thêm đồng hồ đóng băng ở không.</li>
       </ul>

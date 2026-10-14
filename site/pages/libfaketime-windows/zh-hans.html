@@ -74,7 +74,7 @@ FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
       </p>
       <p>
         <strong>Windows 上可拦截的地方更多。</strong>除了挂钟时间，还有时区、经过时间轴、四类定时器、休眠和等待函数，以及进程创建——总共 {{channel_count}} 个通道。
-      </p>
+      其中 {{substituted_count}} 个被偏移，其余 {{observed_count}} 个（包括网络连接）只计数。</p>
       <p>
         <strong>这个工具会报告自己的覆盖情况。</strong>每次会话都以一个判定、应用实际读取过的通道及各自的次数，以及被遗漏的通道结束。这是两个平台上都没有对应物的部分。
       </p>

@@ -22,24 +22,26 @@
         <tbody>
           <tr><td>Bir uygulamayı sahte bir tarihte çalıştırır</td><td class="y">evet</td><td class="y">evet</td></tr>
           <tr><td>Sistem saatine dokunmaz</td><td class="y">evet</td><td class="y">evet</td></tr>
-          <tr><td>Yakalanan zaman işlevleri</td><td class="n">5</td><td class="y">{{channel_count}} kanal</td></tr>
+          <tr><td>Yakalanan zaman işlevleri</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} kaydırılan, {{observed_count}} sayılan)</td></tr>
           <tr><td>Gerçek zamandan hızlı saat</td><td class="n">sunulmuyor</td><td class="y">herhangi bir tam sayı çarpan</td></tr>
-          <tr><td>Saati dondurma</td><td class="n">sunulmuyor</td><td class="y">evet</td></tr>
-          <tr><td>Uygulama çalışırken atlama</td><td class="n">sunulmuyor</td><td class="y">ileri ve geri</td></tr>
+          <tr><td>Saati dondurma</td><td class="y">evet, varsayılan olarak</td><td class="y">evet</td></tr>
+          <tr><td>Uygulama çalışırken atlama</td><td class="n">yalnızca belirlenen saniye sonra gerçek tarihe dönüş</td><td class="y">ileri ve geri, herhangi bir ana</td></tr>
           <tr><td>Yalnızca o süreç için saat dilimi</td><td class="n">belgelenmemiş</td><td class="y">evet, sabit kayma</td></tr>
           <tr><td>Alt süreçler oturumu devralır</td><td class="n">belgelenmemiş</td><td class="y">evet</td></tr>
+          <tr><td>Zaten çalışan bir uygulamaya bağlanma</td><td class="y">evet, 1.40 sürümünden beri</td><td class="n">hayır - uygulamayı kendisi başlatır</td></tr>
+          <tr><td>Farklı tarihlerde birkaç uygulama aynı anda</td><td class="y">evet</td><td class="n">hayır - aynı anda tek oturum</td></tr>
           <tr><td>İşe yarayıp yaramadığını söyler</td><td class="n">hayır</td><td class="y">karar, kanal kanal, çağrı sayılarıyla</td></tr>
-          <tr><td>Electron ve Chromium uygulamaları</td><td class="n">sunulmuyor</td><td class="y">ayrı mekanizma</td></tr>
+          <tr><td>Electron ve Chromium uygulamaları</td><td class="n">belgelenmemiş</td><td class="y">ayrı mekanizma</td></tr>
           <tr><td>CI için komut satırı</td><td class="y">evet</td><td class="y">evet, çıkış kodları ve JSON ile</td></tr>
           <tr><td>Kaynak kodu</td><td class="n">freeware, kapalı</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Boyut</td><td class="y">40 KB’ın altında</td><td class="n">1,6 MB CLI, pencereyle 69 MB</td></tr>
+          <tr><td>Boyut</td><td class="y">47 KB indirme, 64 bit için 57 KB</td><td class="n">komut satırı ~{{size_cli_zip}} MB, pencereyle ~{{size_app_zip}} MB</td></tr>
           <tr><td>Eski Windows sürümleri</td><td class="y">Windows 2000’e kadar</td><td class="n">Windows 10 ve 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>“Belgelenmemiş”</em>, özelliğin RunAsDate sayfasında anılmadığı anlamına gelir.
-      Aracın buna sahip olmadığı iddiası değildir.
+      Aracın buna sahip olmadığı iddiası değildir. RunAsDate’in saati, <em>Move the time forward according to the real time</em> seçeneği açılmadıkça durur.
     </p>
   </section>
 
@@ -77,16 +79,16 @@
         Yüzeyin geri kalanı, tarihe bağlı kodun saklanma eğiliminde olduğu yerdir:
       </p>
       <ul>
-        <li><strong>saat dilimi</strong> - dört işlev, artı dilimler arası dönüşümü yapan bütün aile;
-          bir raporun yanlış güne düşmesinin yolu budur</li>
+        <li><strong>saat dilimi</strong> - onu bildiren iki işlev ve dilimler arasında dönüştüren altı işlev, bir raporun yanlış güne düşmesi buradan olur</li>
         <li><strong>geçen zaman ekseni</strong> - tick sayıları ve yanlılıksız kesinti zamanı; bir deneme
           geri sayımının genellikle ölçtüğü şey</li>
-        <li><strong>uykular ve beklemeler</strong>; böylece bir gecikme gerçek saatte değil oturum
-          saatinde bir gecikme olur</li>
+        <li><strong>uyumalar</strong>, böylece bir gecikme gerçek saatte değil oturum saatinde bir gecikme olur, ve <strong>nesne beklemeleri</strong>, sayılan ve gerçek sürelerini koruyan</li>
         <li><strong>zamanlayıcılar</strong> - waitable, pencere, thread-pool ve çok ortamlı</li>
         <li><strong>süreç oluşturma</strong>; böylece bir yükleyicinin alt süreçleri bugünde değil aynı
           oturumda çalışır</li>
+        <li><strong>ağ bağlantıları</strong>, zamanın bir sunucudan gelebileceğinin işareti olarak sayılır</li>
       </ul>
+      <p>{{channel_count}} kanalın {{substituted_count}} tanesi oturum saatine geçer. Kalan {{observed_count}} tanesi yalnızca sayılır ve gerçek kalır, bu yüzden rapor onları kaydırılmış gibi göstermeden listeler. Duvar saati ve saat dilimi her oturumda kaydırılır. Geçen süre ekseni ve beklemeler <code>--scale-duration</code> ile, yüksek çözünürlüklü sayaç ise <code>--scale-qpc</code> ile istediğinizde izlenir.</p>
     </div>
   </section>
 
@@ -95,14 +97,14 @@
     <div class="prose">
       <p>Gerçekten, ve nadiren değil:</p>
       <ul>
-        <li><strong>Normal hızda, hemen şimdi tek bir tarihe ihtiyacınız var.</strong> RunAsDate 40 KB’ın
-          altındadır, öğrenilecek bir penceresi yoktur ve tam olarak bunu uzun yıllardır yapıyor.</li>
+        <li><strong>Normal hızda, hemen şimdi tek bir tarihe ihtiyacınız var.</strong> RunAsDate 60 KB’ın altında bir indirmedir, öğrenilecek bir penceresi yoktur ve tam olarak bunu uzun yıllardır yapıyor.</li>
         <li><strong>Eski bir Windows’tasınız.</strong> RunAsDate Windows 2000’e kadar gider. Bu araç Windows
           10 ve 11’i hedefler ve daha eskisinde test edilmemiştir.</li>
-        <li><strong>Boyut önemli.</strong> Komut satırı için 40 KB’a karşı 1,6 MB ya da pencereyle 69 MB,
-          yakın bir karşılaştırma değil.</li>
+        <li><strong>Boyut önemlidir.</strong> 47 KB’lık bir indirmeye karşı komut satırı için ~{{size_cli_zip}} MB ya da pencereyle ~{{size_app_zip}} MB yakın bir karşılaştırma değildir.</li>
         <li><strong>Karar istemiyorsunuz.</strong> Kapsamayı ölçmek sonucu okumak demektir. Test tek
           kullanımlıksa, bu istemediğiniz bir yüktür.</li>
+        <li><strong>Uygulama zaten çalışıyor.</strong> RunAsDate 1.40 sürümünden beri çalışan bir işleme bağlanabilir. Chrono Mock uygulamayı kendisi başlatır, bu yüzden yeniden başlatılamayan bir uygulama onun erişiminin dışındadır.</li>
+        <li><strong>Farklı tarihlerde birkaç uygulamayı aynı anda istiyorsunuz.</strong> RunAsDate her birine kendi tarihini verir. Chrono Mock aynı anda tek bir oturum yürütür.</li>
       </ul>
       <p>
         İkisi bir arada da var olabilir. Burada hiçbir şey hızlı durum için RunAsDate’i tutmanızı

@@ -4,6 +4,7 @@
   "html_lang": "cs",
   "dir": "ltr",
   "og_locale": "cs_CZ",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock - spusťte aplikaci pro Windows v libovolné datum a čas, aniž byste měnili systémové hodiny",
 

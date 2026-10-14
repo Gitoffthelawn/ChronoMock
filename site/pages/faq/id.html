@@ -154,7 +154,7 @@
     <div class="qa">
       <h3>Bisakah saya memakainya dalam integrasi berkelanjutan?</h3>
       <p>
-        Bisa. Build baris perintah adalah unduhan terpisah sekitar 1,6 MB tanpa runtime yang perlu
+        Bisa. Build baris perintah adalah unduhan terpisah sekitar {{size_cli_zip}} MB tanpa runtime yang perlu
         dipasang. Setiap perintah berbicara <code>--json</code> dan keluar dengan kode yang dapat dijadikan
         percabangan oleh pipeline, dan sesi dapat menulis buktinya ke file.
       </p>
@@ -162,12 +162,7 @@
 
     <div class="qa">
       <h3>Apa bedanya dengan RunAsDate?</h3>
-      <p>
-        RunAsDate mencegat lima fungsi jam dinding dan melakukannya dengan baik. Alat ini mencakup
-        {{channel_count}} kanal waktu, dapat mempercepat jam, memberi proses zona waktunya sendiri,
-        mengikuti proses anak, dan setelahnya memberi tahu kanal mana yang benar-benar tercakup. Alat ini
-        juga open source, sedangkan RunAsDate adalah freeware tertutup.
-      </p>
+      <p>RunAsDate mencegat lima fungsi jam dinding dan melakukannya dengan baik. Alat ini memantau {{channel_count}} kanal waktu dan memindahkan {{substituted_count}} di antaranya ke jam sesi, dapat mempercepat jam, memberi proses zona waktunya sendiri, mengikuti proses anak, dan memberi tahu Anda sesudahnya kanal mana yang benar-benar tercakup. Alat ini juga open source, sementara RunAsDate adalah freeware tertutup. Sebaliknya, RunAsDate bisa menempel ke aplikasi yang sudah berjalan, dan alat ini tidak.</p>
       <p>
         <a href="/id/alternatif-runasdate/">Perbandingan lengkapnya</a> juga menyebutkan di mana
         RunAsDate menjadi pilihan yang lebih baik.

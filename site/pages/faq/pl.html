@@ -159,7 +159,7 @@
     <div class="qa">
       <h3>Czy mogę użyć tego w ciągłej integracji?</h3>
       <p>
-        Tak. Wersja konsolowa to osobna paczka o rozmiarze około 1,6 MB, bez żadnego
+        Tak. Wersja konsolowa to osobna paczka o rozmiarze około {{size_cli_zip}} MB, bez żadnego
         środowiska do instalowania. Każda komenda mówi <code>--json</code> i kończy się kodem
         wyjścia, na którym potok może się rozgałęzić, a sesja potrafi zapisać swój dowód do
         pliku.
@@ -168,13 +168,7 @@
 
     <div class="qa">
       <h3>Czym to się różni od RunAsDate?</h3>
-      <p>
-        RunAsDate przechwytuje pięć funkcji zegara ściennego i robi to dobrze. To narzędzie
-        obejmuje {{channel_count}} kanałów czasu, potrafi przyspieszyć zegar, daje procesowi
-        własną strefę czasową, podąża za procesami potomnymi i mówi po fakcie, które kanały
-        naprawdę zostały objęte. Jest też otwartoźródłowe, podczas gdy RunAsDate to zamknięty
-        freeware.
-      </p>
+      <p>RunAsDate przechwytuje pięć funkcji zegara ściennego i robi to dobrze. To narzędzie obserwuje {{channel_count}} kanałów czasu, a {{substituted_count}} z nich przestawia na zegar sesji, potrafi przyspieszyć zegar, daje procesowi własną strefę czasową, podąża za procesami potomnymi i mówi potem, które kanały zostały naprawdę objęte. Jest też otwarte, podczas gdy RunAsDate to zamknięty freeware. RunAsDate z kolei potrafi dołączyć do aplikacji, która już działa, a to narzędzie nie.</p>
       <p>
         <a href="/pl/alternatywa-dla-runasdate/">Pełne porównanie</a> mówi też, w czym
         RunAsDate jest lepszym wyborem.

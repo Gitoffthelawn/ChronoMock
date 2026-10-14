@@ -4,6 +4,7 @@
   "html_lang": "tr",
   "dir": "ltr",
   "og_locale": "tr_TR",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock - bir Windows uygulamasını sistem saatini değiştirmeden istediğiniz tarih ve saatte çalıştırın",
 

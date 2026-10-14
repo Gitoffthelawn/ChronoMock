@@ -6,7 +6,7 @@
     <h1>Testarea cu date într-un pipeline</h1>
     <p class="sub">
       Fereastra este pentru explorat. Asta este cealaltă jumătate: un build de linie de comandă de circa
-      <strong>1,6 MB</strong>, fără runtime de instalat, al cărui cod de ieșire este verdictul de acoperire,
+      <strong>{{size_cli_zip}} MB</strong>, fără runtime de instalat, al cărui cod de ieșire este verdictul de acoperire,
       nu cel al țintei.
     </p>
   </section>
@@ -39,6 +39,9 @@
           <tr><td>12</td><td>ținta a dispărut, ceea ce sugerează o aplicație cu o singură instanță</td></tr>
           <tr><td>3</td><td>eroare internă - motorul nu a putut porni, a întâlnit o stare neașteptată sau s-a oprit înainte să închidă sesiunea (indiferent de codul de ieșire al țintei). O astfel de rulare nu are verdict</td></tr>
           <tr><td>5</td><td>operațiunea nu este inclusă în această versiune</td></tr>
+          <tr><td>6</td><td>rularea a fost întreruptă - <code>--timeout</code> a expirat sau motorul a încetat să răspundă timp de 15 secunde și a fost oprit. Nu este un verdict: sesiunea a fost întreruptă, deci nu dovedește nimic despre țintă, într-un sens sau altul</td></tr>
+          <tr><td>7</td><td>rulează deja o altă sesiune - o singură sesiune odată. Ajunge să încercați din nou după ce se încheie</td></tr>
+          <tr><td>8</td><td>sesiunea a ajuns la un verdict, dar dovezile ei nu sunt în fișierul indicat de <code>--report</code> - discul era plin sau alt program ținea deschis fișierul vechi, care rămâne atunci neschimbat. Verdictul rămâne în raportul afișat de comandă</td></tr>
         </tbody>
       </table>
     </div>

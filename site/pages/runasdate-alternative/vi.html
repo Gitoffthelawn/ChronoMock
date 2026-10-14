@@ -21,24 +21,26 @@
         <tbody>
           <tr><td>Chạy một ứng dụng ở ngày giả</td><td class="y">có</td><td class="y">có</td></tr>
           <tr><td>Không đụng đến đồng hồ hệ thống</td><td class="y">có</td><td class="y">có</td></tr>
-          <tr><td>Hàm thời gian bị chặn</td><td class="n">5</td><td class="y">{{channel_count}} kênh</td></tr>
+          <tr><td>Hàm thời gian bị chặn</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} được dịch chuyển, {{observed_count}} chỉ đếm)</td></tr>
           <tr><td>Đồng hồ nhanh hơn thời gian thật</td><td class="n">không cung cấp</td><td class="y">mọi hệ số nhân nguyên</td></tr>
-          <tr><td>Đóng băng đồng hồ</td><td class="n">không cung cấp</td><td class="y">có</td></tr>
-          <tr><td>Nhảy khi ứng dụng đang chạy</td><td class="n">không cung cấp</td><td class="y">tiến và lùi</td></tr>
+          <tr><td>Đóng băng đồng hồ</td><td class="y">có, mặc định</td><td class="y">có</td></tr>
+          <tr><td>Nhảy khi ứng dụng đang chạy</td><td class="n">chỉ quay về ngày thật, sau một số giây định sẵn</td><td class="y">tiến và lùi, tới bất kỳ thời điểm nào</td></tr>
           <tr><td>Múi giờ chỉ cho tiến trình đó</td><td class="n">không có tài liệu</td><td class="y">có, độ lệch cố định</td></tr>
           <tr><td>Tiến trình con kế thừa phiên</td><td class="n">không có tài liệu</td><td class="y">có</td></tr>
+          <tr><td>Gắn vào một ứng dụng đang chạy</td><td class="y">có, từ phiên bản 1.40</td><td class="n">không - nó tự khởi chạy ứng dụng</td></tr>
+          <tr><td>Nhiều ứng dụng với các ngày khác nhau cùng lúc</td><td class="y">có</td><td class="n">không - mỗi lúc một phiên</td></tr>
           <tr><td>Cho bạn biết có hiệu quả hay không</td><td class="n">không</td><td class="y">kết luận, theo từng kênh, kèm số lần gọi</td></tr>
-          <tr><td>Ứng dụng Electron và Chromium</td><td class="n">không cung cấp</td><td class="y">cơ chế riêng</td></tr>
+          <tr><td>Ứng dụng Electron và Chromium</td><td class="n">không có tài liệu</td><td class="y">cơ chế riêng</td></tr>
           <tr><td>Dòng lệnh cho CI</td><td class="y">có</td><td class="y">có, với mã thoát và JSON</td></tr>
           <tr><td>Mã nguồn</td><td class="n">freeware, đóng</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Dung lượng</td><td class="y">dưới 40 KB</td><td class="n">CLI 1,6 MB, 69 MB kèm cửa sổ</td></tr>
+          <tr><td>Dung lượng</td><td class="y">tải về 47 KB, 57 KB cho bản 64-bit</td><td class="n">~{{size_cli_zip}} MB bản dòng lệnh, ~{{size_app_zip}} MB có cửa sổ</td></tr>
           <tr><td>Phiên bản Windows cũ</td><td class="y">tận Windows 2000</td><td class="n">Windows 10 và 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>“Không có tài liệu”</em> nghĩa là tính năng không được nhắc đến trên trang của RunAsDate.
-      Đó không phải khẳng định rằng công cụ thiếu nó.
+      Đó không phải khẳng định rằng công cụ thiếu nó. Đồng hồ của RunAsDate đứng yên trừ khi bật tùy chọn <em>Move the time forward according to the real time</em>.
     </p>
   </section>
 
@@ -76,16 +78,16 @@
         Phần còn lại của bề mặt là nơi mã phụ thuộc vào ngày tháng thường ẩn nấp:
       </p>
       <ul>
-        <li><strong>múi giờ</strong> - bốn hàm, cộng cả họ hàm chuyển đổi giữa các múi giờ, chính là cách một
-          báo cáo rơi vào sai ngày</li>
+        <li><strong>múi giờ</strong> - hai hàm báo múi giờ, cộng sáu hàm chuyển đổi giữa các múi, đó là cách một báo cáo rơi vào sai ngày</li>
         <li><strong>trục thời gian đã trôi</strong> - số tick và thời gian ngắt không thiên lệch, thứ mà phần
           đếm ngược của bản dùng thử thường đo</li>
-        <li><strong>sleep và chờ</strong>, để một độ trễ là độ trễ trên đồng hồ phiên chứ không phải đồng hồ
-          thật</li>
+        <li>các lệnh <strong>ngủ</strong>, để một khoảng trễ là khoảng trễ trên đồng hồ phiên chứ không phải đồng hồ thật, và các lệnh <strong>chờ đối tượng</strong>, được đếm và giữ nguyên độ dài thật</li>
         <li><strong>bộ hẹn giờ</strong> - waitable, cửa sổ, thread-pool và đa phương tiện</li>
         <li><strong>việc tạo tiến trình</strong>, để các tiến trình con của trình cài đặt chạy trong cùng
           phiên chứ không ở thời điểm hiện tại</li>
+        <li>các <strong>kết nối mạng</strong>, được đếm như dấu hiệu thời gian có thể đến từ một máy chủ</li>
       </ul>
+      <p>Trong {{channel_count}} kênh, {{substituted_count}} được đưa lên đồng hồ phiên. {{observed_count}} kênh còn lại chỉ được đếm và giữ nguyên thật, nên báo cáo liệt kê chúng mà không nói rằng chúng đã bị dịch chuyển. Đồng hồ treo tường và múi giờ được dịch chuyển trong mọi phiên. Trục thời gian trôi qua và các lệnh chờ được theo dõi khi bạn yêu cầu bằng <code>--scale-duration</code>, còn bộ đếm độ phân giải cao bằng <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -94,14 +96,14 @@
     <div class="prose">
       <p>Thực sự, và không hiếm:</p>
       <ul>
-        <li><strong>Bạn cần một ngày, ở tốc độ bình thường, ngay lúc này.</strong> RunAsDate dưới 40 KB,
-          không có cửa sổ để học và đã làm đúng việc này nhiều năm.</li>
+        <li><strong>Bạn cần một ngày, ở tốc độ bình thường, ngay lúc này.</strong> RunAsDate là bản tải về dưới 60 KB, không có cửa sổ để học và đã làm đúng việc này nhiều năm.</li>
         <li><strong>Bạn đang dùng Windows cũ hơn.</strong> RunAsDate chạy tận Windows 2000. Công cụ này nhắm
           tới Windows 10 và 11 và không được kiểm thử trên bản nào cũ hơn.</li>
-        <li><strong>Dung lượng quan trọng.</strong> 40 KB so với 1,6 MB cho dòng lệnh, hay 69 MB kèm cửa sổ,
-          không phải một phép so sánh cân xứng.</li>
+        <li><strong>Kích thước có ý nghĩa.</strong> Bản tải về 47 KB so với ~{{size_cli_zip}} MB cho dòng lệnh, hoặc ~{{size_app_zip}} MB có cửa sổ, không phải là so sánh sát nút.</li>
         <li><strong>Bạn không muốn có kết luận.</strong> Đo độ bao phủ nghĩa là phải đọc kết quả. Nếu bài
           kiểm thử chỉ dùng một lần, đó là chi phí mà bạn không yêu cầu.</li>
+        <li><strong>Ứng dụng đã đang chạy.</strong> Từ phiên bản 1.40, RunAsDate có thể gắn vào một tiến trình đang chạy. Chrono Mock tự khởi chạy ứng dụng, nên một ứng dụng không thể khởi động lại nằm ngoài tầm với của nó.</li>
+        <li><strong>Bạn muốn nhiều ứng dụng với các ngày khác nhau cùng lúc.</strong> RunAsDate cho mỗi ứng dụng một ngày riêng. Chrono Mock chạy mỗi lúc một phiên.</li>
       </ul>
       <p>
         Hai công cụ cũng có thể cùng tồn tại. Không gì ở đây ngăn bạn giữ RunAsDate cho trường hợp nhanh.

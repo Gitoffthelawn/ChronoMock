@@ -71,9 +71,7 @@
         separada:
       </p>
       <ul>
-        <li><code>--scale-duration</code> coloca também as suspensões, esperas e temporizadores no relógio
-          da sessão. Sem ela, <code>x1440</code> dispara o calendário para frente enquanto um temporizador
-          de cinco segundos continua levando cinco segundos reais.</li>
+        <li><code>--scale-duration</code> põe também os contadores de ticks, as pausas e os temporizadores no relógio da sessão, enquanto as esperas por objetos são contadas e mantêm a duração real. Sem ele, <code>x1440</code> acelera o calendário enquanto um temporizador de cinco segundos continua durando cinco segundos reais - só um temporizador marcado para uma data e hora segue o relógio da sessão em toda sessão.</li>
         <li><code>--scale-qpc</code> escala adicionalmente o contador de alta resolução. É de onde Python
           3.13+ <code>monotonic</code>, .NET <code>Stopwatch</code> e Java <code>nanoTime</code> leem o
           tempo decorrido, e vem desativado por padrão porque escalá-lo desestabilizou a renderização nos
@@ -116,9 +114,7 @@
         <li><strong>Ele não mexe no relógio do sistema.</strong> Esse é o ponto, não uma limitação - mas
           significa que tudo o que lê a hora de um servidor, de um banco de dados ou de outra máquina não é
           afetado, e a auditoria avisa quando isso acontece.</li>
-        <li><strong>Um salto muda o que o aplicativo vê, não quando ele acorda.</strong> Temporizadores
-          que já foram entregues ao kernel rodam em tempo real. A maioria dos aplicativos consulta o
-          relógio, então os saltos funcionam na prática - nem todos.</li>
+        <li><strong>Um salto muda o que o aplicativo vê, não quando ele acorda.</strong> Pausas e temporizadores já entregues ao kernel mantêm a duração que receberam ao serem marcados. A maioria dos aplicativos consulta o relógio, então os saltos funcionam na prática - mas não em todos.</li>
         <li><strong>Ele não desacelera o tempo.</strong> Os multiplicadores são números inteiros de um
           para cima, mais um relógio congelado em zero.</li>
       </ul>

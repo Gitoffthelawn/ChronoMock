@@ -4,6 +4,7 @@
   "html_lang": "ro",
   "dir": "ltr",
   "og_locale": "ro_RO",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock - rulează o aplicație Windows la orice dată și oră, fără să schimbi ceasul sistemului",
 

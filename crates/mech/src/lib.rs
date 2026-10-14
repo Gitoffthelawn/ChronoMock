@@ -1351,10 +1351,7 @@ unsafe fn gather_coverage(
         // Observed channels (class B object waits, class C multimedia timer, direct NtCreateUserProcess)
         // are counted but never modified: their own bucket, so they never sway the verdict. A failed
         // install just means we are not observing it - not a verdict-affecting gap, so it goes nowhere.
-        if matches!(
-            ch.category,
-            ChannelCategory::WaitObserved | ChannelCategory::TimerObserved | ChannelCategory::SpawnObserved | ChannelCategory::SourceObserved
-        ) {
+        if ch.category.observed() {
             if installed & ch.bit != 0 {
                 let calls = read_calls(cov, idx);
                 if calls > 0 {

@@ -48,8 +48,8 @@
           <span><b>Fonctionne</b> - la substitution a atteint ce processus</span>
         </div>
         <div class="chan">
-          <span>Canaux de temps couverts</span>
-          <span class="n">26 sur {{channel_count}} &middot; avec nombre d'appels</span>
+          <span>Canaux de temps surveillés</span>
+          <span class="n">jusqu'à {{channel_count}} &middot; chacun avec son nombre d'appels</span>
         </div>
       </div>
     </div>
@@ -208,7 +208,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>Lance une appli à une fausse date</td><td class="y">oui</td><td class="y">oui</td></tr>
-          <tr><td>Canaux de temps interceptés</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>Canaux de temps interceptés</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} décalés, {{observed_count}} comptés)</td></tr>
           <tr><td>Accélérer l'horloge</td><td class="n">non</td><td class="y">oui</td></tr>
           <tr><td>Fuseau horaire indépendant</td><td class="n">non documenté</td><td class="y">oui</td></tr>
           <tr><td>Suit les processus enfants</td><td class="n">non documenté</td><td class="y">oui</td></tr>

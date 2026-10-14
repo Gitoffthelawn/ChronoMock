@@ -81,9 +81,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Acelera también el eje de duraciones: contadores de ticks, esperas (sleeps) y
-              temporizadores. Desactivado por defecto, porque un reloj de pared y un cronómetro son dos
-              preguntas distintas.</td>
+            <td>Acelerar también el eje del tiempo transcurrido: contadores de ticks, tiempo de interrupción, pausas y temporizadores. Las esperas sobre objetos se cuentan y conservan su duración real. Desactivado por defecto, porque un reloj de pared y un cronómetro son preguntas distintas. Un temporizador o un retardo fijado para una fecha y hora sigue el reloj de la sesión con o sin esta opción.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -266,7 +264,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -285,7 +283,7 @@
           fallo llega como un número negativo grande, así que también recibe su forma hexadecimal.</li>
         <li><strong>covered</strong> - los canales a los que llegó la sustitución, con cuántas veces se
           llamó realmente a cada uno, por proceso. Los recuentos nunca se suman entre procesos: la
-          auditoría de un proceso no debe tomar prestadas las cifras de otro.</li>
+          auditoría de un proceso no debe tomar prestadas las cifras de otro. Un contador se detiene en 1048576 y entonces indica <em>al menos</em> esa cifra.</li>
         <li><strong>observed</strong> - canales interceptados pero dejados deliberadamente en real, como
           las esperas de objetos y los temporizadores multimedia. Su propia categoría, para que nunca se
           lean como sustituidos.</li>

@@ -71,9 +71,7 @@
         Die Dauerachse - Tick-Zähler, Sleeps, Waits und Timer - ist deshalb ein eigener Schalter:
       </p>
       <ul>
-        <li><code>--scale-duration</code> legt Sleeps, Waits und Timer ebenfalls auf die Sitzungsuhr. Ohne
-          ihn jagt <code>x1440</code> den Kalender voran, während ein Fünf-Sekunden-Timer weiter fünf
-          reale Sekunden braucht.</li>
+        <li><code>--scale-duration</code> setzt auch Tick-Zähler, Pausen und Timer auf die Sitzungsuhr, während Wartevorgänge auf Objekte gezählt werden und ihre echte Länge behalten. Ohne diese Option rast <code>x1440</code> mit dem Kalender voraus, während ein Fünf-Sekunden-Timer weiterhin fünf echte Sekunden dauert - nur ein Timer auf ein bestimmtes Datum mit Uhrzeit folgt in jeder Sitzung der Sitzungsuhr.</li>
         <li><code>--scale-qpc</code> skaliert zusätzlich den hochauflösenden Zähler. Dort lesen
           Python-3.13+-<code>monotonic</code>, .NET-<code>Stopwatch</code> und Java-<code>nanoTime</code>
           die verstrichene Zeit, und er ist standardmäßig aus, weil seine Skalierung im Test das
@@ -117,9 +115,7 @@
         <li><strong>Es berührt die Systemuhr nicht.</strong> Das ist der Zweck, keine Einschränkung - aber
           es bedeutet, dass alles, was die Zeit von einem Server, einer Datenbank oder einem anderen
           Rechner liest, unberührt bleibt, und die Prüfung sagt Ihnen, wenn das passiert.</li>
-        <li><strong>Ein Sprung ändert, was die Anwendung sieht, nicht, wann sie aufwacht.</strong> Timer,
-          die schon an den Kernel übergeben wurden, laufen in echter Zeit. Die meisten Anwendungen fragen
-          die Uhr ab, sodass Sprünge in der Praxis funktionieren - nicht bei allen.</li>
+        <li><strong>Ein Sprung ändert, was die Anwendung sieht, nicht wann sie aufwacht.</strong> Pausen und Timer, die schon an den Kernel übergeben sind, behalten die Länge, die sie beim Stellen bekamen. Die meisten Anwendungen fragen die Uhr ab, deshalb funktionieren Sprünge in der Praxis - aber nicht bei allen.</li>
         <li><strong>Es verlangsamt die Zeit nicht.</strong> Faktoren sind ganze Zahlen ab eins, dazu eine
           eingefrorene Uhr bei null.</li>
       </ul>

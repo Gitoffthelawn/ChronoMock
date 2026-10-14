@@ -7,7 +7,7 @@
     <h1>Testes de data em um pipeline</h1>
     <p class="sub">
       A janela serve para explorar. Esta é a outra metade: uma versão de linha de comando de cerca de
-      <strong>1,6 MB</strong>, sem ambiente de execução para instalar, cujo código de saída é o veredito
+      <strong>{{size_cli_zip}} MB</strong>, sem ambiente de execução para instalar, cujo código de saída é o veredito
       de cobertura e não o do próprio alvo.
     </p>
   </section>
@@ -40,6 +40,9 @@
           <tr><td>12</td><td>o alvo desapareceu, sugerindo um aplicativo de instância única</td></tr>
           <tr><td>3</td><td>erro interno - o motor não conseguiu iniciar, chegou a um estado inesperado ou parou antes de encerrar a sessão (qualquer que fosse o seu próprio código de saída). Uma execução assim não traz veredito</td></tr>
           <tr><td>5</td><td>a operação não está incluída nesta versão</td></tr>
+          <tr><td>6</td><td>a execução foi interrompida - <code>--timeout</code> expirou, ou o motor parou de responder por 15 segundos e foi parado. Isto não é um veredito: a sessão foi interrompida, então não prova nada sobre o alvo, em nenhum dos sentidos</td></tr>
+          <tr><td>7</td><td>outra sessão já está em execução - uma sessão por vez. Basta tentar de novo quando ela terminar</td></tr>
+          <tr><td>8</td><td>a sessão chegou a um veredito, mas a evidência não está no arquivo indicado por <code>--report</code> - o disco estava cheio, ou outro programa mantinha o arquivo antigo aberto, que então fica como estava. O veredito continua no relatório que o comando exibe</td></tr>
         </tbody>
       </table>
     </div>

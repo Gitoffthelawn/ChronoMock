@@ -6,7 +6,7 @@
     <h1>Bir pipeline’da tarih testi</h1>
     <p class="sub">
       Pencere keşfetmek içindir. Bu ise diğer yarısı: kurulacak bir çalışma zamanı gerektirmeyen,
-      yaklaşık <strong>1,6 MB</strong>’lık bir komut satırı derlemesi; çıkış kodu, hedefin kendi kodu
+      yaklaşık <strong>{{size_cli_zip}} MB</strong>’lık bir komut satırı derlemesi; çıkış kodu, hedefin kendi kodu
       değil, kapsama kararıdır.
     </p>
   </section>
@@ -39,6 +39,9 @@
           <tr><td>12</td><td>hedef ortadan kayboldu; bu, tek örnekli bir uygulamaya işaret ediyor</td></tr>
           <tr><td>3</td><td>iç hata - motor başlatılamadı, beklenmedik bir durumla karşılaştı ya da oturumu kapatmadan önce durdu (kendi çıkış kodu ne olursa olsun). Böyle bir çalıştırmanın kararı yoktur</td></tr>
           <tr><td>5</td><td>işlem bu sürümde derlenmemiş</td></tr>
+          <tr><td>6</td><td>çalıştırma yarıda kesildi - <code>--timeout</code> doldu ya da motor 15 saniye boyunca yanıt vermeyi bıraktı ve durduruldu. Bu bir karar değildir: oturum kesintiye uğradığı için hedef hakkında ne bir yönde ne de diğerinde bir şey kanıtlar</td></tr>
+          <tr><td>7</td><td>başka bir oturum zaten çalışıyor - aynı anda tek oturum. O bittikten sonra yeniden denemek yeterli</td></tr>
+          <tr><td>8</td><td>oturum bir karara vardı, ancak kanıtı <code>--report</code> ile verilen dosyada değil - disk doluydu ya da başka bir program eski dosyayı açık tutuyordu, o dosya da olduğu gibi kalır. Karar, komutun yazdırdığı raporda yine yer alır</td></tr>
         </tbody>
       </table>
     </div>

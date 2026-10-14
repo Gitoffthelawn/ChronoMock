@@ -36,13 +36,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -85,9 +87,7 @@ Chrono Mock - session report
       <p>
         <strong>حين يكون الحكم «لا يعمل» تُوقَف العملية فورًا</strong>، قبل أن تتفاعل معها. فالحكم لا يمكن أن يسبق الإطلاق، لأن مصدر الحقيقة الوحيد قراءة تؤخذ من داخل العملية الجارية. والمضمون هو أن تعرف الحقيقة قبل أن تبدأ العمل - لا أن إطلاقًا محكومًا بالفشل لن يحدث. ويمكنك التجاوز والمتابعة، وتُوسم الجلسة حينئذٍ بأنها غير موثوقة في كل موضع تظهر فيه، بما في ذلك أي أدلة تصدّرها.
       </p>
-      <p>
-        وثمة ثلاثة رموز أخرى لأمور ليست أحكامًا أصلًا: <code>1</code> لخطأ في الاستخدام، و<code>2</code> حين يتعذّر تشغيل الهدف أو الحقن فيه، و<code>12</code> حين يختفي الهدف على نحو يوحي بتطبيق ذي نسخة واحدة سلّم العمل إلى نسخة تعمل بالفعل.
-      </p>
+      <p>رموز أخرى تقول إن ما فشل هو التشغيل نفسه لا الاستبدال - خطأ في الاستخدام، أو هدف تعذّر تشغيله، أو تشغيل قُطع في منتصفه، أو جلسة أخرى تعمل بالفعل - ولا شيء منها حكم. الجدول الكامل في <a href="/ar/cli-reference/">مرجع سطر الأوامر</a>.</p>
     </div>
   </section>
 
@@ -97,7 +97,7 @@ Chrono Mock - session report
       <p>تنقسم القنوات إلى ثلاث فئات، والوسطى هي الأكثر إثارة.</p>
       <ul>
         <li><strong>مُغطّاة</strong> - رُبطت واستُبدلت. سأل التطبيق فحصل على ساعة الجلسة. ويقول عدد الاستدعاءات كم مرة.</li>
-        <li><strong>مرصودة</strong> - رُبطت وعُدّت وتُركت عمدًا تقول الحقيقة. العدّاد عالي الدقة هنا افتراضيًا لأن مضاعفته زعزعت الرسم. والمؤقّتات متعددة الوسائط هنا لأن مضاعفتها كانت ستزحزح توقيت الصوت وMIDI. والاتصالات بالشبكة ومسار واحد لإنشاء العمليات هنا لأنها أدلة لا ساعات.</li>
+        <li><strong>مُراقَبة</strong> - تُعترض وتُعدّ وتُترك عمدًا تقول الحقيقة. هنا انتظارات الكائنات، لأن تقصير مهلتها قد يزيّف انتهاء مهلة على مقبض حقيقي، ومؤقّت الوسائط المتعددة، لأن تحجيمه سيزيح توقيت الصوت وMIDI - وكلاهما يُراقَب عندما تحجّم الجلسة محور الوقت المنقضي. واتصالات الشبكة ومسار واحد لإنشاء العمليات هنا في كل جلسة، لأنها أدلة لا ساعات. أما العدّاد عالي الدقة فليس في هذه المجموعة: يبقى كما هو ما لم تطلبه بـ <code>--scale-qpc</code>، وعندها يُغطّى.</li>
         <li><strong>غير مُغطّاة</strong> - قناة قرأها التطبيق ولم يصل إليها الاستبدال. وهذا ما يحوّل الحكم إلى <em>يعمل جزئيًا</em>، وهي مدرجة بالاسم ولا تُلخَّص حتى تختفي.</li>
       </ul>
       <p>

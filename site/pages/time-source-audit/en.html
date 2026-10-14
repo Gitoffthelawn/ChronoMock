@@ -50,13 +50,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -110,12 +112,7 @@ Chrono Mock - session report
         launch never happens. You can override and carry on, and the session is then marked
         unreliable everywhere it appears, including in any evidence you export.
       </p>
-      <p>
-        Three more codes exist for things that are not verdicts at all: <code>1</code> for a
-        usage error, <code>2</code> when the target could not be launched or injected, and
-        <code>12</code> when the target vanished in a way that suggests a single-instance
-        application handed off to a copy already running.
-      </p>
+      <p>Other codes say that the run itself went wrong rather than the substitution - a usage error, a target that could not be started, a run cut short, another session already running - and none of them is a verdict. The full table is on the <a href="/cli-reference/">command line reference</a>.</p>
     </div>
   </section>
 
@@ -126,11 +123,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Covered</strong> - hooked and substituted. The application asked, and got
           the session clock. The call count says how many times.</li>
-        <li><strong>Observed</strong> - hooked, counted, and deliberately left telling the
-          truth. The high-resolution counter is here by default because scaling it
-          destabilised rendering. Multimedia timers are here because scaling them would shift
-          audio and MIDI timing. Network connections and one process-creation path are here
-          because they are evidence, not clocks.</li>
+        <li><strong>Observed</strong> - hooked, counted, and deliberately left telling the truth. Object waits are here, because shortening a wait's timeout could fake a timeout on a real handle, and the multimedia timer, because scaling it would shift audio and MIDI timing - both watched when the session scales the duration axis. Network connections and one process-creation path are here in every session, because they are evidence, not clocks. The high-resolution counter is not in this bucket: it is left alone unless you ask for it with <code>--scale-qpc</code>, and then it is covered.</li>
         <li><strong>Uncovered</strong> - a channel the application read that the substitution
           did not reach. This is what turns a verdict into <em>works partially</em>, and it
           is listed by name rather than summarised away.</li>

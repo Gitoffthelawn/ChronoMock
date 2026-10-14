@@ -49,13 +49,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -110,12 +112,7 @@ Chrono Mock - session report
         stattfindet. Sie können das übergehen und weitermachen, und die Sitzung wird dann überall, wo sie
         erscheint, als unzuverlässig gekennzeichnet, auch in jedem Nachweis, den Sie exportieren.
       </p>
-      <p>
-        Drei weitere Codes gibt es für Dinge, die gar keine Urteile sind: <code>1</code> für einen
-        Aufruffehler, <code>2</code>, wenn das Ziel nicht gestartet oder injiziert werden konnte, und
-        <code>12</code>, wenn das Ziel auf eine Weise verschwand, die darauf hindeutet, dass eine
-        Einzelinstanz-Anwendung an eine bereits laufende Kopie übergeben hat.
-      </p>
+      <p>Andere Codes sagen, dass der Lauf selbst scheiterte und nicht die Ersetzung - ein Bedienfehler, ein Ziel, das nicht starten konnte, ein abgebrochener Lauf, eine bereits laufende andere Sitzung - und keiner davon ist ein Urteil. Die vollständige Tabelle steht in der <a href="/de/cli-referenz/">Kommandozeilen-Referenz</a>.</p>
     </div>
   </section>
 
@@ -126,11 +123,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Abgedeckt</strong> - abgefangen und ersetzt. Die Anwendung hat gefragt und die
           Sitzungsuhr bekommen. Die Aufrufzahl sagt, wie oft.</li>
-        <li><strong>Beobachtet</strong> - abgefangen, gezählt und bewusst die Wahrheit sagend belassen.
-          Der hochauflösende Zähler ist standardmäßig hier, weil seine Skalierung das Rendering
-          destabilisiert hat. Multimedia-Timer sind hier, weil ihre Skalierung Audio- und MIDI-Timing
-          verschieben würde. Netzwerkverbindungen und ein Pfad der Prozesserzeugung sind hier, weil sie
-          Beweise sind und keine Uhren.</li>
+        <li><strong>Beobachtet</strong> - abgefangen, gezählt und bewusst bei der Wahrheit gelassen. Hier stehen Wartevorgänge auf Objekte, weil ein verkürztes Zeitlimit eine Zeitüberschreitung an einem echten Handle vortäuschen könnte, und der Multimedia-Timer, weil seine Skalierung Audio- und MIDI-Timing verschieben würde - beide beobachtet, wenn die Sitzung die Achse der verstrichenen Zeit skaliert. Netzwerkverbindungen und ein Weg der Prozesserzeugung stehen in jeder Sitzung hier, weil sie Indizien sind, keine Uhren. Der hochauflösende Zähler gehört nicht in diese Gruppe: Er bleibt unberührt, bis Sie ihn mit <code>--scale-qpc</code> anfordern, und ist dann abgedeckt.</li>
         <li><strong>Nicht abgedeckt</strong> - ein Kanal, den die Anwendung gelesen hat und den die
           Ersetzung nicht erreichte. Das macht aus einem Urteil <em>funktioniert teilweise</em>, und er
           wird namentlich aufgelistet statt weggefasst.</li>

@@ -4,6 +4,7 @@
   "html_lang": "zh-Hant",
   "dir": "ltr",
   "og_locale": "zh_TW",
+  "decimal_separator": ".",
 
   "social_image_alt": "Chrono Mock——不更動系統時鐘，讓 Windows 應用程式以任意日期與時間執行",
 

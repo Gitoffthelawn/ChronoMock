@@ -21,24 +21,26 @@
         <tbody>
           <tr><td>Rulează o aplicație la o dată falsă</td><td class="y">da</td><td class="y">da</td></tr>
           <tr><td>Lasă ceasul sistemului în pace</td><td class="y">da</td><td class="y">da</td></tr>
-          <tr><td>Funcții de timp interceptate</td><td class="n">5</td><td class="y">{{channel_count}} canale</td></tr>
+          <tr><td>Funcții de timp interceptate</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} decalate, {{observed_count}} numărate)</td></tr>
           <tr><td>Ceas mai rapid decât cel real</td><td class="n">nu este oferit</td><td class="y">orice multiplicator întreg</td></tr>
-          <tr><td>Oprirea ceasului</td><td class="n">nu este oferită</td><td class="y">da</td></tr>
-          <tr><td>Salt cât timp aplicația rulează</td><td class="n">nu este oferit</td><td class="y">înainte și înapoi</td></tr>
+          <tr><td>Oprirea ceasului</td><td class="y">da, implicit</td><td class="y">da</td></tr>
+          <tr><td>Salt cât timp aplicația rulează</td><td class="n">doar întoarcerea la data reală, după un număr fix de secunde</td><td class="y">înainte și înapoi, în orice moment</td></tr>
           <tr><td>Fus orar doar pentru acel proces</td><td class="n">nedocumentat</td><td class="y">da, decalaj fix</td></tr>
           <tr><td>Procesele copil moștenesc sesiunea</td><td class="n">nedocumentat</td><td class="y">da</td></tr>
+          <tr><td>Atașarea la o aplicație care rulează deja</td><td class="y">da, din versiunea 1.40</td><td class="n">nu - pornește singur aplicația</td></tr>
+          <tr><td>Mai multe aplicații cu date diferite în același timp</td><td class="y">da</td><td class="n">nu - o singură sesiune odată</td></tr>
           <tr><td>Îți spune dacă a funcționat</td><td class="n">nu</td><td class="y">verdict, pe canale, cu numărul de apeluri</td></tr>
-          <tr><td>Aplicații Electron și Chromium</td><td class="n">nu este oferit</td><td class="y">mecanism separat</td></tr>
+          <tr><td>Aplicații Electron și Chromium</td><td class="n">nedocumentat</td><td class="y">mecanism separat</td></tr>
           <tr><td>Linie de comandă pentru CI</td><td class="y">da</td><td class="y">da, cu coduri de ieșire și JSON</td></tr>
           <tr><td>Cod sursă</td><td class="n">freeware, închis</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Dimensiune</td><td class="y">sub 40 KB</td><td class="n">1,6 MB CLI, 69 MB cu fereastra</td></tr>
+          <tr><td>Dimensiune</td><td class="y">47 KB de descărcat, 57 KB pe 64 de biți</td><td class="n">~{{size_cli_zip}} MB linia de comandă, ~{{size_app_zip}} MB cu fereastra</td></tr>
           <tr><td>Versiuni vechi de Windows</td><td class="y">până la Windows 2000</td><td class="n">Windows 10 și 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>„Nedocumentat”</em> înseamnă că funcția nu este menționată pe pagina RunAsDate.
-      Nu este o afirmație că instrumentul nu o are.
+      Nu este o afirmație că instrumentul nu o are. Ceasul RunAsDate stă pe loc dacă nu este activată opțiunea <em>Move the time forward according to the real time</em>.
     </p>
   </section>
 
@@ -77,16 +79,16 @@
         Restul suprafeței este locul unde tinde să se ascundă codul care depinde de dată:
       </p>
       <ul>
-        <li><strong>fusul orar</strong> - patru funcții, plus întreaga familie care convertește între
-          fusuri, așa ajunge un raport în ziua greșită</li>
+        <li><strong>fusul orar</strong> - cele două funcții care îl raportează, plus cele șase care convertesc între fusuri, prin care un raport ajunge în ziua greșită</li>
         <li><strong>axa timpului scurs</strong> - contoarele de tick-uri și timpul de întrerupere
           nepolarizat, ceea ce măsoară de obicei o numărătoare inversă de probă</li>
-        <li><strong>sleep-urile și așteptările</strong>, ca o întârziere să fie o întârziere pe ceasul
-          sesiunii, nu pe cel real</li>
+        <li><strong>pauzele</strong>, ca o întârziere să fie o întârziere pe ceasul sesiunii și nu pe cel real, și <strong>așteptările pe obiecte</strong>, care sunt numărate și își păstrează durata reală</li>
         <li><strong>temporizatoarele</strong> - waitable, de fereastră, de thread-pool și multimedia</li>
         <li><strong>crearea de procese</strong>, ca procesele copil ale unui instalator să ruleze în aceeași
           sesiune, nu în ziua de azi</li>
+        <li><strong>conexiunile de rețea</strong>, numărate ca semn că ora poate veni de la un server</li>
       </ul>
+      <p>Din cele {{channel_count}}, {{substituted_count}} trec pe ceasul sesiunii. Celelalte {{observed_count}} sunt doar numărate și rămân reale, așa că raportul le numește fără să pretindă că au fost decalate. Ceasul de perete și fusul orar sunt decalate în fiecare sesiune. Axa timpului scurs și așteptările sunt urmărite când ceri asta cu <code>--scale-duration</code>, iar contorul de înaltă rezoluție cu <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -95,14 +97,14 @@
     <div class="prose">
       <p>Cu adevărat, și nu rar:</p>
       <ul>
-        <li><strong>Ai nevoie de o singură dată, la viteză normală, chiar acum.</strong> RunAsDate are sub
-          40 KB, nu are o fereastră de învățat și face exact asta de mulți ani.</li>
+        <li><strong>Ai nevoie de o singură dată, la viteză normală, chiar acum.</strong> RunAsDate este o descărcare sub 60 KB, nu are o fereastră de învățat și face exact asta de mulți ani.</li>
         <li><strong>Ești pe un Windows mai vechi.</strong> RunAsDate merge până la Windows 2000. Acest
           instrument vizează Windows 10 și 11 și nu este testat pe nimic mai vechi.</li>
-        <li><strong>Dimensiunea contează.</strong> 40 KB față de 1,6 MB pentru linia de comandă sau 69 MB
-          cu fereastra nu este o comparație apropiată.</li>
+        <li><strong>Dimensiunea contează.</strong> 47 KB de descărcat față de ~{{size_cli_zip}} MB pentru linia de comandă, sau ~{{size_app_zip}} MB cu fereastra, nu este o comparație strânsă.</li>
         <li><strong>Nu vrei un verdict.</strong> Măsurarea acoperirii înseamnă citirea rezultatului. Dacă
           testul este de unică folosință, este un efort pe care nu l-ai cerut.</li>
+        <li><strong>Aplicația rulează deja.</strong> RunAsDate se poate atașa la un proces în execuție din versiunea 1.40. Chrono Mock pornește singur aplicația, așa că una care nu poate fi repornită îi rămâne inaccesibilă.</li>
+        <li><strong>Vrei mai multe aplicații cu date diferite în același timp.</strong> RunAsDate îi dă fiecăreia propria dată. Chrono Mock rulează o singură sesiune odată.</li>
       </ul>
       <p>
         Cele două coexistă. Nimic de aici nu te oprește să păstrezi RunAsDate pentru cazul rapid.

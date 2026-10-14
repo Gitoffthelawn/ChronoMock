@@ -155,7 +155,7 @@
     <div class="qa">
       <h3>Kan ik het gebruiken in continuous integration?</h3>
       <p>
-        Ja. De opdrachtregelbuild is een aparte download van ongeveer 1,6 MB zonder runtime om te
+        Ja. De opdrachtregelbuild is een aparte download van ongeveer {{size_cli_zip}} MB zonder runtime om te
         installeren. Elk commando begrijpt <code>--json</code> en eindigt met een code waarop een pipeline
         kan vertakken, en een sessie kan haar bewijs naar een bestand schrijven.
       </p>
@@ -163,12 +163,7 @@
 
     <div class="qa">
       <h3>Wat is het verschil met RunAsDate?</h3>
-      <p>
-        RunAsDate onderschept vijf wandklokfuncties en doet dat goed. Dit gereedschap dekt
-        {{channel_count}} tijdkanalen, kan de klok versnellen, geeft het proces een eigen tijdzone, volgt
-        kindprocessen en vertelt je achteraf welke kanalen daadwerkelijk gedekt waren. Het is ook open
-        source, terwijl RunAsDate gesloten freeware is.
-      </p>
+      <p>RunAsDate onderschept vijf wandklokfuncties en doet dat goed. Deze tool volgt {{channel_count}} tijdkanalen en zet er {{substituted_count}} op de sessieklok, kan de klok versnellen, geeft het proces een eigen tijdzone, volgt kindprocessen en vertelt je achteraf welke kanalen echt gedekt waren. Hij is ook open source, waar RunAsDate gesloten freeware is. RunAsDate kan zich op zijn beurt koppelen aan een toepassing die al draait, en deze tool niet.</p>
       <p>
         <a href="/nl/runasdate-alternatief/">De volledige vergelijking</a> zegt ook waar RunAsDate de
         betere keuze is.

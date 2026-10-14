@@ -7,7 +7,7 @@
     <h1>Pruebas de fechas en un pipeline</h1>
     <p class="sub">
       La ventana sirve para explorar. Esta es la otra mitad: una compilación de línea de comandos de unos
-      <strong>1,6 MB</strong> sin entorno de ejecución que instalar, cuyo código de salida es el veredicto
+      <strong>{{size_cli_zip}} MB</strong> sin entorno de ejecución que instalar, cuyo código de salida es el veredicto
       de cobertura y no el del propio objetivo.
     </p>
   </section>
@@ -40,6 +40,9 @@
           <tr><td>12</td><td>el objetivo desapareció, lo que sugiere una aplicación de instancia única</td></tr>
           <tr><td>3</td><td>error interno - el motor no pudo arrancar, llegó a un estado inesperado o se detuvo antes de cerrar la sesión (sea cual sea su propio código de salida). Una ejecución así no lleva veredicto</td></tr>
           <tr><td>5</td><td>la operación no está incluida en esta versión</td></tr>
+          <tr><td>6</td><td>la ejecución se cortó - venció <code>--timeout</code>, o el motor dejó de responder durante 15 segundos y se detuvo. No es un veredicto: la sesión se interrumpió, así que no demuestra nada sobre el objetivo en ningún sentido</td></tr>
+          <tr><td>7</td><td>ya hay otra sesión en marcha - solo una sesión a la vez. Basta con volver a intentarlo cuando termine</td></tr>
+          <tr><td>8</td><td>la sesión llegó a un veredicto, pero su evidencia no está en el archivo que indica <code>--report</code> - el disco estaba lleno, u otro programa mantenía abierto el archivo anterior, que entonces queda como estaba. El veredicto sigue en el informe que imprime el comando</td></tr>
         </tbody>
       </table>
     </div>

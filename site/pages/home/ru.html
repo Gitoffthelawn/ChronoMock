@@ -50,8 +50,8 @@
           <span><b>Работает</b> — подмена времени дошла до этого процесса</span>
         </div>
         <div class="chan">
-          <span>Покрытые каналы времени</span>
-          <span class="n">26 из {{channel_count}} &middot; со счётчиками вызовов</span>
+          <span>Отслеживаемые каналы времени</span>
+          <span class="n">до {{channel_count}} &middot; у каждого счётчик вызовов</span>
         </div>
       </div>
     </div>
@@ -208,7 +208,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>Запускает приложение с поддельной датой</td><td class="y">да</td><td class="y">да</td></tr>
-          <tr><td>Перехватываемые каналы времени</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>Перехватываемые каналы времени</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} сдвигаются, {{observed_count}} только считаются)</td></tr>
           <tr><td>Ускорение часов</td><td class="n">нет</td><td class="y">да</td></tr>
           <tr><td>Независимый часовой пояс</td><td class="n">не описано</td><td class="y">да</td></tr>
           <tr><td>Следует за дочерними процессами</td><td class="n">не описано</td><td class="y">да</td></tr>

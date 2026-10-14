@@ -157,7 +157,7 @@
     <div class="qa">
       <h3>Posso usarlo nell'integrazione continua?</h3>
       <p>
-        Sì. La build da riga di comando è un download separato di circa 1,6 MB senza alcun runtime da
+        Sì. La build da riga di comando è un download separato di circa {{size_cli_zip}} MB senza alcun runtime da
         installare. Ogni comando comprende <code>--json</code> e termina con un codice su cui una pipeline
         può diramare, e una sessione può scrivere la propria prova in un file.
       </p>
@@ -165,12 +165,7 @@
 
     <div class="qa">
       <h3>In cosa è diverso da RunAsDate?</h3>
-      <p>
-        RunAsDate intercetta cinque funzioni dell'orologio a muro e lo fa bene. Questo strumento copre
-        {{channel_count}} canali temporali, può accelerare l'orologio, dà al processo il proprio fuso
-        orario, segue i processi figlio e ti dice poi quali canali sono stati davvero coperti. È anche open
-        source, mentre RunAsDate è freeware chiuso.
-      </p>
+      <p>RunAsDate intercetta cinque funzioni dell'orologio a muro e lo fa bene. Questo strumento osserva {{channel_count}} canali temporali e ne porta {{substituted_count}} sull'orologio della sessione, può accelerare l'orologio, dà al processo il suo fuso orario, segue i processi figlio e ti dice poi quali canali sono stati davvero coperti. È anche open source, mentre RunAsDate è freeware chiuso. RunAsDate, dal canto suo, sa agganciarsi a un'applicazione già in esecuzione, e questo strumento no.</p>
       <p>
         <a href="/it/alternativa-a-runasdate/">Il confronto completo</a> dice anche dove RunAsDate è la
         scelta migliore.

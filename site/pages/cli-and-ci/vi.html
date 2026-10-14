@@ -6,7 +6,7 @@
     <h1>Kiểm thử ngày tháng trong pipeline</h1>
     <p class="sub">
       Cửa sổ dùng để khám phá. Đây là nửa còn lại: một bản dựng dòng lệnh khoảng
-      <strong>1,6 MB</strong> không cần cài runtime, có mã thoát là kết luận về độ bao phủ chứ không phải
+      <strong>{{size_cli_zip}} MB</strong> không cần cài runtime, có mã thoát là kết luận về độ bao phủ chứ không phải
       mã thoát của chính mục tiêu.
     </p>
   </section>
@@ -39,6 +39,9 @@
           <tr><td>12</td><td>mục tiêu biến mất, gợi ý một ứng dụng chỉ cho phép một thể hiện</td></tr>
           <tr><td>3</td><td>lỗi nội bộ - lõi không khởi động được, gặp trạng thái bất ngờ, hoặc dừng trước khi đóng phiên (bất kể mã thoát riêng của nó). Lần chạy như vậy không có kết luận</td></tr>
           <tr><td>5</td><td>thao tác chưa được dựng trong bản phát hành này</td></tr>
+          <tr><td>6</td><td>lần chạy bị cắt ngang - <code>--timeout</code> đã hết, hoặc lõi ngừng phản hồi trong 15 giây và bị dừng. Đây không phải kết luận: phiên bị gián đoạn, nên không chứng minh được gì về mục tiêu theo hướng nào</td></tr>
+          <tr><td>7</td><td>một phiên khác đang chạy - mỗi lần chỉ một phiên. Chỉ cần thử lại khi phiên đó kết thúc</td></tr>
+          <tr><td>8</td><td>phiên đã có kết luận, nhưng bằng chứng không nằm trong tệp mà <code>--report</code> chỉ định - ổ đĩa đã đầy, hoặc một chương trình khác đang giữ tệp cũ mở, và tệp đó giữ nguyên. Kết luận vẫn có trong báo cáo mà lệnh in ra</td></tr>
         </tbody>
       </table>
     </div>

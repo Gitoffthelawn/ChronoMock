@@ -4,6 +4,7 @@
   "html_lang": "ko",
   "dir": "ltr",
   "og_locale": "ko_KR",
+  "decimal_separator": ".",
 
   "social_image_alt": "Chrono Mock - 시스템 시계를 바꾸지 않고 Windows 앱을 원하는 날짜와 시간으로 실행",
 

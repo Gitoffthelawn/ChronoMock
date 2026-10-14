@@ -70,9 +70,7 @@
         Dus de duuras - tickteller, sleeps, wachten en timers - is een aparte schakelaar:
       </p>
       <ul>
-        <li><code>--scale-duration</code> zet ook sleeps, wachten en timers op de sessieklok. Zonder die
-          schakelaar jaagt <code>x1440</code> de kalender vooruit terwijl een timer van vijf seconden nog
-          steeds vijf echte seconden duurt.</li>
+        <li><code>--scale-duration</code> zet ook tickcounters, pauzes en timers op de sessieklok, terwijl wachten op objecten wordt geteld en zijn echte lengte houdt. Zonder deze optie jaagt <code>x1440</code> de kalender vooruit terwijl een timer van vijf seconden nog steeds vijf echte seconden duurt - alleen een timer die op een datum en tijd is gezet volgt in elke sessie de sessieklok.</li>
         <li><code>--scale-qpc</code> schaalt bovendien de high-resolution teller. Daar lezen Python 3.13+
           <code>monotonic</code>, .NET <code>Stopwatch</code> en Java <code>nanoTime</code> de verstreken
           tijd, en hij staat standaard uit omdat schalen de rendering in tests destabiliseerde.</li>
@@ -114,9 +112,7 @@
         <li><strong>Het raakt de systeemklok niet aan.</strong> Dat is het punt, geen beperking - maar het
           betekent dat alles wat de tijd van een server, een database of een andere machine leest
           onaangetast blijft, en de audit zegt het als dat gebeurt.</li>
-        <li><strong>Een sprong verandert wat de applicatie ziet, niet wanneer ze wakker wordt.</strong>
-          Timers die al aan de kernel zijn doorgegeven, lopen op echte tijd. De meeste applicaties peilen
-          de klok, dus sprongen werken in de praktijk - niet alle.</li>
+        <li><strong>Een sprong verandert wat de toepassing ziet, niet wanneer ze wakker wordt.</strong> Pauzes en timers die al aan de kernel zijn overgedragen houden de lengte die ze kregen toen ze werden gezet. De meeste toepassingen vragen de klok op, dus sprongen werken in de praktijk - maar niet bij allemaal.</li>
         <li><strong>Het vertraagt de tijd niet.</strong> Vermenigvuldigers zijn gehele getallen van één en
           hoger, plus een bevroren klok op nul.</li>
       </ul>

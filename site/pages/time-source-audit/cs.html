@@ -44,13 +44,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -103,12 +105,7 @@ Chrono Mock - session report
         k odsouzenému spuštění nikdy nedojde. Můžete to přepsat a pokračovat a sezení je pak všude, kde
         se objeví, označeno jako nespolehlivé, včetně jakýchkoli exportovaných důkazů.
       </p>
-      <p>
-        Existují ještě tři kódy pro věci, které vůbec nejsou verdikty: <code>1</code> pro chybu použití,
-        <code>2</code>, když se cíl nepodařilo spustit nebo do něj injektovat, a <code>12</code>, když
-        cíl zmizel způsobem, který naznačuje aplikaci s jedinou instancí, která předala řízení už běžící
-        kopii.
-      </p>
+      <p>Ostatní kódy říkají, že selhal samotný běh, a ne náhrada - chyba použití, cíl, který se nepodařilo spustit, přerušený běh, jiné sezení, které už běží - a žádný z nich není verdikt. Celá tabulka je v <a href="/cs/reference-cli/">referenci příkazové řádky</a>.</p>
     </div>
   </section>
 
@@ -119,11 +116,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Pokryté</strong> - zachycené a nahrazené. Aplikace se zeptala a dostala hodiny
           sezení. Počet volání říká, kolikrát.</li>
-        <li><strong>Pozorované</strong> - zachycené, spočítané a záměrně ponechané říkat pravdu.
-          Čítač s vysokým rozlišením je tu ve výchozím stavu, protože jeho škálování destabilizovalo
-          vykreslování. Multimediální časovače jsou tu proto, že by jejich škálování posunulo časování
-          zvuku a MIDI. Síťová spojení a jedna cesta vytváření procesů jsou tu proto, že jsou důkazem,
-          ne hodinami.</li>
+        <li><strong>Sledované</strong> - zachycené, spočítané a záměrně ponechané pravdivé. Patří sem čekání na objekty, protože zkrácení časového limitu by mohlo předstírat vypršení na skutečném handlu, a multimediální časovač, protože jeho škálování by posunulo časování zvuku a MIDI - obojí sledované, když sezení škáluje osu uplynulého času. Síťová připojení a jedna cesta vytváření procesů jsou tu v každém sezení, protože jsou to důkazy, ne hodiny. Čítač s vysokým rozlišením do této skupiny nepatří: zůstává nedotčený, dokud o něj nepožádáte přes <code>--scale-qpc</code>, a pak je pokrytý.</li>
         <li><strong>Nepokryté</strong> - kanál, který aplikace četla a ke kterému se náhrada času
           nedostala. To mění verdikt na <em>funguje částečně</em> a je vypsán jménem, ne shrnut do
           ztracena.</li>

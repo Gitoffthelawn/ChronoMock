@@ -76,8 +76,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Zrychlí i osu trvání: počty ticků, uspání a časovače. Ve výchozím stavu vypnuto, protože
-              kalendářní hodiny a stopky jsou dvě různé otázky.</td>
+            <td>Zrychlit i osu uplynulého času: čítače tiků, čas přerušení, uspání a časovače. Čekání na objekty se počítají a zachovávají svou skutečnou délku. Ve výchozím stavu vypnuto, protože nástěnné hodiny a stopky jsou různé otázky. Časovač nebo zpoždění nastavené na konkrétní datum a čas sleduje hodiny sezení s touto volbou i bez ní.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -253,7 +252,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -272,7 +271,7 @@
           i hexadecimální podobu.</li>
         <li><strong>covered</strong> - kanály, ke kterým se náhrada času dostala, s počtem skutečných
           volání každého, po procesech. Počty se mezi procesy nikdy nesčítají: audit jednoho procesu si
-          nesmí půjčovat čísla jiného.</li>
+          nesmí půjčovat čísla jiného. Čítač se zastaví na 1048576 a pak ukazuje <em>nejméně</em> tolik.</li>
         <li><strong>observed</strong> - kanály zachycené, ale záměrně ponechané skutečné, například
           čekání na objekty a multimediální časovače. Mají vlastní kategorii, aby se nikdy nečetly jako
           nahrazené.</li>

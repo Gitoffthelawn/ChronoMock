@@ -68,9 +68,7 @@
         un comutator separat:
       </p>
       <ul>
-        <li><code>--scale-duration</code> pune pe ceasul sesiunii și sleep-urile, așteptările și
-          temporizatoarele. Fără el, <code>x1440</code> grăbește calendarul înainte, în timp ce un
-          temporizator de cinci secunde durează în continuare cinci secunde reale.</li>
+        <li><code>--scale-duration</code> trece și contoarele de tick-uri, pauzele și timerele pe ceasul sesiunii, iar așteptările pe obiecte sunt numărate și își păstrează durata reală. Fără el, <code>x1440</code> gonește calendarul înainte, în timp ce un timer de cinci secunde durează tot cinci secunde reale - doar un timer setat pentru o dată și o oră urmează ceasul sesiunii în fiecare sesiune.</li>
         <li><code>--scale-qpc</code> scalează suplimentar contorul de înaltă rezoluție. Acolo citesc timpul
           scurs <code>monotonic</code> din Python 3.13+, <code>Stopwatch</code> din .NET și
           <code>nanoTime</code> din Java, iar este dezactivat implicit pentru că scalarea lui a
@@ -114,9 +112,7 @@
         <li><strong>Nu atinge ceasul sistemului.</strong> Acesta este rostul, nu o limitare - dar înseamnă că
           orice citește ora de la un server, dintr-o bază de date sau de pe altă mașină rămâne
           neafectat, iar auditul îți va spune când se întâmplă asta.</li>
-        <li><strong>Un salt schimbă ce vede aplicația, nu când se trezește.</strong> Temporizatoarele deja
-          predate nucleului rulează pe timp real. Majoritatea aplicațiilor interoghează ceasul, așa că în
-          practică saltul funcționează - dar nu toate o fac.</li>
+        <li><strong>Un salt schimbă ce vede aplicația, nu când se trezește.</strong> Pauzele și timerele deja predate nucleului își păstrează durata primită când au fost setate. Cele mai multe aplicații interoghează ceasul, așa că salturile funcționează în practică - dar nu la toate.</li>
         <li><strong>Nu încetinește timpul.</strong> Multiplicatorii sunt numere întregi de la unu în sus,
           plus un ceas oprit la zero.</li>
       </ul>

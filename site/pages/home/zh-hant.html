@@ -45,8 +45,8 @@
           <span><b>生效</b>——替換已經作用到這個處理序</span>
         </div>
         <div class="chan">
-          <span>已涵蓋的時間通道</span>
-          <span class="n">26 / {{channel_count}} &middot; 附呼叫次數</span>
+          <span>監看的時間通道</span>
+          <span class="n">最多 {{channel_count}} 個 &middot; 每個都附呼叫次數</span>
         </div>
       </div>
     </div>
@@ -184,7 +184,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>讓一個應用程式以虛擬日期執行</td><td class="y">是</td><td class="y">是</td></tr>
-          <tr><td>被攔截的時間通道</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>被攔截的時間通道</td><td class="n">5</td><td class="y">{{channel_count}}（{{substituted_count}} 個被偏移，{{observed_count}} 個僅計數）</td></tr>
           <tr><td>加快時鐘</td><td class="n">否</td><td class="y">是</td></tr>
           <tr><td>獨立的時區</td><td class="n">文件中未提及</td><td class="y">是</td></tr>
           <tr><td>跟隨子處理序</td><td class="n">文件中未提及</td><td class="y">是</td></tr>

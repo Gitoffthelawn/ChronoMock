@@ -80,9 +80,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Accélère aussi l'axe des durées : compteurs de ticks, attentes (sleeps) et minuteurs.
-              Désactivé par défaut, car une horloge murale et un chronomètre sont deux questions
-              différentes.</td>
+            <td>Accélérer aussi l'axe du temps écoulé : compteurs de ticks, temps d'interruption, mises en sommeil et minuteurs. Les attentes sur objet sont comptées et gardent leur durée réelle. Désactivé par défaut, parce qu'une horloge murale et un chronomètre sont deux questions différentes. Un minuteur ou un délai réglé sur une date et une heure suit l'horloge de la session avec ou sans cette option.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -269,7 +267,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -289,7 +287,7 @@
           reçoit donc aussi sa forme hexadécimale.</li>
         <li><strong>covered</strong> - les canaux que la substitution a atteints, avec le nombre de fois
           où chacun a réellement été appelé, par processus. Les comptes ne sont jamais additionnés entre
-          processus : l'audit d'un processus ne doit pas emprunter les chiffres d'un autre.</li>
+          processus : l'audit d'un processus ne doit pas emprunter les chiffres d'un autre. Un compteur s'arrête à 1048576 et indique alors <em>au moins</em> ce nombre.</li>
         <li><strong>observed</strong> - les canaux interceptés mais volontairement laissés réels, comme les
           attentes d'objets et les minuteurs multimédias. Une catégorie à part, pour qu'ils ne soient
           jamais lus comme substitués.</li>

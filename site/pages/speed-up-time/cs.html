@@ -67,9 +67,7 @@
         Osa trvání - počty ticků, uspání, čekání a časovače - je proto samostatný přepínač:
       </p>
       <ul>
-        <li><code>--scale-duration</code> dá na hodiny sezení i uspání, čekání a časovače. Bez něj
-          <code>x1440</code> žene kalendář kupředu, zatímco pětivteřinový časovač stále trvá pět
-          skutečných vteřin.</li>
+        <li><code>--scale-duration</code> převádí na hodiny sezení i čítače tiků, uspání a časovače, zatímco čekání na objekty se počítají a zachovávají svou skutečnou délku. Bez něj <code>x1440</code> žene kalendář dopředu, zatímco pětisekundový časovač pořád trvá pět skutečných sekund - jen časovač nastavený na konkrétní datum a čas sleduje hodiny sezení v každém sezení.</li>
         <li><code>--scale-qpc</code> navíc škáluje čítač s vysokým rozlišením. Tam čtou uplynulý čas
           <code>monotonic</code> z Pythonu 3.13+, <code>Stopwatch</code> z .NET a <code>nanoTime</code>
           z Javy, a je ve výchozím stavu vypnutý, protože jeho škálování při testování destabilizovalo
@@ -112,9 +110,7 @@
         <li><strong>Nesahá na systémové hodiny.</strong> To je smysl, ne omezení - ale znamená to, že
           cokoli, co čte čas ze serveru, z databáze nebo z jiného počítače, zůstává nedotčeno, a audit vám
           řekne, když se to stane.</li>
-        <li><strong>Skok mění to, co aplikace vidí, ne to, kdy se probudí.</strong> Časovače, které už
-          byly předány jádru, běží na skutečném čase. Většina aplikací hodiny dotazuje, takže skoky v
-          praxi fungují - ne všechny to ale dělají.</li>
+        <li><strong>Skok mění to, co aplikace vidí, ne kdy se probudí.</strong> Uspání a časovače už předané jádru si ponechávají délku, kterou dostaly při nastavení. Většina aplikací se hodin dotazuje, takže skoky v praxi fungují - ale ne u všech.</li>
         <li><strong>Nezpomaluje čas.</strong> Násobitele jsou celá čísla od jedné výše plus zastavené
           hodiny na nule.</li>
       </ul>

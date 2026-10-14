@@ -24,24 +24,26 @@
         <tbody>
           <tr><td>Executa um aplicativo com uma data falsa</td><td class="y">sim</td><td class="y">sim</td></tr>
           <tr><td>Deixa o relógio do sistema em paz</td><td class="y">sim</td><td class="y">sim</td></tr>
-          <tr><td>Funções de tempo interceptadas</td><td class="n">5</td><td class="y">{{channel_count}} canais</td></tr>
+          <tr><td>Funções de tempo interceptadas</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} deslocados, {{observed_count}} contados)</td></tr>
           <tr><td>Relógio mais rápido que o tempo real</td><td class="n">não oferecido</td><td class="y">qualquer multiplicador inteiro</td></tr>
-          <tr><td>Congelar o relógio</td><td class="n">não oferecido</td><td class="y">sim</td></tr>
-          <tr><td>Saltar enquanto o app roda</td><td class="n">não oferecido</td><td class="y">para frente e para trás</td></tr>
+          <tr><td>Congelar o relógio</td><td class="y">sim, por padrão</td><td class="y">sim</td></tr>
+          <tr><td>Saltar enquanto o app roda</td><td class="n">só a volta para a data real, depois de um número fixo de segundos</td><td class="y">para a frente e para trás, para qualquer momento</td></tr>
           <tr><td>Fuso horário só para aquele processo</td><td class="n">não documentado</td><td class="y">sim, deslocamento fixo</td></tr>
           <tr><td>Processos filhos herdam a sessão</td><td class="n">não documentado</td><td class="y">sim</td></tr>
+          <tr><td>Anexar-se a um aplicativo que já está rodando</td><td class="y">sim, desde a versão 1.40</td><td class="n">não - ele mesmo inicia o aplicativo</td></tr>
+          <tr><td>Vários aplicativos com datas diferentes ao mesmo tempo</td><td class="y">sim</td><td class="n">não - uma sessão por vez</td></tr>
           <tr><td>Diz se funcionou</td><td class="n">não</td><td class="y">veredito, por canal, com contagem de chamadas</td></tr>
-          <tr><td>Aplicativos Electron e Chromium</td><td class="n">não oferecido</td><td class="y">mecanismo separado</td></tr>
+          <tr><td>Aplicativos Electron e Chromium</td><td class="n">não documentado</td><td class="y">mecanismo separado</td></tr>
           <tr><td>Linha de comando para CI</td><td class="y">sim</td><td class="y">sim, com códigos de saída e JSON</td></tr>
           <tr><td>Código-fonte</td><td class="n">freeware, fechado</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Tamanho</td><td class="y">menos de 40 KB</td><td class="n">1,6 MB a CLI, 69 MB com a janela</td></tr>
+          <tr><td>Tamanho</td><td class="y">47 KB de download, 57 KB em 64 bits</td><td class="n">~{{size_cli_zip}} MB a linha de comando, ~{{size_app_zip}} MB com a janela</td></tr>
           <tr><td>Versões antigas do Windows</td><td class="y">até o Windows 2000</td><td class="n">Windows 10 e 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>“Não documentado”</em> significa que o recurso não é mencionado na página do RunAsDate. Não é
-      uma afirmação de que a ferramenta não o tenha.
+      uma afirmação de que a ferramenta não o tenha. O relógio do RunAsDate fica parado a menos que a opção <em>Move the time forward according to the real time</em> esteja ligada.
     </p>
   </section>
 
@@ -80,17 +82,17 @@
         O resto da superfície é onde o código que depende de data costuma se esconder:
       </p>
       <ul>
-        <li>o <strong>fuso horário</strong> - quatro funções, mais toda a família que converte entre
-          fusos, que é como um relatório cai no dia errado</li>
+        <li>o <strong>fuso horário</strong> - as duas funções que o informam, mais as seis que convertem entre fusos, que é como um relatório cai no dia errado</li>
         <li>o <strong>eixo do tempo decorrido</strong> - contagens de ticks e tempo de interrupção sem
           viés, que é o que uma contagem regressiva de teste normalmente mede</li>
-        <li><strong>esperas e suspensões</strong>, para que um atraso seja um atraso no relógio da sessão
-          e não no real</li>
+        <li>as <strong>pausas</strong>, para que um atraso seja um atraso no relógio da sessão e não no real, e as <strong>esperas por objetos</strong>, que são contadas e mantêm a duração real</li>
         <li><strong>temporizadores</strong> - esperáveis, de janela, de pool de threads e
           multimídia</li>
         <li><strong>criação de processos</strong>, para que os filhos de um instalador rodem na mesma
           sessão e não no dia de hoje</li>
+        <li>as <strong>conexões de rede</strong>, contadas como sinal de que a hora pode vir de um servidor</li>
       </ul>
+      <p>Dos {{channel_count}}, {{substituted_count}} vão para o relógio da sessão. Os outros {{observed_count}} são só contados e continuam reais, então o relatório os lista sem afirmar que foram deslocados. O relógio de parede e o fuso horário são deslocados em toda sessão. O eixo do tempo decorrido e as esperas são observados quando você pede com <code>--scale-duration</code>, e o contador de alta resolução com <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -99,14 +101,14 @@
     <div class="prose">
       <p>De verdade, e não raramente:</p>
       <ul>
-        <li><strong>Você precisa de uma data, em velocidade normal, agora mesmo.</strong> O RunAsDate tem
-          menos de 40 KB, não tem janela para aprender e faz exatamente isso há muitos anos.</li>
+        <li><strong>Você precisa de uma data, em velocidade normal, agora mesmo.</strong> O RunAsDate é um download de menos de 60 KB, não tem janela para aprender e faz exatamente isso há muitos anos.</li>
         <li><strong>Você está em um Windows mais antigo.</strong> O RunAsDate volta até o Windows 2000.
           Esta ferramenta mira o Windows 10 e o 11 e não foi testada em nada mais antigo.</li>
-        <li><strong>O tamanho importa.</strong> 40 KB contra 1,6 MB para a linha de comando, ou 69 MB com
-          a janela, não é uma comparação apertada.</li>
+        <li><strong>O tamanho importa.</strong> 47 KB de download contra ~{{size_cli_zip}} MB para a linha de comando, ou ~{{size_app_zip}} MB com a janela, não é uma comparação apertada.</li>
         <li><strong>Você não quer um veredito.</strong> Medir a cobertura significa ler o resultado. Se o
           teste é descartável, é um custo que você não pediu.</li>
+        <li><strong>O aplicativo já está rodando.</strong> O RunAsDate consegue se anexar a um processo em execução desde a versão 1.40. O Chrono Mock inicia o aplicativo ele mesmo, então um que não pode ser reiniciado fica fora do alcance.</li>
+        <li><strong>Você quer vários aplicativos com datas diferentes ao mesmo tempo.</strong> O RunAsDate dá a cada um a sua própria data. O Chrono Mock conduz uma sessão por vez.</li>
       </ul>
       <p>
         Os dois também podem coexistir. Nada aqui impede você de manter o RunAsDate para o caso rápido.

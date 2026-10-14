@@ -71,9 +71,7 @@
         So the duration axis - tick counts, sleeps, waits and timers - is a separate switch:
       </p>
       <ul>
-        <li><code>--scale-duration</code> puts sleeps, waits and timers on the session clock
-          too. Without it, <code>x1440</code> races the calendar forward while a five-second
-          timer still takes five real seconds.</li>
+        <li><code>--scale-duration</code> puts tick counts, sleeps and timers on the session clock too, while object waits are counted and keep their real length. Without it, <code>x1440</code> races the calendar forward while a five-second timer still takes five real seconds - only a timer set for a date and time follows the session clock in every session.</li>
         <li><code>--scale-qpc</code> additionally scales the high-resolution counter. That is
           where Python 3.13+ <code>monotonic</code>, .NET <code>Stopwatch</code> and Java
           <code>nanoTime</code> read elapsed time, and it is off by default because scaling it
@@ -116,9 +114,7 @@
         <li><strong>It does not touch the system clock.</strong> That is the point, not a
           limitation - but it means anything reading the time from a server, a database or
           another machine is unaffected, and the audit will tell you when that happens.</li>
-        <li><strong>A jump changes what the application sees, not when it wakes up.</strong>
-          Timers already handed to the kernel run on real time. Most applications poll the
-          clock, so jumps work in practice - not all of them do.</li>
+        <li><strong>A jump changes what the application sees, not when it wakes up.</strong> Sleeps and timers already handed to the kernel keep the length they were given when they were set. Most applications poll the clock, so jumps work in practice - not all of them do.</li>
         <li><strong>It does not slow time down.</strong> Multipliers are whole numbers of one
           and above, plus a frozen clock at zero.</li>
       </ul>

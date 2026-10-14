@@ -67,9 +67,7 @@
         Bu yüzden süre ekseni - tick sayıları, uykular, beklemeler ve zamanlayıcılar - ayrı bir anahtardır:
       </p>
       <ul>
-        <li><code>--scale-duration</code> uykuları, beklemeleri ve zamanlayıcıları da oturum saatine alır.
-          Onsuz, <code>x1440</code> takvimi ileri doğru koştururken beş saniyelik bir zamanlayıcı hâlâ beş
-          gerçek saniye sürer.</li>
+        <li><code>--scale-duration</code> tik sayaçlarını, uyumaları ve zamanlayıcıları da oturum saatine geçirir, nesne beklemeleri ise sayılır ve gerçek sürelerini korur. Bu olmadan <code>x1440</code> takvimi ileri koştururken beş saniyelik bir zamanlayıcı hâlâ beş gerçek saniye sürer - yalnızca belirli bir tarih ve saate kurulan zamanlayıcı her oturumda oturum saatini izler.</li>
         <li><code>--scale-qpc</code> ek olarak yüksek çözünürlüklü sayacı ölçekler. Python 3.13+
           <code>monotonic</code>, .NET <code>Stopwatch</code> ve Java <code>nanoTime</code> geçen zamanı
           burada okur ve varsayılan olarak kapalıdır; çünkü onu ölçeklemek testlerde render’ı
@@ -113,9 +111,7 @@
         <li><strong>Sistem saatine dokunmaz.</strong> Amaç bu, bir sınırlama değil - ama zamanı bir
           sunucudan, bir veritabanından ya da başka bir makineden okuyan her şeyin etkilenmediği anlamına
           gelir ve denetim bu olduğunda size söyler.</li>
-        <li><strong>Bir atlama, uygulamanın ne gördüğünü değiştirir; ne zaman uyandığını değil.</strong>
-          Çekirdeğe zaten verilmiş zamanlayıcılar gerçek zamanda çalışır. Çoğu uygulama saati yoklar, bu
-          yüzden atlamalar pratikte çalışır - ama hepsi değil.</li>
+        <li><strong>Bir atlama uygulamanın ne gördüğünü değiştirir, ne zaman uyandığını değil.</strong> Çekirdeğe zaten verilmiş uyumalar ve zamanlayıcılar kurulurken aldıkları süreyi korur. Çoğu uygulama saati yoklar, bu yüzden atlamalar pratikte çalışır - ama hepsinde değil.</li>
         <li><strong>Zamanı yavaşlatmaz.</strong> Çarpanlar bir ve üzeri tam sayılardır, artı sıfırda
           dondurulmuş bir saat.</li>
       </ul>

@@ -10,9 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::{
-    count_json_files, esc, internal_links, link_target, load_i18n, load_pages, output_path,
-    parse_json, resolve_tokens, tokens, url_path, validate_languages, Page, Report, Result,
-    SiteConfig, ROOT_LANGUAGE,
+    check_download_sizes, count_json_files, esc, internal_links, link_target, load_i18n, load_pages,
+    localized_tokens, output_path, parse_json, resolve_tokens, tokens, url_path, validate_languages,
+    Page, Report, Result, SiteConfig, ROOT_LANGUAGE,
 };
 
 pub struct Ctx<'a> {
@@ -44,6 +44,7 @@ pub fn build(root: &Path, out: &Path) -> Result<Report> {
 
     let i18n = load_i18n(&site_dir, &cfg.languages)?;
     validate_languages(&cfg.languages, &i18n)?;
+    check_download_sizes(&cfg)?;
     let pages = load_pages(&site_dir)?;
 
     let preset_count = count_json_files(&root.join("presets"))?;
@@ -334,9 +335,11 @@ pub fn render_page(ctx: &Ctx, page: &Page, lang: &str) -> Result<String> {
     let meta = &page.meta.languages[lang];
     let whence = format!("site/pages/{}/{lang}.html", page.meta.id);
 
-    let title = resolve_tokens(&meta.title, ctx.tokens, &whence)?;
-    let description = resolve_tokens(&meta.description, ctx.tokens, &whence)?;
-    let body = resolve_tokens(&page.bodies[lang], ctx.tokens, &whence)?;
+    // A size reads 2.4 on one page and 2,4 on the next, so each language gets its own table.
+    let tokens = localized_tokens(ctx.tokens, ctx.s(lang, "decimal_separator")?);
+    let title = resolve_tokens(&meta.title, &tokens, &whence)?;
+    let description = resolve_tokens(&meta.description, &tokens, &whence)?;
+    let body = resolve_tokens(&page.bodies[lang], &tokens, &whence)?;
 
     let mut html = String::with_capacity(body.len() + 4096);
     html.push_str("<!doctype html>\n");

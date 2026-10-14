@@ -71,9 +71,7 @@
         Quindi l'asse delle durate - conteggi di tick, sleep, attese e timer - è un interruttore a parte:
       </p>
       <ul>
-        <li><code>--scale-duration</code> mette anche sleep, attese e timer sull'orologio della sessione.
-          Senza, <code>x1440</code> porta avanti a razzo il calendario mentre un timer di cinque secondi
-          continua a durare cinque secondi reali.</li>
+        <li><code>--scale-duration</code> porta sull'orologio della sessione anche i contatori di tick, le pause e i timer, mentre le attese su oggetti vengono contate e mantengono la durata reale. Senza, <code>x1440</code> fa correre il calendario mentre un timer di cinque secondi dura ancora cinque secondi reali - solo un timer impostato su una data e un'ora segue l'orologio della sessione in ogni sessione.</li>
         <li><code>--scale-qpc</code> scala in aggiunta il contatore ad alta risoluzione. È da lì che Python
           3.13+ <code>monotonic</code>, .NET <code>Stopwatch</code> e Java <code>nanoTime</code> leggono il
           tempo trascorso, ed è disattivato per impostazione predefinita perché scalarlo ha destabilizzato
@@ -117,9 +115,7 @@
         <li><strong>Non tocca l'orologio di sistema.</strong> È il punto, non un limite - ma significa che
           tutto ciò che legge l'ora da un server, da un database o da un'altra macchina non ne è
           influenzato, e l'audit ti dice quando succede.</li>
-        <li><strong>Un salto cambia ciò che l'applicazione vede, non quando si sveglia.</strong> I timer già
-          consegnati al kernel girano in tempo reale. La maggior parte delle applicazioni interroga
-          l'orologio, quindi i salti funzionano in pratica - non tutte lo fanno.</li>
+        <li><strong>Un salto cambia ciò che l'applicazione vede, non quando si risveglia.</strong> Pause e timer già consegnati al kernel mantengono la durata ricevuta quando sono stati impostati. La maggior parte delle applicazioni interroga l'orologio, quindi in pratica i salti funzionano - ma non per tutte.</li>
         <li><strong>Non rallenta il tempo.</strong> I moltiplicatori sono numeri interi da uno in su, più un
           orologio congelato a zero.</li>
       </ul>

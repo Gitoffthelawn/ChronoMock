@@ -47,8 +47,8 @@
           <span><b>동작함</b> - 시간 대체가 이 프로세스에 도달했습니다</span>
         </div>
         <div class="chan">
-          <span>적용된 시간 채널</span>
-          <span class="n">{{channel_count}}개 중 26개 &middot; 호출 횟수 포함</span>
+          <span>감시하는 시간 채널</span>
+          <span class="n">최대 {{channel_count}}개 &middot; 각각 호출 횟수 포함</span>
         </div>
       </div>
     </div>
@@ -186,7 +186,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>앱 하나를 가짜 날짜로 실행</td><td class="y">예</td><td class="y">예</td></tr>
-          <tr><td>가로채는 시간 채널</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>가로채는 시간 채널</td><td class="n">5</td><td class="y">{{channel_count}}개 (이동 {{substituted_count}}개, 집계만 {{observed_count}}개)</td></tr>
           <tr><td>시계 가속</td><td class="n">아니요</td><td class="y">예</td></tr>
           <tr><td>독립된 시간대</td><td class="n">문서화되어 있지 않음</td><td class="y">예</td></tr>
           <tr><td>자식 프로세스 추적</td><td class="n">문서화되어 있지 않음</td><td class="y">예</td></tr>

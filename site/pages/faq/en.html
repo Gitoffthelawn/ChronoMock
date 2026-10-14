@@ -157,7 +157,7 @@
     <div class="qa">
       <h3>Can I use it in continuous integration?</h3>
       <p>
-        Yes. The command-line build is a separate download of about 1.6 MB with no runtime
+        Yes. The command-line build is a separate download of about {{size_cli_zip}} MB with no runtime
         to install. Every command speaks <code>--json</code> and exits with a code a pipeline
         can branch on, and a session can write its evidence to a file.
       </p>
@@ -165,12 +165,7 @@
 
     <div class="qa">
       <h3>How is this different from RunAsDate?</h3>
-      <p>
-        RunAsDate intercepts five wall-clock functions and does that well. This tool covers
-        {{channel_count}} time channels, can speed the clock up, gives the process its own
-        time zone, follows child processes, and tells you afterwards which channels were
-        actually covered. It is also open source, where RunAsDate is closed freeware.
-      </p>
+      <p>RunAsDate intercepts five wall-clock functions and does that well. This tool watches {{channel_count}} time channels and puts {{substituted_count}} of them on the session clock, can speed the clock up, gives the process its own time zone, follows child processes, and tells you afterwards which channels were actually covered. It is also open source, where RunAsDate is closed freeware. RunAsDate, for its part, can attach to an application that is already running, which this tool cannot.</p>
       <p>
         <a href="/runasdate-alternative/">The full comparison</a> also says where RunAsDate
         is the better pick.

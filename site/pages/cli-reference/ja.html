@@ -55,7 +55,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>経過時間の軸（ティック数、スリープ、タイマー）も加速します。壁時計とストップウォッチは別の問いなので、既定ではオフです。</td>
+            <td>経過時間の軸も速めます。ティック カウント、割り込み時間、スリープ、タイマーが対象です。オブジェクト待機は回数を数えるだけで、長さは実際のままです。壁時計とストップウォッチは別の問いなので、既定ではオフです。日時を指定したタイマーや遅延は、このオプションの有無にかかわらずセッションの時計に従います。</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -174,7 +174,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -186,7 +186,7 @@
       <ul>
         <li><strong>verdict</strong> - 親プロセスとすべての子プロセスを合わせたファミリー全体の判定と、プロセス数。終了コードが表すのはこの数値です。</li>
         <li><strong>exited</strong> - アプリ<em>自身</em>の終了コード。アプリが自分で終了した場合に限られます。<code>--ticks</code> で区切った実行では対象は動いたままで、Chromium のセッションはツール自身が閉じ、開始しなかったセッションにはこのコードがありません。その場合は、でっち上げの 0 を表示せず、この行そのものが出ません。クラッシュコードは大きな負の数で届くため、16 進数の表記も併記されます。</li>
-        <li><strong>covered</strong> - 置き換えが届いたチャネルと、プロセスごとにそれぞれが実際に何回呼ばれたか。回数はプロセス間で合算されません。あるプロセスの監査が、別のプロセスの数値を借りてはならないためです。</li>
+        <li><strong>covered</strong> - 置き換えが届いたチャネルと、プロセスごとにそれぞれが実際に何回呼ばれたか。回数はプロセス間で合算されません。あるプロセスの監査が、別のプロセスの数値を借りてはならないためです。回数は 1048576 で止まり、それ以降は<em>少なくとも</em>その回数と表示されます。</li>
         <li><strong>observed</strong> - フックはされたが、意図的に実際の値のまま残したチャネル（オブジェクト待機やマルチメディアタイマーなど）。独自の区分に入れてあるので、置き換え済みと読まれることはありません。</li>
         <li><strong>uncovered</strong> - アプリが要求したが、セッションがカバーしなかったチャネル。判定を<em>一部有効</em>にするのはこれです。</li>
         <li><strong>not fully cleaned up</strong> - 終了処理で取り除けなかったもの。正常な終了では、つまり通常は、この行は出ません。</li>

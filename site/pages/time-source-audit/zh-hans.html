@@ -36,13 +36,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -85,9 +87,7 @@ Chrono Mock - session report
       <p>
         <strong>当判定为“未生效”时，进程会被立即停止</strong>，在你与它交互之前。判定不可能先于启动，因为唯一的事实依据，是从运行中的进程内部取得的读数。能保证的是你在开始工作之前就会得知真相——而不是注定失败的启动永远不会发生。你可以选择覆盖并继续，此后这个会话会在它出现的所有地方——包括你导出的任何证据——被标记为不可靠。
       </p>
-      <p>
-        另外还有三个代码，对应的根本不是判定的情形：<code>1</code> 表示用法错误，<code>2</code> 表示无法启动目标程序或无法向其注入，<code>12</code> 表示目标程序以一种表明单实例应用把工作交给了已在运行的副本的方式消失了。
-      </p>
+      <p>其他代码表示出问题的是运行本身，而不是替换 - 用法错误、无法启动的目标、被中途截断的运行、已在运行的另一个会话等，它们都不是判定。完整的表格在<a href="/zh-hans/cli-reference/">命令行参考</a>中。</p>
     </div>
   </section>
 
@@ -97,7 +97,7 @@ Chrono Mock - session report
       <p>通道分为三类，而中间那一类最值得注意。</p>
       <ul>
         <li><strong>已覆盖</strong>——已挂钩并被替换。应用询问了，得到的是会话时钟。调用次数说明了询问的次数。</li>
-        <li><strong>已观察</strong>——已挂钩、已计数，并且刻意让它如实回答。高分辨率计数器默认在这一类，因为缩放它会让渲染不稳定。多媒体定时器在这一类，因为缩放它们会让音频和 MIDI 的时序错位。网络连接和一条进程创建路径在这一类，因为它们是证据，而不是时钟。</li>
+        <li><strong>已观察</strong> - 被拦截、被计数，并故意让它们如实返回。对象等待在这里，因为缩短超时可能在真实句柄上伪造超时，多媒体定时器也在这里，因为缩放它会让音频和 MIDI 的时序错位 - 这两者在会话缩放经过时间轴时才被监视。网络连接和一条进程创建路径在每个会话中都在这里，因为它们是证据，而不是时钟。高分辨率计数器不属于这一组：除非你用 <code>--scale-qpc</code> 要求，否则它保持原样，要求之后它就被覆盖。</li>
         <li><strong>未覆盖</strong>——应用读取过、而替换没有触及的通道。正是它让判定变成<em>部分生效</em>，并且会逐个点名列出，而不是被概括掉。</li>
       </ul>
       <p>

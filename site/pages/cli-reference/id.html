@@ -79,8 +79,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Mempercepat juga sumbu durasi: hitungan tick, sleep, dan timer. Nonaktif secara bawaan,
-              karena jam dinding dan stopwatch adalah dua pertanyaan yang berbeda.</td>
+            <td>Percepat juga sumbu waktu berlalu: penghitung tick, waktu interupsi, jeda tidur, dan pewaktu. Penantian objek dihitung dan tetap pada durasi sebenarnya. Mati secara bawaan, karena jam dinding dan stopwatch adalah pertanyaan yang berbeda. Pewaktu atau penundaan yang diatur ke tanggal dan jam tertentu mengikuti jam sesi dengan atau tanpa opsi ini.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -261,7 +260,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -281,7 +280,7 @@
           heksadesimalnya.</li>
         <li><strong>covered</strong> - kanal yang dijangkau penggantian waktu, dengan berapa kali
           masing-masing benar-benar dipanggil, per proses. Hitungan tidak pernah dijumlahkan antarproses:
-          audit satu proses tidak boleh meminjam angka milik proses lain.</li>
+          audit satu proses tidak boleh meminjam angka milik proses lain. Penghitung berhenti di 1048576 dan setelah itu menunjukkan <em>setidaknya</em> angka tersebut.</li>
         <li><strong>observed</strong> - kanal yang dicegat tetapi sengaja dibiarkan nyata, seperti wait
           objek dan timer multimedia. Kelompoknya sendiri, sehingga tidak pernah dibaca sebagai
           tergantikan.</li>

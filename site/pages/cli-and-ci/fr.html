@@ -7,7 +7,7 @@
     <h1>Tester des dates dans un pipeline</h1>
     <p class="sub">
       La fenêtre sert à explorer. Voici l'autre moitié : une version en ligne de commande d'environ
-      <strong>1,6 Mo</strong>, sans environnement d'exécution à installer, dont le code de sortie est le
+      <strong>{{size_cli_zip}} Mo</strong>, sans environnement d'exécution à installer, dont le code de sortie est le
       verdict de couverture et non celui de la cible.
     </p>
   </section>
@@ -40,6 +40,9 @@
           <tr><td>12</td><td>la cible a disparu, ce qui évoque une application à instance unique</td></tr>
           <tr><td>3</td><td>erreur interne - le moteur n'a pas pu démarrer, a rencontré un état inattendu ou s'est arrêté avant de clore la session (quel que soit son propre code de sortie). Une telle exécution ne porte aucun verdict</td></tr>
           <tr><td>5</td><td>l'opération n'est pas intégrée à cette version</td></tr>
+          <tr><td>6</td><td>l'exécution a été écourtée - <code>--timeout</code> a expiré, ou le moteur a cessé de répondre pendant 15 secondes et a été arrêté. Ce n'est pas un verdict : la session a été interrompue, elle ne prouve donc rien sur la cible, dans un sens ou dans l'autre</td></tr>
+          <tr><td>7</td><td>une autre session est déjà en cours - une seule session à la fois. Il suffit de réessayer une fois qu'elle est terminée</td></tr>
+          <tr><td>8</td><td>la session a abouti à un verdict, mais sa preuve n'est pas dans le fichier que désigne <code>--report</code> - le disque était plein, ou un autre programme gardait l'ancien fichier ouvert, qui reste alors tel quel. Le verdict figure toujours dans le rapport qu'affiche la commande</td></tr>
         </tbody>
       </table>
     </div>

@@ -4,6 +4,7 @@
   "html_lang": "ja",
   "dir": "ltr",
   "og_locale": "ja_JP",
+  "decimal_separator": ".",
 
   "social_image_alt": "Chrono Mock - システム時計を変更せずに、Windows アプリを好きな日時で実行",
 

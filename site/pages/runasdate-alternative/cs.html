@@ -21,24 +21,26 @@
         <tbody>
           <tr><td>Spustí aplikaci s falešným datem</td><td class="y">ano</td><td class="y">ano</td></tr>
           <tr><td>Nechá systémové hodiny na pokoji</td><td class="y">ano</td><td class="y">ano</td></tr>
-          <tr><td>Zachycené časové funkce</td><td class="n">5</td><td class="y">{{channel_count}} kanálů</td></tr>
+          <tr><td>Zachycené časové funkce</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} posunutých, {{observed_count}} počítaných)</td></tr>
           <tr><td>Hodiny rychlejší než skutečný čas</td><td class="n">nenabízí</td><td class="y">libovolný celočíselný násobitel</td></tr>
-          <tr><td>Zastavení hodin</td><td class="n">nenabízí</td><td class="y">ano</td></tr>
-          <tr><td>Skok, zatímco aplikace běží</td><td class="n">nenabízí</td><td class="y">dopředu i zpět</td></tr>
+          <tr><td>Zastavení hodin</td><td class="y">ano, ve výchozím stavu</td><td class="y">ano</td></tr>
+          <tr><td>Skok, zatímco aplikace běží</td><td class="n">jen návrat ke skutečnému datu, po pevném počtu sekund</td><td class="y">dopředu i dozadu, na libovolný okamžik</td></tr>
           <tr><td>Časové pásmo jen pro tento proces</td><td class="n">nezdokumentováno</td><td class="y">ano, pevný posun</td></tr>
           <tr><td>Podřízené procesy dědí sezení</td><td class="n">nezdokumentováno</td><td class="y">ano</td></tr>
+          <tr><td>Připojení k už běžící aplikaci</td><td class="y">ano, od verze 1.40</td><td class="n">ne - aplikaci spouští sám</td></tr>
+          <tr><td>Několik aplikací s různými daty najednou</td><td class="y">ano</td><td class="n">ne - jedno sezení najednou</td></tr>
           <tr><td>Řekne vám, jestli to zabralo</td><td class="n">ne</td><td class="y">verdikt, po kanálech, s počtem volání</td></tr>
-          <tr><td>Aplikace Electron a Chromium</td><td class="n">nenabízí</td><td class="y">samostatný mechanismus</td></tr>
+          <tr><td>Aplikace Electron a Chromium</td><td class="n">nezdokumentováno</td><td class="y">samostatný mechanismus</td></tr>
           <tr><td>Příkazový řádek pro CI</td><td class="y">ano</td><td class="y">ano, s návratovými kódy a JSON</td></tr>
           <tr><td>Zdrojový kód</td><td class="n">freeware, uzavřený</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Velikost</td><td class="y">pod 40 KB</td><td class="n">1,6 MB CLI, 69 MB s oknem</td></tr>
+          <tr><td>Velikost</td><td class="y">47 KB ke stažení, 57 KB pro 64 bitů</td><td class="n">~{{size_cli_zip}} MB příkazová řádka, ~{{size_app_zip}} MB s oknem</td></tr>
           <tr><td>Starší verze Windows</td><td class="y">až po Windows 2000</td><td class="n">Windows 10 a 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>„Nezdokumentováno“</em> znamená, že funkce není na stránce RunAsDate zmíněna.
-      Není to tvrzení, že ji nástroj nemá.
+      Není to tvrzení, že ji nástroj nemá. Hodiny RunAsDate stojí, dokud není zapnutá jeho volba <em>Move the time forward according to the real time</em>.
     </p>
   </section>
 
@@ -77,16 +79,16 @@
         Zbytek povrchu je tam, kde se kód závislý na datu rád skrývá:
       </p>
       <ul>
-        <li><strong>časové pásmo</strong> - čtyři funkce plus celá rodina, která převádí mezi pásmy,
-          a tak končí sestava ve špatný den</li>
+        <li><strong>časové pásmo</strong> - dvě funkce, které ho hlásí, plus šest, které převádějí mezi pásmy, a tak report skončí ve špatném dni</li>
         <li><strong>osa uplynulého času</strong> - počty ticků a nezkreslený čas přerušení, což je to, co
           obvykle měří odpočet zkušební doby</li>
-        <li><strong>uspání a čekání</strong>, aby zpoždění bylo zpožděním na hodinách sezení, ne na
-          skutečných</li>
+        <li><strong>uspání</strong>, aby zpoždění bylo zpožděním na hodinách sezení, a ne na skutečných, a <strong>čekání na objekty</strong>, která se počítají a zachovávají svou skutečnou délku</li>
         <li><strong>časovače</strong> - waitable, okenní, thread-pool a multimediální</li>
         <li><strong>vytváření procesů</strong>, aby podřízené procesy instalátoru běžely ve stejném
           sezení, ne v dnešním dni</li>
+        <li><strong>síťová připojení</strong>, počítaná jako znamení, že čas může přicházet ze serveru</li>
       </ul>
+      <p>Z {{channel_count}} kanálů jich na hodiny sezení přechází {{substituted_count}}. Zbytek ({{observed_count}}) se jen počítá a zůstává skutečný, takže ho report uvádí, aniž by tvrdil, že byl posunut. Nástěnné hodiny a časové pásmo se posouvají v každém sezení. Osa uplynulého času a čekání se sledují, když o to požádáte přes <code>--scale-duration</code>, čítač s vysokým rozlišením přes <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -95,14 +97,14 @@
     <div class="prose">
       <p>Opravdu, a nezřídka:</p>
       <ul>
-        <li><strong>Potřebujete jedno datum, běžnou rychlostí, hned teď.</strong> RunAsDate má pod
-          40 KB, nemá okno, které by se bylo třeba učit, a přesně tohle dělá už mnoho let.</li>
+        <li><strong>Potřebujete jedno datum, běžnou rychlostí, hned teď.</strong> RunAsDate se stahuje v balíčku pod 60 KB, nemá okno, které by se bylo třeba učit, a přesně tohle dělá už mnoho let.</li>
         <li><strong>Jste na starších Windows.</strong> RunAsDate sahá až k Windows 2000. Tento nástroj
           cílí na Windows 10 a 11 a na starších není testován.</li>
-        <li><strong>Záleží na velikosti.</strong> 40 KB oproti 1,6 MB pro příkazový řádek, nebo 69 MB
-          s oknem, není těsné srovnání.</li>
+        <li><strong>Záleží na velikosti.</strong> 47 KB ke stažení proti ~{{size_cli_zip}} MB pro příkazovou řádku nebo ~{{size_app_zip}} MB s oknem není těsné srovnání.</li>
         <li><strong>Nechcete verdikt.</strong> Měření pokrytí znamená číst výsledek. Pokud je test
           na jedno použití, je to režie, o kterou jste nežádali.</li>
+        <li><strong>Aplikace už běží.</strong> RunAsDate se od verze 1.40 umí připojit k běžícímu procesu. Chrono Mock aplikaci spouští sám, takže ta, kterou nelze spustit znovu, je mimo jeho dosah.</li>
+        <li><strong>Chcete několik aplikací s různými daty najednou.</strong> RunAsDate dá každé vlastní datum. Chrono Mock vede jedno sezení najednou.</li>
       </ul>
       <p>
         Oba také mohou koexistovat. Nic tu vám nebrání ponechat si RunAsDate pro rychlý případ.

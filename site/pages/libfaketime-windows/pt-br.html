@@ -90,7 +90,7 @@ FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
         <strong>O Windows tem mais lugares para interceptar.</strong> Além do relógio de parede, há o fuso
         horário, o eixo do tempo decorrido, quatro famílias de temporizadores, as funções de espera e de
         suspensão, e a criação de processos - {{channel_count}} canais no total.
-      </p>
+       Desses, {{substituted_count}} são deslocados, e os outros {{observed_count}}, entre eles as conexões de rede, são contados.</p>
       <p>
         <strong>Esta ferramenta relata a própria cobertura.</strong> Toda sessão termina com um veredito,
         os canais que o aplicativo realmente leu, com uma contagem para cada um, e os canais que foram

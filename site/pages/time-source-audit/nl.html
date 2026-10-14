@@ -49,13 +49,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -109,12 +111,7 @@ Chrono Mock - session report
         doorgaan, en de sessie wordt dan overal waar ze verschijnt als onbetrouwbaar gemarkeerd, ook in elk
         bewijs dat je exporteert.
       </p>
-      <p>
-        Er bestaan nog drie codes voor dingen die helemaal geen oordelen zijn: <code>1</code> voor een
-        gebruiksfout, <code>2</code> als het doel niet kon worden gestart of geïnjecteerd en <code>12</code>
-        als het doel verdween op een manier die erop wijst dat een applicatie met één instantie is
-        overgedragen aan een al lopende kopie.
-      </p>
+      <p>Andere codes zeggen dat de run zelf misging en niet de vervanging - een gebruiksfout, een doel dat niet kon starten, een afgebroken run, een andere sessie die al loopt - en geen ervan is een oordeel. De volledige tabel staat in de <a href="/nl/cli-referentie/">opdrachtregelreferentie</a>.</p>
     </div>
   </section>
 
@@ -125,11 +122,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Gedekt</strong> - gehaakt en vervangen. De applicatie vroeg en kreeg de sessieklok. Het
           aantal aanroepen zegt hoe vaak.</li>
-        <li><strong>Waargenomen</strong> - gehaakt, geteld en bewust de waarheid laten vertellen. De
-          high-resolution teller staat hier standaard omdat schalen de rendering destabiliseerde.
-          Multimediatimers staan hier omdat schalen de timing van audio en MIDI zou verschuiven.
-          Netwerkverbindingen en één pad voor het aanmaken van processen staan hier omdat het bewijs is en
-          geen klokken.</li>
+        <li><strong>Waargenomen</strong> - onderschept, geteld en bewust de waarheid laten vertellen. Hier staan wachten op objecten, omdat een ingekorte time-out een time-out op een echte handle zou kunnen veinzen, en de multimediatimer, omdat schalen ervan audio- en MIDI-timing zou verschuiven - beide gevolgd als de sessie de as van de verstreken tijd schaalt. Netwerkverbindingen en één pad van procescreatie staan hier in elke sessie, omdat het bewijs is, geen klokken. De teller met hoge resolutie hoort niet in deze groep: die blijft onaangeroerd tot je erom vraagt met <code>--scale-qpc</code>, en is dan gedekt.</li>
         <li><strong>Niet gedekt</strong> - een kanaal dat de applicatie las en dat de vervanging niet
           bereikte. Dit maakt van een oordeel <em>werkt gedeeltelijk</em>, en het wordt met naam vermeld in
           plaats van samengevat.</li>

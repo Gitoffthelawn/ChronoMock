@@ -46,13 +46,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... i każdy pozostały kanał, łącznie z nigdy niewywołanymi</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -106,12 +108,7 @@ Chrono Mock - session report
         nie wystartuje. Można to nadpisać i lecieć dalej, a sesja jest wtedy oznaczona jako
         nierzetelna wszędzie, gdzie się pojawia, łącznie z eksportowanym dowodem.
       </p>
-      <p>
-        Istnieją jeszcze trzy kody, które nie są werdyktami: <code>1</code> dla błędu użycia,
-        <code>2</code>, gdy nie udało się uruchomić celu albo wstrzyknąć, i <code>12</code>,
-        gdy cel zniknął w sposób sugerujący aplikację jednoinstancyjną, która oddała robotę
-        już działającej kopii.
-      </p>
+      <p>Pozostałe kody mówią, że zawiódł sam przebieg, a nie podmiana - błąd użycia, cel, którego nie dało się uruchomić, przebieg ucięty w połowie, inna sesja już działa - i żaden z nich nie jest werdyktem. Pełna tabela jest w <a href="/pl/dokumentacja-cli/">dokumentacji wiersza poleceń</a>.</p>
     </div>
   </section>
 
@@ -122,11 +119,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Objęte</strong> - podpięte i podmienione. Aplikacja zapytała i dostała
           zegar sesji. Licznik mówi, ile razy.</li>
-        <li><strong>Obserwowane</strong> - podpięte, liczone i celowo zostawione mówiące
-          prawdę. Licznik wysokiej rozdzielczości jest tu domyślnie, bo jego skalowanie
-          destabilizowało renderowanie. Timery multimedialne są tu, bo ich skalowanie
-          przesunęłoby timing audio i MIDI. Połączenia sieciowe i jedna ścieżka tworzenia
-          procesu są tu, bo są dowodem, a nie zegarem.</li>
+        <li><strong>Obserwowane</strong> - przechwycone, policzone i celowo zostawione przy prawdzie. Są tu czekania na obiekty, bo skrócenie limitu czasu mogłoby udawać timeout na prawdziwym uchwycie, i timer multimedialny, bo jego skalowanie przesunęłoby dźwięk i MIDI - oba obserwowane, gdy sesja skaluje oś czasu trwania. Połączenia sieciowe i jedna ścieżka tworzenia procesów są tu w każdej sesji, bo to dowody, a nie zegary. Licznika wysokiej rozdzielczości w tej grupie nie ma: zostaje nietknięty, dopóki nie poprosisz o niego przez <code>--scale-qpc</code>, a wtedy jest objęty.</li>
         <li><strong>Nieobjęte</strong> - kanał, który aplikacja czytała, a podmiana do niego
           nie dotarła. To właśnie zamienia werdykt w <em>działa częściowo</em> i jest
           wypisywane z nazwy, a nie zwijane do podsumowania.</li>

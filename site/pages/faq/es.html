@@ -158,7 +158,7 @@
     <div class="qa">
       <h3>¿Puedo usarlo en integración continua?</h3>
       <p>
-        Sí. La versión de línea de comandos es una descarga aparte de alrededor de 1,6 MB sin entorno de
+        Sí. La versión de línea de comandos es una descarga aparte de alrededor de {{size_cli_zip}} MB sin entorno de
         ejecución que instalar. Todos los comandos entienden <code>--json</code> y terminan con un código
         sobre el que un pipeline puede bifurcar, y una sesión puede escribir su evidencia en un archivo.
       </p>
@@ -166,12 +166,7 @@
 
     <div class="qa">
       <h3>¿En qué se diferencia de RunAsDate?</h3>
-      <p>
-        RunAsDate intercepta cinco funciones del reloj de pared y lo hace bien. Esta herramienta cubre
-        {{channel_count}} canales de tiempo, puede acelerar el reloj, da al proceso su propia zona
-        horaria, sigue a los procesos hijos y te dice después qué canales quedaron realmente cubiertos.
-        Además es de código abierto, mientras que RunAsDate es freeware cerrado.
-      </p>
+      <p>RunAsDate intercepta cinco funciones del reloj de pared y lo hace bien. Esta herramienta vigila {{channel_count}} canales de tiempo y pasa {{substituted_count}} de ellos al reloj de la sesión, puede acelerar el reloj, da al proceso su propia zona horaria, sigue a los procesos hijos y te dice después qué canales se cubrieron de verdad. Además es de código abierto, mientras que RunAsDate es freeware cerrado. RunAsDate, por su parte, puede engancharse a una aplicación que ya está en marcha, y esta herramienta no.</p>
       <p>
         <a href="/es/alternativa-a-runasdate/">La comparación completa</a> también dice dónde RunAsDate es
         la mejor opción.

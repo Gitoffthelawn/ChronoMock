@@ -2,7 +2,14 @@
 
      Every claim about RunAsDate comes from its own page at nirsoft.net and is quoted
      where it matters. "Not documented" means exactly that - the feature is not
-     mentioned there - and is not a claim that it is missing. -->
+     mentioned there - and is not a claim that it is missing.
+
+     Checked against version 1.41 on 2026-10-14: the held clock is what its option
+     "Move the time forward according to the real time" exists to turn off, the jump is
+     its "Return to the current date/time after xx seconds", attaching to a running
+     process arrived in 1.40, and running several applications at different dates is
+     stated there. The sizes are not on that page: they are the Content-Length of
+     runasdate.zip (47616 bytes) and runasdate-x64.zip (58027 bytes) on the same day. -->
 
 <div class="shell">
 
@@ -26,24 +33,26 @@
         <tbody>
           <tr><td>Runs one application at a fake date</td><td class="y">yes</td><td class="y">yes</td></tr>
           <tr><td>Leaves the system clock alone</td><td class="y">yes</td><td class="y">yes</td></tr>
-          <tr><td>Time functions intercepted</td><td class="n">5</td><td class="y">{{channel_count}} channels</td></tr>
+          <tr><td>Time functions intercepted</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} shifted, {{observed_count}} counted)</td></tr>
           <tr><td>Clock faster than real time</td><td class="n">not offered</td><td class="y">any whole multiplier</td></tr>
-          <tr><td>Freeze the clock</td><td class="n">not offered</td><td class="y">yes</td></tr>
-          <tr><td>Jump while the app is running</td><td class="n">not offered</td><td class="y">forwards and backwards</td></tr>
+          <tr><td>Freeze the clock</td><td class="y">yes, by default</td><td class="y">yes</td></tr>
+          <tr><td>Jump while the app is running</td><td class="n">back to the real date only, after a set number of seconds</td><td class="y">forwards and backwards, to any moment</td></tr>
           <tr><td>Time zone for that process only</td><td class="n">not documented</td><td class="y">yes, fixed offset</td></tr>
           <tr><td>Child processes inherit the session</td><td class="n">not documented</td><td class="y">yes</td></tr>
+          <tr><td>Attach to an application already running</td><td class="y">yes, since version 1.40</td><td class="n">no - it starts the application itself</td></tr>
+          <tr><td>Several applications at different dates at once</td><td class="y">yes</td><td class="n">no - one session at a time</td></tr>
           <tr><td>Tells you whether it worked</td><td class="n">no</td><td class="y">verdict, per channel, with call counts</td></tr>
-          <tr><td>Electron and Chromium applications</td><td class="n">not offered</td><td class="y">separate mechanism</td></tr>
+          <tr><td>Electron and Chromium applications</td><td class="n">not documented</td><td class="y">separate mechanism</td></tr>
           <tr><td>Command line for CI</td><td class="y">yes</td><td class="y">yes, with exit codes and JSON</td></tr>
           <tr><td>Source code</td><td class="n">freeware, closed</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Size</td><td class="y">under 40 KB</td><td class="n">1.6 MB CLI, 69 MB with the window</td></tr>
+          <tr><td>Size</td><td class="y">a 47 KB download, 57 KB for 64-bit</td><td class="n">~{{size_cli_zip}} MB command line, ~{{size_app_zip}} MB with the window</td></tr>
           <tr><td>Old Windows versions</td><td class="y">back to Windows 2000</td><td class="n">Windows 10 and 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>"Not documented"</em> means the feature is not mentioned on the RunAsDate page.
-      It is not a claim that the tool lacks it.
+      It is not a claim that the tool lacks it. RunAsDate's clock holds still unless its option <em>Move the time forward according to the real time</em> is on.
     </p>
   </section>
 
@@ -83,16 +92,16 @@
         The rest of the surface is where date-dependent code tends to hide:
       </p>
       <ul>
-        <li>the <strong>time zone</strong> - four functions, plus the whole family that
-          converts between zones, which is how a report lands on the wrong day</li>
+        <li>the <strong>time zone</strong> - the two functions that report it, plus the six that convert between zones, which is how a report lands on the wrong day</li>
         <li>the <strong>elapsed-time axis</strong> - tick counts and unbiased interrupt time,
           which is what a trial countdown usually measures</li>
-        <li><strong>sleeps and waits</strong>, so a delay is a delay on the session clock and
-          not on the real one</li>
+        <li><strong>sleeps</strong>, so a delay is a delay on the session clock and not on the real one, and <strong>object waits</strong>, which are counted and keep their real length</li>
         <li><strong>timers</strong> - waitable, window, thread-pool and multimedia</li>
         <li><strong>process creation</strong>, so an installer's children run in the same
           session rather than in the present day</li>
+        <li><strong>network connections</strong>, counted as a sign that the time may come from a server</li>
       </ul>
+      <p>Of the {{channel_count}}, {{substituted_count}} are put on the session clock. The other {{observed_count}} are counted and left real, so the report lists them without claiming they were shifted. The wall clock and the time zone are shifted in every session. The elapsed-time axis and the waits are watched when you ask for them with <code>--scale-duration</code>, and the high-resolution counter with <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -101,15 +110,14 @@
     <div class="prose">
       <p>Genuinely, and not rarely:</p>
       <ul>
-        <li><strong>You need one date, at normal speed, right now.</strong> RunAsDate is
-          under 40 KB, has no window to learn and has been doing exactly this for many
-          years.</li>
+        <li><strong>You need one date, at normal speed, right now.</strong> RunAsDate is a download of under 60 KB, has no window to learn and has been doing exactly this for many years.</li>
         <li><strong>You are on an older Windows.</strong> RunAsDate goes back to Windows 2000.
           This tool targets Windows 10 and 11 and is not tested anywhere older.</li>
-        <li><strong>Size matters.</strong> 40 KB against 1.6 MB for the command line, or
-          69 MB with the window, is not a close comparison.</li>
+        <li><strong>Size matters.</strong> A 47 KB download against ~{{size_cli_zip}} MB for the command line, or ~{{size_app_zip}} MB with the window, is not a close comparison.</li>
         <li><strong>You do not want a verdict.</strong> Measuring coverage means reading the
           result. If the test is throwaway, that is overhead you did not ask for.</li>
+        <li><strong>The application is already running.</strong> RunAsDate can attach to a running process since version 1.40. Chrono Mock starts the application itself, so one that cannot be restarted is out of its reach.</li>
+        <li><strong>You want several applications at different dates at once.</strong> RunAsDate gives each its own date. Chrono Mock runs one session at a time.</li>
       </ul>
       <p>
         The two also coexist. Nothing here stops you keeping RunAsDate for the quick case.
