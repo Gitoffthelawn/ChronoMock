@@ -19,6 +19,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   the run was given. The arguments themselves are left out unless the new `--report-args` asks for
   them, because an argument can carry a password and the file is made to be handed on.
   `--report-args` without `--report` is refused.
+- **The date analyser reads the dates Chrono Mock prints.** `chrono calc --analyze` now reads an ISO
+  date and time with a fraction of a second and a UTC offset, such as `2026-01-01T10:00:00+02:00` or
+  `2026-01-01T10:00:00Z` - the form the calculator prints itself, which it used to refuse as a bad
+  second. A date with an offset is a point in time, so it is shown in the session zone, like a pasted
+  Unix timestamp, as the new reading `iso_offset`. A fraction is cut to the second.
 
 ### Changed
 
@@ -75,9 +80,28 @@ Notable changes to Chrono Mock, newest first. The format follows
   code that is not a verdict, such as 101 for a crash in the tool itself, `chrono run` still exits with
   3 and now says which code the core ended with, as it already did for a core that stopped before the
   session closed.
+- **Calculator failures carry a key the window translates.** A calendar that is missing or cannot be
+  used, a scenario that is missing, broken or uses something not built yet, a value for a scenario's
+  parameter that is missing or cannot be read, and a market calendar that cannot be loaded each end in
+  a key of their own (`calc.calendar_not_found`, `calc.calendar_invalid`, `calc.preset_not_found`,
+  `calc.preset_invalid`, `calc.preset_not_built`, `calc.preset_parameter`,
+  `calc.market_calendar_unavailable`), so the window says them in its own language instead of in
+  English. A preset step that cannot be used is named by its number.
+- **An unknown unit is refused with the units that work** (`s, m, h, d, w, mo, q, y, bd`), as an
+  unknown `snap` or `nearest` target already was.
+- **The analyser's refusals quote what was pasted.** They quoted the text built from it, such as a date
+  with `T00:00:00` added, and a month out of range is now named by its number.
+- **`chrono calc` lists the calendars it can find** in its usage, from the folder `--calendar` reads,
+  where it listed three names written by hand.
 
 ### Fixed
 
+- **The 2038 marker no longer disappears after the year 30828.** It was counted through FILETIME,
+  which ends there, while the calculator reaches the year 262143.
+- **Business days on a calendar with many holidays, and long format masks, take less time.** A day off
+  is now found by binary search: `+200000bd` on a calendar of 2,000 holidays went from 1.3 s to 0.86 s,
+  measured. A format mask full of letters that are not tokens was checked in quadratic time: 30,000 of
+  them went from 0.85 s to 0.06 s.
 - **A flag that takes a value no longer swallows the flag after it.** `chrono run app.exe --report
   --dry-run` ran the application and wrote the evidence into a file named `--dry-run` instead of
   printing the plan, and `--report --no-embedded` dropped the opt-out. A word that starts with two

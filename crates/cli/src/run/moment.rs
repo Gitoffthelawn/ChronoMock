@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn an_absolute_at_the_core_would_refuse_is_refused_before_anything_starts() {
         for (raw, words) in [
-            ("2038-13-45T00:00:00", "month out of range"),
+            ("2038-13-45T00:00:00", "month 13 out of range"),
             ("2030-02-30T00:00:00", "day 30 out of range for month 2"),
             ("2030-02-28T25:61:00", "hour 25 out of range"),
         ] {

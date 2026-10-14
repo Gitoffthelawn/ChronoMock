@@ -95,16 +95,13 @@ pub(crate) fn parse_zone_to_bias(raw: &str) -> Result<i32, String> {
 pub(crate) fn now_filetime_utc() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    const DAYS_1601_TO_1970: i64 = 134_774;
-    (DAYS_1601_TO_1970 * 86_400 + d.as_secs() as i64) * 10_000_000 + (d.subsec_nanos() as i64 / 100)
+    (chrono_core::DAYS_1601_TO_1970 * 86_400 + d.as_secs() as i64) * 10_000_000 + (d.subsec_nanos() as i64 / 100)
 }
 
-/// Format a session bias (minutes, UTC = local + bias) back to a "+HH:MM" zone label.
+/// Format a session bias (minutes, UTC = local + bias) back to a "+HH:MM" zone label - the core's one
+/// label ([`chrono_core::bias_label`]), which the calculator's own output uses too (R5-A11).
 pub(crate) fn format_bias(bias: i32) -> String {
-    let offset = -bias;
-    let sign = if offset < 0 { '-' } else { '+' };
-    let abs = offset.abs();
-    format!("{sign}{:02}:{:02}", abs / 60, abs % 60)
+    chrono_core::bias_label(bias)
 }
 
 /// The session zone in minutes (UTC = local + bias) for a command that named one or did not: the

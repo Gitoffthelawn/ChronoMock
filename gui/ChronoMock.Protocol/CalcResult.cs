@@ -100,8 +100,8 @@ public sealed record CalcReading(
     [property: JsonPropertyName("iso")] string Iso,
     [property: JsonPropertyName("significance")] IReadOnlyList<string> Significance,
     [property: JsonPropertyName("metadata")] CalcMetadata Metadata,
-    /// <summary>Whether this reading is an instant (seconds or milliseconds since 1970), whose wall clock
-    /// depends on the analysis zone.</summary>
+    /// <summary>Whether this reading is an instant (seconds or milliseconds since 1970, or an ISO date with
+    /// its own UTC offset), whose wall clock depends on the analysis zone.</summary>
     [property: JsonPropertyName("instant")] bool Instant = false,
     /// <summary>The time of day to show, <c>HH:MM:SS</c>, or null - decided by the engine by the rule its
     /// text output follows, so the window does not guess it from <see cref="Iso"/>, where every date reads

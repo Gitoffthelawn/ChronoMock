@@ -54,6 +54,23 @@ public class ReverseAnalysisTests
         Assert.Equal("22:13:20", row.Time);
     }
 
+    /// <summary>R5-D5 item 5: a date with its own UTC offset is an instant for another reason than a number
+    /// is, so the line above the readings is its own - the number's line said "a number" of a date. Both
+    /// keys have a text in both languages.</summary>
+    [Fact]
+    public void A_date_with_an_offset_gets_its_own_zone_line()
+    {
+        var metadata = new CalcMetadata("Thursday", 2026, 1, 1, 1, 1, false, 0, null, null);
+        CalcReading Reading(string key) => new(key, "2026-01-01T08:00:00", [], metadata, Instant: true, Time: "08:00:00");
+
+        Assert.Equal("calc.analyze_zone_offset", CalculatorViewModel.AnalysisZoneKey([Reading("iso_offset")]));
+        Assert.Equal("calc.analyze_zone", CalculatorViewModel.AnalysisZoneKey([Reading("epoch_seconds"), Reading("epoch_millis")]));
+        foreach (var key in new[] { "calc.analyze_zone_offset", "calc.reading.iso_offset" })
+        {
+            Assert.NotEqual(key, TranslationKeyConverter.Resolve(key));
+        }
+    }
+
     /// <summary>R4-S23, D4: picking a zone moves the readings of a pasted number with it. Without the second
     /// question the readings stayed in the zone the analysis was first asked in, under a picker naming another.
     /// </summary>

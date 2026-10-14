@@ -314,7 +314,7 @@ pub(crate) fn catalogue_search_places_in(exe_dir: Option<&std::path::Path>, cwd:
 /// The ids a catalogue folder offers - the names of its `.json` files that are valid ids - sorted, and
 /// at most [`LISTED_IDS`] of them with the count of the rest. Read only for a refusal, never on the way
 /// to a result.
-fn catalogue_ids(dir: &std::path::Path) -> Vec<String> {
+pub(crate) fn catalogue_ids(dir: &std::path::Path) -> Vec<String> {
     let mut ids: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -349,9 +349,15 @@ pub(crate) fn find_calendar_file(id: &str) -> Result<std::path::PathBuf, String>
 /// Load and validate a calendar by id, mapping the JSON schema to the core engine's types.
 pub(crate) fn load_calendar(id: &str) -> Result<chrono_core::calendar::Calendar, String> {
     let path = find_calendar_file(id)?;
-    let text = read_catalogue_file(&path)?;
+    load_calendar_at(&path, id)
+}
+
+/// Load and validate the calendar file at `path`, found as `id`. Apart from the lookup, so a caller
+/// can tell a calendar that is not there from one that is there and cannot be used (R5-D5, item 2).
+pub(crate) fn load_calendar_at(path: &std::path::Path, id: &str) -> Result<chrono_core::calendar::Calendar, String> {
+    let text = read_catalogue_file(path)?;
     let calendar = calendar_from_text(&text).map_err(|e| format!("{e} (in {})", path.display()))?;
-    check_declared_id("calendar", &path, &calendar.id, id)?;
+    check_declared_id("calendar", path, &calendar.id, id)?;
     Ok(calendar)
 }
 
@@ -642,7 +648,9 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
         ));
     }
 
-    let mut seen_ids: Vec<String> = Vec::new();
+    // A set, because a list made this check quadratic: 2.3 ms of the 3.4 ms a 2 000-holiday file took
+    // to load, paid on every calculation the window runs with it (R5-WY2).
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::with_capacity(dto.holidays.len());
     let holidays = dto
         .holidays
         .into_iter()
@@ -672,7 +680,7 @@ pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Ca
                     ));
                 }
 
-            seen_ids.push(h.id.clone());
+            seen_ids.insert(h.id.clone());
             let rule = rule_from(&h.id, h.rule)?;
             Ok(chrono_core::calendar::Holiday {
                 id: h.id,

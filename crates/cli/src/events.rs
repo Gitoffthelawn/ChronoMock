@@ -13,15 +13,28 @@ use std::io::Write;
 use chrono_core::calc::EvalError;
 use chrono_core::{filetime_utc_to_wall, SessionMomentError, TimeMode};
 use chrono_proto::{Clock, Command, CoveredChannel, Event, TimeSpec, PROTOCOL_VERSION};
-/// Translation key for a relative-jump eval error (docs/08 section 10). Business days need a
-/// calendar (not built yet). A step that lands outside the range a session clock can hold is
-/// `moment.out_of_range`, the same key a start that far out gets (R4-S7c) - anything else is an
+/// Translation key for a relative-jump eval error (docs/08 section 10). A session has no calendar,
+/// so a business-day step needs one. A step or a base that lands outside the range a session clock
+/// can hold is `moment.out_of_range`, the same key a start that far out gets (R4-S7c) - the rest is an
 /// invalid moment. Honest, never silent (rule 6).
+///
+/// Every variant is named, with no catch-all (R5-D5, item 4): a variant added to `EvalError` is a
+/// compile error here, where it used to become `moment.invalid` without anyone deciding so. The ones a
+/// jump cannot produce today - it builds one shift from the session clock, with no calendar - are
+/// still named, so the day one of them can is a decision too.
 pub(crate) fn jump_error_key(e: EvalError) -> &'static str {
     match e {
         EvalError::NeedsCalendar { .. } => "moment.needs_calendar",
-        EvalError::Overflow { .. } | EvalError::YearOutOfRange { .. } => "moment.out_of_range",
-        _ => "moment.invalid",
+        EvalError::Overflow { .. }
+        | EvalError::YearOutOfRange { .. }
+        | EvalError::BaseYearOutOfRange
+        | EvalError::BaseOverflow => "moment.out_of_range",
+        EvalError::StepUnsupported { .. }
+        | EvalError::DegenerateCalendar { .. }
+        | EvalError::BadSetTime { .. }
+        | EvalError::BaseNotACivilDate
+        | EvalError::TooManyBusinessDays { .. }
+        | EvalError::BeforeCalendar { .. } => "moment.invalid",
     }
 }
 
@@ -214,6 +227,9 @@ mod tests {
         let bd = step_target(now, 0, &Step::Shift { sign: Sign::Plus, amount: 5, unit: Unit::BusinessDays }).unwrap_err();
         assert_eq!(jump_error_key(bd), "moment.needs_calendar");
         assert_eq!(jump_error_key(EvalError::BadSetTime { index: 0 }), "moment.invalid");
+        // A base outside the range is the range too, where the catch-all called it invalid (R5-D5, item 4).
+        assert_eq!(jump_error_key(EvalError::BaseOverflow), "moment.out_of_range");
+        assert_eq!(jump_error_key(EvalError::BaseYearOutOfRange), "moment.out_of_range");
     }
 
     /// The session gate's three refusals, each under its own key (R4-S7, R4-S9).

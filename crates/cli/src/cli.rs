@@ -309,11 +309,25 @@ pub(crate) fn print_presets_usage() {
 }
 
 pub(crate) fn print_calc_usage() {
-    diag!("usage: chrono calc [--base <today|now|YYYY-MM-DDTHH:MM:SS>] [--base-utc <YYYY-MM-DDTHH:MM:SS[Z]>] [--shift <±N<unit>>]... [--set-time <HH:MM:SS>] [--snap <target>] [--nearest <target>] [--to-zone <+HH:MM>] [--zone <+HH:MM>] [--calendar <us-banking|us-federal|pl>] [--format <mask>] [--json]");
+    diag!("usage: chrono calc [--base <today|now|YYYY-MM-DDTHH:MM:SS>] [--base-utc <YYYY-MM-DDTHH:MM:SS[Z]>] [--shift <±N<unit>>]... [--set-time <HH:MM:SS>] [--snap <target>] [--nearest <target>] [--to-zone <+HH:MM>] [--zone <+HH:MM>] [--calendar <id>] [--format <mask>] [--json]");
+    diag!("       {}", calendar_ids_line());
     diag!("       or: chrono calc --preset <id> [--param id=value]...   (named moment, e.g. month-end, trial-first-day-after - a preset with a market counts business days in that market's calendar unless --calendar names another)");
     diag!("       or: chrono calc --analyze <pasted-date>   (interpret a date, e.g. 04/08/2008 - shows both readings when ambiguous)");
     diag!("       --json emits machine output (chronomock.calc/1) for any of the above");
     diag!("       units: s m h d w mo q y bd (minute=m, month=mo)");
+}
+
+/// The ids `--calendar` can name here, read from the folder it reads them from (R5-F3). The usage
+/// listed three ids written by hand, so a calendar added to the folder - which the README invites -
+/// never appeared in it, and a folder that was missing was not mentioned at all.
+fn calendar_ids_line() -> String {
+    let Some(dir) = crate::calendar::find_catalogue_dir("calendars") else {
+        return "--calendar: no calendars folder beside chrono.exe or in the current folder".to_string();
+    };
+    match crate::calendar::catalogue_ids(&dir).as_slice() {
+        [] => format!("--calendar: {} holds no calendar", dir.display()),
+        ids => format!("--calendar ids: {} (from {})", ids.join(", "), dir.display()),
+    }
 }
 
 pub(crate) fn this_bitness() -> &'static str {

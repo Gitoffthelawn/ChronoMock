@@ -25,7 +25,7 @@ use chrono_core::calendar::Calendar;
 use chrono_core::filetime_utc_to_wall;
 
 use crate::calendar::{catalogue_search_places, check_declared_id, find_catalogue_file, is_valid_catalogue_id};
-use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit};
+use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit, unknown_unit};
 use crate::zone::parse_zone_to_bias;
 /// A parsed preset: its declared parameters and its RAW moment (docs/04 4.3), not yet resolved to a
 /// `MomentExpr` - because a parametric base/shift needs values (`--param` / `default`) that the file
@@ -144,6 +144,18 @@ impl PresetError {
     pub(crate) fn message(&self) -> &str {
         match self {
             PresetError::NotFound(m) | PresetError::BadFile(m) | PresetError::NotBuilt(m) => m,
+        }
+    }
+
+    /// The same failure, said to be in the step at `index` (from 0, named from 1). A preset's step that
+    /// would not resolve was refused with no word of which one, in a file whose steps are a list (R5-D5,
+    /// item 2).
+    fn at_step(self, index: usize) -> Self {
+        let place = |m: String| format!("step {}: {m}", index + 1);
+        match self {
+            PresetError::NotFound(m) => PresetError::NotFound(place(m)),
+            PresetError::BadFile(m) => PresetError::BadFile(place(m)),
+            PresetError::NotBuilt(m) => PresetError::NotBuilt(place(m)),
         }
     }
 }
@@ -482,7 +494,7 @@ pub(crate) fn shift_from(s: ShiftDto, values: &HashMap<String, ParamValue>) -> R
         return Err(PresetError::BadFile("shift amount must be non-negative (the sign carries direction)".into()));
     }
     let unit_str = s.unit.ok_or_else(|| PresetError::BadFile("shift needs a unit".into()))?;
-    let unit = parse_unit(&unit_str).ok_or_else(|| PresetError::BadFile(format!("unknown unit '{unit_str}' in shift")))?;
+    let unit = parse_unit(&unit_str).ok_or_else(|| PresetError::BadFile(format!("{} in shift", unknown_unit(&unit_str))))?;
     Ok(Step::Shift { sign, amount, unit })
 }
 
@@ -743,7 +755,12 @@ pub(crate) fn resolve_hint(
 /// evaluates - the core never sees a parameter.
 pub(crate) fn resolve_moment(moment: MomentDto, values: &HashMap<String, ParamValue>) -> Result<MomentExpr, PresetError> {
     let base = base_from(moment.base, values)?;
-    let steps = moment.steps.into_iter().map(|s| step_from(s, values)).collect::<Result<Vec<_>, _>>()?;
+    let steps = moment
+        .steps
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| step_from(s, values).map_err(|e| e.at_step(i)))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(MomentExpr { base, steps })
 }
 
@@ -789,7 +806,7 @@ pub(crate) fn duration_value(id: &str, amount: i64, unit_str: &str) -> Result<Pa
         return Err(PresetError::BadFile(format!("parameter '{id}' amount must be non-negative")));
     }
     let unit = parse_unit(unit_str)
-        .ok_or_else(|| PresetError::BadFile(format!("parameter '{id}': unknown unit '{unit_str}'")))?;
+        .ok_or_else(|| PresetError::BadFile(format!("parameter '{id}': {}", unknown_unit(unit_str))))?;
     Ok(ParamValue::Duration { amount, unit })
 }
 
@@ -1123,6 +1140,17 @@ mod tests {
         let m = resolve_no_params(p).unwrap();
         assert_eq!(m.base, Base::Today);
         assert_eq!(m.steps, vec![Step::Snap(SnapTarget::EndOfMonth)]);
+    }
+
+    /// A step that will not resolve is named by its place in the list, and a unit the grammar does not
+    /// read is refused with the units it does (R5-D5, items 2 and 3).
+    #[test]
+    fn a_step_that_will_not_resolve_is_named_by_its_number() {
+        let json = r#"{"schema": "chronomock.preset/1", "id": "s", "name": { "en": "n" }, "explains": { "en": "e" },
+            "applies_to": "both", "moment": { "base": "today", "steps": [
+                { "snap": "end-of-month" }, { "shift": { "sign": "+", "amount": 2, "unit": "mth" } } ] } }"#;
+        let err = resolve_no_params(parse_preset(json).unwrap()).unwrap_err();
+        assert!(err.message().starts_with("step 2: unknown unit 'mth' (use s, m, h, d, w, mo, q, y, bd"), "{}", err.message());
     }
 
     /// A preset longer than any real one is refused by its count, at the limit it is not (R5-B2).

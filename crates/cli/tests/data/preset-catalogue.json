@@ -911,7 +911,7 @@
     {
       "file": "default-unknown-unit.json",
       "id": "default-unknown-unit",
-      "reason": "preset 'default-unknown-unit': parameter 'n': unknown unit 'fortnights' (in tests/data/preset-catalogue\\default-unknown-unit.json)",
+      "reason": "preset 'default-unknown-unit': parameter 'n': unknown unit 'fortnights' (use s, m, h, d, w, mo, q, y, bd - m is minutes, mo is months) (in tests/data/preset-catalogue\\default-unknown-unit.json)",
       "exit_code": 1
     },
     {
@@ -1037,7 +1037,7 @@
     {
       "file": "unit-wrong-case.json",
       "id": "unit-wrong-case",
-      "reason": "unknown unit 'Days' in shift",
+      "reason": "unknown unit 'Days' (use s, m, h, d, w, mo, q, y, bd - m is minutes, mo is months) in shift",
       "exit_code": 1
     },
     {

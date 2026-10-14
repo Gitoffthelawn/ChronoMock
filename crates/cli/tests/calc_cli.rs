@@ -46,6 +46,24 @@ fn a_refused_argument_is_one_keyed_line_when_json_is_asked() {
     }
 }
 
+/// The usage names the calendar ids of the folder `--calendar` reads, not three written by hand (R5-F3),
+/// and a missing calendar is refused with the folder and the ids on offer, ending in its key (R5-D5,
+/// items 1 and 2). Run from the repository root, where the shipped calendars are.
+#[test]
+fn the_calendar_ids_come_from_the_folder() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_chrono")).current_dir(&root).arg("calc").args(args).output().expect("runs");
+
+    let usage = stderr(&run(&["--help"]));
+    assert!(usage.contains("[--calendar <id>]") && !usage.contains("<us-banking|"), "{usage}");
+    assert!(usage.contains("--calendar ids: pl, us-banking, us-federal (from "), "{usage}");
+
+    let out = run(&["--base", "today", "--calendar", "nowhere", "--json"]);
+    let said = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(said.contains("which holds pl, us-banking, us-federal") && said.ends_with("(calc.calendar_not_found)"), "{said}");
+}
+
 /// A person at a terminal still gets the usage under the refusal - it is only the machine caller that
 /// does not want it.
 #[test]

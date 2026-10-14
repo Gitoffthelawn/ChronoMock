@@ -93,10 +93,9 @@ impl Calendar {
     }
 }
 
-/// Day of week for a civil date: 0 = Sunday .. 6 = Saturday.
-fn weekday(days_since_epoch: i64) -> u32 {
-    (days_since_epoch + 4).rem_euclid(7) as u32
-}
+/// Day of week for a day counted from the Unix epoch: 0 = Sunday .. 6 = Saturday - the crate's one
+/// formula ([`crate::weekday`]), under the name this file reads it by.
+use crate::weekday;
 
 /// Day count since 1970-01-01 for a civil (year, month, day). Reuses the crate-private civil
 /// primitive (a sibling module may see it without widening its visibility).
@@ -249,9 +248,13 @@ struct OffDays<'a> {
     cal: &'a Calendar,
     /// The year the cache was built for - `None` before the first question.
     year: Option<i64>,
-    /// Observed dates of the holidays in force for that year and its neighbours, as day-counts.
-    /// A flat scan, not a set: our calendars hold ~14 holidays, so this is at most a few dozen
-    /// integers laid out contiguously, and hashing one of them would cost more than reading them all.
+    /// Observed dates of the holidays in force for that year and its neighbours, as day-counts,
+    /// sorted and without repeats, so a day is found by binary search.
+    ///
+    /// It used to be a flat scan, on the reasoning that a calendar holds about fourteen holidays. A
+    /// calendar file may hold 2 000 (`MAX_HOLIDAYS` in the reader), which makes this 6 000 entries
+    /// read on every day a walk asks about: `+200000bd` on such a file took about 2 s, against 16-21 ms
+    /// on a shipped one, measured (R5-WY2). Sorted, the cost no longer grows with the file that much.
     days: Vec<i64>,
     /// Holidays whose observance moves, as (calendar date, date the rule aims at) - only a working
     /// list for `rebuild`, kept here so a walk across many years does not allocate it once per year.
@@ -271,7 +274,7 @@ impl<'a> OffDays<'a> {
         if self.year != Some(year) {
             self.rebuild(year);
         }
-        !self.days.contains(&target)
+        self.days.binary_search(&target).is_err()
     }
 
     fn rebuild(&mut self, year: i64) {
@@ -303,14 +306,14 @@ impl<'a> OffDays<'a> {
             }
         }
         self.year = Some(year);
+        // Sorted, so a taken day is a binary search - here and in `is_business_day`, which used to scan
+        // the whole list whenever nothing moved (R5-WY2). A long walk rebuilds this once per year it
+        // crosses, and a hash set here measured a fifth slower over a million business days.
+        self.days.sort_unstable();
+        self.days.dedup();
         if self.moved.is_empty() {
             return; // nothing shifts this year - the common case, and every year of a calendar with `none`
         }
-
-        // Sorted, so a taken day is a binary search: a long walk rebuilds this once per year it crosses,
-        // and a hash set here measured a fifth slower over a million business days.
-        self.days.sort_unstable();
-        self.days.dedup();
         // Stable, so two holidays on one date keep the order the file lists them in.
         self.moved.sort_by_key(|&(d, _)| d);
         // Bounded because this engine is a library, and a caller may hand it a week with no working day,

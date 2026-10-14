@@ -217,7 +217,7 @@ fn every_committed_runner_builds_the_debug_artifacts_before_it_runs_the_tests() 
 fn a_plan_refuses_what_the_run_would_refuse_and_nothing_else() {
     let target = command_interpreter();
     for (at, words) in [
-        ("2038-13-45T00:00:00", "month out of range"),
+        ("2038-13-45T00:00:00", "month 13 out of range"),
         ("2030-02-30T00:00:00", "day 30 out of range for month 2"),
         ("2030-02-28T25:61:00", "hour 25 out of range"),
     ] {
