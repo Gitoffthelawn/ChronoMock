@@ -36,13 +36,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -85,9 +87,7 @@ Chrono Mock - session report
       <p>
         <strong>判定が「無効」の場合、プロセスはあなたが操作できるようになる前に直ちに停止されます。</strong>判定を起動より前に出すことはできません。唯一の真実の源は、実行中のプロセスの内側で取った読み取り値だからです。保証されるのは、作業を始める前に真実が分かることであって、失敗が確定している起動がそもそも起こらないことではありません。上書きして続行することもでき、その場合そのセッションは、エクスポートした証拠を含め、現れるあらゆる場所で信頼できないものとして印が付けられます。
       </p>
-      <p>
-        判定ではないものに対して、さらに 3 つのコードがあります。使い方の誤りを表す <code>1</code>、対象を起動できなかった、またはインジェクトできなかった場合の <code>2</code>、そして単一インスタンスのアプリがすでに実行中のコピーに処理を引き渡したことを示唆する形で対象が消えた場合の <code>12</code> です。
-      </p>
+      <p>ほかのコードは、置き換えではなく実行そのものがうまくいかなかったことを示します。使い方の誤り、起動できなかった対象、途中で打ち切られた実行、すでに動いている別のセッションなどで、どれも判定ではありません。全体の表は<a href="/ja/cli-reference/">コマンドライン リファレンス</a>にあります。</p>
     </div>
   </section>
 
@@ -97,7 +97,7 @@ Chrono Mock - session report
       <p>チャネルは 3 つの区分に分かれ、真ん中の区分が興味深いものです。</p>
       <ul>
         <li><strong>カバー済み</strong> - フックされ、置き換えられたもの。アプリが尋ね、セッションの時計を得ました。呼び出し回数がその回数を示します。</li>
-        <li><strong>観測のみ</strong> - フックされ、数えられ、意図的に本当のことを答えるままにしたもの。高分解能カウンターは、スケールすると描画が不安定になるため、既定でここに入ります。マルチメディアタイマーは、スケールすると音声や MIDI のタイミングがずれるため、ここに入ります。ネットワーク接続と 1 つのプロセス作成経路は、時計ではなく証拠であるため、ここに入ります。</li>
+        <li><strong>観測</strong> - フックして回数を数え、あえて本当の値を返させるものです。オブジェクト待機がここに入ります。タイムアウトを縮めると本物のハンドルでタイムアウトを偽装しかねないからです。マルチメディア タイマーも入ります。スケールすると音声や MIDI のタイミングがずれるからです。この 2 つはセッションが経過時間の軸をスケールするときに監視します。ネットワーク接続と、プロセス作成の経路の 1 つは、時計ではなく証拠なので、すべてのセッションでここに入ります。高分解能カウンターはこのグループに入りません。<code>--scale-qpc</code> で求めない限り手を触れず、求めればカバー対象になります。</li>
         <li><strong>未カバー</strong> - アプリが読んだのに、置き換えが届かなかったチャネル。判定を<em>一部有効</em>にするのはこれであり、要約されて消えることなく、名前を挙げて列挙されます。</li>
       </ul>
       <p>

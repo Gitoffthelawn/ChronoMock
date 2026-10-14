@@ -36,13 +36,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -85,9 +87,7 @@ Chrono Mock - session report
       <p>
         <strong>판정이 “동작하지 않음”이면 프로세스는 상호작용하기 전에 즉시 중지됩니다.</strong> 판정이 실행보다 앞설 수는 없습니다. 유일한 진실의 원천이 실행 중인 프로세스 내부에서 얻은 측정값이기 때문입니다. 보장되는 것은 작업을 시작하기 전에 진실을 알게 된다는 것이지, 실패할 수밖에 없는 실행이 아예 일어나지 않는다는 것이 아닙니다. 무시하고 계속할 수 있으며, 그 경우 세션은 내보낸 증거를 포함해 나타나는 모든 곳에서 신뢰할 수 없는 것으로 표시됩니다.
       </p>
-      <p>
-        판정이 아닌 것들을 위한 코드가 세 개 더 있습니다. 사용 오류의 <code>1</code>, 대상을 실행하거나 인젝션할 수 없었을 때의 <code>2</code>, 그리고 단일 인스턴스 애플리케이션이 이미 실행 중인 사본에 넘긴 것으로 보이는 방식으로 대상이 사라졌을 때의 <code>12</code>입니다.
-      </p>
+      <p>다른 코드는 치환이 아니라 실행 자체가 잘못되었음을 알립니다. 사용법 오류, 시작할 수 없었던 대상, 도중에 끊긴 실행, 이미 실행 중인 다른 세션 등이며, 어느 것도 판정이 아닙니다. 전체 표는 <a href="/ko/cli-reference/">명령줄 참조</a>에 있습니다.</p>
     </div>
   </section>
 
@@ -97,7 +97,7 @@ Chrono Mock - session report
       <p>채널은 세 가지 분류로 나뉘며, 가운데가 흥미로운 분류입니다.</p>
       <ul>
         <li><strong>커버됨</strong> - 훅이 걸리고 대체된 것입니다. 앱이 물었고 세션 시계를 받았습니다. 호출 횟수가 몇 번인지 알려 줍니다.</li>
-        <li><strong>관찰됨</strong> - 훅이 걸리고, 세어지고, 일부러 사실대로 말하게 둔 것입니다. 고해상도 카운터는 배율을 적용하면 렌더링이 불안정해졌기 때문에 기본적으로 여기에 있습니다. 멀티미디어 타이머는 배율을 적용하면 오디오와 MIDI 타이밍이 어긋나기 때문에 여기에 있습니다. 네트워크 연결과 프로세스 생성 경로 하나는 시계가 아니라 증거이기 때문에 여기에 있습니다.</li>
+        <li><strong>관찰</strong> - 가로채서 횟수를 세고, 일부러 실제 값을 말하게 둡니다. 객체 대기가 여기에 속합니다. 시간 제한을 줄이면 실제 핸들에서 시간 초과를 꾸며낼 수 있기 때문입니다. 멀티미디어 타이머도 속합니다. 배율을 적용하면 오디오와 MIDI 타이밍이 어긋나기 때문입니다. 둘 다 세션이 경과 시간 축에 배율을 적용할 때 감시합니다. 네트워크 연결과 프로세스 생성 경로 하나는 시계가 아니라 증거이므로 모든 세션에서 여기에 속합니다. 고해상도 카운터는 이 그룹에 없습니다. <code>--scale-qpc</code>로 요청하지 않는 한 손대지 않으며, 요청하면 적용 대상이 됩니다.</li>
         <li><strong>커버되지 않음</strong> - 앱이 읽었지만 대체가 닿지 못한 채널입니다. 판정을 <em>일부 동작함</em>으로 바꾸는 것이 이것이며, 요약되어 사라지지 않고 이름이 나열됩니다.</li>
       </ul>
       <p>

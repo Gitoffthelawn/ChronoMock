@@ -148,7 +148,7 @@
     <div class="qa">
       <h3>Mohu ho použít v kontinuální integraci?</h3>
       <p>
-        Ano. Sestavení pro příkazový řádek je samostatné stažení o velikosti asi 1,6 MB, bez běhového
+        Ano. Sestavení pro příkazový řádek je samostatné stažení o velikosti asi {{size_cli_zip}} MB, bez běhového
         prostředí k instalaci. Každý příkaz umí <code>--json</code> a končí kódem, podle kterého se může
         pipeline větvit, a sezení může zapsat své důkazy do souboru.
       </p>
@@ -156,12 +156,7 @@
 
     <div class="qa">
       <h3>V čem se liší od RunAsDate?</h3>
-      <p>
-        RunAsDate zachycuje pět funkcí kalendářních hodin a dělá to dobře. Tento nástroj pokrývá
-        {{channel_count}} časových kanálů, umí zrychlit hodiny, dává procesu vlastní časové pásmo,
-        sleduje podřízené procesy a poté vám řekne, které kanály byly skutečně pokryté. Je také open
-        source, zatímco RunAsDate je uzavřený freeware.
-      </p>
+      <p>RunAsDate zachytává pět funkcí nástěnných hodin a dělá to dobře. Tento nástroj sleduje {{channel_count}} časových kanálů a {{substituted_count}} z nich převádí na hodiny sezení, umí hodiny zrychlit, dává procesu vlastní časové pásmo, následuje podřízené procesy a potom vám řekne, které kanály byly skutečně pokryty. Je také open source, kdežto RunAsDate je uzavřený freeware. RunAsDate se zase umí připojit k aplikaci, která už běží, a tento nástroj ne.</p>
       <p>
         <a href="/cs/alternativa-k-runasdate/">Úplné srovnání</a> říká i to, kdy je RunAsDate lepší
         volba.

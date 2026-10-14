@@ -23,24 +23,26 @@
         <tbody>
           <tr><td>Uruchamia aplikację z fałszywą datą</td><td class="y">tak</td><td class="y">tak</td></tr>
           <tr><td>Nie rusza zegara systemowego</td><td class="y">tak</td><td class="y">tak</td></tr>
-          <tr><td>Przechwycone funkcje czasu</td><td class="n">5</td><td class="y">{{channel_count}} kanałów</td></tr>
+          <tr><td>Przechwycone funkcje czasu</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} przesuniętych, {{observed_count}} liczonych)</td></tr>
           <tr><td>Zegar szybszy niż rzeczywisty</td><td class="n">nieoferowane</td><td class="y">dowolny całkowity mnożnik</td></tr>
-          <tr><td>Zamrożenie zegara</td><td class="n">nieoferowane</td><td class="y">tak</td></tr>
-          <tr><td>Skok w trakcie działania aplikacji</td><td class="n">nieoferowane</td><td class="y">w przód i w tył</td></tr>
+          <tr><td>Zamrożenie zegara</td><td class="y">tak, domyślnie</td><td class="y">tak</td></tr>
+          <tr><td>Skok w trakcie działania aplikacji</td><td class="n">tylko powrót do prawdziwej daty, po zadanej liczbie sekund</td><td class="y">w przód i w tył, do dowolnego momentu</td></tr>
           <tr><td>Strefa czasowa tylko dla tego procesu</td><td class="n">nieudokumentowane</td><td class="y">tak, stały offset</td></tr>
           <tr><td>Procesy potomne dziedziczą sesję</td><td class="n">nieudokumentowane</td><td class="y">tak</td></tr>
+          <tr><td>Dołączenie do już działającej aplikacji</td><td class="y">tak, od wersji 1.40</td><td class="n">nie - uruchamia aplikację sam</td></tr>
+          <tr><td>Kilka aplikacji z różnymi datami naraz</td><td class="y">tak</td><td class="n">nie - jedna sesja naraz</td></tr>
           <tr><td>Mówi, czy zadziałało</td><td class="n">nie</td><td class="y">werdykt, per kanał, z liczbą wywołań</td></tr>
-          <tr><td>Aplikacje Electron i Chromium</td><td class="n">nieoferowane</td><td class="y">osobny mechanizm</td></tr>
+          <tr><td>Aplikacje Electron i Chromium</td><td class="n">nieudokumentowane</td><td class="y">osobny mechanizm</td></tr>
           <tr><td>Wiersz poleceń do CI</td><td class="y">tak</td><td class="y">tak, z kodami wyjścia i JSON-em</td></tr>
           <tr><td>Kod źródłowy</td><td class="n">freeware, zamknięty</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Rozmiar</td><td class="y">poniżej 40 KB</td><td class="n">1,6 MB CLI, 69 MB z oknem</td></tr>
+          <tr><td>Rozmiar</td><td class="y">47 KB do pobrania, 57 KB dla 64 bitów</td><td class="n">~{{size_cli_zip}} MB wiersz poleceń, ~{{size_app_zip}} MB z oknem</td></tr>
           <tr><td>Stare wersje Windows</td><td class="y">wstecz do Windows 2000</td><td class="n">Windows 10 i 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>„Nieudokumentowane"</em> znaczy, że funkcja nie jest wspomniana na stronie
-      RunAsDate. To nie jest twierdzenie, że narzędzie jej nie ma.
+      RunAsDate. To nie jest twierdzenie, że narzędzie jej nie ma. Zegar RunAsDate stoi, dopóki nie włączysz jego opcji <em>Move the time forward according to the real time</em>.
     </p>
   </section>
 
@@ -80,16 +82,16 @@
         Reszta powierzchni to miejsca, w których kod zależny od daty lubi się chować:
       </p>
       <ul>
-        <li><strong>strefa czasowa</strong> - cztery funkcje plus cała rodzina konwersji
-          między strefami, przez którą raport ląduje w złym dniu</li>
+        <li><strong>strefa czasowa</strong> - dwie funkcje, które ją podają, plus sześć konwersji między strefami, przez które raport ląduje w złym dniu</li>
         <li><strong>oś czasu trwania</strong> - liczniki taktów i nieobciążony czas przerwań,
           czyli to, co zwykle mierzy odliczanie wersji próbnej</li>
-        <li><strong>uśpienia i czekania</strong>, żeby opóźnienie było opóźnieniem na zegarze
-          sesji, a nie na prawdziwym</li>
+        <li><strong>uśpienia</strong>, żeby opóźnienie było opóźnieniem na zegarze sesji, a nie na prawdziwym, oraz <strong>czekania na obiekty</strong>, które są liczone i zachowują prawdziwą długość</li>
         <li><strong>timery</strong> - nastawialne, okienkowe, z puli wątków i multimedialne</li>
         <li><strong>tworzenie procesów</strong>, żeby dzieci instalatora działały w tej samej
           sesji, a nie w dniu dzisiejszym</li>
+        <li><strong>połączenia sieciowe</strong>, liczone jako znak, że czas może pochodzić z serwera</li>
       </ul>
+      <p>Z {{channel_count}} kanałów na zegar sesji trafia {{substituted_count}}. Reszta ({{observed_count}}) jest tylko liczona i zostaje prawdziwa, więc raport ją wymienia, nie twierdząc, że została przesunięta. Zegar ścienny i strefa czasowa są przesuwane w każdej sesji. Oś czasu trwania i czekania są obserwowane, gdy poprosisz o to przez <code>--scale-duration</code>, a licznik wysokiej rozdzielczości przez <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -98,16 +100,15 @@
     <div class="prose">
       <p>Naprawdę i wcale nie rzadko:</p>
       <ul>
-        <li><strong>Potrzebujesz jednej daty, w normalnym tempie, teraz.</strong> RunAsDate
-          waży poniżej 40 KB, nie ma okna do nauczenia się i robi dokładnie to od wielu
-          lat.</li>
+        <li><strong>Potrzebujesz jednej daty, w normalnym tempie, teraz.</strong> RunAsDate to pobranie poniżej 60 KB, nie ma okna do nauczenia się i robi dokładnie to od wielu lat.</li>
         <li><strong>Jesteś na starszym Windowsie.</strong> RunAsDate sięga wstecz do Windows
           2000. To narzędzie celuje w Windows 10 i 11 i nie jest testowane nigdzie
           starzej.</li>
-        <li><strong>Rozmiar ma znaczenie.</strong> 40 KB wobec 1,6 MB dla wiersza poleceń albo
-          69 MB z oknem to nie jest bliskie porównanie.</li>
+        <li><strong>Rozmiar ma znaczenie.</strong> 47 KB do pobrania wobec ~{{size_cli_zip}} MB dla wiersza poleceń albo ~{{size_app_zip}} MB z oknem to nie jest bliskie porównanie.</li>
         <li><strong>Nie chcesz werdyktu.</strong> Mierzenie pokrycia oznacza czytanie wyniku.
           Jeśli test jest jednorazowy, to narzut, o który nie prosiłeś.</li>
+        <li><strong>Aplikacja już działa.</strong> RunAsDate od wersji 1.40 potrafi dołączyć do działającego procesu. Chrono Mock uruchamia aplikację sam, więc taka, której nie da się uruchomić ponownie, jest poza jego zasięgiem.</li>
+        <li><strong>Chcesz kilku aplikacji z różnymi datami naraz.</strong> RunAsDate daje każdej własną datę. Chrono Mock prowadzi jedną sesję naraz.</li>
       </ul>
       <p>
         Te dwa narzędzia zresztą współistnieją. Nic tu nie każe ci porzucać RunAsDate do

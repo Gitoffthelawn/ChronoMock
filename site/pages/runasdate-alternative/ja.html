@@ -19,23 +19,25 @@
         <tbody>
           <tr><td>1 つのアプリを偽の日付で実行する</td><td class="y">対応</td><td class="y">対応</td></tr>
           <tr><td>システム時計に手を触れない</td><td class="y">対応</td><td class="y">対応</td></tr>
-          <tr><td>フックする時刻関数</td><td class="n">5</td><td class="y">{{channel_count}} チャネル</td></tr>
+          <tr><td>フックする時刻関数</td><td class="n">5</td><td class="y">{{channel_count}}（ずらす {{substituted_count}}、数えるだけ {{observed_count}}）</td></tr>
           <tr><td>実時間より速い時計</td><td class="n">非対応</td><td class="y">任意の整数倍</td></tr>
-          <tr><td>時計を止める</td><td class="n">非対応</td><td class="y">対応</td></tr>
-          <tr><td>アプリ実行中のジャンプ</td><td class="n">非対応</td><td class="y">前方にも後方にも</td></tr>
+          <tr><td>時計を止める</td><td class="y">対応 (既定の動作)</td><td class="y">対応</td></tr>
+          <tr><td>アプリ実行中のジャンプ</td><td class="n">指定した秒数の後に実際の日付へ戻るだけ</td><td class="y">前にも後ろにも、任意の時点へ</td></tr>
           <tr><td>そのプロセスだけのタイムゾーン</td><td class="n">記載なし</td><td class="y">対応（固定オフセット）</td></tr>
           <tr><td>子プロセスがセッションを引き継ぐ</td><td class="n">記載なし</td><td class="y">対応</td></tr>
+          <tr><td>すでに動いているアプリケーションへのアタッチ</td><td class="y">対応 (バージョン 1.40 以降)</td><td class="n">非対応 - アプリケーションを自分で起動する</td></tr>
+          <tr><td>異なる日付で複数のアプリケーションを同時に</td><td class="y">対応</td><td class="n">非対応 - セッションは一度に 1 つ</td></tr>
           <tr><td>効いたかどうかを教えてくれる</td><td class="n">なし</td><td class="y">判定、チャネルごと、呼び出し回数付き</td></tr>
-          <tr><td>Electron と Chromium のアプリ</td><td class="n">非対応</td><td class="y">別の仕組み</td></tr>
+          <tr><td>Electron と Chromium のアプリ</td><td class="n">記載なし</td><td class="y">別の仕組み</td></tr>
           <tr><td>CI 用のコマンドライン</td><td class="y">対応</td><td class="y">対応（終了コードと JSON 付き）</td></tr>
           <tr><td>ソースコード</td><td class="n">フリーウェア、非公開</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>サイズ</td><td class="y">40 KB 未満</td><td class="n">CLI 1.6 MB、ウィンドウ付きで 69 MB</td></tr>
+          <tr><td>サイズ</td><td class="y">ダウンロード 47 KB、64 ビット版は 57 KB</td><td class="n">コマンドライン版 約 {{size_cli_zip}} MB、ウィンドウ付きで 約 {{size_app_zip}} MB</td></tr>
           <tr><td>古い Windows</td><td class="y">Windows 2000 まで</td><td class="n">Windows 10 と 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
-      <em>「記載なし」</em>は、その機能が RunAsDate のページに書かれていないという意味です。ツールにその機能がないと主張しているわけではありません。
+      <em>「記載なし」</em>は、その機能が RunAsDate のページに書かれていないという意味です。ツールにその機能がないと主張しているわけではありません。 RunAsDate の時計は、オプション <em>Move the time forward according to the real time</em> をオンにしない限り止まったままです。
     </p>
   </section>
 
@@ -64,12 +66,14 @@
         残りの領域は、日付に依存するコードが潜みやすい場所です。
       </p>
       <ul>
-        <li><strong>タイムゾーン</strong> - 4 つの関数と、ゾーン間を変換する関数群全体。レポートが誤った日に着地するのは、こうした経路が原因です。</li>
+        <li><strong>タイムゾーン</strong> - それを返す 2 つの関数と、ゾーン間を変換する 6 つの関数。レポートが違う日に載ってしまう原因はここにあります</li>
         <li><strong>経過時間の軸</strong> - ティック数と、バイアスのない割り込み時間。試用期間のカウントダウンがたいてい測っているものです。</li>
-        <li><strong>スリープと待機</strong> - 遅延が実際の時計ではなくセッションの時計での遅延になるように。</li>
+        <li><strong>スリープ</strong> - 遅延が実際の時計ではなくセッションの時計での遅延になるように。そして<strong>オブジェクト待機</strong> - 回数は数えますが、長さは実際のままです</li>
         <li><strong>タイマー</strong> - 待機可能タイマー、ウィンドウタイマー、スレッドプールタイマー、マルチメディアタイマー。</li>
         <li><strong>プロセス作成</strong> - インストーラーの子プロセスが、現在の日付ではなく同じセッションで動くように。</li>
+        <li><strong>ネットワーク接続</strong> - 時刻がサーバーから来ているかもしれない兆候として数えます</li>
       </ul>
+      <p>{{channel_count}} のうち {{substituted_count}} はセッションの時計に載せ替えます。残りの {{observed_count}} は数えるだけで実際の値のままにするので、レポートはずらしたとは主張せずにそれらを挙げます。壁時計とタイムゾーンはすべてのセッションでずらします。経過時間の軸と待機は <code>--scale-duration</code> で、高分解能カウンターは <code>--scale-qpc</code> で求めたときに監視します。</p>
     </div>
   </section>
 
@@ -78,10 +82,12 @@
     <div class="prose">
       <p>本当に、しかもめずらしくありません。</p>
       <ul>
-        <li><strong>通常の速度で、1 つの日付だけを今すぐ使いたいとき。</strong>RunAsDate は 40 KB 未満で、覚えるウィンドウもなく、長年にわたってまさにこのことを行ってきました。</li>
+        <li><strong>通常の速度で、1 つの日付だけを今すぐ使いたいとき。</strong>RunAsDate は 60 KB 未満のダウンロードで、覚えるウィンドウもなく、長年にわたってまさにこのことを行ってきました。</li>
         <li><strong>古い Windows を使っているとき。</strong>RunAsDate は Windows 2000 まで対応しています。このツールは Windows 10 と 11 を対象としており、それより古い環境ではテストしていません。</li>
-        <li><strong>サイズが重要なとき。</strong>40 KB とコマンドライン版の 1.6 MB、あるいはウィンドウ付きの 69 MB では、比較になりません。</li>
+        <li><strong>サイズが重要なとき。</strong>47 KB のダウンロードに対して、コマンドライン版は約 {{size_cli_zip}} MB、ウィンドウ付きは約 {{size_app_zip}} MB です。比べものになりません。</li>
         <li><strong>判定が要らないとき。</strong>カバレッジを測るとは、結果を読むということです。使い捨てのテストなら、求めていない手間です。</li>
+        <li><strong>アプリケーションがすでに動いているとき。</strong>RunAsDate はバージョン 1.40 から実行中のプロセスにアタッチできます。Chrono Mock はアプリケーションを自分で起動するので、再起動できないものには届きません。</li>
+        <li><strong>異なる日付で複数のアプリケーションを同時に動かしたいとき。</strong>RunAsDate はそれぞれに独自の日付を与えます。Chrono Mock が一度に扱うセッションは 1 つです。</li>
       </ul>
       <p>
         両者は共存もできます。手軽な用途のために RunAsDate を手元に残しておくことを、ここにあるものが妨げることはありません。

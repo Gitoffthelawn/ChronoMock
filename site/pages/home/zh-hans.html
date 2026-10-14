@@ -45,8 +45,8 @@
           <span><b>生效</b>——替换已经作用到这个进程</span>
         </div>
         <div class="chan">
-          <span>已覆盖的时间通道</span>
-          <span class="n">26 / {{channel_count}} &middot; 附调用次数</span>
+          <span>监视的时间通道</span>
+          <span class="n">最多 {{channel_count}} 个 &middot; 每个都附调用次数</span>
         </div>
       </div>
     </div>
@@ -184,7 +184,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>让一个应用以虚拟日期运行</td><td class="y">是</td><td class="y">是</td></tr>
-          <tr><td>被拦截的时间通道</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>被拦截的时间通道</td><td class="n">5</td><td class="y">{{channel_count}}（{{substituted_count}} 个被偏移，{{observed_count}} 个仅计数）</td></tr>
           <tr><td>加快时钟</td><td class="n">否</td><td class="y">是</td></tr>
           <tr><td>独立的时区</td><td class="n">文档中未提及</td><td class="y">是</td></tr>
           <tr><td>跟随子进程</td><td class="n">文档中未提及</td><td class="y">是</td></tr>

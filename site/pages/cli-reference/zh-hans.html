@@ -55,7 +55,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>同时加速时长轴：滴答计数、休眠和定时器。默认关闭，因为挂钟时间和秒表是两个不同的问题。</td>
+            <td>同时加快经过时间轴：滴答计数、中断时间、休眠和定时器。对象等待只计数并保持真实时长。默认关闭，因为墙上时钟和秒表是两个不同的问题。设定在某个日期和时间的定时器或延迟，无论有没有这个选项都会跟随会话时钟。</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -174,7 +174,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -186,7 +186,7 @@
       <ul>
         <li><strong>verdict</strong>——针对父进程及所有子进程得出的整体判定，附带进程数。退出码承载的就是这个数。</li>
         <li><strong>exited</strong>——应用<em>自己的</em>退出码，而且只在它自行关闭时才有。由 <code>--ticks</code> 限定的运行会让目标程序继续运行，Chromium 会话是由工具自己关闭的，从未启动的会话也没有这样的退出码——这时这一行会直接不出现，而不是显示一个编造的零。崩溃码会以很大的负数形式出现，所以也会给出它的十六进制形式。</li>
-        <li><strong>covered</strong>——替换到达的通道，以及每个通道实际被调用的次数，按进程分别统计。次数绝不会跨进程相加：一个进程的审计不能借用另一个进程的数字。</li>
+        <li><strong>covered</strong>——替换到达的通道，以及每个通道实际被调用的次数，按进程分别统计。次数绝不会跨进程相加：一个进程的审计不能借用另一个进程的数字。计数在 1048576 处停止，之后显示为<em>至少</em>这么多次。</li>
         <li><strong>observed</strong>——已挂钩但刻意保持真实的通道，例如对象等待和多媒体定时器。它们自成一类，因此绝不会被当作已替换。</li>
         <li><strong>uncovered</strong>——应用请求过但会话没有覆盖的通道。正是它让判定变成<em>部分生效</em>。</li>
         <li><strong>not fully cleaned up</strong>——清理阶段无法移除的任何东西。正常结束时不会出现，这也是常态。</li>

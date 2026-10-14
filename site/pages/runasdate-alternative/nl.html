@@ -24,24 +24,26 @@
         <tbody>
           <tr><td>Draait één applicatie op een valse datum</td><td class="y">ja</td><td class="y">ja</td></tr>
           <tr><td>Laat de systeemklok met rust</td><td class="y">ja</td><td class="y">ja</td></tr>
-          <tr><td>Onderschepte tijdfuncties</td><td class="n">5</td><td class="y">{{channel_count}} kanalen</td></tr>
+          <tr><td>Onderschepte tijdfuncties</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} verschoven, {{observed_count}} geteld)</td></tr>
           <tr><td>Klok sneller dan echte tijd</td><td class="n">niet aangeboden</td><td class="y">elke gehele vermenigvuldiger</td></tr>
-          <tr><td>De klok bevriezen</td><td class="n">niet aangeboden</td><td class="y">ja</td></tr>
-          <tr><td>Springen terwijl de app draait</td><td class="n">niet aangeboden</td><td class="y">vooruit en achteruit</td></tr>
+          <tr><td>De klok bevriezen</td><td class="y">ja, standaard</td><td class="y">ja</td></tr>
+          <tr><td>Springen terwijl de app draait</td><td class="n">alleen terug naar de echte datum, na een vast aantal seconden</td><td class="y">vooruit en achteruit, naar elk moment</td></tr>
           <tr><td>Tijdzone alleen voor dat proces</td><td class="n">niet gedocumenteerd</td><td class="y">ja, vaste offset</td></tr>
           <tr><td>Kindprocessen erven de sessie</td><td class="n">niet gedocumenteerd</td><td class="y">ja</td></tr>
+          <tr><td>Koppelen aan een toepassing die al draait</td><td class="y">ja, sinds versie 1.40</td><td class="n">nee - het start de toepassing zelf</td></tr>
+          <tr><td>Meerdere toepassingen met verschillende datums tegelijk</td><td class="y">ja</td><td class="n">nee - één sessie tegelijk</td></tr>
           <tr><td>Zegt of het gewerkt heeft</td><td class="n">nee</td><td class="y">oordeel, per kanaal, met aantal aanroepen</td></tr>
-          <tr><td>Electron- en Chromium-applicaties</td><td class="n">niet aangeboden</td><td class="y">apart mechanisme</td></tr>
+          <tr><td>Electron- en Chromium-applicaties</td><td class="n">niet gedocumenteerd</td><td class="y">apart mechanisme</td></tr>
           <tr><td>Opdrachtregel voor CI</td><td class="y">ja</td><td class="y">ja, met afsluitcodes en JSON</td></tr>
           <tr><td>Broncode</td><td class="n">freeware, gesloten</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Grootte</td><td class="y">minder dan 40 KB</td><td class="n">1,6 MB de CLI, 69 MB met het venster</td></tr>
+          <tr><td>Grootte</td><td class="y">47 KB download, 57 KB voor 64-bit</td><td class="n">~{{size_cli_zip}} MB opdrachtregel, ~{{size_app_zip}} MB met het venster</td></tr>
           <tr><td>Oude Windows-versies</td><td class="y">terug tot Windows 2000</td><td class="n">Windows 10 en 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>“Niet gedocumenteerd”</em> betekent dat de functie niet op de RunAsDate-pagina wordt genoemd. Het
-      is geen bewering dat het gereedschap haar mist.
+      is geen bewering dat het gereedschap haar mist. De klok van RunAsDate staat stil zolang de optie <em>Move the time forward according to the real time</em> niet aan staat.
     </p>
   </section>
 
@@ -80,16 +82,16 @@
         De rest van het oppervlak is waar datumafhankelijke code zich graag verstopt:
       </p>
       <ul>
-        <li>de <strong>tijdzone</strong> - vier functies, plus de hele familie die tussen zones omrekent,
-          waardoor een rapport op de verkeerde dag belandt</li>
+        <li>de <strong>tijdzone</strong> - de twee functies die hem melden, plus de zes die tussen zones omrekenen, waardoor een rapport op de verkeerde dag belandt</li>
         <li>de <strong>as van de verstreken tijd</strong> - tickteller en onbevooroordeelde
           interrupttijd, wat een proefperiode-aftelling meestal meet</li>
-        <li><strong>sleeps en wachten</strong>, zodat een vertraging een vertraging op de sessieklok is en
-          niet op de echte</li>
+        <li><strong>pauzes</strong>, zodat een vertraging een vertraging is op de sessieklok en niet op de echte, en <strong>wachten op objecten</strong>, die worden geteld en hun echte lengte houden</li>
         <li><strong>timers</strong> - wachtbare, venster-, threadpool- en multimediatimers</li>
         <li><strong>het aanmaken van processen</strong>, zodat de kinderen van een installatieprogramma in
           dezelfde sessie draaien in plaats van op de dag van vandaag</li>
+        <li><strong>netwerkverbindingen</strong>, geteld als teken dat de tijd van een server kan komen</li>
       </ul>
+      <p>Van de {{channel_count}} komen er {{substituted_count}} op de sessieklok. De overige {{observed_count}} worden alleen geteld en blijven echt, zodat het rapport ze noemt zonder te beweren dat ze verschoven zijn. De wandklok en de tijdzone worden in elke sessie verschoven. De as van de verstreken tijd en het wachten worden gevolgd als je daarom vraagt met <code>--scale-duration</code>, de teller met hoge resolutie met <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -98,14 +100,14 @@
     <div class="prose">
       <p>Echt, en niet zelden:</p>
       <ul>
-        <li><strong>Je hebt één datum nodig, op normale snelheid, nu meteen.</strong> RunAsDate is kleiner
-          dan 40 KB, heeft geen venster om te leren en doet precies dit al vele jaren.</li>
+        <li><strong>Je hebt één datum nodig, op normale snelheid, nu meteen.</strong> RunAsDate is een download van minder dan 60 KB, heeft geen venster om te leren en doet precies dit al vele jaren.</li>
         <li><strong>Je zit op een ouder Windows.</strong> RunAsDate gaat terug tot Windows 2000. Dit
           gereedschap richt zich op Windows 10 en 11 en is nergens ouder getest.</li>
-        <li><strong>Grootte telt.</strong> 40 KB tegenover 1,6 MB voor de opdrachtregel, of 69 MB met het
-          venster, is geen nek-aan-nekvergelijking.</li>
+        <li><strong>Grootte telt.</strong> Een download van 47 KB tegenover ~{{size_cli_zip}} MB voor de opdrachtregel, of ~{{size_app_zip}} MB met het venster, is geen nipte vergelijking.</li>
         <li><strong>Je wilt geen oordeel.</strong> De dekking meten betekent het resultaat lezen. Als de
           test een wegwerptest is, is dat overhead waar je niet om vroeg.</li>
+        <li><strong>De toepassing draait al.</strong> RunAsDate kan zich sinds versie 1.40 aan een draaiend proces koppelen. Chrono Mock start de toepassing zelf, dus een toepassing die niet opnieuw kan starten valt buiten bereik.</li>
+        <li><strong>Je wilt meerdere toepassingen met verschillende datums tegelijk.</strong> RunAsDate geeft elk een eigen datum. Chrono Mock draait één sessie tegelijk.</li>
       </ul>
       <p>
         De twee kunnen ook naast elkaar bestaan. Niets hier houdt je tegen RunAsDate te bewaren voor het

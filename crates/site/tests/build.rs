@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono_site::{load_i18n, parse_json, render, repo_root, SiteConfig};
+use chrono_site::{load_i18n, output_path, parse_json, render, repo_root, PageMeta, SiteConfig};
 
 /// Build into a directory of this test's own, so tests running in parallel do not
 /// wipe each other's output.
@@ -197,6 +197,47 @@ fn the_channel_count_on_the_page_is_the_one_the_program_implements() {
     assert!(
         home.contains(&format!("{expected} time channels")),
         "the home page must state {expected} channels"
+    );
+}
+
+#[test]
+fn a_download_size_is_written_with_the_decimal_mark_of_its_language() {
+    // site.json holds 2.4 and the Polish page must print 2,4 - read in half of these languages, a point
+    // there is a thousands separator. The rule is a unit test in the library, and this is the wiring:
+    // a render that used the shared table instead of the language's own printed the point everywhere.
+    let out = built("sizes");
+    let (cfg, i18n) = configured();
+    let meta: PageMeta =
+        parse_json(&repo_root().join("site").join("pages").join("download").join("page.json")).expect("download page");
+    assert!(!cfg.download_sizes.is_empty(), "site.json lists no download sizes");
+    for lang in ["en", "pl"] {
+        let file = output_path(lang, &meta.languages[lang].slug);
+        let page = fs::read_to_string(out.join(&file)).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        for (name, size) in &cfg.download_sizes {
+            let written = size.replace('.', &i18n[lang]["decimal_separator"]);
+            assert!(
+                page.contains(&format!("~{written} MB")),
+                "{} must state {name} as ~{written} MB",
+                file.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn the_link_preview_picture_states_the_channel_count_the_program_implements() {
+    // The one number no token reaches: the picture is drawn in SVG, turned into the PNG by hand and
+    // uploaded to the repository settings by hand, so it kept saying 36 long after the program had
+    // grown past it. This reads the SVG, not the PNG - the PNG stays a manual step, and the failure
+    // message is where that step is written down.
+    let svg = fs::read_to_string(repo_root().join("site").join("assets").join("social-preview.svg"))
+        .expect("site/assets/social-preview.svg");
+    let expected = format!(">{} time channels", chrono_ctl::CHANNEL_COUNT);
+    assert!(
+        svg.contains(&expected),
+        "site/assets/social-preview.svg must say '{}' - redraw it, rebuild the PNG with the magick line at \
+         its top, and upload the PNG in the repository settings (General, Social preview)",
+        &expected[1..]
     );
 }
 

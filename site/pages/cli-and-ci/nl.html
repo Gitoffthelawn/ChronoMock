@@ -7,7 +7,7 @@
     <h1>Datumtesten in een pipeline</h1>
     <p class="sub">
       Het venster is om te verkennen. Dit is de andere helft: een opdrachtregelbuild van ongeveer
-      <strong>1,6 MB</strong> zonder runtime om te installeren, waarvan de afsluitcode het
+      <strong>{{size_cli_zip}} MB</strong> zonder runtime om te installeren, waarvan de afsluitcode het
       dekkingsoordeel is en niet die van het doel zelf.
     </p>
   </section>
@@ -40,6 +40,9 @@
           <tr><td>12</td><td>het doel verdween, wat wijst op een applicatie met één instantie</td></tr>
           <tr><td>3</td><td>interne fout - de engine kon niet starten, kwam in een onverwachte toestand of stopte voordat de sessie werd afgesloten (wat haar eigen afsluitcode ook was). Zo'n run draagt geen oordeel</td></tr>
           <tr><td>5</td><td>de bewerking is niet opgenomen in deze release</td></tr>
+          <tr><td>6</td><td>de run is afgebroken - <code>--timeout</code> verliep, of de engine reageerde 15 seconden niet meer en werd gestopt. Dit is geen oordeel: de sessie is onderbroken, dus ze bewijst niets over het doel, in welke richting dan ook</td></tr>
+          <tr><td>7</td><td>er loopt al een andere sessie - één sessie tegelijk. Opnieuw proberen zodra die klaar is, is genoeg</td></tr>
+          <tr><td>8</td><td>de sessie kwam tot een oordeel, maar het bewijs staat niet in het bestand dat <code>--report</code> noemt - de schijf was vol, of een ander programma hield het oude bestand open, dat dan blijft zoals het was. Het oordeel staat nog steeds in het rapport dat de opdracht toont</td></tr>
         </tbody>
       </table>
     </div>

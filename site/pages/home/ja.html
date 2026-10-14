@@ -46,8 +46,8 @@
           <span><b>有効</b> - 時刻の置き換えがこのプロセスに届きました</span>
         </div>
         <div class="chan">
-          <span>カバーした時刻チャネル</span>
-          <span class="n">{{channel_count}} 中 26 &middot; 呼び出し回数付き</span>
+          <span>監視する時刻チャネル</span>
+          <span class="n">最大 {{channel_count}} &middot; それぞれ呼び出し回数付き</span>
         </div>
       </div>
     </div>
@@ -185,7 +185,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>1 つのアプリを偽の日付で実行する</td><td class="y">対応</td><td class="y">対応</td></tr>
-          <tr><td>フックする時刻チャネル</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>フックする時刻チャネル</td><td class="n">5</td><td class="y">{{channel_count}}（ずらす {{substituted_count}}、数えるだけ {{observed_count}}）</td></tr>
           <tr><td>時計の加速</td><td class="n">なし</td><td class="y">対応</td></tr>
           <tr><td>独立したタイムゾーン</td><td class="n">記載なし</td><td class="y">対応</td></tr>
           <tr><td>子プロセスへの追従</td><td class="n">記載なし</td><td class="y">対応</td></tr>

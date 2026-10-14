@@ -36,13 +36,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -85,9 +87,7 @@ Chrono Mock - session report
       <p>
         <strong>當判定為「未生效」時，處理序會被立即停止</strong>，在你與它互動之前。判定不可能先於啟動，因為唯一的事實依據，是從執行中的處理序內部取得的讀數。能保證的是你在開始工作之前就會得知真相——而不是注定失敗的啟動永遠不會發生。你可以選擇覆寫並繼續，此後這個工作階段會在它出現的所有地方——包括你匯出的任何證據——被標記為不可靠。
       </p>
-      <p>
-        另外還有三個代碼，對應的根本不是判定的情形：<code>1</code> 表示用法錯誤，<code>2</code> 表示無法啟動目標程式或無法對其注入，<code>12</code> 表示目標程式以一種表示單一執行個體應用程式把工作交給了已在執行的副本的方式消失了。
-      </p>
+      <p>其他代碼表示出問題的是執行本身，而不是替換 - 用法錯誤、無法啟動的目標、被中途截斷的執行、已在執行的另一個工作階段等，它們都不是判定。完整的表格在<a href="/zh-hant/cli-reference/">命令列參考</a>中。</p>
     </div>
   </section>
 
@@ -97,7 +97,7 @@ Chrono Mock - session report
       <p>通道分為三類，而中間那一類最值得注意。</p>
       <ul>
         <li><strong>已涵蓋</strong>——已掛鉤並被替換。應用程式詢問了，得到的是工作階段時鐘。呼叫次數說明了詢問的次數。</li>
-        <li><strong>已觀察</strong>——已掛鉤、已計數，並且刻意讓它如實回答。高解析度計數器預設在這一類，因為縮放它會讓畫面轉譯不穩定。多媒體計時器在這一類，因為縮放它們會讓音訊與 MIDI 的時序錯位。網路連線與一條處理序建立路徑在這一類，因為它們是證據，而不是時鐘。</li>
+        <li><strong>已觀察</strong> - 被攔截、被計數，並刻意讓它們如實回傳。物件等待在這裡，因為縮短逾時可能在真實控制代碼上偽造逾時，多媒體計時器也在這裡，因為縮放它會讓音訊和 MIDI 的時序錯位 - 這兩者在工作階段縮放經過時間軸時才會被監看。網路連線和一條處理序建立路徑在每個工作階段中都在這裡，因為它們是證據，而不是時鐘。高解析度計數器不屬於這一組：除非你用 <code>--scale-qpc</code> 要求，否則它保持原樣，要求之後它就被涵蓋。</li>
         <li><strong>未涵蓋</strong>——應用程式讀取過、而替換沒有觸及的通道。正是它讓判定變成<em>部分生效</em>，並且會逐個點名列出，而不是被概括掉。</li>
       </ul>
       <p>

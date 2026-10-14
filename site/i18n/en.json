@@ -5,6 +5,8 @@
   "html_lang": "en",
   "dir": "ltr",
   "og_locale": "en_US",
+  "//decimal_separator": "The mark between the whole and the fractional part of a number, as this language writes it - a point or a comma, nothing else. It is put into every download size, so it decides whether a page reads 2.4 MB or 2,4 MB.",
+  "decimal_separator": ".",
 
   "//social_image_alt": "Alternative text of the link-preview picture. The picture is the same for every language, so what it shows is described in each - translate the description, not the words that are drawn in it.",
   "social_image_alt": "Chrono Mock - run a Windows application at any date and time, without changing the system clock",

@@ -4,6 +4,7 @@
   "html_lang": "vi",
   "dir": "ltr",
   "og_locale": "vi_VN",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock - chạy ứng dụng Windows ở bất kỳ ngày giờ nào mà không đổi đồng hồ hệ thống",
 

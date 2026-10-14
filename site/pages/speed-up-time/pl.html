@@ -69,9 +69,7 @@
         osobnym przełącznikiem:
       </p>
       <ul>
-        <li><code>--scale-duration</code> przestawia uśpienia, czekania i timery również na
-          zegar sesji. Bez tego <code>x1440</code> pędzi kalendarzem naprzód, a
-          pięciosekundowy timer nadal trwa pięć prawdziwych sekund.</li>
+        <li><code>--scale-duration</code> przestawia na zegar sesji także liczniki taktów, uśpienia i timery, a czekania na obiekty liczy i zostawia im prawdziwą długość. Bez niego <code>x1440</code> pędzi z kalendarzem do przodu, a pięciosekundowy timer nadal trwa pięć prawdziwych sekund - tylko timer nastawiony na konkretną datę i godzinę podąża za zegarem sesji w każdej sesji.</li>
         <li><code>--scale-qpc</code> dokłada skalowanie licznika wysokiej rozdzielczości. To
           tam <code>monotonic</code> w Pythonie 3.13+, <code>Stopwatch</code> w .NET i
           <code>nanoTime</code> w Javie czytają czas trwania. Domyślnie wyłączone, bo
@@ -116,9 +114,7 @@
         <li><strong>Nie rusza zegara systemowego.</strong> To jest sens, a nie ograniczenie -
           ale oznacza, że cokolwiek czyta czas z serwera, z bazy danych albo z innej maszyny,
           pozostaje nietknięte, a audyt powie ci, kiedy tak się dzieje.</li>
-        <li><strong>Skok zmienia to, co aplikacja widzi, a nie to, kiedy się budzi.</strong>
-          Timery już oddane jądru chodzą na prawdziwym czasie. Większość aplikacji odpytuje
-          zegar, więc skoki w praktyce działają - ale nie u wszystkich.</li>
+        <li><strong>Skok zmienia to, co aplikacja widzi, a nie to, kiedy się budzi.</strong> Uśpienia i timery już przekazane jądru zachowują długość, którą dostały przy nastawieniu. Większość aplikacji odpytuje zegar, więc skoki w praktyce działają - ale nie wszystkie.</li>
         <li><strong>Nie spowalnia czasu.</strong> Mnożniki to liczby całkowite od jedynki w
           górę plus zamrożony zegar w zerze.</li>
       </ul>

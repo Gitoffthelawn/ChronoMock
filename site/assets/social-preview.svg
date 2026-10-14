@@ -16,8 +16,11 @@
      arrives in a chat preview. What has to survive that shrink is the headline, the two dates
      and the wordmark. The chips are texture at that size and are meant to be.
 
-     Every claim here is checkable: 36 is chrono_ctl::CHANNEL_COUNT, the calculator ships the
-     us-banking, us-federal and pl calendars, and "a day in a minute" is the x1440 multiplier.
+     Every claim here is checkable: 44 is chrono_ctl::CHANNEL_COUNT, and a test in
+     crates/site/tests/build.rs fails when the two differ, the calculator ships the
+     us-banking, us-federal and pl calendars, "a day in a minute" is the x1440 multiplier, and
+     "portable or installed" is the zips beside the .msi. The test reads this file, not the
+     PNG, so a change here is finished only once the PNG is rebuilt and uploaded again.
      The bean path is the same one as assets/chrono-bean.svg. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
   <defs>
@@ -75,13 +78,13 @@
     <text x="380" y="478">US + PL holidays</text>
 
     <rect x="80"  y="502" width="268" height="42" rx="21" fill="#181c22" stroke="#2d323d"/>
-    <text x="100" y="530">36 time channels audited</text>
+    <text x="100" y="530">44 time channels audited</text>
     <rect x="360" y="502" width="126" height="42" rx="21" fill="#181c22" stroke="#2d323d"/>
     <text x="380" y="530">GUI + CLI</text>
   </g>
 
   <text x="80" y="590" font-family="Segoe UI, Arial, Helvetica, sans-serif"
-        font-size="22" font-weight="600" fill="#c8ccd4">Windows<tspan fill="#6f7784" font-weight="400"> · portable, no install · free and open source, GPL-3.0</tspan></text>
+        font-size="22" font-weight="600" fill="#c8ccd4">Windows<tspan fill="#6f7784" font-weight="400"> · portable or installed · free and open source, GPL-3.0</tspan></text>
 
   <!-- Proof: the whole product idea in two timestamps, both of them real readings -->
   <g>

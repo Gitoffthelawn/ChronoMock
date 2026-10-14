@@ -77,8 +77,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Cũng tăng tốc trục khoảng thời gian: số tick, sleep và bộ hẹn giờ. Mặc định tắt, vì đồng hồ
-              treo tường và đồng hồ bấm giờ là hai câu hỏi khác nhau.</td>
+            <td>Tăng tốc cả trục thời gian trôi qua: bộ đếm tick, thời gian ngắt, các lệnh ngủ và bộ hẹn giờ. Các lệnh chờ đối tượng được đếm và giữ nguyên độ dài thật. Mặc định tắt, vì đồng hồ treo tường và đồng hồ bấm giờ là hai câu hỏi khác nhau. Bộ hẹn giờ hoặc khoảng trễ đặt vào một ngày giờ cụ thể theo đồng hồ phiên dù có hay không có tùy chọn này.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -255,7 +254,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -274,7 +273,7 @@
           thập lục phân.</li>
         <li><strong>covered</strong> - các kênh mà việc thay thế đã đến được, cùng số lần mỗi kênh thực sự
           được gọi, theo từng tiến trình. Số đếm không bao giờ được cộng gộp giữa các tiến trình: kiểm
-          toán của tiến trình này không được mượn số của tiến trình khác.</li>
+          toán của tiến trình này không được mượn số của tiến trình khác. Một bộ đếm dừng ở 1048576 và khi đó hiển thị <em>ít nhất</em> con số đó.</li>
         <li><strong>observed</strong> - các kênh đã được chặn nhưng cố ý để thật, như chờ đối tượng và bộ
           hẹn giờ đa phương tiện. Chúng có nhóm riêng, nên không bao giờ bị hiểu là đã thay thế.</li>
         <li><strong>uncovered</strong> - các kênh mà ứng dụng đã yêu cầu mà phiên không bao phủ. Đây là thứ

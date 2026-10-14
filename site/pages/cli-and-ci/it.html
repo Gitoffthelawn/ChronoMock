@@ -7,7 +7,7 @@
     <h1>Test sulle date in una pipeline</h1>
     <p class="sub">
       La finestra serve per esplorare. Questa è l'altra metà: una build da riga di comando di circa
-      <strong>1,6 MB</strong>, senza alcun runtime da installare, il cui codice di uscita è il verdetto di
+      <strong>{{size_cli_zip}} MB</strong>, senza alcun runtime da installare, il cui codice di uscita è il verdetto di
       copertura e non quello del target.
     </p>
   </section>
@@ -40,6 +40,9 @@
           <tr><td>12</td><td>il target è scomparso, il che fa pensare a un'applicazione a istanza singola</td></tr>
           <tr><td>3</td><td>errore interno - il motore non è riuscito ad avviarsi, ha incontrato uno stato imprevisto o si è fermato prima di chiudere la sessione (qualunque fosse il suo codice di uscita). Un'esecuzione così non porta alcun verdetto</td></tr>
           <tr><td>5</td><td>l'operazione non è inclusa in questa versione</td></tr>
+          <tr><td>6</td><td>l'esecuzione è stata interrotta - <code>--timeout</code> è scaduto, oppure il motore ha smesso di rispondere per 15 secondi ed è stato fermato. Non è un verdetto: la sessione è stata interrotta, quindi non dimostra nulla sul target né in un senso né nell'altro</td></tr>
+          <tr><td>7</td><td>un'altra sessione è già in corso - una sessione alla volta. Basta riprovare quando è terminata</td></tr>
+          <tr><td>8</td><td>la sessione è arrivata a un verdetto, ma la sua prova non è nel file indicato da <code>--report</code> - il disco era pieno, oppure un altro programma teneva aperto il vecchio file, che allora resta com'era. Il verdetto resta nel report che il comando stampa</td></tr>
         </tbody>
       </table>
     </div>

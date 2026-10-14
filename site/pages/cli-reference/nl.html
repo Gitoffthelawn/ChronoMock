@@ -79,8 +79,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Versnelt ook de duuras: tickteller, sleeps en timers. Standaard uit, omdat een wandklok en
-              een stopwatch twee verschillende vragen zijn.</td>
+            <td>Versnel ook de as van de verstreken tijd: tickcounters, interrupttijd, pauzes en timers. Wachten op objecten wordt geteld en houdt zijn echte lengte. Standaard uit, omdat een wandklok en een stopwatch verschillende vragen zijn. Een timer of vertraging die op een datum en tijd is gezet volgt de sessieklok met of zonder deze optie.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -259,7 +258,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -278,7 +277,7 @@
           komt aan als een groot negatief getal, dus krijgt ook zijn hexadecimale vorm.</li>
         <li><strong>covered</strong> - kanalen die de vervanging bereikte, met hoe vaak elk werkelijk is
           aangeroepen, per proces. Aantallen worden nooit over processen heen opgeteld: de audit van het
-          ene proces mag de cijfers van een ander niet lenen.</li>
+          ene proces mag de cijfers van een ander niet lenen. Een teller stopt bij 1048576 en toont dan <em>minstens</em> dat aantal.</li>
         <li><strong>observed</strong> - kanalen die zijn onderschept maar bewust echt gelaten, zoals
           objectwachten en multimediatimers. Een eigen bak, zodat ze nooit als vervangen worden
           gelezen.</li>

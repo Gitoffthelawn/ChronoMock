@@ -4,6 +4,7 @@
   "html_lang": "id",
   "dir": "ltr",
   "og_locale": "id_ID",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock - jalankan aplikasi Windows pada tanggal dan jam apa pun, tanpa mengubah jam sistem",
 

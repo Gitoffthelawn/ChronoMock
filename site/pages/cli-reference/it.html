@@ -80,9 +80,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Accelera anche l'asse delle durate: contatori di tick, sleep e timer. Disattivato per
-              impostazione predefinita, perché un orologio a muro e un cronometro sono due domande
-              diverse.</td>
+            <td>Accelera anche l'asse del tempo trascorso: contatori di tick, tempo di interrupt, pause e timer. Le attese su oggetti vengono contate e mantengono la durata reale. Disattivato per impostazione predefinita, perché un orologio a muro e un cronometro sono domande diverse. Un timer o un ritardo impostato su una data e un'ora segue l'orologio della sessione con o senza questa opzione.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -266,7 +264,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -286,7 +284,7 @@
           esadecimale.</li>
         <li><strong>covered</strong> - i canali che la sostituzione ha raggiunto, con quante volte ciascuno
           è stato effettivamente chiamato, per processo. I conteggi non vengono mai sommati tra processi:
-          l'audit di un processo non deve prendere in prestito i numeri di un altro.</li>
+          l'audit di un processo non deve prendere in prestito i numeri di un altro. Un contatore si ferma a 1048576 e da lì indica <em>almeno</em> quel numero.</li>
         <li><strong>observed</strong> - i canali intercettati ma lasciati deliberatamente reali, come le
           attese su oggetti e i timer multimediali. Una categoria a sé, perché non vengano mai letti come
           sostituiti.</li>

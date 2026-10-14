@@ -6,7 +6,7 @@
     <h1>Testowanie dat w potoku</h1>
     <p class="sub">
       Okno służy do eksploracji. To jest druga połowa: wersja konsolowa o rozmiarze około
-      <strong>1,6 MB</strong>, bez środowiska do instalowania, której kod wyjścia jest
+      <strong>{{size_cli_zip}} MB</strong>, bez środowiska do instalowania, której kod wyjścia jest
       werdyktem pokrycia, a nie kodem samego celu.
     </p>
   </section>
@@ -39,6 +39,9 @@
           <tr><td>12</td><td>cel zniknął, co sugeruje aplikację jednoinstancyjną</td></tr>
           <tr><td>3</td><td>błąd wewnętrzny - rdzeń nie wystartował, trafił na nieoczekiwany stan albo zakończył się, zanim zamknął sesję (bez względu na własny kod wyjścia). Taki przebieg nie niesie werdyktu</td></tr>
           <tr><td>5</td><td>operacja niezbudowana w tym wydaniu</td></tr>
+          <tr><td>6</td><td>przebieg został ucięty - minął <code>--timeout</code> albo rdzeń przestał odpowiadać na 15 sekund i został zatrzymany. To nie jest werdykt: sesję przerwano, więc nie dowodzi ona niczego o celu w żadną stronę</td></tr>
+          <tr><td>7</td><td>inna sesja już działa - jedna sesja naraz. Wystarczy spróbować ponownie, gdy się zakończy</td></tr>
+          <tr><td>8</td><td>sesja doszła do werdyktu, ale jej dowodu nie ma w pliku wskazanym przez <code>--report</code> - dysk był pełny albo inny program trzymał otwarty stary plik, który wtedy zostaje bez zmian. Werdykt nadal stoi w raporcie, który wypisuje polecenie</td></tr>
         </tbody>
       </table>
     </div>

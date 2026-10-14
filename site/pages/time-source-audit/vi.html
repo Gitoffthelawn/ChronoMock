@@ -44,13 +44,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -104,11 +106,7 @@ Chrono Mock - session report
         ghi đè và tiếp tục, và khi đó phiên được đánh dấu là không đáng tin ở mọi nơi nó xuất hiện, kể cả
         trong bất kỳ bằng chứng nào bạn xuất ra.
       </p>
-      <p>
-        Còn ba mã nữa dành cho những thứ hoàn toàn không phải kết luận: <code>1</code> cho lỗi sử dụng,
-        <code>2</code> khi không thể khởi chạy hoặc chèn mã vào mục tiêu, và <code>12</code> khi mục tiêu biến
-        mất theo cách gợi ý một ứng dụng chỉ cho phép một thể hiện đã bàn giao cho bản đang chạy sẵn.
-      </p>
+      <p>Các mã khác cho biết chính lần chạy đã hỏng chứ không phải việc thay thế - lỗi sử dụng, mục tiêu không khởi động được, lần chạy bị cắt ngang, một phiên khác đang chạy - và không mã nào là kết luận. Bảng đầy đủ nằm trong <a href="/vi/tham-chieu-cli/">tài liệu tham khảo dòng lệnh</a>.</p>
     </div>
   </section>
 
@@ -119,10 +117,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Được bao phủ</strong> - đã hook và thay thế. Ứng dụng hỏi, và nhận đồng hồ của phiên.
           Số lần gọi cho biết bao nhiêu lần.</li>
-        <li><strong>Được quan sát</strong> - đã hook, đã đếm và cố ý để nói sự thật. Bộ đếm độ phân giải cao
-          nằm ở đây theo mặc định vì nhân tỷ lệ nó làm mất ổn định việc kết xuất. Bộ hẹn giờ đa phương tiện
-          nằm ở đây vì nhân tỷ lệ chúng sẽ làm lệch nhịp âm thanh và MIDI. Kết nối mạng và một đường tạo
-          tiến trình nằm ở đây vì chúng là bằng chứng chứ không phải đồng hồ.</li>
+        <li><strong>Được quan sát</strong> - bị chặn, được đếm và cố ý để nói sự thật. Ở đây có các lệnh chờ đối tượng, vì rút ngắn thời hạn chờ có thể giả một lần hết giờ trên handle thật, và bộ hẹn giờ đa phương tiện, vì co giãn nó sẽ làm lệch nhịp âm thanh và MIDI - cả hai được theo dõi khi phiên co giãn trục thời gian trôi qua. Kết nối mạng và một đường tạo tiến trình có mặt ở đây trong mọi phiên, vì chúng là bằng chứng, không phải đồng hồ. Bộ đếm độ phân giải cao không thuộc nhóm này: nó được để nguyên trừ khi bạn yêu cầu bằng <code>--scale-qpc</code>, và khi đó nó được bao phủ.</li>
         <li><strong>Không được bao phủ</strong> - một kênh mà ứng dụng đã đọc mà việc thay thế không đến
           được. Đây là thứ biến một kết luận thành <em>hoạt động một phần</em>, và nó được liệt kê theo tên
           chứ không bị tóm tắt cho biến mất.</li>

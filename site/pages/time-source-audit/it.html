@@ -49,13 +49,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -111,12 +113,7 @@ Chrono Mock - session report
         e proseguire, e la sessione viene allora contrassegnata come inaffidabile ovunque compaia, comprese
         le prove che esporti.
       </p>
-      <p>
-        Esistono altri tre codici per cose che non sono affatto verdetti: <code>1</code> per un errore
-        d'uso, <code>2</code> quando il target non è stato possibile avviarlo o iniettarlo e <code>12</code>
-        quando il target è scomparso in un modo che fa pensare a un'applicazione a istanza singola che ha
-        passato il testimone a una copia già in esecuzione.
-      </p>
+      <p>Altri codici dicono che è fallita l'esecuzione stessa e non la sostituzione - un errore d'uso, un target che non si è potuto avviare, un'esecuzione interrotta, un'altra sessione già in corso - e nessuno di essi è un verdetto. La tabella completa è nel <a href="/it/riferimento-cli/">riferimento della riga di comando</a>.</p>
     </div>
   </section>
 
@@ -127,11 +124,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Coperti</strong> - intercettati e sostituiti. L'applicazione ha chiesto e ha ottenuto
           l'orologio della sessione. Il conteggio delle chiamate dice quante volte.</li>
-        <li><strong>Osservati</strong> - intercettati, contati e lasciati deliberatamente a dire la
-          verità. Il contatore ad alta risoluzione è qui per impostazione predefinita perché scalarlo ha
-          destabilizzato il rendering. I timer multimediali sono qui perché scalarli sposterebbe la
-          temporizzazione di audio e MIDI. Le connessioni di rete e un percorso di creazione di processi
-          sono qui perché sono indizi, non orologi.</li>
+        <li><strong>Osservati</strong> - intercettati, contati e lasciati di proposito a dire la verità. Qui ci sono le attese su oggetti, perché accorciarne il timeout potrebbe simulare una scadenza su un handle reale, e il timer multimediale, perché scalarlo sposterebbe i tempi di audio e MIDI - entrambi osservati quando la sessione scala l'asse del tempo trascorso. Le connessioni di rete e una via di creazione dei processi sono qui in ogni sessione, perché sono indizi, non orologi. Il contatore ad alta risoluzione non è in questo gruppo: resta intatto finché non lo chiedi con <code>--scale-qpc</code>, e allora è coperto.</li>
         <li><strong>Non coperti</strong> - un canale che l'applicazione ha letto e che la sostituzione non
           ha raggiunto. È ciò che trasforma un verdetto in <em>funziona in parte</em>, ed è elencato per
           nome invece di essere riassunto.</li>

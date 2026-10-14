@@ -49,13 +49,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -109,12 +111,7 @@ Chrono Mock - session report
         ocurra. Puedes forzar y seguir adelante, y la sesión queda entonces marcada como no fiable en todos
         los sitios donde aparece, incluida cualquier evidencia que exportes.
       </p>
-      <p>
-        Existen tres códigos más para cosas que no son veredictos en absoluto: <code>1</code> para un
-        error de uso, <code>2</code> cuando el objetivo no se pudo lanzar ni inyectar y <code>12</code>
-        cuando el objetivo desapareció de una forma que sugiere que una aplicación de instancia única
-        cedió el control a una copia que ya estaba en marcha.
-      </p>
+      <p>Otros códigos dicen que falló la propia ejecución y no la sustitución - un error de uso, un objetivo que no se pudo iniciar, una ejecución cortada, otra sesión ya en marcha - y ninguno es un veredicto. La tabla completa está en la <a href="/es/referencia-cli/">referencia de la línea de comandos</a>.</p>
     </div>
   </section>
 
@@ -125,11 +122,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Cubiertos</strong> - interceptados y sustituidos. La aplicación preguntó y recibió el
           reloj de la sesión. El recuento de llamadas dice cuántas veces.</li>
-        <li><strong>Observados</strong> - interceptados, contados y dejados deliberadamente diciendo la
-          verdad. El contador de alta resolución está aquí por defecto porque escalarlo desestabilizó el
-          renderizado. Los temporizadores multimedia están aquí porque escalarlos desplazaría la
-          temporización de audio y MIDI. Las conexiones de red y una ruta de creación de procesos están
-          aquí porque son pruebas, no relojes.</li>
+        <li><strong>Observados</strong> - interceptados, contados y dejados a propósito diciendo la verdad. Aquí están las esperas sobre objetos, porque acortar su tiempo límite podría simular un tiempo agotado en un handle real, y el temporizador multimedia, porque escalarlo desplazaría el audio y el MIDI - ambos vigilados cuando la sesión escala el eje del tiempo transcurrido. Las conexiones de red y una vía de creación de procesos están aquí en cada sesión, porque son pruebas, no relojes. El contador de alta resolución no está en este grupo: se deja intacto salvo que lo pidas con <code>--scale-qpc</code>, y entonces queda cubierto.</li>
         <li><strong>Sin cubrir</strong> - un canal que la aplicación leyó y al que la sustitución no
           llegó. Es lo que convierte un veredicto en <em>funciona parcialmente</em>, y se enumera por su
           nombre en lugar de resumirse.</li>

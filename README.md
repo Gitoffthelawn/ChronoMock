@@ -61,9 +61,9 @@ Grab the latest build from the **[Releases page](https://github.com/donislawdev/
 
 | File | What it is | Size |
 |---|---|---|
-| `ChronoMock-app-win-x64.zip` | The desktop app, self-contained - no .NET install needed | ~69 MB |
+| `ChronoMock-app-win-x64.zip` | The desktop app, self-contained - no .NET install needed | ~70 MB |
 | `ChronoMock-app-win-x64.msi` | The same desktop app and the command line, installed for every account on the machine | ~58 MB |
-| `ChronoMock-cli-win.zip` | Just the command-line tool, for CI and scripts | ~1.6 MB |
+| `ChronoMock-cli-win.zip` | Just the command-line tool, for CI and scripts | ~2.4 MB |
 
 Unzip anywhere and run `ChronoMock.exe` (or `chrono.exe` for the CLI). The zips need no installer and
 no administrator rights, and they write nothing to the registry, with one exception you have to ask
@@ -431,7 +431,7 @@ does not get the switches.
 
 ## Support matrix
 
-_Most rows come from the automated test suite, last run on 2026-09-08 (x64 and x86). The Python and
+_Most rows come from the automated test suite, last run on 2026-10-14 (x64 and x86). The Python and
 Electron rows were verified by hand instead - the suite does not exercise those two yet, and the Basis
 column says which is which._
 

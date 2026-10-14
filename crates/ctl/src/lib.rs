@@ -423,6 +423,18 @@ pub enum ChannelCategory {
     Qpc,
 }
 
+impl ChannelCategory {
+    /// Hooked and counted but never modified: the `observed` bucket of the audit, apart from the
+    /// channels a session puts on its own clock. Exhaustive on purpose, so a new category has to say
+    /// which side it is on - the mechanism sorts the report by it and the website counts by it.
+    pub const fn observed(self) -> bool {
+        match self {
+            Self::WaitObserved | Self::TimerObserved | Self::SpawnObserved | Self::SourceObserved => true,
+            Self::Wall | Self::Zone | Self::Duration | Self::Qpc => false,
+        }
+    }
+}
+
 /// One time channel: its coverage bit, its name, the module that exports it, and its category.
 /// Single source of truth so the mechanism reports exactly the channels the hook installs.
 #[derive(Debug, Clone, Copy)]

@@ -44,13 +44,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -104,12 +106,7 @@ Chrono Mock - session report
         pernah terjadi. Anda dapat menimpanya dan melanjutkan, dan sesi lalu ditandai tidak andal di mana
         pun ia muncul, termasuk pada bukti apa pun yang Anda ekspor.
       </p>
-      <p>
-        Tiga kode lain ada untuk hal-hal yang sama sekali bukan putusan: <code>1</code> untuk kesalahan
-        penggunaan, <code>2</code> ketika target tidak dapat diluncurkan atau disuntik, dan <code>12</code>
-        ketika target menghilang dengan cara yang menunjukkan aplikasi satu-instans menyerahkan kendali ke
-        salinan yang sudah berjalan.
-      </p>
+      <p>Kode lain menyatakan bahwa yang gagal adalah jalannya itu sendiri, bukan penggantian - kesalahan penggunaan, target yang tidak bisa dijalankan, jalannya yang terpotong, sesi lain yang sudah berjalan - dan tidak satu pun adalah putusan. Tabel lengkapnya ada di <a href="/id/referensi-cli/">referensi baris perintah</a>.</p>
     </div>
   </section>
 
@@ -120,11 +117,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Tercakup</strong> - di-hook dan diganti. Aplikasi bertanya, dan mendapat jam sesi.
           Hitungan panggilan menyatakan berapa kali.</li>
-        <li><strong>Diamati</strong> - di-hook, dihitung, dan sengaja dibiarkan mengatakan yang sebenarnya.
-          Penghitung beresolusi tinggi ada di sini secara bawaan karena menskalakannya mengacaukan
-          stabilitas rendering. Timer multimedia ada di sini karena menskalakannya akan menggeser waktu
-          audio dan MIDI. Koneksi jaringan dan satu jalur pembuatan proses ada di sini karena mereka bukti,
-          bukan jam.</li>
+        <li><strong>Diamati</strong> - dicegat, dihitung, dan sengaja dibiarkan berkata jujur. Di sini ada penantian objek, karena memperpendek batas waktunya bisa memalsukan habis waktu pada handle sungguhan, dan pewaktu multimedia, karena menskalakannya akan menggeser waktu audio dan MIDI - keduanya dipantau saat sesi menskalakan sumbu waktu berlalu. Koneksi jaringan dan satu jalur pembuatan proses ada di sini di setiap sesi, karena keduanya bukti, bukan jam. Penghitung resolusi tinggi tidak ada di kelompok ini: ia dibiarkan apa adanya kecuali Anda memintanya dengan <code>--scale-qpc</code>, dan saat itu ia tercakup.</li>
         <li><strong>Tidak tercakup</strong> - kanal yang dibaca aplikasi yang tidak dijangkau penggantian.
           Inilah yang mengubah putusan menjadi <em>berhasil sebagian</em>, dan ia didaftarkan namanya,
           bukan diringkas sampai hilang.</li>

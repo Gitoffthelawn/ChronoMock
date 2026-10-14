@@ -71,9 +71,7 @@
         interruptor aparte:
       </p>
       <ul>
-        <li><code>--scale-duration</code> pone también las suspensiones, esperas y temporizadores en el
-          reloj de la sesión. Sin él, <code>x1440</code> adelanta el calendario a toda velocidad mientras
-          un temporizador de cinco segundos sigue tardando cinco segundos reales.</li>
+        <li><code>--scale-duration</code> pasa también los contadores de ticks, las pausas y los temporizadores al reloj de la sesión, mientras que las esperas sobre objetos se cuentan y conservan su duración real. Sin él, <code>x1440</code> acelera el calendario mientras un temporizador de cinco segundos sigue durando cinco segundos reales - solo un temporizador fijado para una fecha y hora sigue el reloj de la sesión en cada sesión.</li>
         <li><code>--scale-qpc</code> escala además el contador de alta resolución. Ahí es donde Python
           3.13+ <code>monotonic</code>, .NET <code>Stopwatch</code> y Java <code>nanoTime</code> leen el
           tiempo transcurrido, y está desactivado por defecto porque escalarlo desestabilizó el
@@ -116,9 +114,7 @@
         <li><strong>No toca el reloj del sistema.</strong> Ese es el objetivo, no una limitación - pero
           significa que todo lo que lea la hora de un servidor, una base de datos u otra máquina no se ve
           afectado, y la auditoría te lo dice cuando ocurre.</li>
-        <li><strong>Un salto cambia lo que ve la aplicación, no cuándo se despierta.</strong> Los
-          temporizadores ya entregados al kernel corren en tiempo real. La mayoría de las aplicaciones
-          consultan el reloj, así que los saltos funcionan en la práctica - no todas lo hacen.</li>
+        <li><strong>Un salto cambia lo que ve la aplicación, no cuándo se despierta.</strong> Las pausas y los temporizadores ya entregados al kernel conservan la duración que recibieron al fijarse. La mayoría de las aplicaciones consultan el reloj, así que los saltos funcionan en la práctica - aunque no en todas.</li>
         <li><strong>No ralentiza el tiempo.</strong> Los multiplicadores son números enteros de uno en
           adelante, más un reloj congelado en cero.</li>
       </ul>

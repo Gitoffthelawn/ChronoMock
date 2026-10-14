@@ -4,6 +4,7 @@
   "html_lang": "uk",
   "dir": "ltr",
   "og_locale": "uk_UA",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock — запускайте застосунок Windows з будь-якою датою й часом, не змінюючи системний годинник",
 

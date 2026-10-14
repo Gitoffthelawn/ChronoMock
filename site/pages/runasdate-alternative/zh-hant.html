@@ -19,23 +19,25 @@
         <tbody>
           <tr><td>讓一個應用程式以虛擬日期執行</td><td class="y">是</td><td class="y">是</td></tr>
           <tr><td>不動系統時鐘</td><td class="y">是</td><td class="y">是</td></tr>
-          <tr><td>被攔截的時間函式</td><td class="n">5</td><td class="y">{{channel_count}} 個通道</td></tr>
+          <tr><td>被攔截的時間函式</td><td class="n">5</td><td class="y">{{channel_count}}（{{substituted_count}} 個被偏移，{{observed_count}} 個僅計數）</td></tr>
           <tr><td>比真實時間更快的時鐘</td><td class="n">不提供</td><td class="y">任意整數倍率</td></tr>
-          <tr><td>凍結時鐘</td><td class="n">不提供</td><td class="y">是</td></tr>
-          <tr><td>應用程式執行期間跳轉</td><td class="n">不提供</td><td class="y">往前與往後</td></tr>
+          <tr><td>凍結時鐘</td><td class="y">是，預設如此</td><td class="y">是</td></tr>
+          <tr><td>應用程式執行期間跳轉</td><td class="n">只能在設定的秒數後回到真實日期</td><td class="y">向前和向後，跳到任意時刻</td></tr>
           <tr><td>僅對該處理序生效的時區</td><td class="n">文件中未提及</td><td class="y">是，固定偏移量</td></tr>
           <tr><td>子處理序繼承工作階段</td><td class="n">文件中未提及</td><td class="y">是</td></tr>
+          <tr><td>附加到已在執行的應用程式</td><td class="y">是，自 1.40 版起</td><td class="n">否 - 它自己啟動應用程式</td></tr>
+          <tr><td>同時以不同日期執行多個應用程式</td><td class="y">是</td><td class="n">否 - 一次只有一個工作階段</td></tr>
           <tr><td>告訴你是否生效</td><td class="n">否</td><td class="y">判定，逐個通道，附呼叫次數</td></tr>
-          <tr><td>Electron 與 Chromium 應用程式</td><td class="n">不提供</td><td class="y">獨立的機制</td></tr>
+          <tr><td>Electron 與 Chromium 應用程式</td><td class="n">文件中未提及</td><td class="y">獨立的機制</td></tr>
           <tr><td>可用於 CI 的命令列</td><td class="y">是</td><td class="y">是，附結束代碼與 JSON</td></tr>
           <tr><td>原始碼</td><td class="n">免費軟體，封閉原始碼</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>大小</td><td class="y">不到 40 KB</td><td class="n">命令列版 1.6 MB，含視窗版 69 MB</td></tr>
+          <tr><td>大小</td><td class="y">下載 47 KB，64 位元版 57 KB</td><td class="n">命令列版約 {{size_cli_zip}} MB，含視窗版約 {{size_app_zip}} MB</td></tr>
           <tr><td>舊版 Windows</td><td class="y">最早到 Windows 2000</td><td class="n">Windows 10 與 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
-      <em>「文件中未提及」</em>的意思是 RunAsDate 的頁面沒有提到這項功能，並不是宣稱該工具沒有這項功能。
+      <em>「文件中未提及」</em>的意思是 RunAsDate 的頁面沒有提到這項功能，並不是宣稱該工具沒有這項功能。 除非開啟 RunAsDate 的選項 <em>Move the time forward according to the real time</em>，否則它的時鐘靜止不動。
     </p>
   </section>
 
@@ -65,12 +67,14 @@
         其餘的部分，則是與日期相關的程式碼容易藏身之處：
       </p>
       <ul>
-        <li><strong>時區</strong>——四個函式，加上在時區之間轉換的整個函式族，報表落在錯誤的一天，就是經由它們發生的</li>
+        <li><strong>時區</strong> - 回報時區的兩個函式，加上在時區之間換算的六個函式，報表落到錯誤日期正是因為它們</li>
         <li><strong>經過時間軸</strong>——計時刻度與無偏的中斷時間，試用期倒數通常量測的正是它們</li>
-        <li><strong>睡眠與等待</strong>，讓一次延遲是工作階段時鐘上的延遲，而不是真實時鐘上的延遲</li>
+        <li><strong>休眠</strong>，讓延遲成為工作階段時鐘上的延遲，而不是真實時鐘上的延遲，還有<strong>物件等待</strong>，它們會被計數並保持真實時長</li>
         <li><strong>計時器</strong>——可等候計時器、視窗計時器、執行緒集區計時器與多媒體計時器</li>
         <li><strong>處理序建立</strong>，讓安裝程式的子處理序在同一個工作階段中執行，而不是跑在當下的日期</li>
+        <li><strong>網路連線</strong>，作為時間可能來自伺服器的跡象而被計數</li>
       </ul>
+      <p>在 {{channel_count}} 個通道中，{{substituted_count}} 個被換到工作階段時鐘上。其餘 {{observed_count}} 個只計數並保持真實，所以報告會列出它們，而不會聲稱它們被偏移了。牆上時鐘和時區在每個工作階段中都會被偏移。經過時間軸和等待在你用 <code>--scale-duration</code> 要求時會被監看，高解析度計數器則用 <code>--scale-qpc</code>。</p>
     </div>
   </section>
 
@@ -79,10 +83,12 @@
     <div class="prose">
       <p>說真的，而且並不少見：</p>
       <ul>
-        <li><strong>你只需要一個日期、正常速度、馬上就要。</strong>RunAsDate 不到 40 KB，沒有需要學習的視窗，多年來一直在做的正是這件事。</li>
+        <li><strong>你只需要一個日期、正常速度、馬上就要。</strong>RunAsDate 的下載不到 60 KB，沒有需要學習的視窗，多年來一直在做的正是這件事。</li>
         <li><strong>你在用較舊的 Windows。</strong>RunAsDate 最早支援到 Windows 2000。這個工具以 Windows 10 與 11 為目標，在更舊的系統上沒有測試過。</li>
-        <li><strong>大小很重要。</strong>40 KB 對比命令列版 1.6 MB、含視窗版 69 MB，根本沒得比。</li>
+        <li><strong>體積很重要。</strong>47 KB 的下載對比命令列版約 {{size_cli_zip}} MB 或含視窗版約 {{size_app_zip}} MB，根本不在同一個量級。</li>
         <li><strong>你不想要判定。</strong>量測涵蓋情況意味著要去讀結果。如果這個測試是用完即棄的，那就是你沒有要求的額外負擔。</li>
+        <li><strong>應用程式已經在執行。</strong>RunAsDate 自 1.40 版起可以附加到正在執行的處理序。Chrono Mock 自己啟動應用程式，所以無法重新啟動的應用程式超出了它的能力範圍。</li>
+        <li><strong>你想同時以不同日期執行多個應用程式。</strong>RunAsDate 會給每個應用程式各自的日期。Chrono Mock 一次只執行一個工作階段。</li>
       </ul>
       <p>
         兩者也可以並存。這裡沒有任何東西會阻止你為快速的場景繼續保留 RunAsDate。

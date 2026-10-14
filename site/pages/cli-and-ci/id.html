@@ -6,7 +6,7 @@
     <h1>Pengujian tanggal dalam pipeline</h1>
     <p class="sub">
       Jendela untuk menjelajah. Ini adalah separuh lainnya: build baris perintah sekitar
-      <strong>1,6 MB</strong> tanpa runtime yang perlu dipasang, yang kode keluarnya adalah putusan
+      <strong>{{size_cli_zip}} MB</strong> tanpa runtime yang perlu dipasang, yang kode keluarnya adalah putusan
       cakupan, bukan kode keluar target.
     </p>
   </section>
@@ -39,6 +39,9 @@
           <tr><td>12</td><td>target menghilang, yang menunjukkan aplikasi satu-instans</td></tr>
           <tr><td>3</td><td>kesalahan internal - engine tidak dapat dimulai, menemui keadaan tak terduga, atau berhenti sebelum menutup sesi (apa pun kode keluarnya sendiri). Eksekusi seperti itu tidak membawa putusan</td></tr>
           <tr><td>5</td><td>operasi tidak disertakan dalam rilis ini</td></tr>
+          <tr><td>6</td><td>eksekusi terpotong - <code>--timeout</code> habis, atau engine berhenti merespons selama 15 detik dan dihentikan. Ini bukan putusan: sesi terputus, sehingga tidak membuktikan apa pun tentang target ke arah mana pun</td></tr>
+          <tr><td>7</td><td>sesi lain sudah berjalan - hanya satu sesi dalam satu waktu. Cukup coba lagi setelah sesi itu selesai</td></tr>
+          <tr><td>8</td><td>sesi sudah mencapai putusan, tetapi buktinya tidak ada di file yang disebut <code>--report</code> - disk penuh, atau program lain membuka file lama itu, yang kemudian tetap seperti semula. Putusan tetap ada di laporan yang dicetak perintah</td></tr>
         </tbody>
       </table>
     </div>

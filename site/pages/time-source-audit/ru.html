@@ -44,13 +44,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -104,12 +106,7 @@ Chrono Mock - session report
         переопределить это и продолжить, и тогда сессия помечается как ненадёжная везде, где она
         появляется, в том числе в любых экспортируемых вами доказательствах.
       </p>
-      <p>
-        Есть ещё три кода для вещей, которые вообще не вердикты: <code>1</code> — ошибка использования,
-        <code>2</code> — цель не удалось запустить или внедриться в неё, и <code>12</code> — цель исчезла
-        способом, который указывает, что приложение с единственным экземпляром передало управление уже
-        запущенной копии.
-      </p>
+      <p>Другие коды говорят, что сломался сам запуск, а не подмена - ошибка использования, цель, которую не удалось запустить, прерванный запуск, уже работающая другая сессия - и ни один из них не является вердиктом. Полная таблица есть в <a href="/ru/cli-reference/">справочнике по командной строке</a>.</p>
     </div>
   </section>
 
@@ -120,11 +117,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Покрытые</strong> — перехвачены и подменены. Приложение спросило и получило часы
           сессии. Счётчик вызовов говорит, сколько раз.</li>
-        <li><strong>Наблюдаемые</strong> — перехвачены, посчитаны и намеренно оставлены говорить правду.
-          Высокоточный счётчик здесь по умолчанию, потому что его масштабирование дестабилизировало
-          отрисовку. Мультимедийные таймеры здесь потому, что их масштабирование сдвинуло бы тайминг звука
-          и MIDI. Сетевые соединения и один путь создания процессов здесь потому, что это улики, а не
-          часы.</li>
+        <li><strong>Наблюдаемые</strong> - перехвачены, посчитаны и намеренно оставлены говорить правду. Здесь ожидания объектов, потому что укороченный тайм-аут мог бы изобразить истечение времени на настоящем дескрипторе, и мультимедийный таймер, потому что его масштабирование сдвинуло бы тайминг звука и MIDI - оба отслеживаются, когда сессия масштабирует ось прошедшего времени. Сетевые подключения и один путь создания процессов здесь в каждой сессии, потому что это улики, а не часы. Счётчика высокого разрешения в этой группе нет: он остаётся нетронутым, пока вы не попросите о нём через <code>--scale-qpc</code>, и тогда он покрыт.</li>
         <li><strong>Непокрытые</strong> — канал, который приложение читало и до которого подмена не дошла.
           Именно это превращает вердикт в <em>работает частично</em>, и он перечисляется по имени, а не
           сворачивается в общую сводку.</li>

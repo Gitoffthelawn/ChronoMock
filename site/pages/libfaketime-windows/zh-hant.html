@@ -74,7 +74,7 @@ FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
       </p>
       <p>
         <strong>Windows 上可攔截的地方更多。</strong>除了掛鐘時間，還有時區、經過時間軸、四類計時器、睡眠與等待函式，以及處理序建立——總共 {{channel_count}} 個通道。
-      </p>
+      其中 {{substituted_count}} 個被偏移，其餘 {{observed_count}} 個（包括網路連線）只計數。</p>
       <p>
         <strong>這個工具會回報自己的涵蓋情況。</strong>每次工作階段都以一個判定、應用程式實際讀取過的通道及各自的次數，以及被遺漏的通道結束。這是兩個平台上都沒有對應物的部分。
       </p>

@@ -67,9 +67,7 @@
         Maka sumbu durasi - hitungan tick, sleep, wait, dan timer - adalah switch yang terpisah:
       </p>
       <ul>
-        <li><code>--scale-duration</code> memasang sleep, wait, dan timer ke jam sesi juga. Tanpanya,
-          <code>x1440</code> memacu kalender ke depan sementara timer lima detik tetap memakan lima detik
-          nyata.</li>
+        <li><code>--scale-duration</code> juga memindahkan penghitung tick, jeda tidur, dan pewaktu ke jam sesi, sementara penantian objek dihitung dan tetap pada durasi sebenarnya. Tanpanya, <code>x1440</code> memacu kalender ke depan sementara pewaktu lima detik tetap berlangsung lima detik sungguhan - hanya pewaktu yang diatur ke tanggal dan jam tertentu yang mengikuti jam sesi di setiap sesi.</li>
         <li><code>--scale-qpc</code> juga menskalakan penghitung beresolusi tinggi. Di situlah
           <code>monotonic</code> Python 3.13+, <code>Stopwatch</code> .NET, dan <code>nanoTime</code> Java
           membaca waktu berlalu, dan ia nonaktif secara bawaan karena menskalakannya mengacaukan
@@ -112,9 +110,7 @@
         <li><strong>Tidak menyentuh jam sistem.</strong> Itu intinya, bukan keterbatasan - tetapi artinya
           apa pun yang membaca waktu dari server, database, atau mesin lain tidak terpengaruh, dan audit
           akan memberi tahu ketika itu terjadi.</li>
-        <li><strong>Lompatan mengubah apa yang dilihat aplikasi, bukan kapan ia terbangun.</strong> Timer
-          yang sudah diserahkan ke kernel berjalan pada waktu nyata. Kebanyakan aplikasi melakukan polling
-          jam, sehingga lompatan berfungsi dalam praktik - tetapi tidak semuanya.</li>
+        <li><strong>Lompatan mengubah apa yang dilihat aplikasi, bukan kapan ia bangun.</strong> Jeda tidur dan pewaktu yang sudah diserahkan ke kernel mempertahankan durasi yang diterimanya saat diatur. Sebagian besar aplikasi menanyakan jam berulang kali, jadi lompatan berhasil dalam praktik - tetapi tidak di semua aplikasi.</li>
         <li><strong>Tidak memperlambat waktu.</strong> Pengali adalah bilangan bulat satu ke atas, ditambah
           jam beku pada nol.</li>
       </ul>

@@ -25,24 +25,26 @@
         <tbody>
           <tr><td>Führt eine Anwendung mit falschem Datum aus</td><td class="y">ja</td><td class="y">ja</td></tr>
           <tr><td>Lässt die Systemuhr in Ruhe</td><td class="y">ja</td><td class="y">ja</td></tr>
-          <tr><td>Abgefangene Zeitfunktionen</td><td class="n">5</td><td class="y">{{channel_count}} Kanäle</td></tr>
+          <tr><td>Abgefangene Zeitfunktionen</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} verschoben, {{observed_count}} gezählt)</td></tr>
           <tr><td>Uhr schneller als Echtzeit</td><td class="n">nicht angeboten</td><td class="y">jeder ganzzahlige Faktor</td></tr>
-          <tr><td>Uhr einfrieren</td><td class="n">nicht angeboten</td><td class="y">ja</td></tr>
-          <tr><td>Springen, während die App läuft</td><td class="n">nicht angeboten</td><td class="y">vorwärts und rückwärts</td></tr>
+          <tr><td>Uhr einfrieren</td><td class="y">ja, standardmäßig</td><td class="y">ja</td></tr>
+          <tr><td>Springen, während die App läuft</td><td class="n">nur zurück zum echten Datum, nach einer festen Zahl von Sekunden</td><td class="y">vorwärts und rückwärts, zu jedem beliebigen Zeitpunkt</td></tr>
           <tr><td>Zeitzone nur für diesen Prozess</td><td class="n">nicht dokumentiert</td><td class="y">ja, fester Offset</td></tr>
           <tr><td>Kindprozesse erben die Sitzung</td><td class="n">nicht dokumentiert</td><td class="y">ja</td></tr>
+          <tr><td>An eine bereits laufende Anwendung anhängen</td><td class="y">ja, seit Version 1.40</td><td class="n">nein - es startet die Anwendung selbst</td></tr>
+          <tr><td>Mehrere Anwendungen mit verschiedenen Daten gleichzeitig</td><td class="y">ja</td><td class="n">nein - eine Sitzung zur Zeit</td></tr>
           <tr><td>Sagt, ob es gewirkt hat</td><td class="n">nein</td><td class="y">Urteil, pro Kanal, mit Aufrufzahlen</td></tr>
-          <tr><td>Electron- und Chromium-Anwendungen</td><td class="n">nicht angeboten</td><td class="y">eigener Mechanismus</td></tr>
+          <tr><td>Electron- und Chromium-Anwendungen</td><td class="n">nicht dokumentiert</td><td class="y">eigener Mechanismus</td></tr>
           <tr><td>Kommandozeile für die CI</td><td class="y">ja</td><td class="y">ja, mit Exit-Codes und JSON</td></tr>
           <tr><td>Quellcode</td><td class="n">Freeware, closed source</td><td class="y">GPL-3.0</td></tr>
-          <tr><td>Größe</td><td class="y">unter 40 KB</td><td class="n">1,6 MB CLI, 69 MB mit Fenster</td></tr>
+          <tr><td>Größe</td><td class="y">47 KB Download, 57 KB für 64 Bit</td><td class="n">~{{size_cli_zip}} MB Kommandozeile, ~{{size_app_zip}} MB mit Fenster</td></tr>
           <tr><td>Ältere Windows-Versionen</td><td class="y">bis zurück zu Windows 2000</td><td class="n">Windows 10 und 11</td></tr>
         </tbody>
       </table>
     </div>
     <p class="sub" style="margin-top:18px">
       <em>„Nicht dokumentiert“</em> heißt, dass die Funktion auf der RunAsDate-Seite nicht erwähnt wird.
-      Es ist keine Behauptung, dass dem Werkzeug die Funktion fehlt.
+      Es ist keine Behauptung, dass dem Werkzeug die Funktion fehlt. Die Uhr von RunAsDate steht, solange seine Option <em>Move the time forward according to the real time</em> nicht aktiviert ist.
     </p>
   </section>
 
@@ -82,16 +84,16 @@
         Auf der übrigen Fläche versteckt sich datumsabhängiger Code gern:
       </p>
       <ul>
-        <li>die <strong>Zeitzone</strong> - vier Funktionen plus die ganze Familie, die zwischen Zonen
-          umrechnet, und so landet ein Bericht am falschen Tag</li>
+        <li>die <strong>Zeitzone</strong> - die zwei Funktionen, die sie melden, plus die sechs, die zwischen Zonen umrechnen, wodurch ein Bericht am falschen Tag landet</li>
         <li>die <strong>Achse der verstrichenen Zeit</strong> - Tick-Zähler und ungeglättete
           Interruptzeit, was ein Testversions-Countdown meist misst</li>
-        <li><strong>Sleeps und Waits</strong>, damit eine Verzögerung eine Verzögerung auf der
-          Sitzungsuhr ist und nicht auf der echten</li>
+        <li><strong>Pausen</strong>, damit eine Verzögerung eine Verzögerung auf der Sitzungsuhr ist und nicht auf der echten, und <strong>Wartevorgänge auf Objekte</strong>, die gezählt werden und ihre echte Länge behalten</li>
         <li><strong>Timer</strong> - wartbare, Fenster-, Thread-Pool- und Multimedia-Timer</li>
         <li><strong>Prozesserzeugung</strong>, damit die Kindprozesse eines Installers in derselben Sitzung
           laufen statt im heutigen Tag</li>
+        <li><strong>Netzwerkverbindungen</strong>, gezählt als Hinweis, dass die Zeit von einem Server kommen kann</li>
       </ul>
+      <p>Von den {{channel_count}} kommen {{substituted_count}} auf die Sitzungsuhr. Der Rest ({{observed_count}}) wird nur gezählt und bleibt echt, sodass der Bericht ihn nennt, ohne zu behaupten, er sei verschoben worden. Wanduhr und Zeitzone werden in jeder Sitzung verschoben. Die Achse der verstrichenen Zeit und die Wartevorgänge werden beobachtet, wenn Sie das mit <code>--scale-duration</code> verlangen, der hochauflösende Zähler mit <code>--scale-qpc</code>.</p>
     </div>
   </section>
 
@@ -100,15 +102,14 @@
     <div class="prose">
       <p>Wirklich, und nicht selten:</p>
       <ul>
-        <li><strong>Sie brauchen ein Datum, in normaler Geschwindigkeit, jetzt gleich.</strong> RunAsDate
-          ist unter 40 KB groß, hat kein Fenster, das man lernen müsste, und tut genau das seit vielen
-          Jahren.</li>
+        <li><strong>Sie brauchen ein Datum, in normaler Geschwindigkeit, jetzt gleich.</strong> RunAsDate ist ein Download unter 60 KB, hat kein Fenster, das man lernen müsste, und tut genau das seit vielen Jahren.</li>
         <li><strong>Sie sind auf einem älteren Windows.</strong> RunAsDate reicht bis Windows 2000
           zurück. Dieses Werkzeug zielt auf Windows 10 und 11 und ist auf nichts Älterem getestet.</li>
-        <li><strong>Die Größe zählt.</strong> 40 KB gegen 1,6 MB für die Kommandozeile oder 69 MB mit
-          Fenster ist kein enger Vergleich.</li>
+        <li><strong>Die Größe zählt.</strong> Ein Download von 47 KB gegen ~{{size_cli_zip}} MB für die Kommandozeile oder ~{{size_app_zip}} MB mit Fenster ist kein knapper Vergleich.</li>
         <li><strong>Sie wollen kein Urteil.</strong> Die Abdeckung zu messen heißt, das Ergebnis zu lesen.
           Ist der Test ohnehin ein Wegwerftest, ist das ein Aufwand, den Sie nicht bestellt haben.</li>
+        <li><strong>Die Anwendung läuft schon.</strong> RunAsDate kann sich seit Version 1.40 an einen laufenden Prozess anhängen. Chrono Mock startet die Anwendung selbst, eine, die sich nicht neu starten lässt, ist also außer Reichweite.</li>
+        <li><strong>Sie wollen mehrere Anwendungen mit verschiedenen Daten gleichzeitig.</strong> RunAsDate gibt jeder ihr eigenes Datum. Chrono Mock führt eine Sitzung zur Zeit.</li>
       </ul>
       <p>
         Beide können auch nebeneinander bestehen. Nichts hier hindert Sie daran, RunAsDate für den

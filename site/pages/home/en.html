@@ -54,8 +54,8 @@
           <span><b>Works</b> - the substitution reached this process</span>
         </div>
         <div class="chan">
-          <span>Time channels covered</span>
-          <span class="n">26 of {{channel_count}} &middot; with call counts</span>
+          <span>Time channels watched</span>
+          <span class="n">up to {{channel_count}} &middot; each with a call count</span>
         </div>
       </div>
     </div>
@@ -209,7 +209,7 @@ Chrono Mock - date calculator
         </thead>
         <tbody>
           <tr><td>Runs one app at a fake date</td><td class="y">yes</td><td class="y">yes</td></tr>
-          <tr><td>Time channels intercepted</td><td class="n">5</td><td class="y">{{channel_count}}</td></tr>
+          <tr><td>Time channels intercepted</td><td class="n">5</td><td class="y">{{channel_count}} ({{substituted_count}} shifted, {{observed_count}} counted)</td></tr>
           <tr><td>Speed the clock up</td><td class="n">no</td><td class="y">yes</td></tr>
           <tr><td>Independent time zone</td><td class="n">not documented</td><td class="y">yes</td></tr>
           <tr><td>Follows child processes</td><td class="n">not documented</td><td class="y">yes</td></tr>

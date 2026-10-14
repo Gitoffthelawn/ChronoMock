@@ -45,13 +45,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -105,12 +107,7 @@ Chrono Mock - session report
         forța și continua, iar sesiunea este apoi marcată ca nesigură peste tot unde apare, inclusiv în
         orice dovezi exportezi.
       </p>
-      <p>
-        Mai există trei coduri pentru lucruri care nu sunt deloc verdicte: <code>1</code> pentru o eroare
-        de utilizare, <code>2</code> când ținta nu a putut fi lansată sau injectată și
-        <code>12</code> când ținta a dispărut într-un fel care sugerează o aplicație cu o singură instanță,
-        care a predat controlul unei copii deja pornite.
-      </p>
+      <p>Alte coduri spun că a eșuat rularea însăși, nu substituția - o eroare de utilizare, o țintă care nu a putut porni, o rulare întreruptă, o altă sesiune deja pornită - și niciunul nu este un verdict. Tabelul complet este în <a href="/ro/referinta-cli/">referința liniei de comandă</a>.</p>
     </div>
   </section>
 
@@ -121,11 +118,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Acoperite</strong> - interceptate și înlocuite. Aplicația a întrebat și a primit ceasul
           sesiunii. Numărul de apeluri spune de câte ori.</li>
-        <li><strong>Observate</strong> - interceptate, numărate și lăsate deliberat să spună adevărul.
-          Contorul de înaltă rezoluție este aici implicit, pentru că scalarea lui a destabilizat randarea.
-          Temporizatoarele multimedia sunt aici pentru că scalarea lor ar deplasa sincronizarea audio și
-          MIDI. Conexiunile de rețea și o cale de creare de procese sunt aici pentru că sunt dovezi, nu
-          ceasuri.</li>
+        <li><strong>Observate</strong> - interceptate, numărate și lăsate intenționat să spună adevărul. Aici sunt așteptările pe obiecte, pentru că scurtarea limitei de timp ar putea simula o expirare pe un handle real, și timerul multimedia, pentru că scalarea lui ar deplasa sincronizarea audio și MIDI - ambele urmărite când sesiunea scalează axa timpului scurs. Conexiunile de rețea și o cale de creare a proceselor sunt aici în fiecare sesiune, pentru că sunt dovezi, nu ceasuri. Contorul de înaltă rezoluție nu este în acest grup: rămâne neatins până când îl ceri cu <code>--scale-qpc</code>, iar atunci este acoperit.</li>
         <li><strong>Neacoperite</strong> - un canal pe care aplicația l-a citit și la care înlocuirea nu a
           ajuns. Asta transformă un verdict în <em>funcționează parțial</em>, iar canalul este enumerat
           pe nume, nu rezumat până dispare.</li>

@@ -155,7 +155,7 @@
     <div class="qa">
       <h3>Îl pot folosi în integrare continuă?</h3>
       <p>
-        Da. Build-ul de linie de comandă este o descărcare separată de circa 1,6 MB, fără runtime de
+        Da. Build-ul de linie de comandă este o descărcare separată de circa {{size_cli_zip}} MB, fără runtime de
         instalat. Fiecare comandă vorbește <code>--json</code> și iese cu un cod pe care un pipeline îl
         poate folosi pentru ramificare, iar o sesiune își poate scrie dovezile într-un fișier.
       </p>
@@ -163,12 +163,7 @@
 
     <div class="qa">
       <h3>Cu ce diferă de RunAsDate?</h3>
-      <p>
-        RunAsDate interceptează cinci funcții de ceas de perete și o face bine. Acest instrument acoperă
-        {{channel_count}} canale de timp, poate accelera ceasul, dă procesului propriul fus orar,
-        urmărește procesele copil și îți spune ulterior care canale au fost acoperite efectiv. Este și
-        open source, în timp ce RunAsDate este freeware închis.
-      </p>
+      <p>RunAsDate interceptează cinci funcții ale ceasului de perete și o face bine. Acest instrument urmărește {{channel_count}} canale de timp și trece {{substituted_count}} dintre ele pe ceasul sesiunii, poate accelera ceasul, îi dă procesului propriul fus orar, urmărește procesele copil și îți spune apoi care canale au fost cu adevărat acoperite. Este și open source, în timp ce RunAsDate este freeware închis. RunAsDate, la rândul lui, se poate atașa la o aplicație care rulează deja, iar acest instrument nu.</p>
       <p>
         <a href="/ro/alternativa-la-runasdate/">Comparația completă</a> spune și unde RunAsDate este
         alegerea mai bună.

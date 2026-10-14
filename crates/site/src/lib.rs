@@ -72,6 +72,9 @@ pub struct SiteConfig {
     pub social_image: String,
     pub social_image_width: u32,
     pub social_image_height: u32,
+    /// The size of each download in MiB, written with a decimal point, keyed by the token name
+    /// after `size_`. A release changes them, and this is the one place that has to follow.
+    pub download_sizes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,9 +162,55 @@ pub fn tokens(cfg: &SiteConfig, preset_count: usize, calendar_count: usize) -> B
     t.insert("version".into(), env!("CARGO_PKG_VERSION").to_string());
     // The one that justifies this crate depending on chrono-ctl.
     t.insert("channel_count".into(), chrono_ctl::CHANNEL_COUNT.to_string());
+    // How those channels split between the session clock and the audit's observed bucket, counted
+    // from the same table, so "44, 30 of them shifted" cannot drift either.
+    let observed = chrono_ctl::CHANNELS.iter().filter(|c| c.category.observed()).count();
+    t.insert("observed_count".into(), observed.to_string());
+    t.insert("substituted_count".into(), (chrono_ctl::CHANNEL_COUNT - observed).to_string());
     t.insert("preset_count".into(), preset_count.to_string());
     t.insert("calendar_count".into(), calendar_count.to_string());
+    for (name, size) in &cfg.download_sizes {
+        t.insert(format!("{SIZE_TOKEN_PREFIX}{name}"), size.clone());
+    }
     t
+}
+
+/// The prefix of the tokens that carry a download size - the only tokens a language writes
+/// differently, because they hold a decimal point.
+pub const SIZE_TOKEN_PREFIX: &str = "size_";
+
+/// Refuse a download size that is not a plain number. A size is printed on twenty-odd pages with
+/// its unit typed beside it, so anything else in it - a unit, a tilde, a decimal comma - would be
+/// printed twice or read wrongly in half the languages.
+pub fn check_download_sizes(cfg: &SiteConfig) -> Result<()> {
+    for (name, size) in &cfg.download_sizes {
+        let mut parts = size.split('.');
+        let whole = parts.next().unwrap_or_default();
+        let fraction = parts.next();
+        let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+        if !digits(whole) || fraction.is_some_and(|f| !digits(f)) || parts.next().is_some() {
+            return Err(format!(
+                "site.json: download size '{name}' is '{size}', and it must be a number such as 70 or 2.4"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The token table one language renders with: the same values, with the decimal point of every
+/// download size written the way that language writes it (`decimal_separator` in its dictionary).
+pub fn localized_tokens(table: &BTreeMap<String, String>, decimal_separator: &str) -> BTreeMap<String, String> {
+    table
+        .iter()
+        .map(|(name, value)| {
+            let value = if name.starts_with(SIZE_TOKEN_PREFIX) {
+                value.replace('.', decimal_separator)
+            } else {
+                value.clone()
+            };
+            (name.clone(), value)
+        })
+        .collect()
 }
 
 /// Replace every `{{name}}`. An unknown name is an error naming the file, because the
@@ -322,6 +371,8 @@ fn is_language_code(code: &str) -> bool {
 ///   silently publish a left-to-right Arabic site.
 /// * An `og_locale` that is not `ll_CC` is dropped by the crawlers that read it, without a
 ///   message.
+/// * `decimal_separator` is written into every download size, so anything but a point or a
+///   comma would put a stray character into a number on every page of that language.
 pub fn validate_languages(
     languages: &[String],
     i18n: &BTreeMap<String, BTreeMap<String, String>>,
@@ -360,6 +411,12 @@ pub fn validate_languages(
             && og[3..].chars().all(|c| c.is_ascii_uppercase());
         if !shaped {
             return Err(format!("i18n/{lang}.json: og_locale '{og}' is not of the form ll_CC"));
+        }
+        let separator = key("decimal_separator")?;
+        if separator != "." && separator != "," {
+            return Err(format!(
+                "i18n/{lang}.json: decimal_separator is '{separator}', and it must be '.' or ','"
+            ));
         }
     }
     Ok(())
@@ -438,7 +495,7 @@ mod tests {
     }
 
     fn dict(html_lang: &str, dir: &str, og: &str) -> BTreeMap<String, String> {
-        [("html_lang", html_lang), ("dir", dir), ("og_locale", og)]
+        [("html_lang", html_lang), ("dir", dir), ("og_locale", og), ("decimal_separator", ",")]
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
@@ -464,6 +521,9 @@ mod tests {
         assert!(one("ar", dict("ar", "RTL", "ar_AR")).unwrap_err().contains("dir"));
         assert!(one("ar", dict("ar", "rtl", "ar")).unwrap_err().contains("og_locale"));
         assert!(one("ar", dict("ar", "rtl", "ar_ar")).unwrap_err().contains("og_locale"));
+        let mut odd = dict("ar", "rtl", "ar_AR");
+        odd.insert("decimal_separator".into(), "\u{66b}".into());
+        assert!(one("ar", odd).unwrap_err().contains("decimal_separator"));
     }
 
     #[test]
@@ -561,6 +621,41 @@ mod tests {
             social_image: "/assets/social-preview.png".into(),
             social_image_width: 1280,
             social_image_height: 640,
+            download_sizes: [("cli_zip", "2.4"), ("app_zip", "70")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_split_of_the_channels_comes_from_the_same_table() {
+        let t = tokens(&test_config(), 14, 3);
+        let number = |name: &str| t[name].parse::<usize>().expect("a count");
+        let observed = chrono_ctl::CHANNELS.iter().filter(|c| c.category.observed()).count();
+        assert_eq!(number("observed_count"), observed);
+        assert_eq!(number("substituted_count") + number("observed_count"), chrono_ctl::CHANNEL_COUNT);
+        assert!(number("substituted_count") > 0 && observed > 0, "both sides of the split are real");
+    }
+
+    #[test]
+    fn a_size_takes_the_decimal_mark_of_its_language_and_nothing_else_does() {
+        let t = tokens(&test_config(), 14, 3);
+        let pl = localized_tokens(&t, ",");
+        assert_eq!(pl["size_cli_zip"], "2,4");
+        assert_eq!(pl["size_app_zip"], "70");
+        assert_eq!(pl["host"], "https://example.test", "only sizes are localized");
+        assert_eq!(localized_tokens(&t, ".")["size_cli_zip"], "2.4");
+    }
+
+    #[test]
+    fn a_download_size_must_be_a_plain_number() {
+        let mut cfg = test_config();
+        assert!(check_download_sizes(&cfg).is_ok());
+        for bad in ["2,4", "~70", "70 MB", "", "2.", ".4", "2.4.1"] {
+            cfg.download_sizes.insert("cli_zip".into(), bad.into());
+            let err = check_download_sizes(&cfg).expect_err(bad);
+            assert!(err.contains("cli_zip"), "{err}");
         }
     }
 

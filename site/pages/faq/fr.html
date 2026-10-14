@@ -159,7 +159,7 @@
     <div class="qa">
       <h3>Puis-je l'utiliser en intégration continue&nbsp;?</h3>
       <p>
-        Oui. La version en ligne de commande est un téléchargement séparé d'environ 1,6 Mo, sans
+        Oui. La version en ligne de commande est un téléchargement séparé d'environ {{size_cli_zip}} Mo, sans
         environnement d'exécution à installer. Chaque commande comprend <code>--json</code> et se termine
         par un code sur lequel un pipeline peut bifurquer, et une session peut écrire sa preuve dans un
         fichier.
@@ -168,12 +168,7 @@
 
     <div class="qa">
       <h3>En quoi est-ce différent de RunAsDate&nbsp;?</h3>
-      <p>
-        RunAsDate intercepte cinq fonctions d'horloge murale et le fait bien. Cet outil couvre
-        {{channel_count}} canaux de temps, peut accélérer l'horloge, donne au processus son propre fuseau
-        horaire, suit les processus enfants et vous dit ensuite quels canaux ont réellement été couverts.
-        Il est aussi open source, alors que RunAsDate est un freeware fermé.
-      </p>
+      <p>RunAsDate intercepte cinq fonctions d'horloge murale et le fait bien. Cet outil observe {{channel_count}} canaux de temps et en place {{substituted_count}} sur l'horloge de la session, peut accélérer l'horloge, donne au processus son propre fuseau, suit les processus enfants et vous dit ensuite quels canaux ont été réellement couverts. Il est aussi open source, là où RunAsDate est un freeware fermé. RunAsDate, de son côté, sait s'attacher à une application déjà lancée, ce que cet outil ne fait pas.</p>
       <p>
         <a href="/fr/alternative-a-runasdate/">La comparaison complète</a> dit aussi dans quels cas
         RunAsDate est le meilleur choix.

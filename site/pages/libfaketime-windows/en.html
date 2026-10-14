@@ -98,7 +98,7 @@ FAKETIME="2020-12-24 20:30:00" LD_PRELOAD=/usr/local/lib/libfaketime.so.1 ./test
         <strong>Windows has more places to intercept.</strong> Beyond the wall clock there is
         the time zone, the elapsed-time axis, four families of timer, the sleep and wait
         functions, and process creation - {{channel_count}} channels in total.
-      </p>
+       Of those, {{substituted_count}} are shifted, and the other {{observed_count}}, network connections among them, are counted.</p>
       <p>
         <strong>This one reports its own coverage.</strong> Every session ends with a verdict,
         the channels the application actually read with a count for each, and the channels

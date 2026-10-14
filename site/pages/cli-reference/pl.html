@@ -80,8 +80,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>Przyspiesza także oś trwania: liczniki ticków, uśpienia i timery. Domyślnie
-              wyłączone, bo zegar ścienny i stoper to dwa różne pytania.</td>
+            <td>Przyspiesz także oś czasu trwania: liczniki taktów, czas przerwań, uśpienia i timery. Czekania na obiekty są liczone i zachowują prawdziwą długość. Domyślnie wyłączone, bo zegar ścienny i stoper to różne pytania. Timer albo opóźnienie nastawione na konkretną datę i godzinę podąża za zegarem sesji z tą flagą i bez niej.</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -262,7 +261,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -281,7 +280,7 @@
           awaryjny przychodzi jako duża liczba ujemna, więc dostaje też postać szesnastkową.</li>
         <li><strong>covered</strong> - kanały, które podmiana objęła, z liczbą realnych wywołań
           każdego, osobno per proces. Liczniki nigdy nie są sumowane między procesami: audyt
-          jednego procesu nie może pożyczać liczb od drugiego.</li>
+          jednego procesu nie może pożyczać liczb od drugiego. Licznik zatrzymuje się na 1048576 i wtedy pokazuje <em>co najmniej</em> tyle.</li>
         <li><strong>observed</strong> - kanały podpięte, ale celowo zostawione prawdziwe, jak
           czekania na obiekty czy timery multimedialne. Mają własny kubełek, żeby nikt nie
           przeczytał ich jako podmienionych.</li>

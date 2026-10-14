@@ -44,13 +44,15 @@ Chrono Mock - session report
   verdict:  <span class="v">WORKS - time substitution took effect</span>  (processes: 1)
             every process that read time saw the session clock
   session:  fake clock reached 2038-01-19T03:14:10
-            real elapsed 3.3s, fake elapsed 3.3s
-  covered channels (substituted, with call counts):
-            - pid 38828: NtQuerySystemTime (3 calls)
+            real elapsed 3.4s, fake elapsed 3.4s
+  exited:   the target closed itself with code 0
+  covered channels (substituted, with call counts, 4 calls in all):
+            - pid 9152: GetSystemTimeAsFileTime (1 call)
+            - pid 9152: NtQuerySystemTime (3 calls)
 <span class="c">            ... every other channel, including the ones never called</span>
   observed channels (hooked but left real):
-            - pid 38828: NtCreateUserProcess (0 calls)
-            - pid 38828: connect (1 call)
+            - pid 9152: NtCreateUserProcess (0 calls)
+            - pid 9152: connect (1 call)
   warnings:
             - the target opened a network connection - it may read time from a
               server, which no local hook can cover (source.network_at_start)
@@ -103,12 +105,7 @@ Chrono Mock - session report
         mahkûm bir başlatmanın hiç olmayacağı değil. Geçersiz kılıp devam edebilirsiniz ve oturum, dışa
         aktardığınız her kanıt dahil göründüğü her yerde güvenilmez olarak işaretlenir.
       </p>
-      <p>
-        Hiç karar olmayan şeyler için üç kod daha var: kullanım hatası için <code>1</code>, hedef
-        başlatılamadığında ya da içine enjekte edilemediğinde <code>2</code> ve hedef, tek örnekli bir
-        uygulamanın zaten çalışan bir kopyaya devrettiğini düşündüren bir şekilde ortadan kaybolduğunda
-        <code>12</code>.
-      </p>
+      <p>Diğer kodlar, başarısız olanın ikame değil çalıştırmanın kendisi olduğunu söyler - bir kullanım hatası, başlatılamayan bir hedef, yarıda kesilen bir çalıştırma, zaten çalışan başka bir oturum - ve hiçbiri bir karar değildir. Tablonun tamamı <a href="/tr/cli-basvuru/">komut satırı başvurusunda</a>.</p>
     </div>
   </section>
 
@@ -119,10 +116,7 @@ Chrono Mock - session report
       <ul>
         <li><strong>Kapsanan</strong> - yakalanmış ve değiştirilmiş. Uygulama sordu ve oturum saatini aldı.
           Çağrı sayısı kaç kez olduğunu söyler.</li>
-        <li><strong>Gözlemlenen</strong> - yakalanmış, sayılmış ve bilerek doğruyu söylemeye bırakılmış.
-          Yüksek çözünürlüklü sayaç, onu ölçeklemek render’ı kararsızlaştırdığı için varsayılan olarak
-          burada. Çok ortamlı zamanlayıcılar, ölçeklemenin ses ve MIDI zamanlamasını kaydıracağı için
-          burada. Ağ bağlantıları ve bir süreç oluşturma yolu, saat değil kanıt oldukları için burada.</li>
+        <li><strong>Gözlenen</strong> - yakalanır, sayılır ve bilerek doğruyu söylemeye bırakılır. Nesne beklemeleri buradadır, çünkü bekleme süresini kısaltmak gerçek bir tanıtıcıda zaman aşımı taklidi yapabilir, ve çoklu ortam zamanlayıcısı da buradadır, çünkü onu ölçeklemek ses ve MIDI zamanlamasını kaydırır - ikisi de oturum geçen süre eksenini ölçeklediğinde izlenir. Ağ bağlantıları ve bir süreç oluşturma yolu her oturumda buradadır, çünkü bunlar saat değil kanıttır. Yüksek çözünürlüklü sayaç bu grupta değildir: <code>--scale-qpc</code> ile istemediğiniz sürece dokunulmaz, istediğinizde ise kapsanır.</li>
         <li><strong>Kapsanmayan</strong> - uygulamanın okuduğu ve değişikliğin ulaşmadığı bir kanal. Bir
           kararı <em>kısmen çalışıyor</em> yapan budur ve özetlenip geçilmek yerine adıyla listelenir.</li>
       </ul>

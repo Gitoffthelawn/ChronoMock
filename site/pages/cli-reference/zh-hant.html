@@ -55,7 +55,7 @@
           </tr>
           <tr>
             <td><code>--scale-duration</code></td>
-            <td>同時加速時長軸：計時刻度、睡眠與計時器。預設關閉，因為掛鐘時間與碼錶是兩個不同的問題。</td>
+            <td>同時加快經過時間軸：滴答計數、中斷時間、休眠和計時器。物件等待只計數並保持真實時長。預設關閉，因為牆上時鐘和碼錶是兩個不同的問題。設定在某個日期和時間的計時器或延遲，無論有沒有這個選項都會跟隨工作階段時鐘。</td>
           </tr>
           <tr>
             <td><code>--scale-qpc</code></td>
@@ -174,7 +174,7 @@
   session:  fake clock reached 2038-01-19T03:14:08
             real elapsed 1.3s, fake elapsed 1.3s
   exited:   the target closed itself with code 3
-  covered channels (substituted, with call counts):
+  covered channels (substituted, with call counts, 10 calls in all):
             - pid 21240: GetSystemTimeAsFileTime (5 calls)
             - pid 21240: GetLocalTime (5 calls)
   observed channels (hooked but left real):
@@ -186,7 +186,7 @@
       <ul>
         <li><strong>verdict</strong>——針對父處理序與所有子處理序得出的整體判定，附帶處理序數。結束代碼承載的就是這個數。</li>
         <li><strong>exited</strong>——應用程式<em>自己的</em>結束代碼，而且只在它自行關閉時才有。由 <code>--ticks</code> 限定的執行會讓目標程式繼續執行，Chromium 工作階段是由工具自己關閉的，從未啟動的工作階段也沒有這樣的結束代碼——這時這一行會直接不出現，而不是顯示一個捏造的零。當機代碼會以很大的負數形式出現，所以也會給出它的十六進位形式。</li>
-        <li><strong>covered</strong>——替換到達的通道，以及每個通道實際被呼叫的次數，依處理序分別統計。次數絕不會跨處理序相加：一個處理序的稽核不能借用另一個處理序的數字。</li>
+        <li><strong>covered</strong>——替換到達的通道，以及每個通道實際被呼叫的次數，依處理序分別統計。次數絕不會跨處理序相加：一個處理序的稽核不能借用另一個處理序的數字。計數在 1048576 處停止，之後顯示為<em>至少</em>這麼多次。</li>
         <li><strong>observed</strong>——已掛鉤但刻意保持真實的通道，例如物件等待與多媒體計時器。它們自成一類，因此絕不會被當作已替換。</li>
         <li><strong>uncovered</strong>——應用程式要求過但工作階段沒有涵蓋的通道。正是它讓判定變成<em>部分生效</em>。</li>
         <li><strong>not fully cleaned up</strong>——清理階段無法移除的任何東西。正常結束時不會出現，這也是常態。</li>

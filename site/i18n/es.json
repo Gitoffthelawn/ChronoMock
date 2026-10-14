@@ -4,6 +4,7 @@
   "html_lang": "es",
   "dir": "ltr",
   "og_locale": "es_ES",
+  "decimal_separator": ",",
 
   "social_image_alt": "Chrono Mock - ejecuta una aplicación de Windows en cualquier fecha y hora, sin cambiar el reloj del sistema",
 

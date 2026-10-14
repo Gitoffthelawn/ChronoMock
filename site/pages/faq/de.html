@@ -157,7 +157,7 @@
     <div class="qa">
       <h3>Kann ich es in der Continuous Integration einsetzen?</h3>
       <p>
-        Ja. Der Kommandozeilen-Build ist ein eigener Download von etwa 1,6 MB ohne Laufzeitumgebung zum
+        Ja. Der Kommandozeilen-Build ist ein eigener Download von etwa {{size_cli_zip}} MB ohne Laufzeitumgebung zum
         Installieren. Jeder Befehl versteht <code>--json</code> und endet mit einem Code, nach dem eine
         Pipeline verzweigen kann, und eine Sitzung kann ihren Nachweis in eine Datei schreiben.
       </p>
@@ -165,12 +165,7 @@
 
     <div class="qa">
       <h3>Wie unterscheidet es sich von RunAsDate?</h3>
-      <p>
-        RunAsDate fängt fünf Wanduhr-Funktionen ab und macht das gut. Dieses Werkzeug deckt
-        {{channel_count}} Zeitkanäle ab, kann die Uhr beschleunigen, gibt dem Prozess eine eigene
-        Zeitzone, folgt Kindprozessen und sagt Ihnen hinterher, welche Kanäle tatsächlich abgedeckt
-        waren. Außerdem ist es Open Source, während RunAsDate geschlossene Freeware ist.
-      </p>
+      <p>RunAsDate fängt fünf Wanduhr-Funktionen ab und macht das gut. Dieses Werkzeug beobachtet {{channel_count}} Zeitkanäle und setzt {{substituted_count}} davon auf die Sitzungsuhr, kann die Uhr beschleunigen, gibt dem Prozess eine eigene Zeitzone, folgt Kindprozessen und sagt Ihnen danach, welche Kanäle tatsächlich abgedeckt waren. Außerdem ist es Open Source, wo RunAsDate geschlossene Freeware ist. RunAsDate wiederum kann sich an eine bereits laufende Anwendung anhängen, dieses Werkzeug nicht.</p>
       <p>
         <a href="/de/runasdate-alternative/">Der vollständige Vergleich</a> sagt auch, wo RunAsDate die
         bessere Wahl ist.
