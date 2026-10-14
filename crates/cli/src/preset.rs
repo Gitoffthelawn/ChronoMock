@@ -524,12 +524,12 @@ const MAX_PARAMETERS: usize = 16;
 fn refuse_oversized(steps: usize, parameters: usize) -> Result<(), PresetError> {
     if steps > MAX_PRESET_STEPS {
         return Err(PresetError::BadFile(format!(
-            "preset has {steps} steps, past the limit of {MAX_PRESET_STEPS} this build reads"
+            "preset has {steps} steps, past the limit of {MAX_PRESET_STEPS} this build reads - remove steps until it has {MAX_PRESET_STEPS} or fewer"
         )));
     }
     if parameters > MAX_PARAMETERS {
         return Err(PresetError::BadFile(format!(
-            "preset declares {parameters} parameters, past the limit of {MAX_PARAMETERS} this build reads"
+            "preset declares {parameters} parameters, past the limit of {MAX_PARAMETERS} this build reads - remove parameters until it has {MAX_PARAMETERS} or fewer"
         )));
     }
     Ok(())
@@ -1168,8 +1168,10 @@ mod tests {
         assert!(parse_preset(&preset(MAX_PRESET_STEPS, MAX_PARAMETERS)).is_ok(), "at both limits");
         let err = parse_preset(&preset(MAX_PRESET_STEPS + 1, 0)).unwrap_err();
         assert!(err.message().contains("65 steps") && err.message().contains("limit of 64"), "{}", err.message());
+        assert!(err.message().contains("remove steps until it has 64 or fewer"), "says what to do: {}", err.message());
         let err = parse_preset(&preset(1, MAX_PARAMETERS + 1)).unwrap_err();
         assert!(err.message().contains("17 parameters") && err.message().contains("limit of 16"), "{}", err.message());
+        assert!(err.message().contains("remove parameters until it has 16 or fewer"), "says what to do: {}", err.message());
     }
 
     /// The measured attack (R5-B1): an `explains` with a carriage return, an erase-line sequence and a
@@ -1193,6 +1195,31 @@ mod tests {
         assert_eq!(err.exit_code(), 1, "a bad file, not a missing feature");
         let err = parse_preset(&preset("ok", &format!("Start{}date", escape(0x2066)))).unwrap_err();
         assert!(err.message().contains("`parameters[0].label.en`") && err.message().contains("U+2066"), "{}", err.message());
+    }
+
+    /// serde quotes an unknown step as it found it, and two files reach that quote with a hidden
+    /// character the walk before it never saw (review round on PR #104): one that is not JSON past the
+    /// step, and one whose `steps` is given twice, where the walk holds only the second. The refusal
+    /// writes the character as its code.
+    #[test]
+    fn a_refusal_quoting_the_file_writes_a_hidden_character_as_its_code() {
+        let escape = format!("\\u{:04x}", 0x1B);
+        let bad_steps = format!(r#""steps": [ {{ "x{escape}[2K": 1 }} ]"#);
+        let preset = |moment: &str, tail: &str| {
+            format!(
+                r#"{{"schema": "chronomock.preset/1", "id": "p", "name": {{ "en": "n" }}, "explains": {{ "en": "e" }},
+                    "applies_to": "both", "moment": {{ "base": {{ "absolute": "2030-01-01T00:00:00" }}, {moment} }}{tail} }}"#
+            )
+        };
+        for (case, text) in [
+            ("not JSON past the step", preset(&bad_steps, ",")),
+            ("the steps given twice", preset(&format!(r#"{bad_steps}, "steps": []"#), "")),
+        ] {
+            let said = parse_preset(&text).unwrap_err().message().to_string();
+            assert!(said.contains("unknown variant"), "{case}: {said}");
+            assert!(!said.chars().any(chrono_core::text::is_hidden_char), "{case}: {said:?}");
+            assert!(said.contains("x\\u{001b}[2K"), "{case}: {said}");
+        }
     }
 
     /// An `{ "absolute": ... }` base resolves to a fixed civil moment - a malformed one is refused at

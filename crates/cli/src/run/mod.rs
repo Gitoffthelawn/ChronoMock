@@ -263,13 +263,18 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         // the one a tester cites (untouchable rule 4).
         timed_out.or(core_lost.then_some("core_lost")),
     );
-    if let Some(path) = &ra.report {
-        let params = evidence_params(&ra, &spec, now_bias, started_utc);
-        match evidence_file::write(path, &render_evidence(&report, &params)) {
-            Ok(()) => diag!("chrono: evidence written to {path}"),
-            Err(e) => diag!("chrono: {e}"),
+    let evidence_written = match &ra.report {
+        None => true,
+        Some(path) => {
+            let params = evidence_params(&ra, &spec, now_bias, started_utc);
+            let written = evidence_file::write(path, &render_evidence(&report, &params));
+            match &written {
+                Ok(()) => diag!("chrono: evidence written to {path}"),
+                Err(e) => diag!("chrono: {e}"),
+            }
+            written.is_ok()
         }
-    }
+    };
     if !ra.json {
         out!("{}", render_report(&report));
     }
@@ -301,7 +306,37 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
     if code == 3 {
         diag!("{}", no_verdict_notice(core_code));
     }
-    code
+    let with_evidence = exit_code_with_evidence(code, evidence_written);
+    if with_evidence != code {
+        diag!("{}", evidence_lost_notice(code, ra.report.as_deref().unwrap_or_default()));
+    }
+    with_evidence
+}
+
+/// The exit code of a run whose session reached a verdict that the evidence file of `--report` does
+/// not hold (R5-D28). The driver's own, never the core's.
+const EVIDENCE_NOT_WRITTEN_EXIT: i32 = 8;
+
+/// The exit code once the evidence file is accounted for (R5-D28, review round on PR #104).
+///
+/// A verdict whose evidence did not reach the path `--report` named becomes 8. The verdict alone said
+/// 0 over a folder that held no evidence, or an older file: when the old file is held open the rename
+/// fails and the old file stays, so a pipeline keeping that file as the proof of this run kept the proof
+/// of another. The verdict is still in the report on standard output, and in the scratch file the line
+/// before names when the write got that far. A code that is no verdict (1, 2, 3, 5, 6, 7) stays - it
+/// already says the run proves nothing, and says why.
+fn exit_code_with_evidence(code: i32, evidence_written: bool) -> i32 {
+    match code {
+        0 | 4 | 10 | 11 | 12 if !evidence_written => EVIDENCE_NOT_WRITTEN_EXIT,
+        _ => code,
+    }
+}
+
+/// What the driver says when a verdict gives way to [`EVIDENCE_NOT_WRITTEN_EXIT`].
+fn evidence_lost_notice(verdict_code: i32, path: &str) -> String {
+    format!(
+        "chrono: exit code {EVIDENCE_NOT_WRITTEN_EXIT}, not the verdict's {verdict_code} - {path} does not hold this session's evidence, the line above says why"
+    )
 }
 
 /// What the driver says when the session closed but the core's exit code is no verdict. The core's own
@@ -988,8 +1023,23 @@ mod tests {
             assert_eq!(driver_exit_code(Some(verdict)), verdict);
         }
         assert_eq!(driver_exit_code(Some(-1)), 3, "a killed core must not look like a verdict");
-        assert_eq!(driver_exit_code(Some(8)), 3);
+        assert_eq!(driver_exit_code(Some(EVIDENCE_NOT_WRITTEN_EXIT)), 3, "8 is the driver's own, never the core's");
         assert_eq!(driver_exit_code(Some(0xC000_0005u32 as i32)), 3, "an access violation is not a verdict");
         assert_eq!(driver_exit_code(None), 3, "no code at all is not a verdict either");
+    }
+
+    /// A verdict whose evidence file was not written gives way to 8, and every code that is no verdict
+    /// keeps its own (R5-D28).
+    #[test]
+    fn a_verdict_without_its_evidence_file_becomes_exit_code_8() {
+        for verdict in [0, 4, 10, 11, 12] {
+            assert_eq!(exit_code_with_evidence(verdict, true), verdict);
+            assert_eq!(exit_code_with_evidence(verdict, false), EVIDENCE_NOT_WRITTEN_EXIT, "verdict {verdict}");
+        }
+        for no_verdict in [1, 2, 3, 5, 6, crate::core::SESSION_BUSY_EXIT] {
+            assert_eq!(exit_code_with_evidence(no_verdict, false), no_verdict);
+        }
+        let said = evidence_lost_notice(10, "e.txt");
+        assert!(said.contains("exit code 8") && said.contains("verdict's 10") && said.contains("e.txt"), "{said}");
     }
 }

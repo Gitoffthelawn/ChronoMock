@@ -23,7 +23,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   date and time with a fraction of a second and a UTC offset, such as `2026-01-01T10:00:00+02:00` or
   `2026-01-01T10:00:00Z` - the form the calculator prints itself, which it used to refuse as a bad
   second. A date with an offset is a point in time, so it is shown in the session zone, like a pasted
-  Unix timestamp, as the new reading `iso_offset`. A fraction is cut to the second.
+  Unix timestamp, as the new reading `iso_offset`. A fraction is cut to the second. A date whose
+  instant falls outside the years the calculator computes on once it is shown in the session zone is
+  refused.
 
 ### Changed
 
@@ -31,6 +33,13 @@ Notable changes to Chrono Mock, newest first. The format follows
   an internal error, with a line saying the core ended without a verdict - so a pipeline could not
   tell a busy machine from a crash. It is the one start failure that waiting fixes. The `error` event
   carries the same 7.
+- **A run whose evidence file was not written ends with exit code 8.** When `chrono run --report`
+  reached a verdict but could not put the evidence at the path it was given - the disk was full, or
+  another program held the old file open, which then stays as it was - the exit code was still the
+  verdict, so a pipeline keeping that file as the proof of the run could keep an older one under exit
+  code 0. It now ends with 8, and says which verdict it replaces. The verdict is still in the report on
+  standard output and in the temporary file the run names. A code that is no verdict (1, 2, 3, 5, 6, 7)
+  stays as it was.
 - **A works session can still be unreliable evidence.** The evidence file and the copied report now
   lead with the unreliable-evidence banner also when the application read none of the clocks the
   session replaces (`coverage.session_clock_never_read`), or is a Go program whose wall clock no hook
@@ -70,9 +79,10 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **The business-day limit counts the whole calculation.** No more than 1,000,000 business days are
   counted in one calculation, all its steps together, where the limit used to stand on each step
   alone - so two hundred steps of a million business days each held the processor for seconds. The
-  refusal names the step that goes past it, before that step is counted.
+  refusal names the step that goes past it, before that step is counted, and says to lower the counts.
 - **A preset has at most 64 steps and 16 parameters.** The shipped presets have at most three and
-  two. A longer file is refused by its count, like a calendar with more than 2,000 holidays.
+  two. A longer file is refused by its count, like a calendar with more than 2,000 holidays, and the
+  refusal says what to remove.
 - **"Not found" for a calendar or a preset names the folders and the ids on offer.** It printed
   `looked in <exe>/calendars` as written and no id at all. It now names the folder by its path and the
   ids it holds, or says that neither folder exists.
@@ -119,13 +129,17 @@ Notable changes to Chrono Mock, newest first. The format follows
   no width) or a line separator is now refused when the file is read, naming the place in the file,
   the position and the character. A preset whose description held a carriage return and an escape
   sequence printed a fake result line over the real one. These files are made to be shared, and none
-  of the shipped ones holds such a character. The same characters in what an application or a browser
-  says about itself - a process name, an error, a refused connection - are now shown escaped.
+  of the shipped ones holds such a character. A refusal that quotes such a file where the check cannot
+  read all of it - a file that is not valid JSON, or one with a key given twice - shows the character
+  as its code. The same characters in what an application or a browser says about itself - a process
+  name, an error, a refused connection - are now shown escaped.
 - **`--report` cannot overwrite a program, and writes its file whole.** The path is checked before the
   session starts, also in a dry run: a folder that does not exist, a folder, the application itself and
   any other program file are refused with exit code 1. The evidence is written to a temporary file
   beside the target name and then renamed over it, so a failure leaves no half-written file, and when
-  the old file cannot be replaced the message names the temporary one that holds the evidence.
+  the old file cannot be replaced the message names the temporary one that holds the evidence. The
+  temporary file is always created new, never written through one that is already there - a
+  temporary file an earlier run left with its evidence, or a link.
 - **A core in the window's package reads only the package's calendars and presets.** Run on its own
   from `core\x64` or `core\x86`, it found no catalogue beside it and read the one in the current folder,
   so a calendar placed in a shared folder could answer business-day questions in a report. It now reads

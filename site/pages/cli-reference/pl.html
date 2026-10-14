@@ -239,6 +239,7 @@
           <tr><td>5</td><td>operacja niezbudowana w tym wydaniu - na przykład preset, którego moment wymaga kalendarza, a <code>run</code> nie umie go jeszcze wczytać. Celowo odróżnialne od błędu użycia: poprosiłeś o coś, czego jeszcze nie ma, a nie o coś złego</td></tr>
           <tr><td>6</td><td>przebieg został ucięty - minął <code>--timeout</code> albo rdzeń przestał odpowiadać na 15 sekund i został zatrzymany. To nie jest werdykt: sesję przerwano, więc nie dowodzi ona niczego o celu w żadną stronę</td></tr>
           <tr><td>7</td><td>inna sesja już działa - jedna sesja naraz. Wystarczy spróbować ponownie, gdy się zakończy</td></tr>
+          <tr><td>8</td><td>sesja doszła do werdyktu, ale jej dowodu nie ma w pliku wskazanym przez <code>--report</code> - dysk był pełny albo inny program trzymał otwarty stary plik, który wtedy zostaje bez zmian. Werdykt nadal stoi w raporcie, który wypisuje polecenie</td></tr>
         </tbody>
       </table>
     </div>

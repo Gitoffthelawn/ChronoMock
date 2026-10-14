@@ -736,7 +736,7 @@
   "calc.err.overflow": "The result runs past the range this version can compute - use a smaller shift.",
   "calc.err.bad_set_time": "The set-time step has an hour, minute or second outside its range.",
   "calc.err.year_out_of_range": "The result lands on a year outside the range this version computes on (-262143 to 262143).",
-  "calc.err.business_days_limit": "The business-day steps add up to more than 1,000,000 business days - the most the calculator counts in one calculation.",
+  "calc.err.business_days_limit": "The business-day steps add up to more than 1,000,000 business days - the most the calculator counts in one calculation. Lower the counts so they add up to 1,000,000 or less.",
   "calc.err.before_calendar": "A business-day step reaches a year before the chosen calendar starts, so it cannot be counted - pick a later date or another calendar.",
   "calc.err.base_overflow": "The UTC start point names an instant outside the range this version can represent.",
   "calc.err.base_not_a_date": "The start point is not a real date and time - check its month, day and time of day.",

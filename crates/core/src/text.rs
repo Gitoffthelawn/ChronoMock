@@ -56,6 +56,21 @@ pub fn first_hidden_char(text: &str) -> Option<(usize, char)> {
     text.chars().enumerate().find(|&(_, c)| is_hidden_char(c)).map(|(i, c)| (i + 1, c))
 }
 
+/// `text` with every character that does not show as itself written as its code, `\u{001b}` for an
+/// escape, the way the quoting of a target's words writes it. For a message that quotes a text this
+/// tool could not refuse before quoting it.
+pub fn escape_hidden(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if is_hidden_char(c) {
+            out.push_str(&format!("\\u{{{:04x}}}", c as u32));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +109,15 @@ mod tests {
         let text: String = ['ś', 'w', ch(0x202E), 'x'].iter().collect();
         assert_eq!(first_hidden_char(&text), Some((3, ch(0x202E))));
         assert_eq!(first_hidden_char(""), None);
+    }
+
+    /// Every hidden character comes out as its code, and everything else as itself.
+    #[test]
+    fn hidden_characters_are_escaped_and_the_rest_is_kept() {
+        let text: String = ['ś', ch(0x1B), '[', '2', 'K', ch(0x202E), 'x'].iter().collect();
+        let escaped = escape_hidden(&text);
+        assert_eq!(escaped, "ś\\u{001b}[2K\\u{202e}x");
+        assert_eq!(first_hidden_char(&escaped), None);
+        assert_eq!(escape_hidden("Boże Narodzenie"), "Boże Narodzenie");
     }
 }

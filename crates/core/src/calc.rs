@@ -1507,9 +1507,14 @@ fn iso_reading(s: &str, input: &str, zone_bias_min: i32) -> Result<(DateReading,
     let Some(bias) = offset else {
         return Ok((DateReading::Iso, civil));
     };
+    // The written year is inside the band, but the same instant shown in the session zone can fall a
+    // day past either end of it: `262143-12-31T23:59:59-14:59` in a zone of +14:59 is in the year
+    // 262144 (review round on PR #104).
     convert_zone(civil, bias, zone_bias_min, 0)
+        .ok()
+        .filter(|at| crate::civil_year_in_band(at.year))
         .map(|at| (DateReading::IsoOffset, at))
-        .map_err(|_| format!("'{input}' names an instant outside the range this build computes on"))
+        .ok_or_else(|| format!("'{input}' names an instant outside the range this build computes on"))
 }
 
 /// The time part without its UTC offset, and the offset as a bias (minutes, UTC = local + bias), or
@@ -2653,6 +2658,14 @@ mod tests {
         // The refusal quotes what was pasted, and names the month it refuses.
         let err = analyze_date("2026-13-01", 0).unwrap_err();
         assert!(err.contains("month 13") && err.contains("'2026-13-01'") && !err.contains("T00:00:00"), "{err}");
+
+        // A written year inside the band whose instant, in the session zone, falls past either end of
+        // it is refused, not shown as a year this build does not compute on (review round on PR #104).
+        assert_eq!(one("262143-12-31T23:59:59Z", 0)[0].1.year, crate::CIVIL_YEAR_MAX);
+        for (text, zone) in [("262143-12-31T23:59:59-14:59", -899), ("-262143-01-01T00:00:00+14:59", 899)] {
+            let err = analyze_date(text, zone).unwrap_err();
+            assert!(err.contains("outside the range") && err.contains(text), "{text}: {err}");
+        }
     }
 
     #[test]

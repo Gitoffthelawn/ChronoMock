@@ -314,22 +314,26 @@ pub(crate) fn catalogue_search_places_in(exe_dir: Option<&std::path::Path>, cwd:
 /// The ids a catalogue folder offers - the names of its `.json` files that are valid ids - sorted, and
 /// at most [`LISTED_IDS`] of them with the count of the rest. Read only for a refusal, never on the way
 /// to a result.
+///
+/// The smallest ids are kept while the folder is read and the rest only counted, so a folder of any
+/// size is walked once and never held whole.
 pub(crate) fn catalogue_ids(dir: &std::path::Path) -> Vec<String> {
-    let mut ids: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let is_json = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
-            let id = path.file_stem()?.to_str()?.to_string();
-            (is_json && is_valid_catalogue_id(&id)).then_some(id)
-        })
-        .collect();
-    ids.sort_unstable();
-    if ids.len() > LISTED_IDS {
-        let rest = ids.len() - LISTED_IDS;
-        ids.truncate(LISTED_IDS);
+    let mut kept = std::collections::BTreeSet::new();
+    let mut rest = 0usize;
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let is_json = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
+        match path.file_stem().and_then(|s| s.to_str()) {
+            Some(id) if is_json && is_valid_catalogue_id(id) => kept.insert(id.to_string()),
+            _ => continue,
+        };
+        if kept.len() > LISTED_IDS {
+            kept.pop_last();
+            rest += 1;
+        }
+    }
+    let mut ids: Vec<String> = kept.into_iter().collect();
+    if rest > 0 {
         ids.push(format!("and {rest} more"));
     }
     ids
@@ -402,10 +406,17 @@ pub(crate) const MAX_HOLIDAYS: usize = 2000;
 /// left a window in which the file could be swapped or grow, and the read had no ceiling of its own
 /// (R5-B9, item 6).
 pub(crate) fn read_catalogue_file(path: &std::path::Path) -> Result<String, String> {
-    use std::io::Read;
     let cannot_read = |e: std::io::Error| format!("cannot read {}: {e}", path.display());
     let file = std::fs::File::open(path).map_err(cannot_read)?;
     let size = file.metadata().map_err(cannot_read)?.len();
+    read_catalogue_text(file, size, path)
+}
+
+/// [`read_catalogue_file`] from the open file on, given the size the file said it had. Apart so that a
+/// file which grows past that size while it is read can be stood in for in a test.
+fn read_catalogue_text(file: impl std::io::Read, size: u64, path: &std::path::Path) -> Result<String, String> {
+    use std::io::Read;
+    let cannot_read = |e: std::io::Error| format!("cannot read {}: {e}", path.display());
     if size > MAX_CATALOGUE_BYTES {
         return Err(format!(
             "{} is {size} bytes, past the {MAX_CATALOGUE_BYTES}-byte limit for a catalogue file",
@@ -478,7 +489,11 @@ pub(crate) fn json_refusal(kind: &str, error: &serde_json::Error) -> String {
         said = said.replace(theirs, ours);
     }
 
-    format!("bad {kind} JSON{place}: {said}")
+    // serde quotes an unknown field or variant as it found it, and two kinds of file reach this
+    // sentence without [`refuse_hidden_characters`] having seen every text in them: one that is not
+    // JSON at all, read up to the field before the fault, and one with a key given twice, whose first
+    // value the walk never holds. A hidden character in such a quote is written as its code.
+    format!("bad {kind} JSON{place}: {}", chrono_core::text::escape_hidden(&said))
 }
 
 /// A catalogue file's top level, which answers a struct only from an object.
@@ -533,14 +548,15 @@ pub(crate) fn from_object<'de, T: Deserialize<'de>>(text: &'de str) -> serde_jso
 /// none of the shipped files holds one. The whole document is walked, before the typed read: many
 /// refusals quote what the file says (an unknown schema, a value of `observed`, serde's unknown field),
 /// so a check of the known text fields alone would still let such a character out through an error
-/// message. A file that is not JSON at all passes here and the typed read names what is wrong with it.
+/// message. A file that is not JSON at all passes here and the typed read names what is wrong with it,
+/// in [`json_refusal`], which writes such a character as its code.
 pub(crate) fn refuse_hidden_characters(kind: &str, text: &str) -> Result<(), String> {
     let Ok(root) = serde_json::from_str::<serde_json::Value>(text) else {
         return Ok(());
     };
     let refusal = |place: String, at: usize, c: char| {
         format!(
-            "{kind} file: {place} holds U+{:04X} at character {at} - a character that does not show as itself, which a {kind} cannot carry because it can change what a terminal shows",
+            "{kind} file: {place} holds U+{:04X} at character {at} - a character that does not show as itself, which a {kind} cannot carry because it can change what a terminal shows. Remove it, or retype the text in an editor that shows hidden characters",
             c as u32
         )
     };
@@ -774,6 +790,7 @@ mod tests {
             err.contains("the text in `holidays[0].name.local`") && err.contains("U+202E") && err.contains("character 7"),
             "{err}"
         );
+        assert!(err.contains("Remove it, or retype the text"), "says what to do: {err}");
         // The measured attack: a carriage return and an erase-line sequence.
         let err = calendar_from_text(&calendar(&format!("ok{}{}[2K", escape(0x0D), escape(0x1B)), "")).unwrap_err();
         assert!(err.contains("U+000D"), "{err}");
@@ -799,6 +816,18 @@ mod tests {
         std::fs::write(&path, b"{}").expect("write");
         assert_eq!(read_catalogue_file(&path).expect("within the limit"), "{}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file that said it was small and then went on past the limit while it was read is refused
+    /// all the same (R5-B9, item 6): the read stops one byte past the limit, whatever the file said.
+    #[test]
+    fn a_catalogue_file_that_grows_past_the_limit_while_read_is_refused() {
+        use std::io::Read;
+        let growing = std::io::repeat(b' ').take(MAX_CATALOGUE_BYTES + 10);
+        let err = read_catalogue_text(growing, 2, std::path::Path::new("grows.json")).expect_err("past the limit");
+        assert!(err.contains("grew past"), "{err}");
+        let small = std::io::repeat(b' ').take(2);
+        assert_eq!(read_catalogue_text(small, 2, std::path::Path::new("small.json")).unwrap(), "  ");
     }
 
     /// R2-N8: `weekend` and `observed` must describe the same weekend. A Friday-Saturday weekend with
@@ -1181,6 +1210,21 @@ mod tests {
         let said = catalogue_search_places_in(Some(&bare), &cwd, "calendars");
         assert!(said.contains("neither folder exists") && said.contains(&cwd.join("calendars").display().to_string()), "{said}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A folder holding more ids than a message lists gives the smallest of them, sorted, and the
+    /// count of the rest.
+    #[test]
+    fn a_long_catalogue_lists_its_smallest_ids_and_counts_the_rest() {
+        let dir = crate::testutil::unique_temp_dir("chrono-catalogue-many");
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in (0..=LISTED_IDS).rev() {
+            std::fs::write(dir.join(format!("c{n:02}.json")), "{}").unwrap();
+        }
+        let ids = catalogue_ids(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        let expected: Vec<String> = (0..LISTED_IDS).map(|n| format!("c{n:02}")).chain(["and 1 more".to_string()]).collect();
+        assert_eq!(ids, expected);
     }
 
     /// The folder the preset catalogue lists is the folder a lookup by id reads, by the same rule - so

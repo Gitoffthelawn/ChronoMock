@@ -834,9 +834,9 @@ pub(crate) fn describe_calc_error(e: &EvalError) -> String {
             chrono_core::CIVIL_YEAR_MAX
         ),
         EvalError::TooManyBusinessDays { index } => format!(
-            "chrono calc: step {} takes the business days of this calculation past {} - the most one calculation counts, all its steps together (calc.business_days_limit)",
+            "chrono calc: step {} takes the business days of this calculation past {limit} - the most one calculation counts, all its steps together. Lower the counts so they add up to {limit} or less (calc.business_days_limit)",
             index + 1,
-            chrono_core::calendar::MAX_BUSINESS_DAYS
+            limit = chrono_core::calendar::MAX_BUSINESS_DAYS
         ),
         EvalError::BeforeCalendar { index, first_year } => format!(
             "chrono calc: step {} reaches a day before {first_year}, the first year the calendar covers - pick a later date or another calendar (calc.before_calendar)",
@@ -1181,6 +1181,7 @@ mod tests {
             "got: {msg}"
         );
         assert!(!msg.contains("overflow"), "the number is fine - only the limit is past, got: {msg}");
+        assert!(msg.contains("Lower the counts so they add up to 1000000 or less"), "says what to do: {msg}");
     }
 
     #[test]

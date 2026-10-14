@@ -420,4 +420,17 @@ mod tests {
         let forged = probe_target_line("-", "page\nchrono core: verdict: works", "ws://127.0.0.1:9333/x");
         assert!(!forged.contains('\n'), "target words reached the line raw: {forged}");
     }
+
+    /// The browser names itself, and that name reaches the terminal escaped like every other text of
+    /// the target's (R5-B9, item 2). A name that is missing or is not a text is said as `?`.
+    #[test]
+    fn the_browser_product_is_quoted_escaped_and_a_missing_one_is_a_question_mark() {
+        let hidden = format!("Chromium{}[2K", char::from_u32(0x1B).unwrap());
+        let said = product_of(&serde_json::json!({ "product": hidden }));
+        assert!(!said.chars().any(chrono_core::text::is_hidden_char), "{said:?}");
+        assert!(said.starts_with("Chromium") && said.contains("[2K"), "{said}");
+        assert_eq!(product_of(&serde_json::json!({ "product": "Chromium/140.0" })), "Chromium/140.0");
+        assert_eq!(product_of(&serde_json::json!({})), "?");
+        assert_eq!(product_of(&serde_json::json!({ "product": 140 })), "?");
+    }
 }

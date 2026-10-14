@@ -59,9 +59,12 @@ fn is_program_image(file: &Path) -> bool {
 /// When the rename fails (the old file is open in an editor that holds it), the written copy stays and
 /// the message names it - the session cannot be run again, so its evidence must not be thrown away.
 pub(crate) fn write(path: &str, text: &str) -> Result<(), String> {
+    use std::io::Write;
     let file = Path::new(path);
-    let scratch = scratch_path(file);
-    if let Err(e) = std::fs::write(&scratch, text) {
+    let (scratch, mut out) = create_scratch(file).map_err(|e| format!("cannot write evidence to {path}: {e}"))?;
+    let written = out.write_all(text.as_bytes());
+    drop(out);
+    if let Err(e) = written {
         let _ = std::fs::remove_file(&scratch);
         return Err(format!("cannot write evidence to {path}: {e}"));
     }
@@ -69,11 +72,38 @@ pub(crate) fn write(path: &str, text: &str) -> Result<(), String> {
         .map_err(|e| format!("cannot replace {path} ({e}) - the evidence is in {}", scratch.display()))
 }
 
+/// How many names beside the report the scratch file tries before it gives up.
+const SCRATCH_NAMES: u32 = 100;
+
+/// The scratch file, created new: never a file that is already there. A process id comes back, so the
+/// first name can belong to an earlier run whose rename failed and whose evidence it still holds, and a
+/// name that is a link would have the write land in whatever it points at. Either way the next name is
+/// tried (review round on PR #104).
+fn create_scratch(file: &Path) -> std::io::Result<(PathBuf, std::fs::File)> {
+    for attempt in 0..SCRATCH_NAMES {
+        let scratch = scratch_path(file, attempt);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&scratch) {
+            Ok(out) => return Ok((scratch, out)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::other(format!(
+        "the {SCRATCH_NAMES} scratch names beside it, from {} on, are all taken",
+        scratch_path(file, 0).display()
+    )))
+}
+
 /// The file the evidence is written into before it takes `file`'s name: the same folder, so the rename
-/// stays on one volume, and this process's id in the name, so two runs writing one report do not share it.
-fn scratch_path(file: &Path) -> PathBuf {
+/// stays on one volume, and this process's id in the name, so two runs writing one report do not share
+/// it. A later attempt adds its number.
+fn scratch_path(file: &Path, attempt: u32) -> PathBuf {
     let name = file.file_name().map_or_else(|| "evidence".into(), |n| n.to_string_lossy().into_owned());
-    file.with_file_name(format!("{name}.{}.tmp", std::process::id()))
+    let pid = std::process::id();
+    match attempt {
+        0 => file.with_file_name(format!("{name}.{pid}.tmp")),
+        n => file.with_file_name(format!("{name}.{pid}-{n}.tmp")),
+    }
 }
 
 #[cfg(test)]
@@ -143,9 +173,28 @@ mod tests {
         let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).unwrap();
         let err = write(file.to_str().unwrap(), "new").unwrap_err();
         drop(held);
-        let scratch = scratch_path(&file);
+        let scratch = scratch_path(&file, 0);
         assert!(err.contains("cannot replace") && err.contains(&scratch.display().to_string()), "{err}");
         assert_eq!(std::fs::read_to_string(&scratch).unwrap(), "new", "the evidence is in the scratch file");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "old", "the held file is untouched");
+    }
+
+    /// A scratch file already standing under this process's name - left by an earlier run whose
+    /// rename failed, under a process id that came back - keeps the evidence it holds. The write takes
+    /// the next name (review round on PR #104).
+    #[test]
+    fn an_earlier_scratch_file_under_the_same_name_is_never_overwritten() {
+        let dir = folder("ev-earlier");
+        let file = dir.join("evidence.txt");
+        let earlier = scratch_path(&file, 0);
+        std::fs::write(&earlier, "an earlier session").unwrap();
+        write(file.to_str().unwrap(), "new").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(&earlier).unwrap(), "an earlier session", "the earlier evidence stays");
+        let mut left: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        left.sort();
+        let mut expected = vec![file.clone(), earlier];
+        expected.sort();
+        assert_eq!(left, expected, "nothing else is left beside them");
     }
 }

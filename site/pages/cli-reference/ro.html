@@ -240,6 +240,7 @@
           <tr><td>5</td><td>operațiunea nu este inclusă în această versiune - de exemplu un preset al cărui moment are nevoie de un calendar, pe care <code>run</code> nu îl poate încărca încă. Distinct în mod deliberat de o eroare de utilizare: ai cerut ceva ce nu există încă, nu ceva greșit</td></tr>
           <tr><td>6</td><td>rularea a fost întreruptă - <code>--timeout</code> a expirat sau motorul a încetat să răspundă timp de 15 secunde și a fost oprit. Nu este un verdict: sesiunea a fost întreruptă, deci nu dovedește nimic despre țintă, într-un sens sau altul</td></tr>
           <tr><td>7</td><td>rulează deja o altă sesiune - o singură sesiune odată. Ajunge să încercați din nou după ce se încheie</td></tr>
+          <tr><td>8</td><td>sesiunea a ajuns la un verdict, dar dovezile ei nu sunt în fișierul indicat de <code>--report</code> - discul era plin sau alt program ținea deschis fișierul vechi, care rămâne atunci neschimbat. Verdictul rămâne în raportul afișat de comandă</td></tr>
         </tbody>
       </table>
     </div>
