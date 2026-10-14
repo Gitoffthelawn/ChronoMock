@@ -57,6 +57,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      # The same self-check as the pull request gate in security.yml, before the same verdict.
+      - name: The gate checks itself
+        run: python -m unittest discover -s .github/scripts -p test_osv_gate.py
+
       - name: Install the scanner
         run: python .github/scripts/osv_gate.py install "$RUNNER_TEMP/osv"
 

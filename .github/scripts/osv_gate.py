@@ -95,8 +95,44 @@ def install(directory):
 
 
 def load(path):
+    """A report as the scanner wrote it, refused when it does not have the scanner's shape.
+
+    The file is read whole and without a size limit on purpose. It is not input from outside: the
+    pinned scanner writes it in the same job, a step earlier, and the largest one this repository
+    produces is tens of kilobytes. The shape is checked because a report that parses but is not
+    shaped like one would otherwise end in a traceback, red but unexplained.
+    """
     with open(path, encoding="utf-8") as handle:
-        return json.load(handle)
+        report = json.load(handle)
+    check_shape(report)
+    return report
+
+
+def check_shape(report):
+    """Raise ValueError naming the first part of a report that is not shaped as the scanner writes it."""
+    def need(value, kind, where):
+        if not isinstance(value, kind):
+            raise ValueError("%s is %s, not %s" % (where, type(value).__name__, kind.__name__))
+        return value
+
+    def field(owner, key, kind, where):
+        # Absent or null means "none of these", which the scanner writes for a clean package. Any
+        # other value of the wrong type is a report this gate does not understand - and must not be
+        # read as empty, because an empty dict and an empty list are both falsy.
+        value = owner.get(key)
+        return kind() if value is None else need(value, kind, where)
+
+    need(report, dict, "the report")
+    for r, result in enumerate(field(report, "results", list, "results")):
+        need(result, dict, "results[%d]" % r)
+        field(result, "source", dict, "results[%d].source" % r)
+        for p, entry in enumerate(field(result, "packages", list, "results[%d].packages" % r)):
+            where = "results[%d].packages[%d]" % (r, p)
+            need(entry, dict, where)
+            field(entry, "package", dict, where + ".package")
+            for v, vulnerability in enumerate(field(entry, "vulnerabilities", list, where + ".vulnerabilities")):
+                need(vulnerability, dict, "%s.vulnerabilities[%d]" % (where, v))
+                field(vulnerability, "aliases", list, "%s.vulnerabilities[%d].aliases" % (where, v))
 
 
 def packages(report):
@@ -200,14 +236,26 @@ def main(argv=None):
         print(install(args.directory))
         return 0
 
-    try:
-        new = load(args.new)
-        old = load(args.old) if args.old else None
-    except (OSError, ValueError) as exc:
-        # A missing or unparsable report is a failed gate, never a pass: it means
-        # the scan step did not produce what this one was promised.
-        print("osv gate: cannot read a report: %s" % exc, file=sys.stderr)
-        return 2
+    # A missing, unparsable or misshapen report is a failed gate, never a pass: it
+    # means the scan step did not produce what this one was promised. Each report
+    # is read on its own, so the message names the one that failed.
+    reports = {}
+    for role, path in (("new", args.new), ("old", args.old)):
+        if path is None:
+            reports[role] = None
+            continue
+        try:
+            reports[role] = load(path)
+        except (OSError, ValueError) as exc:
+            if role == "old":
+                which = "base's"
+            else:
+                which = "pull request's" if args.old else "tree's"
+            print("osv gate: cannot read the %s report %s (%s). The scan step above did not leave"
+                  " a JSON report this gate can read - look at that step's log first, then run"
+                  " the scan again." % (which, path, exc), file=sys.stderr)
+            return 2
+    new, old = reports["new"], reports["old"]
     lines, blocked = verdict(new, old)
     for line in lines:
         print(line)

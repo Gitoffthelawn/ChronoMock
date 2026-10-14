@@ -129,6 +129,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      # The gate is checked before it judges, so a gate that stopped blocking, or started blocking on
+      # nothing, fails here as itself rather than as a verdict about the tree.
+      - name: The gate checks itself
+        run: python -m unittest discover -s .github/scripts -p test_osv_gate.py
+
       # The published binary, pinned to a version and to its checksum in the script rather than
       # Google's action, which pulls a container by a tag. Bumping it is a deliberate act.
       - name: Install the scanner

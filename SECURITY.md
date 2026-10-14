@@ -192,11 +192,15 @@ ritual. The tag and the assets stay where they are.
 runs on the per-job token GitHub issues for the run, and nothing else is stored
 here.
 
-**Access is scoped per workflow.** All five workflows declare `contents: read` at
-the top. Two jobs raise anything on top of that: the CodeQL analysis takes
+**Access is scoped per workflow.** All nine workflows declare `contents: read` at
+the top (measured on 2026-10-14). Five jobs raise anything on top of that, each for
+the one thing it exists to do. The CodeQL analysis and the weekly OSV report take
 `security-events: write`, because writing results to the Security tab is the entire
-point of the job, and the single job that publishes the website takes `pages: write`
-and `id-token: write`.
+point of both. The job that publishes the website takes `pages: write` and
+`id-token: write`. The release build and the attestation of the signed archives take
+`contents: write`, `id-token: write`, `attestations: write` and
+`artifact-metadata: write`, because they upload release assets and sign provenance
+for them.
 
 **Every action is pinned to a commit** rather than to a tag somebody else can
 repoint, with the release it corresponds to in a comment beside it. Dependabot
@@ -205,8 +209,14 @@ updates the SHA and the comment together, so pinning does not mean freezing.
 **Dependencies are checked on every push.** The dependency gate runs four
 `cargo-deny` checks - licences, advisories, bans and sources - and a licence that
 cannot be identified blocks the build, because for a GPL-3.0 project that ships a
-binary an unidentified licence is the one answer nobody can act on. CodeQL analyses
-the code on the same schedule, and secret scanning with push protection is on.
+binary an unidentified licence is the one answer nobody can act on. A pull request
+also passes GitHub's dependency review and OSV-Scanner, which blocks a vulnerability
+the pull request brings into any lock file. Once a week the RustSec and OSV
+advisories are asked again of the tree nobody touched, because an advisory published
+against an unchanged dependency is something no commit would ever trigger, and OSV
+files what it finds in the Security tab. CodeQL analyses the code on every pull
+request, every push to `main` and once a week, and secret scanning with push
+protection is on.
 
 ## Code of conduct
 
