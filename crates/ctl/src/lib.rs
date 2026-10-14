@@ -38,6 +38,8 @@
 //! directly - `GetLocalTime` returns it shifted back into the session zone by `tz_bias`.
 
 use std::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
+
+pub mod inject;
 use std::sync::atomic::{fence, AtomicU32, AtomicUsize, Ordering};
 
 /// Named shared section for a session's control memory (per interactive session).

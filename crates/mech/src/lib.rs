@@ -63,6 +63,10 @@ use chrono_ctl::{
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, DEADLINE_CHANNELS, IDX_TIMEGETTIME, MAX_COV_PIDS,
 };
+// The bound on the remote `LoadLibraryW` thread is the one the hook keeps for a child (R5-A7): a thread
+// still stuck past it means the target's loader deadlocked, an injection failure rather than a
+// `prepare` that hangs forever (M-1).
+use chrono_ctl::inject::INJECT_TIMEOUT_MS;
 use windows::core::{s, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, FILETIME, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
@@ -447,8 +451,6 @@ impl SessionState {
         self.duration_saturated
     }
 }
-
-const STILL_ACTIVE_CODE: u32 = 259;
 
 /// The pids a parent's ring holds past what was already taken, and how far the taking got (R4-N18).
 /// `read(at)` is entry `at`, 0 for one claimed and not written yet. A parent that may still run writes it
@@ -1865,12 +1867,6 @@ fn command_line_string(path: &str, args: &[String]) -> String {
 fn build_command_line(path: &str, args: &[String]) -> Vec<u16> {
     to_wide(&command_line_string(path, args))
 }
-
-/// How long to wait for the remote `LoadLibraryW` thread. The hook's `DllMain` does no heavy work (it
-/// defers the watcher off the loader lock, ADR-3), so injection is quick - a thread still stuck past this
-/// means the target's loader deadlocked (loader lock), and we treat it as an injection failure rather than
-/// hang `prepare` forever (M-1).
-const INJECT_TIMEOUT_MS: u32 = 10_000;
 
 /// Inject the hook with Windows's error window off while the target loads, and back the way the target
 /// inherited it before its entry point (R4-S6, `loader::QuietLoader`). On `Err` the caller ends the

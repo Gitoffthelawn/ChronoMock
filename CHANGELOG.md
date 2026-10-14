@@ -143,6 +143,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A child process Windows could not start is no longer reported as running on the real clock.** When
+  the application under test started a program Windows ended while loading it, before the program ran
+  (a library it needs is missing, say), the report listed that program among the processes the hook
+  could not follow, said it ran on the real clock and gave the session a `partial` verdict. It never
+  ran, so it is left out now, the way Chrono Mock already read its own target.
 - **On 32-bit Windows with `--scale-qpc`, the precise system clocks no longer follow the scaled
   counter.** Windows computes them through the exported `QueryPerformanceCounter` there, so after the
   session the application's precise wall clock stayed ahead of the real one by everything the counter had
