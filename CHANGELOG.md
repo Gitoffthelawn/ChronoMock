@@ -143,6 +143,15 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A program the application starts under its own debugger no longer stalls the start for ten
+  seconds or reads the real clock.** When the application under test started a program with
+  `DEBUG_PROCESS` or `DEBUG_ONLY_THIS_PROCESS` (a launcher that debugs what it starts, say), Chrono Mock
+  waited in the application's own thread for the hook to load in that program, while the program
+  waited for that very thread to answer its first debug events. The start stood ten seconds, the
+  program then began before the hook was in place and read the real clock, and the report named it
+  uncovered although the hook joined it a moment later. The wait now happens in a thread of its own,
+  the call returns at once, and the program starts once the hook is in place. A debugger that asks
+  for the program suspended and resumes it itself can still start it before the hook is in.
 - **A child process Windows could not start is no longer reported as running on the real clock.** When
   the application under test started a program Windows ended while loading it, before the program ran
   (a library it needs is missing, say), the report listed that program among the processes the hook

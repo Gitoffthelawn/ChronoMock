@@ -86,8 +86,8 @@ use chrono_ctl::inject::{self as remote_load, INJECT_TIMEOUT_MS, STILL_ACTIVE_CO
 use minhook::{MinHook, MH_STATUS};
 use windows::core::{s, PCSTR, PCWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, SetLastError, ERROR_INVALID_PARAMETER, FILETIME, HANDLE, HMODULE, SYSTEMTIME,
-    WAIT_FAILED,
+    CloseHandle, DuplicateHandle, SetLastError, DUPLICATE_SAME_ACCESS, ERROR_INVALID_PARAMETER, FILETIME, HANDLE,
+    HMODULE, SYSTEMTIME, WAIT_FAILED,
 };
 use windows::Win32::System::Diagnostics::Debug::{OutputDebugStringA, WriteProcessMemory};
 use windows::Win32::System::LibraryLoader::{
@@ -104,7 +104,7 @@ use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_M
 use windows::Win32::System::Threading::{
     CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
     GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, IsWow64Process2, OpenProcess, ResumeThread,
-    WaitForSingleObject, CREATE_SUSPENDED,
+    WaitForSingleObject, CREATE_SUSPENDED, DEBUG_ONLY_THIS_PROCESS, DEBUG_PROCESS,
     INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
     PROCESS_SYNCHRONIZE, THREAD_CREATION_FLAGS,
 };
@@ -2827,24 +2827,118 @@ fn child_ran_uncovered(loaded: bool, signed_in: bool, slot_claims: u32) -> bool 
     !loaded || (!signed_in && slot_claims <= MAX_COV_PIDS as u32)
 }
 
+/// The creation flags that make the caller the debugger of the child it starts.
+const DEBUG_FLAGS: u32 = DEBUG_PROCESS.0 | DEBUG_ONLY_THIS_PROCESS.0;
+
 /// After a create call we forced to CREATE_SUSPENDED returns, inject the hook into the
 /// new child so it joins the session, then resume it unless the caller originally asked
-/// for a suspended child. Shared by the CreateProcessW and CreateProcessA detours.
+/// for a suspended child. `flags` are the caller's own, before CREATE_SUSPENDED was added.
+/// Shared by the three CreateProcess detours.
 ///
 /// # Safety
 /// `pi`, when non-null, must point to a PROCESS_INFORMATION filled by a successful create, aligned or
 /// not.
-unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, want_suspended: bool) { unsafe {
-    if r != 0 && !pi.is_null() {
-        let info = core::ptr::read_unaligned(pi);
-        let outcome = inject_self(info.hProcess);
-        account_child(info.hProcess, info.dwProcessId, outcome);
-        // Resume regardless. The parent is the application under test and it asked for this child -
-        // holding it suspended or killing it would change the behaviour we were asked to observe.
-        if !want_suspended {
-            let _ = ResumeThread(info.hThread);
+unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, flags: u32) { unsafe {
+    if r == 0 || pi.is_null() {
+        return;
+    }
+    let info = core::ptr::read_unaligned(pi);
+    // Resume regardless. The parent is the application under test and it asked for this child -
+    // holding it suspended or killing it would change the behaviour we were asked to observe.
+    let resume = (flags & CREATE_SUSPENDED.0) == 0;
+    if flags & DEBUG_FLAGS != 0 && inherit_into_debugged_child(&info, resume) {
+        return;
+    }
+    let outcome = inject_self(info.hProcess);
+    account_child(info.hProcess, info.dwProcessId, outcome);
+    if resume {
+        let _ = ResumeThread(info.hThread);
+    }
+}}
+
+/// A child the caller debugs, followed without waiting in the caller's thread (R5-P25, R5-D38).
+///
+/// The remote thread that loads the hook is the first thread to run in the child, so it raises the
+/// child's first debug events and stands until the debugger answers them - and the debugger is the very
+/// thread that called CreateProcess, waiting in this detour for that remote thread. Measured on both
+/// bitnesses (`tools/probes/r5/fala4/p25.ps1`): the caller stood the whole ten-second limit, the child
+/// was then resumed before the hook had loaded and its program read the real clock, and the report
+/// named it uncovered while the hook did load a moment later.
+///
+/// So the wait moves to a thread of its own here. The detour starts the load and returns at once, the
+/// caller goes back to answering the child's events, and the new thread waits for the load, counts the
+/// child the way the synchronous path does and only then resumes it - so its program starts on the
+/// session clock. Children that are not debugged keep the synchronous path: one started with
+/// CREATE_SUSPENDED is resumed by its caller right after the call returns, before a load waited for
+/// elsewhere could finish.
+///
+/// `false` when the wait could not be handed over before anything started (no second handle to the
+/// child), so the caller takes the synchronous path. Once the load is started, this handles the child
+/// to the end and returns `true`, waiting here only if no thread could be made for it.
+///
+/// # Safety
+/// `info` is the PROCESS_INFORMATION of a child just created suspended, its handles still open.
+unsafe fn inherit_into_debugged_child(info: &PROCESS_INFORMATION, resume: bool) -> bool { unsafe {
+    // The caller owns `info`'s handles and may close them as soon as CreateProcess returns, so the
+    // waiting thread needs handles of its own. Taken before anything starts in the child.
+    let (Some(process), Some(thread)) = (own_handle(info.hProcess), own_handle(info.hThread)) else {
+        return false;
+    };
+    let Some(load) = begin_remote_load(process) else {
+        account_child(process, info.dwProcessId, remote_load::Outcome::LibraryNotLoaded);
+        finish_debugged_child(process, thread, resume);
+        return true;
+    };
+    let pending = Box::into_raw(Box::new(DebuggedChild { process, thread, pid: info.dwProcessId, load, resume }));
+    match CreateThread(None, 0, Some(debugged_child_proc), Some(pending as *const c_void), THREAD_CREATION_FLAGS(0), None) {
+        Ok(waiter) => {
+            let _ = CloseHandle(waiter);
+        }
+        Err(_) => {
+            // No thread to hand the wait to: wait here, as before this existed - the caller stands the
+            // limit, but the child is still counted and resumed.
+            log("[chrono_hook] could not start a thread for a debugged child - waiting in the caller");
+            debugged_child_proc(pending as *mut c_void);
         }
     }
+    true
+}}
+
+/// What the thread that follows a debugged child needs: its own handles to the child and the child's
+/// first thread, the load started there, and whether to resume the child afterwards.
+struct DebuggedChild {
+    process: HANDLE,
+    thread: HANDLE,
+    pid: u32,
+    load: RemoteLoad,
+    resume: bool,
+}
+
+/// Wait for the load in a debugged child, count the child, resume it if its caller did not ask for it
+/// suspended, and let go of the handles.
+unsafe extern "system" fn debugged_child_proc(param: *mut c_void) -> u32 { unsafe {
+    let child = Box::from_raw(param as *mut DebuggedChild);
+    let outcome = end_remote_load(child.process, child.load);
+    account_child(child.process, child.pid, outcome);
+    finish_debugged_child(child.process, child.thread, child.resume);
+    0
+}}
+
+/// Resume a debugged child when its caller wanted it running, and close the handles taken for it.
+unsafe fn finish_debugged_child(process: HANDLE, thread: HANDLE, resume: bool) { unsafe {
+    if resume {
+        let _ = ResumeThread(thread);
+    }
+    let _ = CloseHandle(thread);
+    let _ = CloseHandle(process);
+}}
+
+/// A second handle to `handle`, with the same access, owned by the caller.
+unsafe fn own_handle(handle: HANDLE) -> Option<HANDLE> { unsafe {
+    let mut own = HANDLE::default();
+    DuplicateHandle(GetCurrentProcess(), handle, GetCurrentProcess(), &mut own, 0, false, DUPLICATE_SAME_ACCESS)
+        .ok()
+        .map(|()| own)
 }}
 
 /// Count a child the hook tried to follow into, once its load has ended: nothing when it signed in,
@@ -2906,14 +3000,13 @@ unsafe extern "system" fn h_cpw(
         // started after the end on the session's date for good, or on the next session's.
         return o(app, cmd, pa, ta, inherit, flags, env, cwd, si, pi);
     }
-    let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     // SPAWNING held across the original: the NtCreateUserProcess it funnels into is not counted as a
     // direct spawn (this child is already being inherited below). Cleared before inherit_into_child.
     let r = {
         let _g = enter_spawning();
         o(app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi)
     };
-    inherit_into_child(r, pi, want_suspended);
+    inherit_into_child(r, pi, flags);
     r
 }}
 
@@ -2940,12 +3033,11 @@ unsafe extern "system" fn h_cpa(
     if session_over() {
         return o(app, cmd, pa, ta, inherit, flags, env, cwd, si, pi); // as in h_cpw (R4-W2)
     }
-    let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     let r = {
         let _g = enter_spawning();
         o(app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi)
     };
-    inherit_into_child(r, pi, want_suspended);
+    inherit_into_child(r, pi, flags);
     r
 }}
 
@@ -2981,12 +3073,11 @@ unsafe extern "system" fn h_cpiw(
     if SPAWNING.get() || !token.0.is_null() || pi.is_null() || session_over() {
         return o(token, app, cmd, pa, ta, inherit, flags, env, cwd, si, pi, new_token);
     }
-    let want_suspended = (flags & CREATE_SUSPENDED.0) != 0;
     let r = {
         let _g = enter_spawning();
         o(token, app, cmd, pa, ta, inherit, flags | CREATE_SUSPENDED.0, env, cwd, si, pi, new_token)
     };
-    inherit_into_child(r, pi, want_suspended);
+    inherit_into_child(r, pi, flags);
     r
 }}
 
