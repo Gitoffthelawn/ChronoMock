@@ -135,6 +135,39 @@ public class RustConstantMirrorTests
     }
 
     /// <summary>
+    /// The note about a full process registry states the registry's size, on the command line and in
+    /// the window in both languages. The size is a constant of the control block, and it changed once
+    /// already (R5-P26) - a note still naming the old number would tell a reader the audit gave up far
+    /// earlier, or later, than it did.
+    /// </summary>
+    [Fact]
+    public void The_registry_size_the_notes_state_is_the_one_the_block_has()
+    {
+        var ctl = ReadRustSource("crates", "ctl", "src", "lib.rs");
+        var size = CaptureOne(ctl, @"pub const MAX_COV_PIDS: usize = ([0-9_]+);", "MAX_COV_PIDS").Replace("_", string.Empty);
+        var stated = $"({size})";
+
+        var report = ReadRustSource("crates", "cli", "src", "report.rs");
+        var cli = CaptureOne(report, @"""(this session ran more processes than the audit can follow[^""]*)""", "the CLI note");
+        Assert.True(cli.Contains(stated, StringComparison.Ordinal), $"the CLI note does not state {stated}: {cli}");
+
+        foreach (var language in new[] { "en", "pl" })
+        {
+            var path = Path.Combine(TestPaths.RepoRoot(), "gui", "ChronoMock.App", "Localization", $"Strings.{language}.json");
+            // Read the way the app reads it: the string files carry comments and may end a list with a comma.
+            using var strings = System.Text.Json.JsonDocument.Parse(
+                File.ReadAllText(path),
+                new System.Text.Json.JsonDocumentOptions
+                {
+                    CommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true,
+                });
+            var note = strings.RootElement.GetProperty("coverage.pid_registry_full").GetString() ?? string.Empty;
+            Assert.True(note.Contains(stated, StringComparison.Ordinal), $"the {language} note does not state {stated}: {note}");
+        }
+    }
+
+    /// <summary>
     /// The window and the CLI put the unreliable-evidence banner over a works session for the same
     /// warnings (R5-D3). A key on one list only would make the copied report and the evidence file of one
     /// session disagree about whether it proves anything.

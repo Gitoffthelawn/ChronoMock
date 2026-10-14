@@ -799,8 +799,8 @@ impl Session {
     }
 
     /// How many processes of this session ran with NO coverage slot, because the registry was already
-    /// full. Zero for every ordinary session - `MAX_COV_PIDS` is 256 and an installer spawning dozens of
-    /// helpers is the realistic way past it (docs/07 open item 2).
+    /// full. Zero for every ordinary session - `MAX_COV_PIDS` is 4096 and slots are never reused, so a
+    /// long session whose application keeps starting short helpers is the realistic way past it (R5-P26).
     ///
     /// These processes are invisible to `poll_new_coverage` - they published no pid, because they had
     /// nowhere to publish one - so the family count and the coverage list are both short by this many,

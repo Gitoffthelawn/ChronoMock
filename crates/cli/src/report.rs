@@ -430,7 +430,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
             "Chrono Mock set the WebView2 option for the program it started, but WebView2 was loaded by a different program, which the option does not apply to - start that program directly to reach its pages"
         }
         "coverage.pid_registry_full" => {
-            "this session ran more processes than the audit can follow (256) - the ones past that limit were still put on the session clock, but the audit could not check them, so they are missing from the process count and the channel lists below"
+            "this session ran more processes than the audit can follow (4096) - the ones past that limit were still put on the session clock, but the audit could not check them, so they are missing from the process count and the channel lists below"
         }
         // Says what the verdict above it does NOT say. The verdict answers "did the substitution take
         // effect", and it can be `works` over an application that read its time somewhere we cannot

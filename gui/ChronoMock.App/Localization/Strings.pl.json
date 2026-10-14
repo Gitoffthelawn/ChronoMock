@@ -459,7 +459,7 @@
   "embedded.web_engine_processes_uncovered": "Są wśród nich procesy osadzonego silnika web (WebView2 albo Qt WebEngine), więc część tego silnika działała na prawdziwym zegarze. Czy jego strony też - nie da się ustalić: wśród nazwanych procesów nie było renderera.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
-  "coverage.pid_registry_full": "Ta sesja uruchomiła więcej procesów, niż audyt potrafi śledzić (256). Te ponad limit też dostały fałszywy zegar, ale audyt nie mógł ich sprawdzić, więc nie ma ich w liczbie procesów ani na listach powyżej.",
+  "coverage.pid_registry_full": "Ta sesja uruchomiła więcej procesów, niż audyt potrafi śledzić (4096). Te ponad limit też dostały fałszywy zegar, ale audyt nie mógł ich sprawdzić, więc nie ma ich w liczbie procesów ani na listach powyżej.",
   // Session-level for the same reason as the one above: the question is whether the FAMILY read the
   // clock, and a parent that reads nothing while its child reads the fake date is a session that
   // worked. Deliberately does not touch the verdict - what the session achieved and what the

@@ -101,9 +101,16 @@ Notable changes to Chrono Mock, newest first. The format follows
   read the real one. The report used to list such a function as covered. It now lists it as not
   covered, so the session works partially (exit code 10). On the Windows builds measured so far,
   kernel32 leads into kernelbase for every one of these functions.
-- **The note about more than 256 processes says what happened to them.** It said that some of them
-  ran with no fake clock at all. They were put on the session clock, and only the audit could not
-  check them, which is what the note now says, on the command line and in the window.
+- **The audit follows 4096 processes in a session instead of 256.** A session counts every process it
+  ever ran, not the ones running at once, so an application that starts a short helper every ten
+  seconds went past 256 in about 43 minutes and the rest of the session's processes were left out of
+  the audit. 4096 takes that to about eleven hours. The processes past the limit are still put on the
+  session clock, and the note about them says the new number. Measured on both bitnesses, the larger
+  limit costs nothing visible: the session starts in the same time and the core uses the same CPU and
+  memory.
+- **The note about more processes than the audit can follow says what happened to them.** It said
+  that some of them ran with no fake clock at all. They were put on the session clock, and only the
+  audit could not check them, which is what the note now says, on the command line and in the window.
 - **A session waiting for a library that never loads wakes the application less often.** The hook
   looks for a window, sound or network library that the application loads after the start: often in
   the first two seconds, then every 250 ms for as long as the session lasts. It now backs off to once
