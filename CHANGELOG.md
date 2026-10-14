@@ -8,6 +8,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **A GitHub button in the window's title bar**, beside Donate. It hands
+  `https://github.com/donislawdev/ChronoMock` (the source, the releases and the issue tracker) to your
+  browser, and its tooltip says so before you press it, the same way Donate does. Chrono Mock itself
+  still opens no connection. If Windows has no browser for the address, the window says so and shows
+  the address to open by hand.
 - **The report says when timers could not keep the session speed** (`timer.interval_floored`). A
   window timer (`SetTimer`) never fires more often than every 10 ms, a limit Windows sets, and a
   periodic waitable or thread-pool timer is never given a period under 1 ms, so at a high speed such

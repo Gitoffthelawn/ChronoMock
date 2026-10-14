@@ -107,6 +107,44 @@
         </StackPanel>
       </Border>
 
+      <!-- ============ Title-bar action ============ -->
+      <TextBlock Text="Title-bar action" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
+
+      <Border Style="{StaticResource PartCard}" Margin="{StaticResource StackGapSm}">
+        <StackPanel>
+          <TextBlock Style="{StaticResource PartCaption}"
+                     Text="The quiet buttons beside the window's caption buttons. Secondary text on no fill, so the strip reads as one thing and nothing in it outranks Start. A link carries a mark beside its word, and the word is the message. On the window they stand on the base, here on a card." />
+          <WrapPanel Margin="{StaticResource StackGapSm}">
+            <Button Style="{StaticResource TitleBarActionButton}" Margin="{StaticResource SpaceXs}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource TitleBarActionMark}" Text="{StaticResource GlyphHeart}" />
+                <TextBlock Style="{StaticResource TitleBarActionLabel}" Text="Donate" />
+              </StackPanel>
+            </Button>
+            <Button Style="{StaticResource TitleBarActionButton}" Margin="{StaticResource SpaceXs}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource TitleBarActionIcon}" Text="{StaticResource GlyphCode}" />
+                <TextBlock Style="{StaticResource TitleBarActionLabel}" Text="GitHub" />
+              </StackPanel>
+            </Button>
+            <Button Style="{StaticResource TitleBarActionButton}" Content="About" Margin="{StaticResource SpaceXs}" />
+            <Button Style="{StaticResource TitleBarActionButton}" Content="Disabled" IsEnabled="False"
+                    Margin="{StaticResource SpaceXs}" />
+          </WrapPanel>
+
+          <TextBlock Text="Extreme: a label far longer than any language gives these, to show the strip grows rather than clips"
+                     Style="{StaticResource PartCaption}" Margin="{StaticResource StackGapLg}" />
+          <WrapPanel Margin="{StaticResource StackGapSm}">
+            <Button Style="{StaticResource TitleBarActionButton}" Margin="{StaticResource SpaceXs}">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource TitleBarActionIcon}" Text="{StaticResource GlyphCode}" />
+                <TextBlock Style="{StaticResource TitleBarActionLabel}" Text="The source code, the releases and the issue tracker" />
+              </StackPanel>
+            </Button>
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+
       <!-- ============ Card ============ -->
       <TextBlock Text="Card" Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapLg}" />
 

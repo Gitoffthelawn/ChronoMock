@@ -22,6 +22,9 @@ internal static class ExternalLinks
     /// <summary>Where somebody who wants to support the project is sent.</summary>
     internal const string Support = "https://donislawdev.com/support/";
 
+    /// <summary>Where the project lives: its source, its releases and its issue tracker.</summary>
+    internal const string Repository = "https://github.com/donislawdev/ChronoMock";
+
     /// <summary>
     /// The full text of the GNU GPL, for a copy of this application that does not carry its own.
     /// </summary>
@@ -44,6 +47,10 @@ internal static class ExternalLinks
     /// button that quietly does nothing is the one outcome this must not have (untouchable rule 6).
     /// </remarks>
     internal static bool TryOpenSupport() => TryOpen(Support);
+
+    /// <summary>Hand the repository to the user's browser, and report whether the shell took it.</summary>
+    /// <remarks>The same contract as <see cref="TryOpenSupport"/>, for the same machine.</remarks>
+    internal static bool TryOpenRepository() => TryOpen(Repository);
 
     /// <summary>
     /// Hand one address to the shell.

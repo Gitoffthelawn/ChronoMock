@@ -25,6 +25,13 @@
   <!-- The icon face for the few glyph buttons that live inside a field (the calendar toggle, the clear
        button of a search box). Ships on the TFM floor like the mono face, so it always resolves. -->
   <FontFamily x:Key="FontFamilyIcons">Segoe MDL2 Assets</FontFamily>
+  <!-- The marks the title-bar actions carry beside their words. Values, so a view names a mark rather than
+       spelling a code point. The heart is a plain character in the text face. The code mark is E943 "Code"
+       in the icon face, which comes with Windows and is only referenced by name, never shipped: the font
+       redistribution FAQ on Microsoft Learn lets any Windows application render the system fonts, the
+       symbol fonts included, and forbids only copying or converting the files. -->
+  <sys:String x:Key="GlyphHeart">&#x2665;</sys:String>
+  <sys:String x:Key="GlyphCode">&#xE943;</sys:String>
   <sys:Double x:Key="FontSizeCaption">12</sys:Double>
   <sys:Double x:Key="FontSizeBody">14</sys:Double>
   <sys:Double x:Key="FontSizeSubtitle">18</sys:Double>

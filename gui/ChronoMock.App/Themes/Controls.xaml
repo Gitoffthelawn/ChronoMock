@@ -180,10 +180,32 @@
               <Setter TargetName="Fill" Property="BorderBrush" Value="{DynamicResource BrushFocusRing}" />
               <Setter Property="Foreground" Value="{DynamicResource BrushTextPrimary}" />
             </Trigger>
+            <!-- Nothing in the strip disables itself today, and the state is here anyway, the same as on the
+                 primary action: a control without a disabled look reads as clickable on the day somebody
+                 does disable one. -->
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="{StaticResource OpacityDisabled}" />
+              <Setter Property="Cursor" Value="Arrow" />
+            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+  </Style>
+
+  <!-- The two halves of a title-bar action that carries a mark: the mark, and the word beside it. Named
+       because two actions carry them (Donate and GitHub), so the gap and the alignment are decided once.
+       The word is what the action says and the mark is decoration beside it, never the whole message
+       (zasady/13 9), which is why the word is never dropped to save room. -->
+  <Style x:Key="TitleBarActionMark" TargetType="TextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style x:Key="TitleBarActionIcon" TargetType="TextBlock" BasedOn="{StaticResource TitleBarActionMark}">
+    <Setter Property="FontFamily" Value="{StaticResource FontFamilyIcons}" />
+  </Style>
+  <Style x:Key="TitleBarActionLabel" TargetType="TextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="{StaticResource SpaceXs}" />
   </Style>
 
   <!-- Tooltip: dark surface, readable text, wrapped - the default WPF tooltip is a light-yellow box that
