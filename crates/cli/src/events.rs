@@ -94,7 +94,7 @@ pub(crate) fn emit(ev: &Event) {
 pub(crate) fn emit_coverage(pid: u32, cov: &chrono_core::Coverage, extra_warnings: &[String]) {
     let to_wire = |cs: &[chrono_core::ChannelCoverage]| -> Vec<CoveredChannel> {
         cs.iter()
-            .map(|c| CoveredChannel { channel: c.channel.clone(), calls: c.calls })
+            .map(|c| CoveredChannel { channel: c.channel.clone(), calls: c.calls, capped: c.capped })
             .collect()
     };
     let mut warning_keys = cov.warning_keys.clone();

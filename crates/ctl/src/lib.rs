@@ -38,7 +38,7 @@
 //! directly - `GetLocalTime` returns it shifted back into the session zone by `tz_bias`.
 
 use std::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
-use std::sync::atomic::{fence, AtomicU32, Ordering};
+use std::sync::atomic::{fence, AtomicU32, AtomicUsize, Ordering};
 
 /// Named shared section for a session's control memory (per interactive session).
 ///
@@ -225,6 +225,12 @@ pub const CH_SCVCS: u64 = 1 << 38;
 pub const CH_WOA: u64 = 1 << 39;
 /// Coverage bit: `WSAWaitForMultipleEvents` is hooked (socket event wait, observed not scaled).
 pub const CH_WSAWFME: u64 = 1 << 40;
+/// Coverage bit: `QueryInterruptTime` is hooked (duration axis, opt-in, R5-F4).
+pub const CH_QIT: u64 = 1 << 41;
+/// Coverage bit: `QueryInterruptTimePrecise` is hooked (duration axis, opt-in, R5-F4).
+pub const CH_QITP: u64 = 1 << 42;
+/// Coverage bit: `QueryUnbiasedInterruptTimePrecise` is hooked (duration axis, opt-in, R5-F4).
+pub const CH_QUITP: u64 = 1 << 43;
 
 /// Index of each channel into the `calls` array (== its position in `CHANNELS`).
 pub const IDX_GSTAFT: usize = 0;
@@ -268,11 +274,25 @@ pub const IDX_SCVSRW: usize = 37;
 pub const IDX_SCVCS: usize = 38;
 pub const IDX_WOA: usize = 39;
 pub const IDX_WSAWFME: usize = 40;
+pub const IDX_QIT: usize = 41;
+pub const IDX_QITP: usize = 42;
+pub const IDX_QUITP: usize = 43;
 
 /// Number of channels tracked (wall-clock, session zone, duration axis, object/message/condition/
 /// address/socket waits, settable timers, multimedia timer, thread-pool timers, direct process
-/// creation, network connect, the QPC axis, the winmm millisecond clock).
-pub const CHANNEL_COUNT: usize = 41;
+/// creation, network connect, the QPC axis, the winmm millisecond clock, the interrupt-time clocks).
+pub const CHANNEL_COUNT: usize = 44;
+
+/// The channels that carry an ABSOLUTE deadline - the settable and thread-pool timers and
+/// `NtDelayExecution` - and so are installed in EVERY session, not only under `scale_duration` (R5-D2).
+///
+/// An absolute deadline is a wall-clock instant the application computed from the substituted clock,
+/// and the kernel compares it with the REAL clock. That is true of a plain date shift as much as of an
+/// accelerated one: a timer set for "tomorrow 03:00" in a session at 2038 waited twelve real years
+/// without `--scale-duration`, and one set in the past fired at once. So these detours convert an
+/// absolute deadline in every session, and scale a relative one only when the session asked for the
+/// duration axis.
+pub const DEADLINE_CHANNELS: u64 = CH_SWT | CH_SWTEX | CH_TPTIMER | CH_TPTIMEREX | CH_NTDELAY;
 
 /// Which system module exports a channel (the hook resolves it there).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,7 +313,10 @@ pub enum ChannelModule {
     /// never force-loaded. The connection observer used to live here too, on `connect`, and moved to
     /// ntdll because two of the three ways to connect never call that export (`ChannelDef::export`).
     Ws2_32,
-    /// kernelbase.dll - the synchronisation waits that kernel32 does not export itself.
+    /// kernelbase.dll - the synchronisation waits that kernel32 does not export itself, and the three
+    /// interrupt-time clocks, which kernel32 does not export at all (`QueryInterruptTime`,
+    /// `QueryInterruptTimePrecise`, `QueryUnbiasedInterruptTimePrecise` - measured 2026-10-14 on both
+    /// bitnesses, `GetProcAddress` on kernel32 answers null for all three).
     ///
     /// Not an optional module in the sense the three above are: every Win32 process has it, because
     /// kernel32 is built on it. It is a separate entry because of where the EXPORTS are, measured with
@@ -477,7 +500,8 @@ pub fn indirect_jump_slot(code: &[u8; 12], entry: usize, rip_relative: bool) -> 
 // like a wait, and an ABSOLUTE (positive) due-time - a fake wall-clock instant the app computed
 // from the substituted clock - is converted to a scaled relative interval (scale_timer_due), so the
 // kernel (which reads the real clock for absolute timers) fires it when the FAKE clock reaches it.
-// SetTimer (user32, ADR-7 class C) joins them: its uElapse interval is scaled by M (scale_timer_elapse)
+// The absolute conversion happens in EVERY session, the scaling of relative times only under
+// scale_duration (`DEADLINE_CHANNELS`, R5-D2). SetTimer (user32, ADR-7 class C) joins them: its uElapse interval is scaled by M (scale_timer_elapse)
 // so WM_TIMER arrives in step with the fake clock - Windows clamps a scaled interval below
 // USER_TIMER_MINIMUM (10 ms) up to it, a documented floor under heavy acceleration. The thread-pool
 // timers SetThreadpoolTimer / SetThreadpoolTimerEx (kernel32) scale the same way as SetWaitableTimer:
@@ -544,6 +568,22 @@ pub fn indirect_jump_slot(code: &[u8; 12], entry: usize, rip_relative: bool) -> 
 // computes a deadline from the tick count and then waits on an object with a real timeout can give up
 // sooner in real time. The thread-pool timers inside those components were already scaled before this.
 //
+// THE INTERRUPT-TIME CLOCKS (R5-F4, 2026-10-14): QueryInterruptTime, QueryInterruptTimePrecise and
+// QueryUnbiasedInterruptTimePrecise ride the duration axis under `scale_duration`, like QUIT. No language
+// runtime on the measured machine calls them, but system components do, and so does the Chromium engine of
+// WebView2 (QueryUnbiasedInterruptTimePrecise), which used to read one duration axis scaled and this one
+// real inside the same process. The interrupt time counts sleep and the unbiased one does not, so the fake
+// pair keeps exactly that difference: the fake QueryInterruptTime is the fake QUIT plus the real time the
+// machine has slept since boot (`consistent_bias`), never the slept time multiplied (ADR-5).
+//
+// ON 32-BIT WINDOWS UNDER `scale_qpc` (R5-F5, measured 2026-10-14): ntdll's RtlGetSystemTimePrecise and
+// RtlGetInterruptTimePrecise call the EXPORTED RtlQueryPerformanceCounter, which is where the QPC detour
+// stands, so the precise system clocks ride the scaled counter. The hook raises its own-clock flag around
+// every call of its own into them, so the QPC detour hands those back real and uncounted. What stays: an
+// application on 32-bit that calls QueryUnbiasedInterruptTimePrecise or QueryInterruptTimePrecise itself in
+// a session with `scale_qpc` and WITHOUT `scale_duration`, where these two are not hooked, reads a value
+// that follows the scaled counter. No such caller was found besides one system component (R5 scan, 4.5).
+//
 // KNOWN GAPS, not yet covered (the verifier should report these honestly): GetTimeZoneInformationForYear,
 // LocalFileTimeToLocalSystemTime and LocalSystemTimeToLocalFileTime are not hooked at all.
 // Residual exotica (SetThreadpoolWait timeouts, RtlCreateUserProcess legacy path) are out of scope
@@ -593,6 +633,9 @@ pub const CHANNELS: [ChannelDef; CHANNEL_COUNT] = [
     ChannelDef { bit: CH_SCVCS, name: "SleepConditionVariableCS", module: ChannelModule::KernelBase, category: ChannelCategory::WaitObserved },
     ChannelDef { bit: CH_WOA, name: "WaitOnAddress", module: ChannelModule::KernelBase, category: ChannelCategory::WaitObserved },
     ChannelDef { bit: CH_WSAWFME, name: "WSAWaitForMultipleEvents", module: ChannelModule::Ws2_32, category: ChannelCategory::WaitObserved },
+    ChannelDef { bit: CH_QIT, name: "QueryInterruptTime", module: ChannelModule::KernelBase, category: ChannelCategory::Duration },
+    ChannelDef { bit: CH_QITP, name: "QueryInterruptTimePrecise", module: ChannelModule::KernelBase, category: ChannelCategory::Duration },
+    ChannelDef { bit: CH_QUITP, name: "QueryUnbiasedInterruptTimePrecise", module: ChannelModule::KernelBase, category: ChannelCategory::Duration },
 ];
 
 /// Marks the control block as one WE built. The section name is fixed and lives in a namespace any
@@ -640,7 +683,10 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 ///
 /// 10: `Cov` gained `timers_at_floor` (R5, D8), appended after every other field like `failed_channels`,
 /// which widens every slot for the same reason version 3 did.
-pub const CTL_LAYOUT_VERSION: u32 = 10;
+///
+/// 11: `CHANNEL_COUNT` grew from 41 to 44 for the three interrupt-time clocks (R5-F4), which widens
+/// `calls`, and `Cov` gained `absolute_dues` (R5-D2) after every other field. Both widen every slot.
+pub const CTL_LAYOUT_VERSION: u32 = 11;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -833,6 +879,14 @@ pub struct Cov {
     /// volatile RMW that can lose a bump and never invents one. Appended after every other field, so
     /// no offset inside a slot moves.
     pub timers_at_floor: u64,
+    /// Absolute deadlines this process set - a timer or a `NtDelayExecution` aimed at a wall-clock
+    /// instant - that the hook turned into a real delay (R5-D2). The conversion uses the speed of the
+    /// moment it is made, so a deadline still pending when the session jumps or changes speed fires where
+    /// the old clock would have reached it, while Windows moves its own absolute timers with the clock.
+    /// The core asks this count at every jump and speed change and warns when one came before it
+    /// (`timer.absolute_due_converted`). Counted like `timers_at_floor`, and appended after every other
+    /// field, so no offset inside a slot moves.
+    pub absolute_dues: u64,
 }
 
 impl Cov {
@@ -850,6 +904,7 @@ impl Cov {
         created: 0,
         failed_channels: 0,
         timers_at_floor: 0,
+        absolute_dues: 0,
     };
 }
 
@@ -1112,7 +1167,36 @@ pub unsafe fn anchor_write_in_progress(p: *const Ctl) -> bool { unsafe {
 /// user-driven), so a live writer settles in a few spins - this bound is astronomically above that. It
 /// exists only to cap the pathological case where the core is force-killed between the odd and even `seq`
 /// writes, which would otherwise leave a reader spinning at 100% CPU forever.
+///
+/// 🔴 Not shorter (R5-WY12, R5-D36). The bound also has to outlast a LIVE writer that the scheduler took
+/// off the processor in the middle of its write, which is a window of nanoseconds but a pause of a whole
+/// scheduler quantum, tens of milliseconds. A reader that gave up sooner would answer from the half-written
+/// fields - a new base at the old rate (`full_anchor_stores`) - and once the write finished, after a
+/// slowdown, the next reading of a duration axis would be lower by the pause times the drop in rate: from
+/// x1440 to x1 after a 30 ms pause, 43 s on the tick count (untouchable rule 3). A million PAUSE spins is
+/// 14 to 70 ms depending on the processor. What the bound used to cost on EVERY call while a write stood
+/// still for good is what [`STUCK_CTL`] and [`STUCK_SEQ`] remove.
 const SEQLOCK_READ_TRIES: usize = 1_000_000;
+
+/// The control block and the odd `seq` of a write a reader of THIS process already waited the whole bound
+/// on (R5-WY12, R5-D36). A reader that finds the same write still open reads at once instead of waiting the
+/// bound again - before this, every clock call paid 14 to 70 ms for as long as the write stood open, a core
+/// stopped in a debugger or killed in the middle of a rate change. A reader already spinning on that write
+/// leaves too, once another one gave up.
+///
+/// Nothing clears it, and nothing has to: the next write moves `seq`, and coming back to the same value takes
+/// 2^31 writes. 0 is never an odd `seq`, so it means "none". The block's address rides along because a process
+/// may map more than one block (the tests here do), and a pair written by two readers giving up on two blocks
+/// at once can only fail to match, which costs one more wait, never a reading taken without one.
+static STUCK_CTL: AtomicUsize = AtomicUsize::new(0);
+
+/// See [`STUCK_CTL`].
+static STUCK_SEQ: AtomicU32 = AtomicU32::new(0);
+
+/// Whether a reader of this process has already waited the whole bound on this block's write `seq`.
+fn write_known_stuck(p: *const Ctl, seq: u32) -> bool {
+    STUCK_SEQ.load(Ordering::Relaxed) == seq && STUCK_CTL.load(Ordering::Relaxed) == p as usize
+}
 
 /// Run `read` between two looks at `seq` that agree and are even, so what it returns belongs to one
 /// complete write, retrying while a write is in progress. Every reader of the anchor goes through here.
@@ -1121,10 +1205,12 @@ const SEQLOCK_READ_TRIES: usize = 1_000_000;
 /// writer is caught by the comparison. See `write_anchor` for why Release/Acquire costs nothing on x86
 /// and x64 yet is correct on a weakly ordered processor.
 ///
-/// The seqlock never settles within the bound only when the writer (the core) was force-killed in the
-/// middle of a write, leaving `seq` odd for good (RELEASE-009). Spinning at 100% CPU for ever is not
-/// the answer to that, so `read` runs once more and its answer stands - a dead writer's fields hold
-/// still, and the watcher lets the process go right after the core dies.
+/// The seqlock never settles within the bound only when the writer (the core) stopped in the middle of
+/// a write - force-killed, which leaves `seq` odd for good (RELEASE-009), or held in a debugger. Spinning
+/// at 100% CPU for ever is not the answer to that, so `read` runs once more and its answer stands - a
+/// stopped writer's fields hold still, and the watcher lets the process go right after a dead core. The
+/// write is remembered, so the readers after this one do not wait the bound again (R5-WY12). The check
+/// for it is on the odd branch only, so a reader that finds no write open pays nothing for it.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Ctl`.
@@ -1139,8 +1225,16 @@ unsafe fn read_consistent<T>(p: *const Ctl, read: impl Fn() -> T) -> T { unsafe 
             if s1 == read_volatile(addr_of!((*p).seq)) {
                 return value;
             }
+        } else if write_known_stuck(p, s1) {
+            fence(Ordering::Acquire);
+            return read();
         }
         std::hint::spin_loop();
+    }
+    let s = read_volatile(addr_of!((*p).seq));
+    if s & 1 == 1 {
+        STUCK_CTL.store(p as usize, Ordering::Relaxed);
+        STUCK_SEQ.store(s, Ordering::Relaxed);
     }
     fence(Ordering::Acquire);
     read()
@@ -1254,8 +1348,16 @@ unsafe fn dur_fields(p: *const Ctl) -> DurAnchor { unsafe {
 /// Both crates that call this run with `overflow-checks` off (a panic unwinding across the FFI
 /// detour boundary is undefined behaviour), so every bound here is written out rather than left to
 /// a debug assertion.
+///
+/// Never before the anchor (R5-P2, R5-D31), the floor the duration axes have had since R4-N4. The
+/// anchors are read from the PRECISE clock (`QueryUnbiasedInterruptTimePrecise`), while most wall
+/// channels project from the plain one, which stands on the last timer interrupt and so is never ahead
+/// of the precise one (0 of 2 million pairs, measured 2026-10-14) but may be behind it by up to one
+/// delayed interrupt (1.77 ms measured). A reader of the plain clock right after an anchor therefore sees
+/// a negative elapsed time until the next interrupt, and without this floor its answer would fall below
+/// the anchor - after a rate change, below what the previous anchor already answered.
 pub fn fake_wall_at(anchor_fake: i64, anchor_real: i64, now_real: i64, multiplier: i64) -> i64 {
-    let advanced = now_real.wrapping_sub(anchor_real).saturating_mul(multiplier);
+    let advanced = now_real.saturating_sub(anchor_real).max(0).saturating_mul(multiplier);
     // Both ends, not just the top. A FILETIME counts from 1601 and Windows types it unsigned, so a
     // negative value is not a small date - read back as unsigned it is a year around 59000, and
     // `FileTimeToSystemTime` refuses it, which drops `GetSystemTime` and `GetLocalTime` back to the
@@ -1360,19 +1462,25 @@ pub fn released_line(real: i64, released_at: i64, session: impl Fn(i64) -> i64) 
 /// Whether a duration axis has reached the end of what an i64 can hold and is therefore STANDING
 /// rather than advancing.
 ///
-/// The elapsed term is what saturates first, long before the base does, so this asks about that term
-/// alone - the same product the three projections compute. Answering from the projected VALUE instead
-/// would be wrong in both directions: a base near the top saturates on the first tick, and a base near
-/// the bottom hides a saturated elapsed under a value that still looks ordinary.
+/// Within one rate segment the elapsed term is what saturates first, so this asks about the same
+/// product the three projections compute, and then about the sum of it and the base (see below). It
+/// asks the arithmetic rather than comparing the projected VALUE with the top, because a saturated term
+/// over a base below zero would still produce a value that looks ordinary.
 ///
 /// At the maximum multiplier this arrives about 10.6 days into a session, and at the largest speed
 /// anyone has documented using (x1440, a day a minute) about 20 years - so the ordinary session never
 /// meets it. It is reported rather than assumed away because the alternative is a clock that quietly
 /// stops while the session goes on counting, which is the shape of R2-X2 on the wall axis.
-pub fn dur_axis_at_range_end(dur_q0: i64, m: i64, real_now: i64) -> bool {
+///
+/// The base counts too (R5-P17). A rate change banks the elapsed term into the base, so a session whose
+/// rate changes now and then never fills the term of any one segment, while the base, the sum of them
+/// all, reaches the top and stands there - and asking about the term alone said nothing. The fake
+/// elapsed time a session reports is an integral of a rate never above the one this axis runs at, from a
+/// base that starts at zero or above, so it cannot reach the top of its range before this answers yes.
+pub fn dur_axis_at_range_end(dur_quit_c0: i64, dur_q0: i64, m: i64, real_now: i64) -> bool {
     let dm = m.max(1);
     let dq = real_now.saturating_sub(dur_q0).max(0);
-    dq.checked_mul(dm).is_none()
+    dq.checked_mul(dm).and_then(|elapsed| dur_quit_c0.checked_add(elapsed)).is_none()
 }
 
 /// The QPC anchor with its rate, as one snapshot (a torn read mixing a new rate with an old base would
@@ -1499,6 +1607,35 @@ impl ReleasedAxes {
     pub fn qpc_at(&self, real_qpc: i64) -> i64 {
         self.qpc.at(real_qpc, self.qpc_released_at)
     }
+}
+
+/// How many times [`sleep_bias`] reads its three clocks before it settles for a lower bound.
+pub const SLEEP_BIAS_TRIES: u32 = 4;
+
+/// How long the machine has slept since it started, in 100 ns units: the interrupt time
+/// (`QueryInterruptTime`, which counts sleep) minus the unbiased one (`quit`, which does not). Read on
+/// both sides from one implementation - the hook adds it to the fake QUIT to answer the interrupt-time
+/// channels (R5-F4), the core watches it grow to tell that the machine slept (R5-P1).
+///
+/// Read as a triple, QUIT, interrupt time, QUIT, and taken only when the two QUIT readings agree. Both
+/// clocks stand on the same timer interrupt - `QueryInterruptTime` reads the interrupt time and QUIT is that
+/// same time minus the sleep bias (disassembled on both bitnesses, 2026-10-14) - so with no interrupt between
+/// the two QUIT readings the difference is exact. Two separate calls straddle an interrupt now and then, and
+/// their difference scattered by about a millisecond (measured, 4.5 of the R5 plan) - a fake clock built on
+/// that scatter would step back. A thread interrupted between the reads four times running settles for `interrupt - the
+/// later QUIT`, which is never above the real bias, so a caller that must not go back keeps its own maximum.
+pub fn sleep_bias(quit: impl Fn() -> i64, interrupt_time: impl Fn() -> i64) -> i64 {
+    let mut bound = 0;
+    for _ in 0..SLEEP_BIAS_TRIES {
+        let before = quit();
+        let interrupt = interrupt_time();
+        let after = quit();
+        if before == after {
+            return interrupt.saturating_sub(before).max(0);
+        }
+        bound = interrupt.saturating_sub(after).max(0);
+    }
+    bound
 }
 
 /// Write the session zone bias (stable field, outside the seqlock). Mechanism side.
@@ -1797,16 +1934,49 @@ pub unsafe fn read_failed_channels(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).failed_channels))
 }}
 
-/// Increment a channel's call counter (hook side, per-process `Cov`). `idx` must be
+/// Where a channel's call counter stops (R5-WY11, R5-D32): 2^20, a little over a million calls. A
+/// counter that reached it says "at least this many", which the report and the window say in words
+/// (`ChannelCoverage::capped`), so the audit still never claims more calls than there were.
+///
+/// Why a ceiling at all: the counter was the only WRITE on the clock's hot path, and every thread of the
+/// target that read a clock wrote the same cache line, which then moved between cores on every call.
+/// Measured on this machine (tools/probes/r5/fala3/ab.ps1, `GetSystemTimeAsFileTime`, 8 threads): 86.6 ns
+/// a call with the counter against 14.1 ns without it, 174 against 21 at 16 threads, while one thread
+/// could not tell them apart. A counter that stops writing turns that line into one every core only
+/// reads, and the cost is paid once, on the way up to the ceiling. Per-thread counters in thread-local
+/// storage were the alternative and were turned down: the same steady state, and a new way to fail
+/// inside a library injected into somebody else's application (a count lost or double-taken when a
+/// thread ends).
+///
+/// The counter never passes the ceiling, so it always fits the low word, and the 64-bit read on 32-bit
+/// Windows, which is two loads, can no longer tear.
+pub const CALLS_CAP: u64 = 1 << 20;
+
+// Checked when the crate compiles: the ceiling fits the low word, which is what keeps a 64-bit read made of
+// two 32-bit loads from tearing a count.
+const _: () = assert!(CALLS_CAP < 1 << 32, "the call ceiling must fit the low 32 bits");
+
+/// Increment a channel's call counter (hook side, per-process `Cov`), up to [`CALLS_CAP`]. `idx` must be
 /// < CHANNEL_COUNT.
+///
+/// A plain read and write, not an atomic: two threads may lose a bump, which only under-counts, the
+/// direction of error the audit already accepts. It never writes past the ceiling, because it writes
+/// only a value it read below it, plus one.
 ///
 /// # Safety
 /// `p` must point to a live, correctly aligned `Cov`, and `idx < CHANNEL_COUNT`.
 pub unsafe fn bump_calls(p: *mut Cov, idx: usize) { unsafe {
     let slot = (addr_of_mut!((*p).calls) as *mut u64).add(idx);
     let cur = read_volatile(slot);
-    write_volatile(slot, cur.wrapping_add(1));
+    if cur < CALLS_CAP {
+        write_volatile(slot, cur + 1);
+    }
 }}
+
+/// Whether a call count read out of a `Cov` stopped at the ceiling, so the real number is at least it.
+pub fn calls_capped(calls: u64) -> bool {
+    calls >= CALLS_CAP
+}
 
 /// Read a channel's call counter (mechanism side, per-process `Cov`). `idx` must be
 /// < CHANNEL_COUNT.
@@ -1930,6 +2100,24 @@ pub unsafe fn read_timers_at_floor(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).timers_at_floor))
 }}
 
+/// Count one absolute deadline turned into a real delay (hook side, this process's own `Cov`, R5-D2).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn bump_absolute_dues(p: *mut Cov) { unsafe {
+    let slot = addr_of_mut!((*p).absolute_dues);
+    let cur = read_volatile(slot);
+    write_volatile(slot, cur.wrapping_add(1));
+}}
+
+/// How many absolute deadlines this process had converted so far (mechanism side, per-process `Cov`).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_absolute_dues(p: *const Cov) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).absolute_dues))
+}}
+
 /// The shortest real wait a scaled timeout is allowed to become.
 ///
 /// 🔴 One millisecond, and the difference between it and zero is the whole reason it exists. Integer
@@ -1985,22 +2173,30 @@ pub const MIN_SCALED_DELAY_TICKS: i64 = MIN_SCALED_WAIT_MS as i64 * 10_000;
 
 /// Scale an `NtDelayExecution` interval (100 ns units) by the duration multiplier. Only a
 /// NEGATIVE interval is a relative delay - scale its magnitude (interval / M, toward zero).
-/// A positive interval is an absolute deadline and a zero is a yield - both pass through
-/// untouched. `m` is clamped to >= 1 (rule 3, symmetric to scale_wait). A relative delay never
+/// A positive interval is an absolute deadline, which the hook converts with [`scale_timer_due`]
+/// instead (R5-D2), and a zero is a yield - both pass through here untouched. `m` is clamped to >= 1 (rule 3, symmetric to scale_wait). A relative delay never
 /// reaches zero, for the reason [`MIN_SCALED_WAIT_MS`] gives: a zero delay is a yield, and turning a
 /// sleep into a yield turns a polling loop into a spin.
+///
+/// The floor never makes a delay LONGER than the one asked for (R5-F7). This API takes 100 ns units, so
+/// unlike `scale_wait` it can be asked for less than the floor, and `NtDelayExecution(-1)`, a hundred
+/// nanoseconds, is a common way to give up the processor briefly. The floor used to lift it to a whole
+/// millisecond at any speed, x1 included - ten thousand times the delay the application asked for - and
+/// count it as a wait the speed could not divide. A delay already under the floor stays as it was.
 pub fn scale_delay_interval(interval: i64, m: i64) -> i64 {
     if interval < 0 {
-        (interval / m.max(1)).min(-MIN_SCALED_DELAY_TICKS)
+        let floor = interval.max(-MIN_SCALED_DELAY_TICKS);
+        (interval / m.max(1)).min(floor)
     } else {
         interval
     }
 }
 
-/// Whether [`scale_delay_interval`] had to hold this delay at the floor. Companion of
-/// [`wait_hit_floor`], for the relative-delay shape.
+/// Whether [`scale_delay_interval`] could not divide this delay by the full multiplier and held it at
+/// the floor, or at the length asked for when that is shorter. Companion of [`wait_hit_floor`], for the
+/// relative-delay shape. At x1 nothing is divided, so nothing is held: a short delay there is exact.
 pub fn delay_hit_floor(interval: i64, m: i64) -> bool {
-    interval < 0 && (interval / m.max(1)) > -MIN_SCALED_DELAY_TICKS
+    interval < 0 && m > 1 && (interval / m) > -MIN_SCALED_DELAY_TICKS
 }
 
 /// Scale a waitable-timer due time (100 ns, FILETIME convention) into a RELATIVE real interval,
@@ -2018,12 +2214,18 @@ pub fn delay_hit_floor(interval: i64, m: i64) -> bool {
 /// to the duration axis, untouchable rule 3). One consequence: an ABSOLUTE timer under
 /// frozen fires as if M=1 - a frozen wall clock never reaches a future absolute due on its own, so
 /// there is no "correct" wait to shorten. Documented limit, not a silent choice.
-pub fn scale_timer_due(due: i64, fake_now: i64, m: i64) -> i64 {
-    let m = m.max(1);
+///
+/// Two rates, because the two shapes follow two clocks (R5-D2). An absolute due is a moment on the WALL
+/// clock, which runs at the session's speed in every session, so `wall_m` divides it. A relative due is
+/// a length of time, which only a session that scales the duration axis shortens, so `dur_m` divides it,
+/// and a session without `--scale-duration` passes 1 and leaves it as the application asked. Under
+/// `--scale-duration` the two are the same number.
+pub fn scale_timer_due(due: i64, fake_now: i64, wall_m: i64, dur_m: i64) -> i64 {
     if due < 0 {
         // Already relative: magnitude scaled toward zero, stays negative.
-        due / m
+        due / dur_m.max(1)
     } else {
+        let m = wall_m.max(1);
         // Absolute fake instant -> relative real interval until the fake clock reaches it.
         //
         // Checked, because `due` is the only value in this file that comes straight from the
@@ -2442,7 +2644,7 @@ mod tests {
         assert_eq!(dur_quit_at(500, 1_000, 60, 999), 500);
         assert_eq!(dur_qpc_at(500, 1_000, 60, 990), 500);
         assert_eq!(dur_tick_at(3, 50_000, 60_000, 60, 59_999), 8, "5 ms of QUIT plus the offset of 3");
-        assert!(!dur_axis_at_range_end(1_000, i64::MAX, 0), "an elapsed time below zero is no overflow");
+        assert!(!dur_axis_at_range_end(0, 1_000, i64::MAX, 0), "an elapsed time below zero is no overflow");
         assert_eq!(tick_from_quit(-10, 0), 0, "held at zero rather than wrapped to the top");
     }
 
@@ -2783,6 +2985,89 @@ mod tests {
         }
     }
 
+    /// R5-WY11. The counter stops at the ceiling and never passes it, and a count at the ceiling reads as
+    /// "at least".
+    #[test]
+    fn a_call_counter_stops_at_its_ceiling() {
+        let mut cov = zeroed_cov();
+        let p = &mut cov as *mut Cov;
+        unsafe {
+            let slot = (addr_of_mut!((*p).calls) as *mut u64).add(IDX_GSTAFT);
+            write_volatile(slot, CALLS_CAP - 2);
+            bump_calls(p, IDX_GSTAFT);
+            assert_eq!(read_calls(p, IDX_GSTAFT), CALLS_CAP - 1);
+            assert!(!calls_capped(read_calls(p, IDX_GSTAFT)), "one under the ceiling is an exact count");
+            for _ in 0..5 {
+                bump_calls(p, IDX_GSTAFT);
+            }
+            assert_eq!(read_calls(p, IDX_GSTAFT), CALLS_CAP, "the counter went past its ceiling");
+            assert!(calls_capped(read_calls(p, IDX_GSTAFT)));
+            // The neighbours are untouched.
+            assert_eq!(read_calls(p, IDX_GSTPAFT), 0);
+        }
+    }
+
+    /// R5-WY12, R5-D36. A write that stays open is waited for once: the reader that waited the whole bound
+    /// remembers it, and the readers after it read at once instead of waiting the bound again. Before, every
+    /// clock call paid the whole bound for as long as the core stood still in the middle of a write.
+    #[test]
+    fn a_write_that_stays_open_is_waited_for_once() {
+        let mut ctl = zeroed_ctl();
+        let p = &mut *ctl as *mut Ctl;
+        // An odd value no other test's block reaches, so the process-wide memory is this test's alone.
+        unsafe { write_volatile(addr_of_mut!((*p).seq), 0xFFFF_FFF1) };
+        let reads = std::cell::Cell::new(0u32);
+        let read = || {
+            reads.set(reads.get() + 1);
+            7
+        };
+
+        let started = std::time::Instant::now();
+        assert_eq!(unsafe { read_consistent(p, read) }, 7, "a stopped write still answers from the fields");
+        let first = started.elapsed();
+        assert_eq!(reads.get(), 1, "the fields were read once, after the wait");
+
+        // The next readers do not wait the bound again. The fastest of five, so one preemption cannot
+        // fail the test, against a tenth of the first wait.
+        let mut fastest = std::time::Duration::MAX;
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            assert_eq!(unsafe { read_consistent(p, read) }, 7);
+            fastest = fastest.min(started.elapsed());
+        }
+        assert!(fastest * 10 < first, "a reader waited the bound again: {fastest:?} after a first wait of {first:?}");
+        assert_eq!(reads.get(), 6);
+
+        // The write finishes: readers are back on the seqlock, and the memory does not stand in the way.
+        unsafe { write_volatile(addr_of_mut!((*p).seq), 0xFFFF_FFF2) };
+        assert_eq!(unsafe { read_consistent(p, read) }, 7);
+        assert_eq!(reads.get(), 7);
+    }
+
+    /// The sleep bias is taken from a triple whose two QUIT readings agree, so no timer interrupt fell
+    /// between them and the difference is exact (R5-F4, R5-P1).
+    #[test]
+    fn the_sleep_bias_is_read_between_two_agreeing_quit_readings() {
+        use std::cell::RefCell;
+        use std::collections::VecDeque;
+        let run = |quits: &[i64], interrupts: &[i64]| {
+            let q = RefCell::new(quits.iter().copied().collect::<VecDeque<i64>>());
+            let i = RefCell::new(interrupts.iter().copied().collect::<VecDeque<i64>>());
+            sleep_bias(|| q.borrow_mut().pop_front().expect("more QUIT reads than scripted"), || {
+                i.borrow_mut().pop_front().expect("more interrupt-time reads than scripted")
+            })
+        };
+        // Agreeing on the first try.
+        assert_eq!(run(&[1_000, 1_000], &[51_000]), 50_000);
+        // An interrupt fell between the reads, the second try agrees: the scattered first pair is not used.
+        assert_eq!(run(&[1_000, 1_100, 1_100, 1_100], &[51_150, 51_100]), 50_000);
+        // Never agreeing: the lower bound from the last try, never above the real bias.
+        let q: Vec<i64> = (0..8).map(|k| 1_000 + k * 100).collect();
+        assert_eq!(run(&q, &[51_050, 51_250, 51_450, 51_650]), 51_650 - 1_700);
+        // Never below zero.
+        assert_eq!(run(&[1_000, 1_000], &[900]), 0);
+    }
+
     #[test]
     fn channel_table_matches_bits_and_indices() {
         // The three views of the channel list must never drift.
@@ -2822,7 +3107,17 @@ mod tests {
             (IDX_TPTIMEREX, CH_TPTIMEREX),
             (IDX_NTCUP, CH_NTCUP),
             (IDX_CONNECT, CH_CONNECT),
+            (IDX_QPC, CH_QPC),
+            (IDX_TIMEGETTIME, CH_TIMEGETTIME),
+            (IDX_SCVSRW, CH_SCVSRW),
+            (IDX_SCVCS, CH_SCVCS),
+            (IDX_WOA, CH_WOA),
+            (IDX_WSAWFME, CH_WSAWFME),
+            (IDX_QIT, CH_QIT),
+            (IDX_QITP, CH_QITP),
+            (IDX_QUITP, CH_QUITP),
         ];
+        assert_eq!(expected.len(), CHANNEL_COUNT, "every channel is listed here, so a new one cannot skip this check");
         assert_eq!(CHANNELS.len(), CHANNEL_COUNT);
         for (idx, bit) in expected {
             assert_eq!(CHANNELS[idx].bit, bit, "bit mismatch at index {idx}");
@@ -2833,6 +3128,14 @@ mod tests {
             assert_ne!(ch.bit, 0);
             assert_eq!(seen & ch.bit, 0, "duplicate bit for {}", ch.name);
             seen |= ch.bit;
+        }
+        // The deadline channels are expected in EVERY session (R5-D2), which the audit can only do for a
+        // module every process has: an optional one that is absent would read as a failed hook.
+        let deadlines: Vec<_> = CHANNELS.iter().filter(|ch| DEADLINE_CHANNELS & ch.bit != 0).collect();
+        assert_eq!(deadlines.len(), 5);
+        for ch in deadlines {
+            assert_eq!(ch.category, ChannelCategory::Duration, "{}", ch.name);
+            assert!(ch.module.in_every_process(), "{} is in a module a process may not load", ch.name);
         }
     }
 
@@ -2910,13 +3213,29 @@ mod tests {
     #[test]
     fn a_standing_duration_axis_can_be_detected() {
         let m = 1_000_000;
-        assert!(dur_axis_at_range_end(0, m, i64::MAX / 2));
-        assert!(!dur_axis_at_range_end(0, m, 10_000_000), "one second in, nowhere near it");
+        assert!(dur_axis_at_range_end(0, 0, m, i64::MAX / 2));
+        assert!(!dur_axis_at_range_end(0, 0, m, 10_000_000), "one second in, nowhere near it");
         // At the largest speed anyone has documented using, a session would have to run for decades.
-        assert!(!dur_axis_at_range_end(0, 1440, 10_000_000 * 86_400 * 365));
+        assert!(!dur_axis_at_range_end(0, 0, 1440, 10_000_000 * 86_400 * 365));
         // Frozen clamps the multiplier to 1, so the axis advances at real speed and never saturates
         // within any session length that can exist.
-        assert!(!dur_axis_at_range_end(0, 0, i64::MAX / 4));
+        assert!(!dur_axis_at_range_end(0, 0, 0, i64::MAX / 4));
+    }
+
+    /// R5-P17. A rate change banks the elapsed term into the base, so the base can reach the top while
+    /// no single segment's term does - and the old question, about the term alone, said nothing then.
+    #[test]
+    fn a_duration_axis_standing_on_its_banked_base_is_detected_too() {
+        let m = 1_000_000;
+        // One day into the current segment: the term alone is nowhere near the top...
+        let day: i64 = 10_000_000 * 86_400;
+        assert!(day.checked_mul(m).is_some());
+        // ...but the base banked from earlier segments already sits just under it.
+        let banked = i64::MAX - day * m / 2;
+        assert!(dur_axis_at_range_end(banked, 0, m, day), "a base at the top went unreported");
+        assert!(!dur_axis_at_range_end(banked, 0, m, day / 4), "a quarter day in, there is room left");
+        // The projection the target sees stands there, it does not wrap.
+        assert_eq!(dur_quit_at(banked, 0, m, day), i64::MAX);
     }
 
     /// 🔴 A sub-M timeout used to come out as 0, and this test asserted that as "honest coarseness".
@@ -2967,6 +3286,29 @@ mod tests {
         assert!(!delay_hit_floor(0, 60));
     }
 
+    /// R5-F7. The floor exists so that scaling never turns a sleep into a yield, and it used to lengthen a
+    /// delay the application asked for below it: `NtDelayExecution(-1)`, a hundred nanoseconds, became a
+    /// whole millisecond at every speed, x1 included, and was counted as a wait the speed could not divide.
+    #[test]
+    fn the_delay_floor_never_lengthens_what_was_asked() {
+        // A hundred nanoseconds stays a hundred nanoseconds, at x1 and at x60.
+        assert_eq!(scale_delay_interval(-1, 1), -1);
+        assert_eq!(scale_delay_interval(-1, 60), -1);
+        // Half a millisecond: at x60 it cannot be divided without becoming a near-yield, so it stays as asked.
+        assert_eq!(scale_delay_interval(-5_000, 60), -5_000);
+        assert_eq!(scale_delay_interval(-5_000, 1), -5_000);
+        // At x1 nothing is divided, so nothing is held, however short.
+        assert!(!delay_hit_floor(-1, 1));
+        assert!(!delay_hit_floor(-5_000, 1));
+        assert!(!delay_hit_floor(-30_000, 1));
+        // Above x1 a delay that could not be divided by the full speed is reported, short or not.
+        assert!(delay_hit_floor(-5_000, 60));
+        assert!(delay_hit_floor(-1, 60));
+        // Exactly the floor at a speed that cannot divide it: held there, and said.
+        assert_eq!(scale_delay_interval(-MIN_SCALED_DELAY_TICKS, 60), -MIN_SCALED_DELAY_TICKS);
+        assert!(delay_hit_floor(-MIN_SCALED_DELAY_TICKS, 60));
+    }
+
     #[test]
     fn scale_delay_interval_scales_relative_only() {
         // Negative = relative delay: magnitude scaled by M (toward zero). -0.6s at x60 -> -0.01s.
@@ -2983,29 +3325,46 @@ mod tests {
     #[test]
     fn scale_timer_due_handles_relative_and_absolute() {
         // Relative (negative) due: magnitude scaled toward zero, stays relative. -0.6s at x60 -> -0.01s.
-        assert_eq!(scale_timer_due(-6_000_000, 0, 60), -100_000);
-        assert_eq!(scale_timer_due(-6_000_000, 0, 1), -6_000_000);
+        assert_eq!(scale_timer_due(-6_000_000, 0, 60, 60), -100_000);
+        assert_eq!(scale_timer_due(-6_000_000, 0, 1, 1), -6_000_000);
         // Absolute (positive) fake instant -> relative real interval until the fake clock reaches it.
         // due = fake_now + 6s (60_000_000 ticks) ahead - at x60 the real wait is 0.1s (1_000_000 ticks).
         let fake_now = 1_000_000_000;
-        assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 60), -1_000_000);
+        assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 60, 60), -1_000_000);
         // Absolute already at or before fake_now: fire immediately.
-        assert_eq!(scale_timer_due(fake_now - 5, fake_now, 60), -1);
-        assert_eq!(scale_timer_due(fake_now, fake_now, 60), -1);
+        assert_eq!(scale_timer_due(fake_now - 5, fake_now, 60, 60), -1);
+        assert_eq!(scale_timer_due(fake_now, fake_now, 60, 60), -1);
         // Frozen and slow motion clamp to real length (>= 1): a relative due stays real...
-        assert_eq!(scale_timer_due(-6_000_000, 0, 0), -6_000_000);
-        assert_eq!(scale_timer_due(-6_000_000, 0, -5), -6_000_000);
+        assert_eq!(scale_timer_due(-6_000_000, 0, 0, 0), -6_000_000);
+        assert_eq!(scale_timer_due(-6_000_000, 0, -5, -5), -6_000_000);
         // ...and an absolute due under frozen behaves as M=1 (documented limit).
-        assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 0), -60_000_000);
+        assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 0, 1), -60_000_000);
 
         // R2-S5: `due` is the one input here that comes from the APPLICATION under test, and this
         // crate compiles with overflow-checks off, so a subtraction it cannot represent has to answer
         // rather than wrap. It hands the app's own value straight back, unscaled - the same safe
         // default the detours use when they cannot express something.
-        assert_eq!(scale_timer_due(i64::MAX, -1, 60), i64::MAX);
-        assert_eq!(scale_timer_due(i64::MAX, i64::MIN, 60), i64::MAX);
+        assert_eq!(scale_timer_due(i64::MAX, -1, 60, 60), i64::MAX);
+        assert_eq!(scale_timer_due(i64::MAX, i64::MIN, 60, 60), i64::MAX);
         // And the ordinary large-but-representable case still scales.
-        assert_eq!(scale_timer_due(i64::MAX, 0, 1), -i64::MAX);
+        assert_eq!(scale_timer_due(i64::MAX, 0, 1, 1), -i64::MAX);
+    }
+
+    /// R5-D2. A session without `--scale-duration` still runs its wall clock at the session's speed, so a
+    /// due on that clock is divided by it, while a LENGTH of time is left as the application asked - the
+    /// duration axis is the opt-in. Before, both shapes went to the kernel untouched in such a session, and
+    /// a timer set for "tomorrow 03:00" on a clock at 2038 waited twelve real years.
+    #[test]
+    fn an_absolute_due_follows_the_wall_and_a_relative_one_the_duration_axis() {
+        let fake_now = 1_000_000_000;
+        // No --scale-duration (duration rate 1), wall at x60: the absolute due is divided...
+        assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 60, 1), -1_000_000);
+        // ...and the relative one is not.
+        assert_eq!(scale_timer_due(-6_000_000, fake_now, 60, 1), -6_000_000);
+        // At x1 the absolute due is still converted - a shifted DATE is enough to need it.
+        assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 1, 1), -60_000_000);
+        // A due in the past on the fake clock fires at once in either kind of session.
+        assert_eq!(scale_timer_due(fake_now - 1, fake_now, 1, 1), -1);
     }
 
     #[test]
@@ -3095,6 +3454,30 @@ mod tests {
         let back = fake_wall_at(1_000, one_sec, 0, 60);
         assert!((0..=FAKE_WALL_MAX).contains(&back), "the fake clock left the representable range");
         assert_eq!(fake_wall_at(-5, 0, 0, 1), 0, "a negative anchor must not produce a negative clock");
+    }
+
+    /// R5-P2, R5-D31. The anchors stand on the precise clock and most channels read the plain one, which
+    /// is behind it until the next timer interrupt. A plain reading taken right after an anchor is below
+    /// the anchor's real instant, and the projection has to hold at the anchor rather than go under it - on
+    /// a slowdown, under what the previous anchor already answered.
+    #[test]
+    fn a_clock_reading_behind_the_anchor_holds_at_the_anchor() {
+        let tick = 15_625; // 1.5625 ms, a delayed interrupt
+        assert_eq!(fake_wall_at(5_000_000, 1_000_000, 1_000_000 - tick, 1440), 5_000_000);
+        assert_eq!(fake_wall_at(5_000_000, 1_000_000, 1_000_000 - tick, 1), 5_000_000);
+        // A reading after the anchor runs on as before.
+        assert_eq!(fake_wall_at(5_000_000, 1_000_000, 1_000_000 + tick, 60), 5_000_000 + tick * 60);
+
+        // Across a slowdown, with the anchor's instant on the precise clock and a reader on the plain one,
+        // nothing the new anchor answers is below what the old one answered.
+        let (old_fake, old_real, old_m) = (0i64, 0i64, 1440i64);
+        let switch_precise = 10_000_000; // the instant the rate change read, precise
+        let new_fake = fake_wall_at(old_fake, old_real, switch_precise, old_m);
+        let last_old = fake_wall_at(old_fake, old_real, switch_precise, old_m); // a precise reader at the switch
+        for plain_after in [switch_precise - tick, switch_precise - 1, switch_precise, switch_precise + tick] {
+            let first_new = fake_wall_at(new_fake, switch_precise, plain_after, 1);
+            assert!(first_new >= last_old, "the wall stepped back after the slowdown: {first_new} < {last_old}");
+        }
     }
 
     /// A fixed buffer, a terminator, and a caller that cannot check - the classic off-by-one. This

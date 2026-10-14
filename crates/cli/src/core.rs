@@ -356,6 +356,11 @@ pub(crate) struct SessionLedger {
     /// The pids the process tree named and still shows, so a ring entry for the same process is
     /// recognised. A process that has left the tree is forgotten: the system hands its pid on.
     unhooked_pids: HashSet<u32>,
+    /// How much of the machine's sleep during the session the log has already been told about (R5-P1).
+    slept_announced_ms: i64,
+    /// Whether an absolute deadline had been converted when the session jumped or changed speed (R5-D2,
+    /// R5-D35) - the one case in which such a deadline can fire at a moment the application did not mean.
+    absolute_due_before_move: bool,
 }
 
 impl SessionLedger {
@@ -370,7 +375,27 @@ impl SessionLedger {
             followed: None,
             duplicated: 0,
             unhooked_pids: HashSet::new(),
+            slept_announced_ms: 0,
+            absolute_due_before_move: false,
         }
+    }
+
+    /// The `host_slept` event the log owes for this sample, when the machine slept at least
+    /// [`SLEPT_REPORTED_MS`] since the last one it was told about (R5-P1, R5-D34). The heartbeat stands on
+    /// a clock that counts sleep, so the first beat after a wake-up comes at once and carries it.
+    pub(crate) fn host_slept_news(&mut self, st: &chrono_mech::SessionState) -> Option<Event> {
+        let slept = sleep_to_announce(self.slept_announced_ms, st.host_slept_ms)?;
+        self.slept_announced_ms = st.host_slept_ms;
+        Some(Event::HostSlept {
+            v: PROTOCOL_VERSION,
+            slept_ms: slept as u64,
+            total_slept_ms: st.host_slept_ms as u64,
+        })
+    }
+
+    /// The session jumped or changed speed, with `absolute_dues` deadlines converted in the family so far.
+    pub(crate) fn note_clock_moved(&mut self, absolute_dues: u64) {
+        self.absolute_due_before_move |= absolute_dues > 0;
     }
 
     /// Poll for children that joined and for children the hook could not follow into, and keep
@@ -482,7 +507,11 @@ pub(crate) fn run_session(
         let wait = deadline.min(child_deadline).saturating_duration_since(Instant::now());
         match rx.recv_timeout(wait) {
             Ok(Command::End { .. }) => break,
-            Ok(cmd) => apply_command(&mut session, &mut bridge, cmd),
+            Ok(cmd) => {
+                if apply_command(&mut session, &mut bridge, cmd) {
+                    ledger.note_clock_moved(session.absolute_dues_total());
+                }
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {} // the tick below handles it
             Err(mpsc::RecvTimeoutError::Disconnected) => break, // stdin closed
         }
@@ -509,6 +538,9 @@ pub(crate) fn run_session(
         if now >= deadline {
             let st = session.state();
             ledger.sample(&st);
+            if let Some(slept) = ledger.host_slept_news(&st) {
+                emit(&slept);
+            }
             emit(&state_event_from(&st));
             // The session lasts for the family on its clock, not for the process it launched: a
             // launcher ends on purpose and leaves the application running (ADR-16). The exit code
@@ -533,11 +565,15 @@ pub(crate) fn run_session(
 /// command's effect on the session, so that one arm stays where the decision is made. Everything
 /// else is answered: a command this state cannot act on gets `unsupported` WITH its id, so a client
 /// waiting on `ack` learns the outcome instead of waiting for ever.
-pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut EmbeddedBridge, cmd: Command) {
+///
+/// Answers whether the command moved the session clock - a jump or a speed change that was applied - so the
+/// loop can note what was pending when it moved (`SessionLedger::note_clock_moved`, R5-D2).
+pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut EmbeddedBridge, cmd: Command) -> bool {
     match cmd {
         Command::Query { id, .. } => {
             emit(&state_event(session));
             emit(&Event::Ack { v: PROTOCOL_VERSION, id });
+            false
         }
         Command::SetMultiplier { id, multiplier, .. } => {
             // Bounded here as well as at start: a rate change in flight reaches the same anchor
@@ -550,6 +586,7 @@ pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut Emb
                 bridge.set_multiplier(host_origin(session, bridge.scale_duration()));
                 emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                 emit(&state_event(session));
+                true
             } else {
                 emit(&Event::Error {
                     v: PROTOCOL_VERSION,
@@ -558,6 +595,7 @@ pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut Emb
                     key: "time.bad_multiplier".into(),
                     origin: "core".into(),
                 });
+                false
             }
         }
         Command::Jump { id, to, .. } => {
@@ -581,18 +619,25 @@ pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut Emb
                     bridge.jump(host_origin(session, bridge.scale_duration()));
                     emit(&Event::Ack { v: PROTOCOL_VERSION, id });
                     emit(&state_event(session));
+                    true
                 }
-                Err(key) => emit(&Event::Error {
-                    v: PROTOCOL_VERSION,
-                    id: Some(id),
-                    code: 1,
-                    key: key.into(),
-                    origin: "core".into(),
-                }),
+                Err(key) => {
+                    emit(&Event::Error {
+                        v: PROTOCOL_VERSION,
+                        id: Some(id),
+                        code: 1,
+                        key: key.into(),
+                        origin: "core".into(),
+                    });
+                    false
+                }
             }
         }
         // Same as the CDP loop: a command this state does not act on is answered, not dropped.
-        other => emit(&unsupported_command(command_id(&other))),
+        other => {
+            emit(&unsupported_command(command_id(&other)));
+            false
+        }
     }
 }
 
@@ -683,6 +728,43 @@ pub(crate) fn native_session_warnings(
     // told about one and not the other is told the session did more than it did (rule 6).
     if duration_clamped {
         warnings.push("time.duration_axis_clamped".to_string());
+    }
+    warnings
+}
+
+/// The shortest sleep of the machine the session tells about (R5-P1). The sleep bias moves only when the
+/// machine wakes, so any growth is a real sleep, and the threshold only keeps a resume of a fraction of a
+/// second out of the log - it is three orders of magnitude above the scatter that a difference of two clocks
+/// would have had (plan R5, 4.5).
+const SLEPT_REPORTED_MS: i64 = 1_000;
+
+/// The machine slept during the session, and the session clock stood still for it (ADR-5, docs/01 3.0a).
+const KEY_HOST_SLEPT: &str = "time.host_slept";
+
+/// An absolute deadline was converted to a delay before the session jumped or changed speed (R5-D2, R5-D35).
+const KEY_ABSOLUTE_DUE: &str = "timer.absolute_due_converted";
+
+/// How much sleep the log owes: everything since the last announcement, once it reaches the threshold.
+fn sleep_to_announce(announced_ms: i64, total_ms: i64) -> Option<i64> {
+    let new = total_ms.saturating_sub(announced_ms);
+    (new >= SLEPT_REPORTED_MS).then_some(new)
+}
+
+/// The total sleep as `session_verdict` carries it: 0, which the wire leaves out, below the threshold.
+fn reported_sleep_ms(total_ms: i64) -> u64 {
+    if total_ms >= SLEPT_REPORTED_MS { total_ms as u64 } else { 0 }
+}
+
+/// The warnings about what the session's own clock meant for the application, each said only when it
+/// happened: the machine slept while the session clock stood still (R5-P1, R5-D34), and an absolute
+/// deadline converted on the speed of its moment was pending when the clock moved (R5-D2, R5-D35).
+fn session_clock_warnings(host_slept_ms: i64, absolute_due_before_move: bool) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if host_slept_ms >= SLEPT_REPORTED_MS {
+        warnings.push(KEY_HOST_SLEPT.to_string());
+    }
+    if absolute_due_before_move {
+        warnings.push(KEY_ABSOLUTE_DUE.to_string());
     }
     warnings
 }
@@ -795,6 +877,8 @@ pub(crate) fn close_session(
         followed,
         duplicated,
         unhooked_pids: _,
+        slept_announced_ms,
+        absolute_due_before_move,
     } = ledger;
     let followed = followed.unwrap_or_default();
     // The application may outlive the session - a `--ticks` cutoff, a Stop in the panel - and the
@@ -845,6 +929,14 @@ pub(crate) fn close_session(
     // Capture the session clocks before ending so `ended` can state the duration and the fake wall
     // clock reached - reliably, even for a session too short to have emitted a heartbeat.
     let final_state = session.state();
+    // A wake-up after the last heartbeat is announced here, before the verdict that sums it up.
+    if let Some(slept) = sleep_to_announce(slept_announced_ms, final_state.host_slept_ms) {
+        emit(&Event::HostSlept {
+            v: PROTOCOL_VERSION,
+            slept_ms: slept as u64,
+            total_slept_ms: final_state.host_slept_ms as u64,
+        });
+    }
     // Read BEFORE `end` unmaps the control block. A full PID registry means some processes of this
     // family ran with nowhere to report coverage into, so both the count below and the channel lists
     // are short - and no per-process event can carry that, because those processes have no pid here
@@ -883,6 +975,7 @@ pub(crate) fn close_session(
         duration_clamped || final_state.duration_at_range_end(),
         substituted_reads(&final_coverage, &page_rows),
     );
+    session_warnings.extend(session_clock_warnings(final_state.host_slept_ms, absolute_due_before_move));
     let mut children_warnings = uncovered_children_warnings(&uncovered_children, uncovered_children_total);
     reconcile_engine_warnings(&mut children_warnings, every_renderer_reached(&uncovered_children, &pages.engines));
     session_warnings.extend(children_warnings);
@@ -923,6 +1016,7 @@ pub(crate) fn close_session(
             .iter()
             .map(|m| FollowedProcess { pid: m.pid, image: m.image.as_deref().map(crate::cdp::sanitise_target_text) })
             .collect(),
+        host_slept_ms: reported_sleep_ms(final_state.host_slept_ms),
     });
     emit(&Event::Ended {
         v: PROTOCOL_VERSION,
@@ -1151,6 +1245,46 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
 mod tests {
     use super::*;
     use crate::testutil::unique_temp_dir;
+
+    /// R5-P1, R5-D34. A sleep of the machine reaches the log once, when it is at least a second long, and
+    /// each later one on its own - never the same sleep twice, never a resume of a fraction of a second.
+    #[test]
+    fn a_sleep_of_the_machine_is_announced_once_and_only_from_a_second_up() {
+        assert_eq!(sleep_to_announce(0, 0), None, "no sleep");
+        assert_eq!(sleep_to_announce(0, 999), None, "under a second is a resume, not a sleep worth a line");
+        assert_eq!(sleep_to_announce(0, 1_000), Some(1_000));
+        assert_eq!(sleep_to_announce(0, 28_800_000), Some(28_800_000), "eight hours");
+        // Already announced: nothing new until the next sleep, which is told on its own.
+        assert_eq!(sleep_to_announce(28_800_000, 28_800_000), None);
+        assert_eq!(sleep_to_announce(28_800_000, 28_800_500), None);
+        assert_eq!(sleep_to_announce(28_800_000, 28_860_000), Some(60_000));
+        // The verdict carries the total from the same threshold, and nothing below it.
+        assert_eq!(reported_sleep_ms(999), 0);
+        assert_eq!(reported_sleep_ms(1_000), 1_000);
+    }
+
+    /// R5-P1 and R5-D35: each warning only when it happened.
+    #[test]
+    fn the_session_clock_warnings_say_only_what_happened() {
+        assert!(session_clock_warnings(0, false).is_empty());
+        assert!(session_clock_warnings(999, false).is_empty());
+        assert_eq!(session_clock_warnings(5_000, false), vec![KEY_HOST_SLEPT]);
+        assert_eq!(session_clock_warnings(0, true), vec![KEY_ABSOLUTE_DUE]);
+        assert_eq!(session_clock_warnings(5_000, true), vec![KEY_HOST_SLEPT, KEY_ABSOLUTE_DUE]);
+    }
+
+    /// R5-D35. The ledger remembers whether a deadline had been converted when the clock moved: a move with
+    /// none converted yet says nothing, and a later move with none new does not take back an earlier one.
+    #[test]
+    fn a_converted_deadline_counts_only_when_the_clock_moved_after_it() {
+        let mut ledger = SessionLedger::new(Verdict::Works);
+        ledger.note_clock_moved(0);
+        assert!(!ledger.absolute_due_before_move, "a move with nothing converted yet");
+        ledger.note_clock_moved(3);
+        assert!(ledger.absolute_due_before_move);
+        ledger.note_clock_moved(0);
+        assert!(ledger.absolute_due_before_move, "a later move does not take it back");
+    }
 
     /// A target the loader ended is named by its status (R4-S6): four statuses each with the key that
     /// says what to do about it, every other code with the general one, all exit 2, and the code on the
@@ -1611,6 +1745,7 @@ mod tests {
                         .map(|(channel, calls)| chrono_core::ChannelCoverage {
                             channel: (*channel).to_string(),
                             calls: *calls,
+                            capped: false,
                         })
                         .collect()
                 };

@@ -151,6 +151,20 @@ public class BinaryImportsTests
             "WakeByAddressAll, which are the standard library's locks"
         ),
         (
+            "chrono.exe", "api-ms-win-core-realtime-l1-1-1.dll",
+            "an API set rather than a library, the clocks of the interrupt time (R5 wave 3). Measured " +
+            "2026-10-14 with dumpbin, both bitnesses: QueryUnbiasedInterruptTimePrecise, the clock every anchor " +
+            "of a session is read from, and QueryInterruptTime, read beside the plain unbiased time to learn how " +
+            "long the machine slept. Local clocks, nothing else"
+        ),
+        (
+            "chrono_hook.dll", "api-ms-win-core-realtime-l1-1-1.dll",
+            "an API set rather than a library. Measured 2026-10-14 with dumpbin, both bitnesses: " +
+            "QueryInterruptTime, and nothing else - the fallback of the hook's own reading of the interrupt " +
+            "time when its detour does not stand. The precise unbiased clock is resolved with GetProcAddress " +
+            "instead, because a direct call would land in the hook's own detour once it is hooked"
+        ),
+        (
             "chrono.exe", "oleaut32.dll",
             "SysFreeString and SysStringLen. BSTR handling, which arrives with the windows crate"
         ),
@@ -312,6 +326,36 @@ public class BinaryImportsTests
                     "RegSetValueExW",
                 ],
                 entry.Functions.Order(StringComparer.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// The same pin for the clocks of the interrupt time, and here the function list is the point rather
+    /// than the module. The hook detours all three of them under the duration axis, so a DIRECT import of
+    /// the two precise ones would call back into its own detour once it stands - that is why the hook
+    /// reads them through the trampoline or the export resolved with <c>GetProcAddress</c>, and why its
+    /// one import from this API set is <c>QueryInterruptTime</c>, called only while that detour does not
+    /// stand. A module-only register would let either precise clock in under the same entry.
+    /// </summary>
+    /// <remarks>
+    /// Reversal probe, measured 2026-10-14: the hook's fallback in <c>real_quitp</c> rewritten as a direct
+    /// call of <c>QueryUnbiasedInterruptTimePrecise</c> and the x64 release hook rebuilt - this reddened on
+    /// the hook's list, and only this test among the import guards.
+    /// </remarks>
+    [Fact]
+    public void The_interrupt_time_api_set_is_imported_for_exactly_the_calls_the_register_allows()
+    {
+        foreach (var triple in new[] { X64, X86 })
+        {
+            Assert.Equal(["QueryInterruptTime", "QueryUnbiasedInterruptTimePrecise"], RealtimeImports(triple, "chrono.exe"));
+            Assert.Equal(["QueryInterruptTime"], RealtimeImports(triple, "chrono_hook.dll"));
+        }
+
+        static IEnumerable<string> RealtimeImports(string triple, string binary)
+        {
+            var table = PeImportTable.Read(RepoPaths.ReleaseBinary(RepoPaths.RepoRoot(), triple, binary));
+            var entry = Assert.Single(table.Entries, e => SameModule(e.Name, "api-ms-win-core-realtime-l1-1-1.dll"));
+            return entry.Functions.Order(StringComparer.Ordinal);
         }
     }
 

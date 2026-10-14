@@ -102,6 +102,12 @@ pub(crate) struct SessionReport {
     /// Channels hooked but deliberately left real (waits, network, multimedia timers) - their own
     /// bucket so a reader never reads them as substituted.
     pub(crate) observed: Vec<(UnitId, String, u64)>,
+    /// The covered and observed rows whose count stopped at the hook's ceiling, by unit and channel -
+    /// their count is a floor, and the report says "at least" (R5-WY11).
+    pub(crate) capped: Vec<(UnitId, String)>,
+    /// How long the machine slept during the session, from `session_verdict.host_slept_ms` - 0 when it
+    /// did not, or the core did not say (R5-P1).
+    pub(crate) host_slept_ms: u64,
     /// JS contexts the session covered beside its processes, from `session_verdict.context_count`.
     /// Zero for a native session that reached no embedded engine, and for a Chromium session, whose
     /// contexts already ride `process_count` (docs/08 9b).
@@ -447,7 +453,17 @@ pub(crate) fn describe_warning(key: &str) -> String {
         // The wall stops at the end of the FILETIME range - the monotonic axes stop when their elapsed
         // term fills an i64, which at the maximum speed is about ten days in.
         "time.duration_axis_clamped" => {
-            "the monotonic counters (tick count, unbiased interrupt time, and QPC when scaled) reached the end of their range and stood there, so elapsed time inside the target stopped advancing even though the session went on"
+            "the monotonic counters (tick count, interrupt time, and QPC when scaled) reached the end of their range and stood there, so elapsed time inside the target stopped advancing even though the session went on"
+        }
+        // The session clock stands still while the machine sleeps (ADR-5), and the log says so (docs/01
+        // section 3.0a). `warning_line` puts the length of the sleep in when the verdict carried it.
+        "time.host_slept" => {
+            "the computer slept during the session - the session clock stood still while it slept, as during a pause (sleep is never multiplied by the speed factor)"
+        }
+        // R5-D2, R5-D35: said only when a deadline was converted BEFORE the clock moved, the one case in
+        // which a converted deadline can fire at a moment the application did not mean.
+        "timer.absolute_due_converted" => {
+            "this application set a timer or a wait for a given date and time, and the session then jumped or changed speed - such a deadline is turned into a delay when it is set, at the speed in force then, so one still pending when the clock moved fires where the old clock would have reached it, while Windows moves its own such timers along with the clock"
         }
         // The session does not stop the application (docs/01 section 8.4), so the tester is left with
         // one that changed clocks under their hands. Says which way each clock went, because "back to
@@ -887,6 +903,67 @@ fn contexts_suffix(cdp: bool, context_count: u32) -> String {
     }
 }
 
+/// The covered and the observed channels with their call counts. A count that stopped at the hook's
+/// ceiling reads "at least" (R5-WY11), and so does the total above the covered rows when one of them
+/// did - the audit never states more calls than there were, and never a ceiling as if it were a count.
+fn render_counted_channels(r: &SessionReport) -> String {
+    let mut out = String::new();
+    let count = |unit: &UnitId, ch: &str, calls: u64| {
+        if r.capped.iter().any(|(u, c)| u == unit && c == ch) {
+            format!("at least {}", calls_label(calls))
+        } else {
+            calls_label(calls)
+        }
+    };
+    if !r.covered.is_empty() {
+        // The total belongs in the heading, not under the rows. There are dozens of these and the one
+        // number a reader needs first is whether the application asked for the time at all - a wall of
+        // "(0 calls)" says it too, but only to whoever reads every line. Saturating because a long
+        // session at speed can count high and a wrapped total would read as silence.
+        let total = r.covered.iter().fold(0u64, |sum, (_, _, calls)| sum.saturating_add(*calls));
+        let floor = r.covered.iter().any(|(unit, ch, _)| r.capped.iter().any(|(u, c)| u == unit && c == ch));
+        out.push_str(&format!(
+            "  covered channels (substituted, with call counts, {}{} in all):\n",
+            if floor { "at least " } else { "" },
+            calls_label(total)
+        ));
+        for (unit, ch, calls) in &r.covered {
+            out.push_str(&format!("            - {unit}: {ch} ({})\n", count(unit, ch, *calls)));
+        }
+    }
+    if !r.observed.is_empty() {
+        out.push_str("  observed channels (hooked but left real):\n");
+        for (unit, ch, calls) in &r.observed {
+            out.push_str(&format!("            - {unit}: {ch} ({})\n", count(unit, ch, *calls)));
+        }
+    }
+    out
+}
+
+/// A warning as the report prints it: `describe_warning`, except the sleep, which also says how long
+/// the machine slept when the session verdict carried the number (R5-P1, R5-D34).
+fn warning_line(key: &str, host_slept_ms: u64) -> String {
+    if key == "time.host_slept" && host_slept_ms > 0 {
+        return format!(
+            "the computer slept for {} during the session - the session clock stood still while it slept, \
+             as during a pause (sleep is never multiplied by the speed factor) ({key})",
+            sleep_label(host_slept_ms)
+        );
+    }
+    describe_warning(key)
+}
+
+/// A length of sleep as a reader takes it in: hours and minutes from an hour up, minutes and seconds from
+/// a minute up, seconds below that.
+pub(crate) fn sleep_label(ms: u64) -> String {
+    let s = ms / 1_000;
+    match (s / 3_600, s % 3_600 / 60, s % 60) {
+        (0, 0, sec) => format!("{sec} s"),
+        (0, min, sec) => format!("{min} min {sec} s"),
+        (h, min, _) => format!("{h} h {min} min"),
+    }
+}
+
 pub(crate) fn render_report(r: &SessionReport) -> String {
     let mut out = String::from("Chrono Mock - session report\n");
     out.push_str(&format!("  target:   {}\n", r.target));
@@ -977,27 +1054,7 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
     }
     out.push_str(&render_followed(&r.followed));
 
-    if !r.covered.is_empty() {
-        // The total belongs in the heading, not under the rows. There are up to forty-one of these
-        // and the one number a reader needs first is whether the application asked for the time at
-        // all - a wall of "(0 calls)" says it too, but only to whoever reads every line. Saturating
-        // because a long session at speed can count high and a wrapped total would read as silence.
-        let total = r.covered.iter().fold(0u64, |sum, (_, _, calls)| sum.saturating_add(*calls));
-        out.push_str(&format!(
-            "  covered channels (substituted, with call counts, {} in all):\n",
-            calls_label(total)
-        ));
-        for (unit, ch, calls) in &r.covered {
-            out.push_str(&format!("            - {unit}: {ch} ({})\n", calls_label(*calls)));
-        }
-    }
-
-    if !r.observed.is_empty() {
-        out.push_str("  observed channels (hooked but left real):\n");
-        for (unit, ch, calls) in &r.observed {
-            out.push_str(&format!("            - {unit}: {ch} ({})\n", calls_label(*calls)));
-        }
-    }
+    out.push_str(&render_counted_channels(r));
 
     out.push_str(&render_channel_names(
         "  uncovered channels (queried but not covered):",
@@ -1022,7 +1079,7 @@ pub(crate) fn render_report(r: &SessionReport) -> String {
     if !r.warnings.is_empty() {
         out.push_str("  warnings:\n");
         for w in &r.warnings {
-            out.push_str(&format!("            - {}\n", describe_warning(w)));
+            out.push_str(&format!("            - {}\n", warning_line(w, r.host_slept_ms)));
         }
     }
 
@@ -1190,6 +1247,8 @@ mod tests {
             installed_late: vec![],
             covered: vec![],
             observed: vec![],
+            capped: vec![],
+            host_slept_ms: 0,
             timing: None,
             target_exit: None,
             residue: vec![],
@@ -1733,6 +1792,49 @@ mod tests {
         let warning = text.find("(coverage.channel_installed_late)").expect("and the warning itself");
         assert!(heading + named < warning, "the names come before the warning that explains them, got:\n{text}");
         assert!(text.contains("floors"), "and say what they cost, got:\n{text}");
+    }
+
+    /// R5-WY11. A count that stopped at the hook's ceiling reads "at least", on its row and in the total of
+    /// the heading, covered and observed alike - and an exact count beside it stays exact.
+    #[test]
+    fn a_count_at_the_ceiling_reads_at_least_on_its_row_and_in_the_total() {
+        let r = SessionReport {
+            session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
+            covered: vec![(pid(1), "GetSystemTimeAsFileTime".into(), 1_048_576), (pid(1), "GetSystemTime".into(), 3)],
+            observed: vec![(pid(1), "WaitForSingleObject".into(), 1_048_576)],
+            capped: vec![(pid(1), "GetSystemTimeAsFileTime".into()), (pid(1), "WaitForSingleObject".into())],
+            ..empty_report()
+        };
+        let text = render_report(&r);
+        assert!(text.contains("GetSystemTimeAsFileTime (at least 1048576 calls)"), "got:\n{text}");
+        assert!(text.contains("GetSystemTime (3 calls)"), "an exact count beside it stays exact, got:\n{text}");
+        assert!(text.contains("WaitForSingleObject (at least 1048576 calls)"), "got:\n{text}");
+        assert!(text.contains("with call counts, at least 1048579 calls in all"), "got:\n{text}");
+
+        // No row at the ceiling, no "at least" anywhere.
+        let exact = SessionReport { capped: vec![], ..r };
+        let text = render_report(&exact);
+        assert!(!text.contains("at least"), "got:\n{text}");
+    }
+
+    /// R5-P1, R5-D34. The sleep warning says how long the machine slept when the verdict carried it.
+    #[test]
+    fn the_sleep_warning_says_how_long_the_machine_slept() {
+        let r = SessionReport {
+            session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
+            warnings: vec!["time.host_slept".into()],
+            host_slept_ms: 28_800_000,
+            ..empty_report()
+        };
+        let text = render_report(&r);
+        assert!(text.contains("the computer slept for 8 h 0 min during the session"), "got:\n{text}");
+        assert!(text.contains("(time.host_slept)"), "got:\n{text}");
+        assert_eq!(sleep_label(45_000), "45 s");
+        assert_eq!(sleep_label(125_000), "2 min 5 s");
+        assert_eq!(sleep_label(3_660_000), "1 h 1 min");
+        // Without the number the warning still explains itself.
+        let bare = SessionReport { host_slept_ms: 0, ..r };
+        assert!(render_report(&bare).contains("the computer slept during the session"));
     }
 
     #[test]

@@ -1380,7 +1380,7 @@
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" SharedSizeGroup="AuditFunction" />
         <ColumnDefinition Width="Auto" SharedSizeGroup="AuditStatus" />
-        <ColumnDefinition Width="{StaticResource AuditCountColumnWidth}" />
+        <ColumnDefinition Width="Auto" SharedSizeGroup="AuditCount" />
       </Grid.ColumnDefinitions>
       <TextBlock Grid.Column="0" Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                  FontFamily="{StaticResource FontFamilyMono}" Foreground="{DynamicResource BrushTextPrimary}"
@@ -1413,7 +1413,7 @@
       <TextBlock Grid.Column="2" Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                  FontFamily="{StaticResource FontFamilyMono}" HorizontalAlignment="Right"
                  VerticalAlignment="Center"
-                 Margin="{StaticResource AuditCellGap}" Text="{Binding CallsText}" />
+                 Margin="{StaticResource AuditCellGap}" Text="{Binding Converter={StaticResource AuditCount}}" />
     </Grid>
   </DataTemplate>
 
@@ -1428,7 +1428,7 @@
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto" SharedSizeGroup="AuditFunction" />
           <ColumnDefinition Width="Auto" SharedSizeGroup="AuditStatus" />
-          <ColumnDefinition Width="{StaticResource AuditCountColumnWidth}" />
+          <ColumnDefinition Width="Auto" SharedSizeGroup="AuditCount" />
         </Grid.ColumnDefinitions>
         <TextBlock Grid.Column="0" Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
                    Margin="{StaticResource AuditCellGap}" Text="{DynamicResource audit.col_function}" />

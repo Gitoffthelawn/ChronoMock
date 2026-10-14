@@ -263,6 +263,10 @@ impl Verdict {
 pub struct ChannelCoverage {
     pub channel: String,
     pub calls: u64,
+    /// The count stopped at the hook's ceiling (`chrono_ctl::CALLS_CAP`, R5-WY11), so `calls` is a floor:
+    /// the application called the channel at least that many times. Said beside the number rather than
+    /// left for a reader to recognise the ceiling, which is an internal value that may change.
+    pub capped: bool,
 }
 
 /// Audit result: channels `covered` (time substituted), `observed` (hooked and counted but
@@ -619,7 +623,7 @@ mod tests {
     use super::*;
 
     fn ch(name: &str) -> ChannelCoverage {
-        ChannelCoverage { channel: name.to_string(), calls: 1 }
+        ChannelCoverage { channel: name.to_string(), calls: 1, capped: false }
     }
 
     #[test]

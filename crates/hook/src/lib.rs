@@ -80,7 +80,7 @@ use chrono_ctl::{
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
     IDX_WFMOEX, IDX_SOAW, IDX_MWFMO, IDX_MWFMOEX, IDX_SWT, IDX_SWTEX, IDX_SETTIMER, IDX_TIMESETEVENT,
     IDX_TPTIMER, IDX_TPTIMEREX, IDX_NTCUP, IDX_CONNECT, IDX_QPC, IDX_TIMEGETTIME, IDX_SCVSRW,
-    IDX_SCVCS, IDX_WOA, IDX_WSAWFME,
+    IDX_SCVCS, IDX_WOA, IDX_WSAWFME, IDX_QIT, IDX_QITP, IDX_QUITP, bump_absolute_dues, sleep_bias,
 };
 use minhook::{MinHook, MH_STATUS};
 use windows::core::{s, PCSTR, PCWSTR};
@@ -111,7 +111,7 @@ use windows::Win32::System::Time::{
     FileTimeToSystemTime, SystemTimeToFileTime, DYNAMIC_TIME_ZONE_INFORMATION, TIME_ZONE_INFORMATION,
 };
 use windows::Win32::System::Performance::QueryPerformanceFrequency;
-use windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTime;
+use windows::Win32::System::WindowsProgramming::{QueryInterruptTime, QueryUnbiasedInterruptTime};
 
 type FtFn = unsafe extern "system" fn(*mut FILETIME);
 type StFn = unsafe extern "system" fn(*mut SYSTEMTIME);
@@ -124,6 +124,9 @@ type FtConvFn = unsafe extern "system" fn(*const FILETIME, *mut FILETIME) -> i32
 type TickFn = unsafe extern "system" fn() -> u64;
 type Tick32Fn = unsafe extern "system" fn() -> u32;
 type QuitFn = unsafe extern "system" fn(*mut u64) -> i32;
+// QueryInterruptTime, QueryInterruptTimePrecise and QueryUnbiasedInterruptTimePrecise (kernelbase only):
+// `void (PULONGLONG)`, no BOOL - the Windows SDK declaration, as the windows crate carries it (R5-F4).
+type InterruptFn = unsafe extern "system" fn(*mut u64);
 type SleepFn = unsafe extern "system" fn(u32);
 type SleepExFn = unsafe extern "system" fn(u32, i32) -> u32;
 // NtDelayExecution(BOOLEAN Alertable, PLARGE_INTEGER Interval) -> NTSTATUS. Interval is 100 ns:
@@ -292,6 +295,21 @@ static O_TICK32: OnceLock<Tick32Fn> = OnceLock::new();
 static O_TICK_KB: OnceLock<TickFn> = OnceLock::new();
 static O_TICK32_KB: OnceLock<Tick32Fn> = OnceLock::new();
 static O_QUIT: OnceLock<QuitFn> = OnceLock::new();
+// The three interrupt-time clocks (R5-F4), hooked under scale_duration.
+static O_QIT: OnceLock<InterruptFn> = OnceLock::new();
+static O_QITP: OnceLock<InterruptFn> = OnceLock::new();
+static O_QUITP: OnceLock<InterruptFn> = OnceLock::new();
+/// `QueryUnbiasedInterruptTimePrecise` as kernelbase exports it, resolved in `install` before any detour
+/// exists - the precise clock the anchors stand on, for a session that does not hook it (R5-P2). Not an
+/// import: once the channel IS hooked, a direct call would land in our own detour, which is why
+/// `real_quitp` prefers the trampoline, exactly as `real_quit` does.
+static QUITP_EXPORT: OnceLock<InterruptFn> = OnceLock::new();
+/// Whether this session scales the duration axis, read once in `install` (R5-D2). The deadline detours
+/// stand in every session now and ask it on every call: without it they convert only an absolute deadline.
+static SCALE_DUR: AtomicBool = AtomicBool::new(false);
+/// The largest sleep bias this process has answered with, so the interrupt-time channels never step back on
+/// a bias read as a lower bound (`chrono_ctl::sleep_bias`, R5-F4).
+static SLEEP_BIAS_SEEN: AtomicI64 = AtomicI64::new(0);
 static O_SLEEP: OnceLock<SleepFn> = OnceLock::new();
 static O_SLEEPEX: OnceLock<SleepExFn> = OnceLock::new();
 static O_NTDELAY: OnceLock<NtDelayFn> = OnceLock::new();
@@ -950,6 +968,80 @@ fn real_quit() -> i64 {
     }
 }
 
+/// The real PRECISE unbiased interrupt time - the clock the session's anchors are read from (R5-P2,
+/// R5-D31). The precise channels project from it, so a fake `GetSystemTimePreciseAsFileTime` moves with the
+/// timer hardware instead of standing still for a whole timer interrupt times the speed.
+///
+/// The trampoline when the channel is hooked (R5-F4), the export resolved in `install` otherwise - never an
+/// import, which would lead into our own detour. Read under `own_clock`, because on 32-bit Windows the
+/// system computes it through the EXPORTED `RtlQueryPerformanceCounter`, where the QPC detour stands under
+/// `--scale-qpc` (R5-F5). An export that cannot be found - Windows before 10, which the package does not
+/// support - falls back to the plain clock: the resolution of before, never a wrong reading.
+fn real_quitp() -> i64 {
+    let read = || -> Option<i64> {
+        let f = O_QUITP.get().or(QUITP_EXPORT.get())?;
+        let mut t: u64 = 0;
+        unsafe { f(&mut t) };
+        Some(t as i64)
+    };
+    match own_clock(read) {
+        Some(t) => {
+            // The clock may come from the time-stamp counter, which nothing orders: it has to be read
+            // before a seqlock reader's second look at `seq` (`chrono_ctl::clock_fence`).
+            clock_fence();
+            t
+        }
+        None => real_quit(),
+    }
+}
+
+/// The real interrupt time, which counts sleep (`QueryInterruptTime`), through its trampoline when hooked.
+/// Read only beside the plain unbiased time, to learn how long the machine has slept (R5-F4).
+fn real_qit() -> i64 {
+    match O_QIT.get() {
+        Some(o) => {
+            let mut t: u64 = 0;
+            unsafe { o(&mut t) };
+            t as i64
+        }
+        None => (unsafe { QueryInterruptTime() }) as i64,
+    }
+}
+
+/// How long the machine has slept since it started, as this process last saw it or more - never less, so
+/// an interrupt-time channel never steps back on a bias read as a lower bound (`chrono_ctl::sleep_bias`).
+/// A shared word every core only reads, written once per wake-up.
+fn sleep_bias_now() -> i64 {
+    let measured = sleep_bias(real_quit, real_qit);
+    let seen = SLEEP_BIAS_SEEN.load(Ordering::Relaxed);
+    if measured > seen {
+        SLEEP_BIAS_SEEN.fetch_max(measured, Ordering::Relaxed).max(measured)
+    } else {
+        seen
+    }
+}
+
+thread_local! {
+    /// Raised while this thread runs a call of the hook's OWN into a system clock (R5-F5). On 32-bit
+    /// Windows, `RtlGetSystemTimePrecise` and `RtlGetInterruptTimePrecise` call the EXPORTED
+    /// `RtlQueryPerformanceCounter` (disassembled 2026-10-14), which is where the QPC detour stands under
+    /// `--scale-qpc`. Without the flag the precise clock the anchors stand on came back scaled, and the
+    /// application's own precise wall clock, handed to the system once the session let it go, stayed ahead
+    /// of the real one by everything the QPC axis had gained - measured 200 s after a 3 s session at x60
+    /// (tools/probes/r5/fala3/f5.ps1). The QPC detour hands such a call to the system untouched and uncounted.
+    static OWN_CLOCK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Run `f`, a call of the hook's own into a system clock, with `OWN_CLOCK` raised - only when the QPC
+/// detour stands, because otherwise there is nothing to step past and the thread-local write is skipped.
+fn own_clock<R>(f: impl FnOnce() -> R) -> R {
+    if O_QPC.get().is_none() {
+        return f();
+    }
+    let _back = set_flag(&OWN_CLOCK, true);
+    f()
+}
+
 /// The real `QueryPerformanceCounter`, through the trampoline. Only the release reads it, and only a
 /// hooked counter has anything to release - an unhooked one is never answered from `RELEASED` - so
 /// without the trampoline the answer is 0 rather than a second road to the export.
@@ -968,6 +1060,13 @@ fn compute_fake() -> Option<i64> {
     fake_now_and_dur_m().map(|(fake, _)| fake)
 }
 
+/// The fake wall clock from the PRECISE real clock, for the precise wall channel (R5-P2). The other wall
+/// channels stay on the plain clock, as Windows' own do: the precise reading is never behind the plain one
+/// at the same moment, and ahead of it by at most one delayed timer interrupt times the speed.
+fn compute_fake_precise() -> Option<i64> {
+    fake_now_by(real_quitp).map(|(fake, _)| fake)
+}
+
 /// The fake wall clock AND the duration multiplier, from ONE anchor snapshot.
 ///
 /// `compute_fake` and `dur_multiplier` each open their own seqlock transaction, so a caller needing
@@ -981,13 +1080,18 @@ fn compute_fake() -> Option<i64> {
 /// The multiplier comes back as the DURATION multiplier (never below 1, untouchable rule 3), which is
 /// what every caller of this pair wants: a frozen wall clock must not freeze a timer.
 fn fake_now_and_dur_m() -> Option<(i64, i64)> {
+    fake_now_by(real_quit)
+}
+
+/// `fake_now_and_dur_m` from the real clock `clock`: the plain one for every channel but the precise ones.
+fn fake_now_by(clock: fn() -> i64) -> Option<(i64, i64)> {
     if detached() {
         return None; // core gone: wall detours fall through to the real value
     }
     let p = ctl_ptr()? as *const Ctl;
     // The clock inside the anchor's own window (R4-S3), so a rate change cannot land between them and
     // pair the old anchor with an instant the new one covers - the wall would step back by that much.
-    let ((a_fake, a_real, m), now) = unsafe { read_anchor_with(p, real_quit) };
+    let ((a_fake, a_real, m), now) = unsafe { read_anchor_with(p, clock) };
     if !still_ours(p) {
         return None; // the block was reclaimed by another session mid-read (R2-S6): real time
     }
@@ -1151,13 +1255,15 @@ unsafe extern "system" fn h_gstaft(lp: *mut FILETIME) { unsafe {
     }
 }}
 
+// The precise wall clock projects from the precise real clock (R5-P2). Its original, when the session is
+// gone, computes the time through the exported QPC on 32-bit Windows, hence `own_clock` (R5-F5).
 unsafe extern "system" fn h_gstpaft(lp: *mut FILETIME) { unsafe {
     bump(IDX_GSTPAFT);
-    match compute_fake() {
+    match compute_fake_precise() {
         Some(t) if !lp.is_null() => core::ptr::write_unaligned(lp, i64_to_ft(t)),
         _ => {
             if let Some(o) = O_GSTPAFT.get() {
-                o(lp)
+                own_clock(|| o(lp))
             }
         }
     }
@@ -1599,6 +1705,72 @@ unsafe extern "system" fn h_quit(lp: *mut u64) -> i32 { unsafe {
     1 // nonzero BOOL = success
 }}
 
+// The interrupt-time clocks (R5-F4, R5-D30, R5-D33): QueryInterruptTime, QueryInterruptTimePrecise and
+// QueryUnbiasedInterruptTimePrecise, kernelbase's own code (kernel32 exports none of them). They ride the
+// duration axis like QUIT, so a process that reads one of them beside the tick count sees one speed - the
+// Chromium engine of WebView2 imports the third and used to read it real under a scaled tick count.
+//
+// The unbiased pair is the fake QUIT from the plain or the precise real clock. The interrupt-time pair adds
+// the real time the machine has slept since it started: the interrupt time counts sleep and the unbiased
+// one does not, and the session never multiplies sleep by its speed (ADR-5), so the fake pair keeps exactly
+// the real difference. After the session they carry on from where the axis stood, like QUIT (ADR-14).
+
+/// One interrupt-time channel: the fake QUIT at `clock`, plus the sleep bias when `with_sleep`, or the
+/// original's own answer when nothing can be faked (a null pointer, a reclaimed block with nothing
+/// released). The original runs under `own_clock`, because its precise variants reach the exported QPC on
+/// 32-bit Windows (R5-F5).
+///
+/// # Safety
+/// `lp` is the caller's out pointer, null or writable, as the API itself requires.
+unsafe fn interrupt_time_or(lp: *mut u64, clock: fn() -> i64, with_sleep: bool, original: &OnceLock<InterruptFn>) { unsafe {
+    let real = || {
+        if let Some(o) = original.get() {
+            own_clock(|| o(lp));
+        }
+    };
+    // A session with `--scale-qpc` and without the duration axis hooks the two precise ones only to keep
+    // them REAL (R5-F5, `install`): the session did not ask for this axis to move.
+    if lp.is_null() || !SCALE_DUR.load(Ordering::Relaxed) {
+        return real();
+    }
+    let released = || RELEASED.get().map(|r| r.quit_at(clock()));
+    let fake = if detached() {
+        released()
+    } else {
+        match ctl_ptr() {
+            Some(p) => {
+                let (dur, now) = read_dur_with(p as *const Ctl, clock);
+                let value = dur.quit_at(now, RELEASE_AT_QUIT.load(Ordering::Acquire));
+                // Ownership checked after the read (R2-S6), as every duration detour does.
+                if still_ours(p as *const Ctl) { Some(value) } else { released() }
+            }
+            None => None,
+        }
+    };
+    match fake {
+        Some(v) => {
+            let v = if with_sleep { v.saturating_add(sleep_bias_now()) } else { v };
+            core::ptr::write_unaligned(lp, v as u64);
+        }
+        None => real(),
+    }
+}}
+
+unsafe extern "system" fn h_qit(lp: *mut u64) { unsafe {
+    bump(IDX_QIT);
+    interrupt_time_or(lp, real_quit, true, &O_QIT)
+}}
+
+unsafe extern "system" fn h_qitp(lp: *mut u64) { unsafe {
+    bump(IDX_QITP);
+    interrupt_time_or(lp, real_quitp, true, &O_QITP)
+}}
+
+unsafe extern "system" fn h_quitp(lp: *mut u64) { unsafe {
+    bump(IDX_QUITP);
+    interrupt_time_or(lp, real_quitp, false, &O_QUITP)
+}}
+
 // QPC axis (ADR-2 reversal, opt-in `scale_qpc`): scale QueryPerformanceCounter, so a target whose elapsed
 // clock is monotonic/perf_counter (Python 3.13+), Stopwatch (.NET) or nanoTime (Java) - all QPC-backed -
 // also accelerates. The anchor lives in the shared Ctl (dur_qpc_c0 / dur_qpc_q0), initialized by the core
@@ -1631,12 +1803,19 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
     // sequential batches drifted by ~9 ns between them and would have shown a slowdown that was not
     // there. Five alternating pairs, 5 M calls each, x64, probe `pqpc`: the counted build ran
     // +0.08 ns/call on average (worst pair +0.2), against ~25 ns for a bare QPC and ~37 ns hooked. The
-    // bump disappears next to the trampoline call and the seqlock read it rides on.
-    bump(IDX_QPC);
+    // bump disappears next to the trampoline call and the seqlock read it rides on - on one thread. Many
+    // threads writing one counter is another matter (R5-WY11), hence its ceiling (`chrono_ctl::CALLS_CAP`).
     let o = match O_QPC.get() {
         Some(o) => *o,
         None => return 0,
     };
+    // A call of the hook's own into a system clock that reaches this export from inside the system (R5-F5):
+    // the real counter, not counted - it is not the application's call, and scaled it corrupts the clock
+    // the hook was reading.
+    if OWN_CLOCK.get() {
+        return o(lp);
+    }
+    bump(IDX_QPC);
     if lp.is_null() {
         return o(lp);
     }
@@ -1790,7 +1969,48 @@ fn try_enter_wait(idx: usize) -> Option<(i64, FlagRestore)> {
         // call. The guard is held here too, so one application wait is one tally either way (rule 4).
         return Some((1, guard)); // multiplier 1 = real time, unchanged
     }
-    Some((dur_multiplier(), guard))
+    Some((relative_rate(), guard))
+}
+
+/// The rate a LENGTH of time is divided by - a delay, a timer's relative due, its period: the session's
+/// under `--scale-duration`, 1 without it (R5-D2). The deadline detours stand in every session, and a
+/// session that did not ask for the duration axis must not have its `Sleep` shortened through
+/// `NtDelayExecution`, where every `Sleep` ends.
+fn relative_rate() -> i64 {
+    if SCALE_DUR.load(Ordering::Relaxed) { dur_multiplier() } else { 1 }
+}
+
+/// `relative_rate` for a caller that already holds the duration multiplier `m` from its own snapshot of the
+/// anchor, so the rate and the clock it is applied with come from one read (`fake_now_and_dur_m`).
+fn relative_of(m: i64) -> i64 {
+    if SCALE_DUR.load(Ordering::Relaxed) { m } else { 1 }
+}
+
+/// A waitable or thread-pool timer's due (100 ns, FILETIME convention) as the kernel gets it: an absolute
+/// due converted on the wall's speed, counted (`note_absolute_due`), a relative one divided by `rel_m`.
+fn timer_due(due: i64, fake_now: i64, wall_m: i64, rel_m: i64) -> i64 {
+    if due >= 0 {
+        note_absolute_due();
+    }
+    scale_timer_due(due, fake_now, wall_m, rel_m)
+}
+
+/// Count one absolute deadline this process had converted (R5-D2), so the core can tell whether one was
+/// pending when the session jumped or changed speed.
+fn note_absolute_due() {
+    if let Some(p) = live_cov() {
+        unsafe { bump_absolute_dues(p) }
+    }
+}
+
+/// An absolute `NtDelayExecution` deadline - a wall-clock instant the application computed from the fake
+/// clock - as the real relative delay until the fake clock reaches it (R5-D2), or `None` when the session is
+/// gone and the wall is real again. Converted in every session: before R5 it went to the kernel as it was,
+/// under `--scale-duration` too, and the kernel compares it with the real clock.
+fn absolute_delay(deadline: i64) -> Option<i64> {
+    let (fake_now, wall_m) = fake_now_and_dur_m()?;
+    note_absolute_due();
+    Some(scale_timer_due(deadline, fake_now, wall_m, 1))
 }
 
 unsafe extern "system" fn h_sleep(ms: u32) { unsafe {
@@ -1817,10 +2037,12 @@ unsafe extern "system" fn h_sleepex(ms: u32, alertable: i32) -> u32 { unsafe {
 
 // NtDelayExecution is the shared funnel Sleep and SleepEx bottom out on, so hooking it makes the
 // re-entrancy guard load-bearing (a scaled Sleep re-enters here and must pass through). It also
-// catches callers that reach ntdll directly. The interval is signed 100 ns: only a negative
-// (relative) delay is scaled - a positive (absolute deadline) or null passes through. Its original is
-// the kernel wait of every scaled wait, so this is where the flag goes down for an alertable one,
-// whether the call came from the application or down a cascade (R4-N7).
+// catches callers that reach ntdll directly. The interval is signed 100 ns: a negative (relative) delay is
+// scaled under scale_duration, a positive (absolute deadline) one is converted in every session (R5-D2),
+// and a null passes through. It stands in every session for that reason, and without scale_duration every
+// Sleep of the application reaches it unscaled (`relative_rate`). Its original is the kernel wait of every
+// scaled wait, so this is where the flag goes down for an alertable one, whether the call came from the
+// application or down a cascade (R4-N7).
 unsafe extern "system" fn h_ntdelay(alertable: u8, interval: *const i64) -> i32 { unsafe {
     let o = match O_NTDELAY.get() {
         Some(o) => o,
@@ -1833,11 +2055,15 @@ unsafe extern "system" fn h_ntdelay(alertable: u8, interval: *const i64) -> i32 
                 kernel_wait(interval)
             } else {
                 let requested = core::ptr::read_unaligned(interval);
-                if delay_hit_floor(requested, m) {
-                    note_wait_at_floor();
-                }
-                let scaled = scale_delay_interval(requested, m);
-                kernel_wait(&scaled as *const i64)
+                let forwarded = if requested > 0 {
+                    absolute_delay(requested).unwrap_or(requested)
+                } else {
+                    if delay_hit_floor(requested, m) {
+                        note_wait_at_floor();
+                    }
+                    scale_delay_interval(requested, m)
+                };
+                kernel_wait(&forwarded as *const i64)
             }
         }
         None => kernel_wait(interval),
@@ -2045,7 +2271,9 @@ unsafe extern "system" fn h_wsawfme(
 // scale_timer_period). The subtlety is the ABSOLUTE (positive) due-time: the app computed it from
 // the FAKE wall clock, but the kernel reads the REAL clock for absolute timers, so we convert it to
 // the real interval until the fake clock reaches it and forward it as a scaled RELATIVE due
-// (scale_timer_due). One thread-local guard makes each app-level call scale exactly once and be
+// (scale_timer_due). That conversion is needed by any session that moves the date, so these detours
+// stand in EVERY session and, without scale_duration, convert the absolute due alone (R5-D2,
+// `make_deadline_hooks`). One thread-local guard makes each app-level call scale exactly once and be
 // counted against the export the app called: SetWaitableTimer may internally reach
 // SetWaitableTimerEx, and double-scaling a due (due/M/M) would fire the timer far too early. This
 // guard is separate from class A's (Sleep) and class B's (object waits) - the three families never
@@ -2099,8 +2327,9 @@ unsafe extern "system" fn h_swt(
         // mid-call falls through to the original untouched.
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
-                let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
-                let scaled_period = scaled_timer_period(period, m, scale_timer_period);
+                let rel_m = relative_of(m);
+                let scaled_due = timer_due(core::ptr::read_unaligned(due), fake_now, m, rel_m);
+                let scaled_period = scaled_timer_period(period, rel_m, scale_timer_period);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, resume)
             }
             _ => o(timer, due, period, pfn, arg, resume),
@@ -2125,8 +2354,9 @@ unsafe extern "system" fn h_swtex(
     match try_enter_timer(IDX_SWTEX) {
         Some(_guard) => match (due.is_null(), fake_now_and_dur_m()) {
             (false, Some((fake_now, m))) => {
-                let scaled_due = scale_timer_due(core::ptr::read_unaligned(due), fake_now, m);
-                let scaled_period = scaled_timer_period(period, m, scale_timer_period);
+                let rel_m = relative_of(m);
+                let scaled_due = timer_due(core::ptr::read_unaligned(due), fake_now, m, rel_m);
+                let scaled_period = scaled_timer_period(period, rel_m, scale_timer_period);
                 o(timer, &scaled_due as *const i64, scaled_period, pfn, arg, wake_context, tolerable_delay)
             }
             _ => o(timer, due, period, pfn, arg, wake_context, tolerable_delay),
@@ -2289,9 +2519,10 @@ unsafe fn scale_tp_timer(pft: *const FILETIME, period: u32, window: u32) -> Opti
     // One snapshot for both halves: the due date is absolute, so the rate it is divided by has to be
     // the rate that belongs to this `fake_now` and not to whatever the block said a moment earlier.
     let (fake_now, m) = fake_now_and_dur_m()?; // detached: forward untouched
-    let scaled_due = scale_timer_due(ft_to_i64(core::ptr::read_unaligned(pft)), fake_now, m);
-    let scaled_period = scaled_timer_period(period, m, scale_timer_period_ms);
-    Some((i64_to_ft(scaled_due), scaled_period, scale_timer_elapse(window, m)))
+    let rel_m = relative_of(m);
+    let scaled_due = timer_due(ft_to_i64(core::ptr::read_unaligned(pft)), fake_now, m, rel_m);
+    let scaled_period = scaled_timer_period(period, rel_m, scale_timer_period_ms);
+    Some((i64_to_ft(scaled_due), scaled_period, scale_timer_elapse(window, rel_m)))
 }}
 
 unsafe extern "system" fn h_set_tp_timer(pti: *mut c_void, pft: *const FILETIME, period: u32, window: u32) { unsafe {
@@ -3230,9 +3461,12 @@ unsafe fn make_duration_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) {
     make_hook(pending, k32, ntdll, IDX_GTC, h_tick32 as *const () as *mut c_void, &O_TICK32);
     make_kernelbase_copy_hook(pending, k32, IDX_GTC, h_tick32_kb as *const () as *mut c_void, &O_TICK32_KB);
     make_hook(pending, k32, ntdll, IDX_QUIT, h_quit as *const () as *mut c_void, &O_QUIT);
+    // The interrupt-time clocks (R5-F4), in kernelbase alone.
+    make_hook(pending, k32, ntdll, IDX_QIT, h_qit as *const () as *mut c_void, &O_QIT);
+    make_hook(pending, k32, ntdll, IDX_QITP, h_qitp as *const () as *mut c_void, &O_QITP);
+    make_hook(pending, k32, ntdll, IDX_QUITP, h_quitp as *const () as *mut c_void, &O_QUITP);
     make_hook(pending, k32, ntdll, IDX_SLEEP, h_sleep as *const () as *mut c_void, &O_SLEEP);
     make_hook(pending, k32, ntdll, IDX_SLEEPEX, h_sleepex as *const () as *mut c_void, &O_SLEEPEX);
-    make_hook(pending, k32, ntdll, IDX_NTDELAY, h_ntdelay as *const () as *mut c_void, &O_NTDELAY);
     make_hook(pending, k32, ntdll, IDX_WFSO, h_wfso as *const () as *mut c_void, &O_WFSO);
     make_hook(pending, k32, ntdll, IDX_WFSOEX, h_wfsoex as *const () as *mut c_void, &O_WFSOEX);
     make_hook(pending, k32, ntdll, IDX_WFMO, h_wfmo as *const () as *mut c_void, &O_WFMO);
@@ -3249,13 +3483,86 @@ unsafe fn make_duration_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) {
     make_hook(pending, k32, ntdll, IDX_SCVCS, h_scvcs as *const () as *mut c_void, &O_SCVCS);
     make_hook(pending, k32, ntdll, IDX_WOA, h_woa as *const () as *mut c_void, &O_WOA);
     make_hook(pending, k32, ntdll, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
-    make_hook(pending, k32, ntdll, IDX_SWT, h_swt as *const () as *mut c_void, &O_SWT);
-    make_hook(pending, k32, ntdll, IDX_SWTEX, h_swtex as *const () as *mut c_void, &O_SWTEX);
     make_hook(pending, k32, ntdll, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
     make_hook(pending, k32, ntdll, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
     make_hook(pending, k32, ntdll, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
+}}
+
+/// The detours that carry an ABSOLUTE deadline (`chrono_ctl::DEADLINE_CHANNELS`), created in EVERY session
+/// (R5-D2). A deadline the application computed from the fake clock is compared by the kernel with the real
+/// one, which a plain date shift breaks as surely as an accelerated clock: a timer for "tomorrow 03:00" on a
+/// clock at 2038 waited twelve real years in a session without `--scale-duration`. Without that flag these
+/// detours convert the absolute deadline alone and leave every relative time as the application asked
+/// (`relative_rate`).
+///
+/// # Safety
+/// Called from `install` only, under the same conditions as `make_hook`.
+unsafe fn make_deadline_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) { unsafe {
+    make_hook(pending, k32, ntdll, IDX_NTDELAY, h_ntdelay as *const () as *mut c_void, &O_NTDELAY);
+    make_hook(pending, k32, ntdll, IDX_SWT, h_swt as *const () as *mut c_void, &O_SWT);
+    make_hook(pending, k32, ntdll, IDX_SWTEX, h_swtex as *const () as *mut c_void, &O_SWTEX);
     make_hook(pending, k32, ntdll, IDX_TPTIMER, h_set_tp_timer as *const () as *mut c_void, &O_TPTIMER);
     make_hook(pending, k32, ntdll, IDX_TPTIMEREX, h_set_tp_timer_ex as *const () as *mut c_void, &O_TPTIMEREX);
+}}
+
+/// The wall clock and the session zone - the channels every session substitutes, whatever it asked for.
+/// One group like the duration axis and the deadlines, kept out of `install` so that the install stays
+/// under its pinned length.
+///
+/// # Safety
+/// Called from `install` only, under the same conditions as `make_hook`.
+unsafe fn make_wall_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) { unsafe {
+    make_hook(pending, k32, ntdll, IDX_GSTAFT, h_gstaft as *const () as *mut c_void, &O_GSTAFT);
+    make_hook(pending, k32, ntdll, IDX_GSTPAFT, h_gstpaft as *const () as *mut c_void, &O_GSTPAFT);
+    make_hook(pending, k32, ntdll, IDX_GST, h_gst as *const () as *mut c_void, &O_GST);
+    make_hook(pending, k32, ntdll, IDX_GLT, h_glt as *const () as *mut c_void, &O_GLT);
+    make_hook(pending, k32, ntdll, IDX_NTQST, h_ntqst as *const () as *mut c_void, &O_NTQST);
+    make_hook(pending, k32, ntdll, IDX_NTQSI, h_ntqsi as *const () as *mut c_void, &O_NTQSI);
+    make_hook(pending, k32, ntdll, IDX_GTZI, h_gtzi as *const () as *mut c_void, &O_GTZI);
+    make_hook(pending, k32, ntdll, IDX_GDTZI, h_gdtzi as *const () as *mut c_void, &O_GDTZI);
+    make_hook(pending, k32, ntdll, IDX_STSL, h_stsl as *const () as *mut c_void, &O_STSL);
+    make_hook(pending, k32, ntdll, IDX_STSLEX, h_stslex as *const () as *mut c_void, &O_STSLEX);
+    make_hook(pending, k32, ntdll, IDX_FTLFT, h_ftlft as *const () as *mut c_void, &O_FTLFT);
+    make_hook(pending, k32, ntdll, IDX_LFTFT, h_lftft as *const () as *mut c_void, &O_LFTFT);
+    make_hook(pending, k32, ntdll, IDX_TLTST, h_tltst as *const () as *mut c_void, &O_TLTST);
+    make_hook(pending, k32, ntdll, IDX_TLTSTEX, h_tltstex as *const () as *mut c_void, &O_TLTSTEX);
+}}
+
+/// What `install` reads once, before any detour exists: whether the session scales durations, which the
+/// deadline detours ask on every call (R5-D2), and the precise clock the anchors stand on, resolved in
+/// kernelbase while no detour can be in the way (R5-P2) - kernel32 does not export it.
+///
+/// # Safety
+/// Called from `install` only, with `ctl` the session's mapped block.
+unsafe fn read_session_clocks(ctl: *const Ctl) { unsafe {
+    SCALE_DUR.store(read_scale_dur(ctl), Ordering::Relaxed);
+    if let Ok(kernelbase) = GetModuleHandleA(s!("kernelbase.dll"))
+        && let Some(f) = GetProcAddress(kernelbase, s!("QueryUnbiasedInterruptTimePrecise"))
+    {
+        let _ = QUITP_EXPORT.set(std::mem::transmute::<unsafe extern "system" fn() -> isize, InterruptFn>(f));
+    }
+}}
+
+/// The QPC axis (opt-in `scale_qpc`, ADR-2 reversal). SEPARATE from scale_duration because scaling QPC also
+/// scales a target's QPC-timed rendering. It IS a coverage channel (R2-S3): installed through make_hook like
+/// the rest, so a failure to install shows up as an uncovered channel instead of a debug string nobody
+/// reads. The anchor lives in the shared Ctl (core initialized it in prepare, rebases on set_multiplier).
+/// QueryPerformanceFrequency is left real.
+///
+/// R5-F5. On 32-bit Windows the system computes the two precise interrupt clocks through the EXPORTED QPC,
+/// so with the QPC detour standing and the duration axis left real they followed the scaled counter: 199 s
+/// off after a 3 s session at x60, and still off once the session had let the application go (measured,
+/// tools/probes/r5/fala3/f5.ps1). They are hooked here to be answered real, through `own_clock`. Under
+/// scale_duration `make_duration_hooks` has made them already, to be scaled.
+///
+/// # Safety
+/// Called from `install` only, under the same conditions as `make_hook`.
+unsafe fn make_qpc_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) { unsafe {
+    make_hook(pending, k32, ntdll, IDX_QPC, h_qpc as *const () as *mut c_void, &O_QPC);
+    if !SCALE_DUR.load(Ordering::Relaxed) {
+        make_hook(pending, k32, ntdll, IDX_QITP, h_qitp as *const () as *mut c_void, &O_QITP);
+        make_hook(pending, k32, ntdll, IDX_QUITP, h_quitp as *const () as *mut c_void, &O_QUITP);
+    }
 }}
 
 /// Install and enable every channel's detour, wiring this process to the shared anchor.
@@ -3399,37 +3706,26 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
         }
     };
 
+    read_session_clocks(ctl as *const Ctl);
+
     // Channels whose detour was CREATED. Published to the Cov only after enable_all_hooks succeeds -
     // until then no detour is live, and a bit that says otherwise would be the audit lying (rule 4).
     let mut pending: u64 = 0;
 
-    make_hook(&mut pending, k32, ntdll, IDX_GSTAFT, h_gstaft as *const () as *mut c_void, &O_GSTAFT);
-    make_hook(&mut pending, k32, ntdll, IDX_GSTPAFT, h_gstpaft as *const () as *mut c_void, &O_GSTPAFT);
-    make_hook(&mut pending, k32, ntdll, IDX_GST, h_gst as *const () as *mut c_void, &O_GST);
-    make_hook(&mut pending, k32, ntdll, IDX_GLT, h_glt as *const () as *mut c_void, &O_GLT);
-    make_hook(&mut pending, k32, ntdll, IDX_NTQST, h_ntqst as *const () as *mut c_void, &O_NTQST);
-    make_hook(&mut pending, k32, ntdll, IDX_NTQSI, h_ntqsi as *const () as *mut c_void, &O_NTQSI);
-    make_hook(&mut pending, k32, ntdll, IDX_GTZI, h_gtzi as *const () as *mut c_void, &O_GTZI);
-    make_hook(&mut pending, k32, ntdll, IDX_GDTZI, h_gdtzi as *const () as *mut c_void, &O_GDTZI);
-    make_hook(&mut pending, k32, ntdll, IDX_STSL, h_stsl as *const () as *mut c_void, &O_STSL);
-    make_hook(&mut pending, k32, ntdll, IDX_STSLEX, h_stslex as *const () as *mut c_void, &O_STSLEX);
-    make_hook(&mut pending, k32, ntdll, IDX_FTLFT, h_ftlft as *const () as *mut c_void, &O_FTLFT);
-    make_hook(&mut pending, k32, ntdll, IDX_LFTFT, h_lftft as *const () as *mut c_void, &O_LFTFT);
-    make_hook(&mut pending, k32, ntdll, IDX_TLTST, h_tltst as *const () as *mut c_void, &O_TLTST);
-    make_hook(&mut pending, k32, ntdll, IDX_TLTSTEX, h_tltstex as *const () as *mut c_void, &O_TLTSTEX);
+    // The wall clock and the session zone, in every session - see `make_wall_hooks`.
+    make_wall_hooks(&mut pending, k32, ntdll);
+
+    // The absolute deadlines, in every session (R5-D2) - see `make_deadline_hooks`.
+    make_deadline_hooks(&mut pending, k32, ntdll);
 
     // Duration axis (opt-in), with the waits and timers that ride it - see `make_duration_hooks`.
     if read_scale_dur(ctl as *const Ctl) {
         make_duration_hooks(&mut pending, k32, ntdll);
     }
 
-    // QPC axis (opt-in `scale_qpc`, ADR-2 reversal). SEPARATE from scale_duration because scaling QPC also
-    // scales a target's QPC-timed rendering. It IS a coverage channel now (R2-S3): installed through
-    // make_hook like the rest, so a failure to install shows up as an uncovered channel instead of a
-    // debug string nobody reads. The anchor lives in the shared Ctl (core initialized it in prepare,
-    // rebases on set_multiplier). QueryPerformanceFrequency is left real.
+    // QPC axis (opt-in `scale_qpc`, ADR-2 reversal) - see `make_qpc_hooks`.
     if read_scale_qpc(ctl as *const Ctl) {
-        make_hook(&mut pending, k32, ntdll, IDX_QPC, h_qpc as *const () as *mut c_void, &O_QPC);
+        make_qpc_hooks(&mut pending, k32, ntdll);
     }
 
     // Direct process creation (ADR-3, observed): hook NtCreateUserProcess ALWAYS - not gated by

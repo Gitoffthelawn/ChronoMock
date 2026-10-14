@@ -2360,7 +2360,10 @@ public sealed class SessionViewModel : ObservableObject
     /// </summary>
     private static string FormatReadRow(CoveredChannel channel, Func<string, string> translate)
     {
-        var key = channel.Calls == 1 ? "coverage.reads_one" : "coverage.reads";
+        // A count that stopped at the hook's ceiling is a floor, and says so (R5-WY11).
+        var key = channel.Capped ? "coverage.reads_at_least"
+            : channel.Calls == 1 ? "coverage.reads_one"
+            : "coverage.reads";
         // Guarded like every other translated template here: a loose file with a bad placeholder falls back
         // to the default language instead of throwing out of the summary being built (rule 6).
         return Fmt(translate, key, channel.Channel, channel.Calls);

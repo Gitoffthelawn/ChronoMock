@@ -26,8 +26,40 @@ Notable changes to Chrono Mock, newest first. The format follows
   Unix timestamp, as the new reading `iso_offset`. A fraction is cut to the second. A date whose
   instant falls outside the years the calculator computes on once it is shown in the session zone is
   refused.
+- **Three more time functions are covered: `QueryInterruptTime`, `QueryInterruptTimePrecise` and
+  `QueryUnbiasedInterruptTimePrecise`.** Under `--scale-duration` they run at the session speed like the
+  tick count and `QueryUnbiasedInterruptTime`, and the audit lists them. The two interrupt-time clocks
+  keep the real time the computer has slept since it started, as Windows does - sleep is never
+  multiplied by the speed. This changes what an embedded Chromium engine in WebView2 reads under
+  `--scale-duration`: it imports the third one, which used to stay real beside a scaled tick count. The
+  audit now has 44 channels.
+- **The session log says when the computer slept.** The session clock stands still while the computer
+  sleeps, as during a pause. A new `host_slept` event says how long it slept, at the first heartbeat after
+  waking, `session_verdict` carries the total as `host_slept_ms`, and the report and the window warn
+  `time.host_slept`.
+- **The report says when a timer for a set date and time may fire at the wrong moment of the session.**
+  Such a deadline is turned into a delay when it is set, at the speed of that moment, so one still
+  pending when the session jumped or changed speed fires where the old clock would have reached it.
+  The new warning `timer.absolute_due_converted` appears only when that can have happened.
 
 ### Changed
+
+- **A call count stops at 1 048 576 and is then shown as "at least".** Every clock call used to write
+  one shared counter, which cost a target with many threads several times the price of the call itself
+  (86.6 ns against 14.1 ns at 8 threads, measured). `coverage` marks such a count with `capped`, and the
+  report, the window and the copied summary say "at least". The audit table's count column now takes the
+  width its numbers need.
+- **`GetSystemTimePreciseAsFileTime` moves at the resolution of the timer hardware.** It used to move in
+  steps of one timer interrupt multiplied by the speed - 47 ms on average at x60 on the measuring
+  machine, 0.94 s at the default timer. The session's anchors are now read from the precise clock
+  (`QueryUnbiasedInterruptTimePrecise`, which also leaves sleep out), while the plain clocks keep reading
+  the plain one, so the precise wall clock is never behind the plain one, as in Windows. It costs about
+  26 ns more per call on 64-bit and 38 ns on 32-bit.
+- **A timer or a wait set for a date and time follows the fake clock in every session.**
+  `SetWaitableTimer`, `SetWaitableTimerEx`, `SetThreadpoolTimer`, `SetThreadpoolTimerEx` and an absolute
+  `NtDelayExecution` are converted without `--scale-duration` too: a timer set for "tomorrow 03:00" on a
+  clock at 2038 used to wait twelve real years. Relative delays and periods change only under
+  `--scale-duration`, as before.
 
 - **Another running session ends a start with exit code 7.** It used to be exit code 3, the code of
   an internal error, with a line saying the core ended without a verdict - so a pipeline could not
@@ -106,6 +138,20 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **On 32-bit Windows with `--scale-qpc`, the precise system clocks no longer follow the scaled
+  counter.** Windows computes them through the exported `QueryPerformanceCounter` there, so after the
+  session the application's precise wall clock stayed ahead of the real one by everything the counter had
+  gained (200 s after a 3 s session at x60, measured), and its precise interrupt time ran off during the
+  session too. 64-bit Windows was not affected.
+- **An absolute `NtDelayExecution` under `--scale-duration` waits for the fake date and time.** It was
+  passed to the kernel as it was, which compares it with the real clock.
+- **A delay shorter than a millisecond is no longer lengthened.** `NtDelayExecution` with 100 ns, a common
+  way to give up the processor, was held at 1 ms at every speed, x1 included, and reported as a wait the
+  speed could not divide.
+- **The fake elapsed time no longer turns negative** after about 10.7 days at the highest speed. It stands
+  at its limit and `time.duration_axis_clamped` says so, which it now also does when the limit is reached
+  over several speed changes.
+- **A core stopped in the middle of a speed change costs a target one wait, not one per clock call.**
 - **The 2038 marker no longer disappears after the year 30828.** It was counted through FILETIME,
   which ends there, while the calculator reaches the year 262143.
 - **Business days on a calendar with many holidays, and long format masks, take less time.** A day off

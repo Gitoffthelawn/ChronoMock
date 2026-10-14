@@ -36,6 +36,8 @@ pub(super) struct Collector {
     engines: Vec<chrono_proto::ReachedEngine>,
     // The processes the session went on for after the target closed, from `session_verdict` (ADR-16).
     followed: Vec<chrono_proto::FollowedProcess>,
+    // How long the machine slept during the session, from `session_verdict` (R5-P1).
+    host_slept_ms: u64,
     // Set when the opening verdict refused the session, with what the core could not end (R4-S5), and
     // whether it could not look for all of the application's processes.
     refused: Option<Vec<chrono_proto::FollowedProcess>>,
@@ -83,6 +85,7 @@ impl Collector {
                 context_count,
                 engines,
                 followed,
+                host_slept_ms,
                 ..
             } => {
                 self.session_line = Some((verdict, reason_key, process_count));
@@ -92,6 +95,7 @@ impl Collector {
                 self.context_count = context_count;
                 self.engines = engines;
                 self.followed = followed;
+                self.host_slept_ms = host_slept_ms;
             }
             Event::Vanished { reason_key, lived_ms, .. } => {
                 self.vanished = Some((reason_key, lived_ms));
@@ -193,6 +197,7 @@ impl Collector {
         let mut installed_late: Vec<(UnitId, String)> = Vec::new(); // (unit, channel) - hooked once its module loaded
         let mut covered: Vec<(UnitId, String, u64)> = Vec::new(); // (unit, channel, calls) - what took effect
         let mut observed: Vec<(UnitId, String, u64)> = Vec::new(); // (unit, channel, calls) - hooked, left real
+        let mut capped: Vec<(UnitId, String)> = Vec::new(); // (unit, channel) - counts that stopped at the ceiling
         for unit in &self.unit_order {
             if let Some(pc) = self.cov_by_unit.get(unit) {
                 for ch in &pc.covered {
@@ -200,6 +205,9 @@ impl Collector {
                 }
                 for ch in &pc.observed {
                     observed.push((*unit, ch.channel.clone(), ch.calls));
+                }
+                for ch in pc.covered.iter().chain(&pc.observed).filter(|ch| ch.capped) {
+                    capped.push((*unit, ch.channel.clone()));
                 }
                 for ch in &pc.uncovered {
                     uncovered.push((*unit, ch.clone()));
@@ -225,6 +233,8 @@ impl Collector {
             installed_late,
             covered,
             observed,
+            capped,
+            host_slept_ms: self.host_slept_ms,
             timing: self.timing,
             target_exit: self.target_exit,
             residue: self.residue,
@@ -251,7 +261,7 @@ mod tests {
             v: 1,
             pid,
             kind: chrono_proto::UNIT_PROCESS.to_string(),
-            covered: vec![CoveredChannel { channel: "GetSystemTimeAsFileTime".into(), calls }],
+            covered: vec![CoveredChannel { channel: "GetSystemTimeAsFileTime".into(), calls, capped: false }],
             observed: Vec::new(),
             uncovered: Vec::new(),
             unobserved: Vec::new(),
@@ -309,6 +319,7 @@ mod tests {
             context_count: 0,
             engines: Vec::new(),
             followed: vec![chrono_proto::FollowedProcess { pid: 200, image: Some("app.exe".into()) }],
+            host_slept_ms: 0,
         });
 
         let report = c.into_report("app.exe".into(), false, None);

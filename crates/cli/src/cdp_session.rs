@@ -332,6 +332,9 @@ fn emit_cdp_session_verdict(token: &str, reason: &str, contexts: u32, followed: 
         context_count: contexts,
         engines: Vec::new(),
         followed,
+        // A Chromium session runs on the wall clock, which counts sleep, and does not watch for it yet
+        // (R5-F6, wave 5).
+        host_slept_ms: 0,
     });
 }
 

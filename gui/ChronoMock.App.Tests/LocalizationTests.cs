@@ -64,6 +64,7 @@ public class LocalizationTests
         "embedded.policy_value_stale", "embedded.policy_value_foreign", "embedded.policy_not_written",
         "embedded.policy_name_mismatch",
         "time.fake_clock_clamped", "time.duration_axis_clamped",
+        "time.host_slept", "timer.absolute_due_converted",
         // The application outlived the session and was let go (docs/01 section 8.4), and the session
         // outlived the program it launched and went on for what that program started (ADR-16).
         "session.left_running", "session.followed_family",

@@ -117,4 +117,9 @@ public sealed record CoveredChannel
 {
     [JsonPropertyName("channel")] public required string Channel { get; init; }
     [JsonPropertyName("calls")] public long Calls { get; init; }
+
+    /// <summary>The count stopped at the hook's ceiling, so the target called the channel AT LEAST
+    /// <see cref="Calls"/> times (R5-WY11, mirrors <c>chrono_proto::CoveredChannel::capped</c>). Absent on the
+    /// wire when false, and an older message reads as an exact count.</summary>
+    [JsonPropertyName("capped")] public bool Capped { get; init; }
 }

@@ -78,7 +78,13 @@
 # `describe_chromium_warning` - two new keys had taken `describe_warning` to 155, and two more were on
 # their way. The holders are now `run::args::parse_run_args` and `hook::install`, both at 153, then
 # `core::core_mode` at 145 (measured by `tools/margin.ps1 -Rust`).
-too-many-lines-threshold = 153
+#
+# Lowered 2026-10-14 (R5 wave 3): `hook::install` gave its wall and zone detours to `make_wall_hooks`
+# and its QPC group to `make_qpc_hooks` and went to 142, and `parse_run_args` had already gone to 146 in
+# wave 2. The holder is now `report::describe_warning` at 149 (two new keys, `time.host_slept` and
+# `timer.absolute_due_converted`), then `cdp_embedded_probe` at 147 and `parse_run_args` at 146 (measured
+# by `tools/margin.ps1 -Rust`).
+too-many-lines-threshold = 149
 
 # A tie at 25: `run::driver_run` and `report::render_report`. This happens to be clippy's own
 # default, which is worth saying out loud rather than leaving to look like a copied number - it

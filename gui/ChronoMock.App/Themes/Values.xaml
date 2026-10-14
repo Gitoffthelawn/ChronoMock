@@ -275,10 +275,11 @@
        inside it, a plain session's six do not scroll at all. -->
   <sys:Double x:Key="AuditTableMaxHeight">280</sys:Double>
 
-  <!-- The audit table's columns. The function column is as wide as the longest name on screen (shared
-       size, computed, never a number), the status column likewise - only the count column takes a fixed
-       width, so the digits sit under one right edge whatever the names beside them do. Eight digits of
-       monospaced caption text and the row gap. -->
+  <!-- The count column of the process and engine tables: a fixed width, so the digits sit under one right
+       edge whatever the names beside them do. Eight digits of monospaced caption text and the row gap.
+       The AUDIT table's count column is shared size and computed like its other two (R5-WY11, 2026-10-14):
+       a count at the hook's ceiling reads "at least 1048576", "co najmniej 1048576" in Polish, and in a
+       fixed eight digits the render showed it cut to "ast 1048576". -->
   <GridLength x:Key="AuditCountColumnWidth">88</GridLength>
   <Thickness x:Key="AuditCellGap">0,2,16,2</Thickness>
   <!-- The process table's name column has a ceiling where the audit table's function column has none:

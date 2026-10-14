@@ -217,7 +217,7 @@ pub(crate) fn coverage_events(
             let chans: Vec<CoveredChannel> = covered
                 .iter()
                 .filter(|(idx, _, _)| idx == index)
-                .map(|(_, ch, n)| CoveredChannel { channel: ch.clone(), calls: *n })
+                .map(|(_, ch, n)| CoveredChannel { channel: ch.clone(), calls: *n, capped: false })
                 .collect();
             Event::Coverage {
                 v: PROTOCOL_VERSION,
