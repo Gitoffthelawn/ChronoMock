@@ -217,13 +217,22 @@ public partial class MainWindow : FluentWindow
     // the address goes into the message beneath it - a notice with no way out is half an answer, and the
     // way out here is being able to type the address in by hand.
     private void OnSupportClick(object sender, RoutedEventArgs e)
+        => SayIfNotOpened(ExternalLinks.TryOpenSupport(), ExternalLinks.Support);
+
+    // The repository link, with the same handover and the same failure path as the support link above.
+    private void OnRepositoryClick(object sender, RoutedEventArgs e)
+        => SayIfNotOpened(ExternalLinks.TryOpenRepository(), ExternalLinks.Repository);
+
+    // One failure notice for every link in the title bar, so a second link cannot quietly say less than
+    // the first. The address it shows is the constant the link opened, never text assembled here.
+    private void SayIfNotOpened(bool opened, string address)
     {
-        if (!ExternalLinks.TryOpenSupport())
+        if (!opened)
         {
             Views.MessageDialog.Tell(
                 this,
                 Text("support.failed_title"),
-                Text("support.failed") + Environment.NewLine + Environment.NewLine + ExternalLinks.Support);
+                Text("support.failed") + Environment.NewLine + Environment.NewLine + address);
         }
     }
 

@@ -45,10 +45,11 @@
     </Grid.RowDefinitions>
 
     <!-- The title bar carries the name, and beside the window buttons the one thing this application
-         asks of anybody: a way to support it. It sits here rather than in the panels because both
-         modules share this strip, so neither module has to give up a row to it, and it is the only
-         place a control can be permanently visible without competing with the work. Support and About
-         are shell chrome the phases never show, so they stay Click handlers on the window, not commands. -->
+         asks of anybody (a way to support it) and the place it is made (its repository). They sit here
+         rather than in the panels because both modules share this strip, so neither module has to give
+         up a row to them, and it is the only place a control can be permanently visible without
+         competing with the work. Support, GitHub and About are shell chrome the phases never show, so
+         they stay Click handlers on the window, not commands. -->
     <ui:TitleBar Grid.Row="0" Title="{DynamicResource app.title}">
       <ui:TitleBar.TrailingContent>
         <StackPanel Orientation="Horizontal">
@@ -65,9 +66,23 @@
               <!-- The heart is decoration beside the word, never the whole message: it is not in the
                    automation name, and the label alone reads correctly if a font has no glyph for it
                    (zasady/13 9 - meaning never rests on one symbol). -->
-              <TextBlock Text="&#x2665;" VerticalAlignment="Center" />
-              <TextBlock Text="{DynamicResource support.button}" VerticalAlignment="Center"
-                         Margin="{StaticResource SpaceXs}" />
+              <TextBlock Style="{StaticResource TitleBarActionMark}" Text="{StaticResource GlyphHeart}" />
+              <TextBlock Style="{StaticResource TitleBarActionLabel}" Text="{DynamicResource support.button}" />
+            </StackPanel>
+          </Button>
+
+          <!-- Where the project lives: the source, the releases and the issue tracker. The same handover
+               as the support link and the same promise in the tooltip, because it is the same moment - the
+               browser connects, this application does not. The code mark follows the heart's rule: the
+               word says where the button goes, the mark only sits beside it. -->
+          <Button x:Name="RepositoryButton"
+                  Style="{StaticResource TitleBarActionButton}"
+                  Click="OnRepositoryClick"
+                  ToolTip="{DynamicResource repository.tip}"
+                  AutomationProperties.Name="{DynamicResource repository.name}">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Style="{StaticResource TitleBarActionIcon}" Text="{StaticResource GlyphCode}" />
+              <TextBlock Style="{StaticResource TitleBarActionLabel}" Text="{DynamicResource repository.button}" />
             </StackPanel>
           </Button>
 

@@ -28,6 +28,15 @@ public class ExternalLinkTests
     }
 
     [Fact]
+    public void The_repository_address_is_the_one_the_button_promises()
+    {
+        // Pinned for the reason the support address is: the tooltip names this host and this path before
+        // anything is pressed, so the constant and the promise have to be the same string.
+        Assert.Equal("https://github.com/donislawdev/ChronoMock", ExternalLinks.Repository);
+        Assert.StartsWith("https://", ExternalLinks.Repository, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_address_the_shell_refuses_is_reported_rather_than_thrown()
     {
         // A real refusal rather than a stand-in. The path does not exist, so ShellExecute fails before it
@@ -60,10 +69,11 @@ public class ExternalLinkTests
     public void The_scan_actually_reaches_the_file_it_claims_to_cover()
     {
         // The canary. A walk that reaches no files, or a rename that makes the search term match nothing,
-        // satisfies the assertion above perfectly and looks exactly like a guard that works. Three is the
-        // count the links file actually has - its declaration and one call per named destination - so
-        // losing the file or a destination is something somebody has to look at rather than inherit.
-        Assert.Equal(3, FindOpenCalls(inLinksFile: true).Count);
+        // satisfies the assertion above perfectly and looks exactly like a guard that works. Four is the
+        // count the links file actually has - its declaration and one call per named destination (the
+        // licence, the support page and the repository) - so losing the file or a destination is something
+        // somebody has to look at rather than inherit.
+        Assert.Equal(4, FindOpenCalls(inLinksFile: true).Count);
     }
 
     private static IReadOnlyList<(string File, int Line)> FindOpenCalls(bool inLinksFile)

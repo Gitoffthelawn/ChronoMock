@@ -1,15 +1,17 @@
-# Two gates that block a merge, and neither of them needs a cargo output.
+# Three gates that block a merge, and none of them needs a cargo output.
 #
 # That is why they live here rather than in ci.yml. The header of that file already names this as
 # the split worth making: a second job running only the checks that need nothing built, in
-# parallel. Both of these run on Linux, where the scanner is at home and where a Windows runner
+# parallel. All three run on Linux, where the scanners are at home and where a Windows runner
 # would buy nothing - they read source and metadata, never a binary.
 #
-# 🔴 THE VERDICT IS NOT THE TOOL'S EXIT CODE, in either job. Both scripts read the machine-readable
-# report and decide, and both treat a report they cannot read as a failure. The reasons are written
+# 🔴 THE VERDICT IS NOT THE TOOL'S EXIT CODE, in any job. Each script reads the machine-readable
+# report and decides, and each treats a report it cannot read as a failure. The reasons are written
 # at the top of each script, and they are not stylistic - measured on 2026-09-08 with semgrep
 # 1.175.0, `semgrep scan` pointed at a config that does not exist exits ZERO and writes a JSON file
 # saying nothing was found. Every signal a caller would normally trust says the code is clean.
+# OSV-Scanner has the same shape: a clean scan and a scan that read nothing write the same empty
+# report (measured 2026-10-14, 2.7.0), which is why its gate counts what was read.
 name: Security
 
 on:
@@ -102,3 +104,61 @@ jobs:
         run: |
           gh api "repos/$REPO/dependency-graph/compare/$BASE...$HEAD" > deps.json
           python .github/scripts/dependency_gate.py deps.json
+
+  osv:
+    name: OSV-Scanner
+    # A second vulnerability database beside the one Dependency review reads: OSV, which carries the
+    # RustSec advisories and the ecosystems' own feeds. It blocks on what the pull request brings in,
+    # and a vulnerability already on the base is left to the weekly run in audit.yml, which blocks on
+    # everything and files it under Security. Why the split, and why a version bump that keeps a
+    # package vulnerable is not "brought in": the top of .github/scripts/osv_gate.py.
+    #
+    # The comparison needs the merge commit and the base it was built on, and a push to the branch
+    # itself has only one of them.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Depth two is the merge commit of the pull request and its first parent, which is the base
+      # the merge was built on - exactly the tree the pull request is judged against.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      # The gate is checked before it judges, so a gate that stopped blocking, or started blocking on
+      # nothing, fails here as itself rather than as a verdict about the tree.
+      - name: The gate checks itself
+        run: python -m unittest discover -s .github/scripts -p test_osv_gate.py
+
+      # The published binary, pinned to a version and to its checksum in the script rather than
+      # Google's action, which pulls a container by a tag. Bumping it is a deliberate act.
+      - name: Install the scanner
+        run: python .github/scripts/osv_gate.py install "$RUNNER_TEMP/osv"
+
+      # Both trees are scanned with the same arguments, so the two reports differ only where the
+      # trees do. --no-resolve keeps the scanner to what the files declare: measured, its guess at
+      # what pip installs under the Semgrep pin named versions the runner never installs.
+      - name: Scan the pull request and its base
+        run: |
+          scan() {
+            set +e
+            "$RUNNER_TEMP/osv/osv-scanner" scan source --no-resolve --all-packages \
+              --format json --output-file "$1" -r ./
+            code=$?
+            set -e
+            echo "osv-scanner exit code: $code"
+            # Zero is clean and one is "found something", which the verdict reads from the report.
+            # Anything above one is the scan itself failing, and that is never a pass.
+            if [ "$code" -gt 1 ]; then exit "$code"; fi
+          }
+          scan "$RUNNER_TEMP/osv-new.json"
+          git checkout --quiet --detach HEAD^1
+          scan "$RUNNER_TEMP/osv-old.json"
+          git checkout --quiet --detach "$GITHUB_SHA"
+
+      - name: Verdict
+        run: python .github/scripts/osv_gate.py verdict "$RUNNER_TEMP/osv-new.json" --old "$RUNNER_TEMP/osv-old.json"
