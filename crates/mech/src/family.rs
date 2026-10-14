@@ -20,7 +20,7 @@
 
 use std::collections::HashSet;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HANDLE, WAIT_TIMEOUT};
 use windows::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
 };
@@ -82,11 +82,19 @@ pub(crate) struct Family {
     watch: Vec<Watch>,
     /// The launched process's own slot, left to the session's handle on it.
     root_slot: Option<usize>,
+    /// Members that signed in and would not let this process wait on them, so the session cannot see
+    /// them close and may end while they run.
+    unwatchable: u32,
 }
 
 impl Family {
     pub(crate) fn new(slots: usize, root_slot: Option<usize>) -> Self {
-        Family { watch: (0..slots).map(|_| Watch::Unseen).collect(), root_slot }
+        Family { watch: (0..slots).map(|_| Watch::Unseen).collect(), root_slot, unwatchable: 0 }
+    }
+
+    /// How many members signed in that this session could not watch (R5-D3).
+    pub(crate) fn unwatchable(&self) -> u32 {
+        self.unwatchable
     }
 
     /// Start watching every process that signed in since the last call, and stop watching the ones
@@ -103,8 +111,13 @@ impl Family {
             }
             // SAFETY: plain opens by pid. The handle is closed below once the process ends, or in `Drop`.
             match unsafe { open_member(member.pid, member.created) } {
-                Some((handle, id)) => opened.push((slot, member.pid, handle, id)),
-                None => self.watch[slot] = Watch::Done,
+                Ok((handle, id)) => opened.push((slot, member.pid, handle, id)),
+                Err(why) => {
+                    if why == Unopened::Denied {
+                        self.unwatchable += 1;
+                    }
+                    self.watch[slot] = Watch::Done;
+                }
             }
         }
         if !opened.is_empty() {
@@ -173,21 +186,40 @@ impl Drop for Family {
     }
 }
 
-/// Open a member by pid for waiting, with what its creation time says about it, or `None` when it
-/// cannot be opened at all.
+/// Why a member could not be opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unopened {
+    /// No process holds the pid any more: the member ended before the first look.
+    Gone,
+    /// A process holds it and will not let this one wait on it.
+    Denied,
+}
+
+/// What a failed open says, from the code it failed with: only a refusal is a process still there.
+fn unopened(code: windows::core::HRESULT) -> Unopened {
+    if code == ERROR_ACCESS_DENIED.to_hresult() { Unopened::Denied } else { Unopened::Gone }
+}
+
+/// Open a member by pid for waiting, with what its creation time says about it, or why it cannot be
+/// opened at all.
 ///
 /// Waiting is what the handle is for, and the creation time is asked for beside it. A process that
 /// grants waiting and denies the question stays watchable, just without the time. One that denies even
-/// waiting cannot be told from one that ended (both fail to open), so it counts as ended - the session
-/// then ends as it did before ADR-16, rather than holding on to a process it can never see close.
+/// waiting is not watched: the session ends as it did before ADR-16, rather than holding on to a
+/// process it can never see close. It used to count as ended, which it cannot be told from by a handle,
+/// but it can by the code the open failed with, and the session says so (`session.member_unwatchable`,
+/// R5-D3): it may end while that process still runs on its clock.
 ///
 /// # Safety
 /// A plain open by pid. The caller owns the handle it gets back.
-unsafe fn open_member(pid: u32, created: u64) -> Option<(HANDLE, Identity)> { unsafe {
+unsafe fn open_member(pid: u32, created: u64) -> Result<(HANDLE, Identity), Unopened> { unsafe {
     if let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, false, pid) {
-        return Some((handle, identity(created, process_created(handle))));
+        return Ok((handle, identity(created, process_created(handle))));
     }
-    OpenProcess(PROCESS_SYNCHRONIZE, false, pid).ok().map(|handle| (handle, Identity::Unknown))
+    match OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
+        Ok(handle) => Ok((handle, Identity::Unknown)),
+        Err(e) => Err(unopened(e.code())),
+    }
 }}
 
 /// Whether the process behind a freshly opened handle is the one that signed in, and its image name when
@@ -224,6 +256,17 @@ pub(crate) fn member_of_family(pid: u32, known: &HashSet<u32>, entries: Option<&
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only a refusal is a member that is still there. The code a pid nobody holds fails with is asked
+    /// of the system rather than assumed (R5-D3).
+    #[test]
+    fn only_a_refused_open_is_a_member_still_running() {
+        assert_eq!(unopened(ERROR_ACCESS_DENIED.to_hresult()), Unopened::Denied);
+        assert_eq!(unopened(windows::Win32::Foundation::ERROR_INVALID_PARAMETER.to_hresult()), Unopened::Gone);
+        // SAFETY: a plain open by a pid nobody holds, nothing to close.
+        let gone = unsafe { open_member(u32::MAX - 5, 0) };
+        assert_eq!(gone.err(), Some(Unopened::Gone));
+    }
 
     fn entry(pid: u32, parent: u32, image: &str) -> ProcessEntry {
         ProcessEntry { pid, parent, image: image.to_string() }

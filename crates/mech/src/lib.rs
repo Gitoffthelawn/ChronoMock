@@ -61,7 +61,8 @@ use chrono_ctl::{
     read_timers_at_floor, read_absolute_dues, calls_capped, clock_fence,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header, FullAnchor,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
-    Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, DEADLINE_CHANNELS, IDX_TIMEGETTIME, MAX_COV_PIDS,
+    Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, CTL_LAYOUT_VERSION, CTL_MAGIC, DEADLINE_CHANNELS, IDX_TIMEGETTIME,
+    MAX_COV_PIDS,
 };
 // The bound on the remote `LoadLibraryW` thread is the one the hook keeps for a child (R5-A7): a thread
 // still stuck past it means the target's loader deadlocked, an injection failure rather than a
@@ -76,8 +77,8 @@ use windows::Win32::System::Diagnostics::Debug::WriteProcessMemory;
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows::Win32::System::Memory::{
     CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualAllocEx,
-    VirtualFreeEx, FILE_MAP_ALL_ACCESS, FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS, MEM_COMMIT,
-    MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
+    VirtualFreeEx, VirtualQuery, FILE_MAP_ALL_ACCESS, FILE_MAP_READ, MEMORY_BASIC_INFORMATION,
+    MEMORY_MAPPED_VIEW_ADDRESS, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
 };
 use windows::Win32::System::SystemInformation::{
     GetSystemTimeAsFileTime, GetTickCount64, IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_AMD64,
@@ -809,6 +810,13 @@ impl Session {
         uncovered_from_attempts(unsafe { read_pid_count(self.ctl()) })
     }
 
+    /// How many processes that signed in to this session would not let the core wait on them (R5-D3).
+    /// The session lasts while a process on its clock runs (ADR-16), and these it cannot see close, so it
+    /// may have ended while one of them still ran - which from then on ran on the real clock.
+    pub fn unwatchable_member_count(&self) -> u32 {
+        self.family.unwatchable()
+    }
+
     /// Stop the application, for the one case where letting it run would be worse than not running it:
     /// the opening verdict says the substitution did not take effect, so every minute the tester spends
     /// in it produces evidence about the REAL clock while looking like a time-shifted run. Coverage
@@ -1528,6 +1536,38 @@ pub(crate) unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
     Some(((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64)
 }}
 
+/// What a control block found under the session's name turned out to be (R5-D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeldBlock {
+    /// Written by this build: an orphan to reclaim.
+    Ours,
+    /// Written by another version of this tool - another layout, or another size - and still held by a
+    /// process that version started.
+    OtherVersion,
+    /// Not written by this tool at all.
+    Foreign,
+}
+
+/// Read a surviving block from what can be read of any view, whatever its size: the bytes mapped, and
+/// the magic and layout at its start (the first page is always mapped, so both are there to read).
+fn held_block(mapped: usize, magic: u64, layout: u32) -> HeldBlock {
+    if magic != CTL_MAGIC {
+        HeldBlock::Foreign
+    } else if layout != CTL_LAYOUT_VERSION || mapped < ctl_size() {
+        HeldBlock::OtherVersion
+    } else {
+        HeldBlock::Ours
+    }
+}
+
+/// How many bytes the view at `view` maps, as one region of pages, or 0 when the system will not say.
+fn mapped_size(view: *const c_void) -> usize {
+    let mut info = MEMORY_BASIC_INFORMATION::default();
+    // SAFETY: a query about an address, which reads nothing at it.
+    let n = unsafe { VirtualQuery(Some(view), &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) };
+    if n == 0 { 0 } else { info.RegionSize }
+}
+
 /// Prepare and start a session on `target` using `spec`, injecting `hook_dll`.
 pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<Prepared, PrepareError> {
     // The session gate, not the plain conversion: a zone the hook's local channels cannot carry, or an
@@ -1563,10 +1603,14 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // The section name is fixed, so it may survive a prior session. GetLastError right after the
         // create says whether it pre-existed - read it before anything else can reset it.
         let already_existed = GetLastError() == ERROR_ALREADY_EXISTS;
-        let view = MapViewOfFile(hmap, FILE_MAP_ALL_ACCESS, 0, 0, ctl_size());
+        // The whole section, whatever its size (R5-D3). A section that survived from another version of
+        // the tool keeps the size that version gave it, and a view of this build's size used to fail on
+        // a smaller one as a bare "MapViewOfFile returned null", before anything could say whose it was.
+        let view = MapViewOfFile(hmap, FILE_MAP_ALL_ACCESS, 0, 0, 0);
         if view.Value.is_null() {
+            let failed = windows::core::Error::from_thread();
             let _ = CloseHandle(hmap);
-            return Err(PrepareError::Control("MapViewOfFile returned null".into()));
+            return Err(PrepareError::Control(win32_detail("MapViewOfFile", &failed)));
         }
         // From here every way out releases the view and the mapping on its own (R5-A6).
         let control = held::ControlView::new(hmap, view);
@@ -1586,13 +1630,26 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             // coverage counters for the whole run. The audit is evidence (untouchable rule 4) and
             // the anchor decides what the target sees (rule 2) - neither may come from a block we
             // cannot recognise. A section the OS just created is zero-filled, so a bare name-squat
-            // fails this, and so does a block written by a build with a different layout.
-            if !header_is_ours(ctl) {
-                return Err(PrepareError::Control(
-                    "the session control block is held by something that is not this tool - \
-                     refusing to reuse it"
-                        .into(),
-                ));
+            // fails this, and so does a block written by a build with a different layout - which is
+            // told apart, because it has an ordinary cause and an ordinary cure (R5-D3).
+            let magic = std::ptr::read_volatile(std::ptr::addr_of!((*ctl).magic));
+            let layout = std::ptr::read_volatile(std::ptr::addr_of!((*ctl).layout));
+            match held_block(mapped_size(view.Value), magic, layout) {
+                HeldBlock::Ours => {}
+                HeldBlock::OtherVersion => {
+                    return Err(PrepareError::Control(
+                        "the session control block is held by a process started by another version of \
+                         Chrono Mock - close the applications that version started, then try again"
+                            .into(),
+                    ));
+                }
+                HeldBlock::Foreign => {
+                    return Err(PrepareError::Control(
+                        "the session control block is held by something that is not this tool - \
+                         refusing to reuse it"
+                            .into(),
+                    ));
+                }
             }
             // Read BEFORE the zeroing, which is what makes it the previous session's answer.
             reclaimed = if read_ended(ctl) { Reclaimed::EndedSession } else { Reclaimed::DeadCore };
@@ -1765,6 +1822,12 @@ fn let_go_of(job: JobOrWhy) -> Option<String> {
 /// So the OS text is dropped and the code is kept. The handful of codes a tester actually meets get a
 /// clause of our own - the rest are named by their number, which is what a bug report needs anyway.
 fn win32_detail(operation: &str, e: &windows::core::Error) -> String {
+    format!("{operation} failed{}", win32_reason(e))
+}
+
+/// The tail of `win32_detail` alone - the clause of ours when there is one, and always the code - for a
+/// sentence that names what failed in its own words.
+fn win32_reason(e: &windows::core::Error) -> String {
     let code = e.code().0 as u32;
     let because = match code {
         0x8007_0002 => " - the file does not exist",
@@ -1774,9 +1837,20 @@ fn win32_detail(operation: &str, e: &windows::core::Error) -> String {
         // ERROR_BAD_EXE_FORMAT. Worth naming: it is what a corrupt executable and a 16-bit or
         // non-native binary both come back as, and neither reads as "bad format" to a tester.
         0x8007_00C1 => " - the file is not a runnable executable for this machine",
+        // The refusals a tester meets most and could not read from a bare number (R5-D3). Meanings from
+        // MS Learn "System Error Codes": ERROR_ELEVATION_REQUIRED, ERROR_FILENAME_EXCED_RANGE,
+        // ERROR_EXE_MACHINE_TYPE_MISMATCH, ERROR_VIRUS_INFECTED, ERROR_VIRUS_DELETED and
+        // ERROR_ACCESS_DISABLED_BY_POLICY. An installer with a requireAdministrator manifest is the
+        // ordinary way to the first.
+        0x8007_02E4 => " - the program asks to run as administrator, so start Chrono Mock as administrator to test it",
+        0x8007_00CE => " - the path or command line is too long",
+        0x8007_00D8 => " - the program is built for a different kind of processor or Windows",
+        0x8007_00E1 => " - antivirus blocked the file as a virus or unwanted software",
+        0x8007_00E2 => " - antivirus removed the file as a virus or unwanted software",
+        0x8007_04EC => " - a system policy blocks this program",
         _ => "",
     };
-    format!("{operation} failed{because} (0x{code:08X})")
+    format!("{because} (0x{code:08X})")
 }
 
 /// Quote one argument so the target's CRT (CommandLineToArgvW) parses it back verbatim, per the
@@ -1888,7 +1962,7 @@ unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError>
     let bytes = dll_wide.len() * 2;
     let remote = VirtualAllocEx(hproc, None, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if remote.is_null() {
-        return Err(PrepareError::Inject("VirtualAllocEx returned null".into()));
+        return Err(PrepareError::Inject(win32_detail("VirtualAllocEx", &windows::core::Error::from_thread())));
     }
     // Free the remote page on EVERY failure below, not just the write error (L-6). The target is still
     // alive here (the caller terminates it on `Err`), so an un-freed page would leak in its address space.
@@ -1947,12 +2021,15 @@ unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError>
     match outcome {
         loader::Outcome::Loaded => Ok(()),
         // Two causes give the same NULL since R4-D18: the library did not load, or it loaded, found a
-        // control block it could not confirm as this live session's, and unloaded itself.
-        loader::Outcome::LibraryNotLoaded => Err(PrepareError::Inject(
-            "LoadLibraryW returned NULL in the target (the hook DLL failed to load, or would not join a \
-             session it could not confirm)"
+        // control block it could not confirm as this live session's, and unloaded itself. The target
+        // keeps the loader's reason to itself, so the two this side can establish are asked here, on
+        // this path only (R5-D3): a file the core cannot open, and a file built for another machine.
+        loader::Outcome::LibraryNotLoaded => Err(PrepareError::Inject(match hook_library_problem(dll_wide) {
+            Some(problem) => format!("LoadLibraryW returned NULL in the target - {problem}"),
+            None => "LoadLibraryW returned NULL in the target (the hook DLL failed to load, or would not join a \
+                     session it could not confirm)"
                 .into(),
-        )),
+        })),
         loader::Outcome::TargetEnded(code) => Err(PrepareError::EndedLoading(code)),
         loader::Outcome::TargetEndedUnread => Err(PrepareError::Inject(
             "the target ended while Windows was loading it, and its exit code could not be read".into(),
@@ -1961,11 +2038,55 @@ unsafe fn load_hook(hproc: HANDLE, dll_wide: &[u16]) -> Result<(), PrepareError>
             "LoadLibraryW did not return within {INJECT_TIMEOUT_MS} ms - the target's loading is stuck (a \
              library's start-up code waiting, or a loader lock)"
         ))),
-        loader::Outcome::WaitFailed => Err(PrepareError::Inject(format!(
-            "waiting for the remote LoadLibraryW thread failed ({wait_error:?})"
+        loader::Outcome::WaitFailed => Err(PrepareError::Inject(win32_detail(
+            "waiting for the remote LoadLibraryW thread",
+            &windows::core::Error::from_hresult(wait_error.to_hresult()),
         ))),
     }
 }}
+
+/// What this side can establish about a hook library `LoadLibraryW` would not load in the target: that
+/// the core cannot open it either (removed, blocked by antivirus, access denied), or that it is built
+/// for another machine than this core and its target run as - a package with mixed files. `None` when
+/// neither holds, and the plain message stands.
+fn hook_library_problem(dll_wide: &[u16]) -> Option<String> {
+    use std::io::Read;
+    use std::os::windows::ffi::OsStringExt;
+    let path = std::ffi::OsString::from_wide(dll_wide.strip_suffix(&[0]).unwrap_or(dll_wide));
+    let mut header = [0u8; 1024];
+    let read = std::fs::File::open(&path).and_then(|mut file| file.read(&mut header));
+    let read = match read {
+        Ok(n) => n,
+        Err(e) => {
+            let code = e.raw_os_error().unwrap_or(0) as u32;
+            let error = windows::core::Error::from_hresult(windows::Win32::Foundation::WIN32_ERROR(code).to_hresult());
+            return Some(format!("the hook library could not be opened{}", win32_reason(&error)));
+        }
+    };
+    let library = pe_machine(&header[..read])?;
+    // SAFETY: the pseudo-handle of this process.
+    let core = unsafe { process_machine(GetCurrentProcess()) }?;
+    (library != core).then(|| {
+        format!(
+            "the hook library is built for {}, but this core runs as {} - the files of the package are mixed",
+            machine_label(library),
+            machine_label(core)
+        )
+    })
+}
+
+/// The machine a PE file is built for, read from its headers, or `None` when `bytes` does not hold them.
+fn pe_machine(bytes: &[u8]) -> Option<u16> {
+    if bytes.get(..2)? != b"MZ" {
+        return None;
+    }
+    let pe = u32::from_le_bytes(bytes.get(0x3C..0x40)?.try_into().ok()?) as usize;
+    if bytes.get(pe..pe.checked_add(4)?)? != b"PE\0\0" {
+        return None;
+    }
+    let at = pe.checked_add(4)?;
+    Some(u16::from_le_bytes(bytes.get(at..at.checked_add(2)?)?.try_into().ok()?))
+}
 
 #[cfg(test)]
 mod tests {
@@ -2316,6 +2437,92 @@ mod tests {
         // No struct dump and no OS sentence: the two things that made this unreadable.
         assert!(!detail.contains("HRESULT("), "the Debug rendering is what this replaced: {detail}");
         assert!(!detail.contains("message:"), "the OS message is language-dependent: {detail}");
+    }
+
+    /// The refusals a tester meets most say what to do or what happened, beside the number (R5-D3): a
+    /// program that wants administrator rights used to read "CreateProcessW failed (0x800702E4)".
+    #[test]
+    fn the_common_refusals_are_named() {
+        let named = |code: u32| win32_detail("CreateProcessW", &windows::core::Error::from_hresult(windows::core::HRESULT(code as i32)));
+        assert_eq!(
+            named(0x8007_02E4),
+            "CreateProcessW failed - the program asks to run as administrator, so start Chrono Mock as administrator to test it (0x800702E4)"
+        );
+        for (code, clause) in [
+            (0x8007_00CEu32, "too long"),
+            (0x8007_00D8, "different kind of processor"),
+            (0x8007_00E1, "antivirus blocked"),
+            (0x8007_00E2, "antivirus removed"),
+            (0x8007_04EC, "system policy"),
+        ] {
+            let detail = named(code);
+            assert!(detail.contains(clause) && detail.ends_with(&format!("(0x{code:08X})")), "{detail}");
+        }
+    }
+
+    /// A block left by another version is told from a foreign one, whatever size it was mapped at (R5-D3).
+    /// A smaller old block used to fail before its header could be read, as a bare "MapViewOfFile
+    /// returned null".
+    #[test]
+    fn a_block_of_another_version_is_told_from_a_foreign_one() {
+        use super::{held_block, HeldBlock};
+        let full = chrono_ctl::ctl_size();
+        assert_eq!(held_block(full, chrono_ctl::CTL_MAGIC, chrono_ctl::CTL_LAYOUT_VERSION), HeldBlock::Ours);
+        assert_eq!(held_block(full, chrono_ctl::CTL_MAGIC, chrono_ctl::CTL_LAYOUT_VERSION - 1), HeldBlock::OtherVersion);
+        assert_eq!(held_block(full / 16, chrono_ctl::CTL_MAGIC, chrono_ctl::CTL_LAYOUT_VERSION), HeldBlock::OtherVersion);
+        assert_eq!(held_block(full, 0, chrono_ctl::CTL_LAYOUT_VERSION), HeldBlock::Foreign);
+        assert_eq!(held_block(4096, chrono_ctl::CTL_MAGIC ^ 1, 11), HeldBlock::Foreign);
+    }
+
+    /// The machine comes out of a PE header, and anything that is not one gives none.
+    #[test]
+    fn the_machine_is_read_from_a_pe_header() {
+        use super::pe_machine;
+        let own = std::fs::read(std::env::current_exe().expect("the test binary")).expect("readable");
+        // SAFETY: the pseudo-handle of this process.
+        let core = unsafe { super::process_machine(GetCurrentProcess()) }.expect("this process's machine");
+        assert_eq!(pe_machine(&own), Some(core));
+        assert_eq!(pe_machine(b"MZ"), None);
+        assert_eq!(pe_machine(b"not a program at all, long enough to hold an offset........"), None);
+        let mut header = vec![0u8; 0x48];
+        header[..2].copy_from_slice(b"MZ");
+        header[0x3C] = 0x40;
+        header[0x40..0x44].copy_from_slice(b"PE\0\0");
+        header[0x44..0x46].copy_from_slice(&0x14Cu16.to_le_bytes());
+        assert_eq!(pe_machine(&header), Some(0x14C));
+        header[0x3C] = 0xFF;
+        assert_eq!(pe_machine(&header), None, "an offset past the bytes is no header");
+    }
+
+    /// A hook library `LoadLibraryW` would not load is examined this side (R5-D3): a file the core
+    /// cannot open is named with its reason, one built for another machine is called a mixed package,
+    /// and a library that is fine leaves the plain message standing.
+    #[test]
+    fn a_hook_library_that_would_not_load_is_examined() {
+        use super::{hook_library_problem, to_wide};
+        let dir = std::env::temp_dir().join(format!("chrono-hooklib-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+
+        let missing = dir.join("absent.dll");
+        let said = hook_library_problem(&to_wide(&missing.to_string_lossy())).expect("a missing file is a problem");
+        assert_eq!(said, "the hook library could not be opened - the file does not exist (0x80070002)");
+
+        // SAFETY: the pseudo-handle of this process.
+        let core = unsafe { super::process_machine(GetCurrentProcess()) }.expect("this process's machine");
+        let other: u16 = if core == IMAGE_FILE_MACHINE_I386.0 { IMAGE_FILE_MACHINE_AMD64.0 } else { IMAGE_FILE_MACHINE_I386.0 };
+        let mut header = vec![0u8; 0x48];
+        header[..2].copy_from_slice(b"MZ");
+        header[0x3C] = 0x40;
+        header[0x40..0x44].copy_from_slice(b"PE\0\0");
+        header[0x44..0x46].copy_from_slice(&other.to_le_bytes());
+        let foreign = dir.join("foreign.dll");
+        std::fs::write(&foreign, &header).expect("written");
+        let said = hook_library_problem(&to_wide(&foreign.to_string_lossy())).expect("another machine is a problem");
+        assert!(said.contains("the files of the package are mixed"), "{said}");
+
+        let own = std::env::current_exe().expect("the test binary");
+        assert_eq!(hook_library_problem(&to_wide(&own.to_string_lossy())), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A code with no clause of ours still names the operation and the number - which is what a bug

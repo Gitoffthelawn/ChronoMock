@@ -150,6 +150,18 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A process of the session that cannot be watched is named.** The session lasts while a process on
+  its clock runs, and one that would not let Chrono Mock wait on it (access denied) used to count as
+  ended, so the session could end while it still ran, without a word. The report now says so
+  (`session.member_unwatchable`): from the end of the session such a process runs on the real clock.
+- **Start-up refusals say what happened.** A program that asks to run as administrator, a path or
+  command line that is too long, a program built for another processor, a file antivirus blocked or
+  removed and a program a system policy blocks are named instead of shown as a bare number. A session
+  block left by an application that another version of Chrono Mock started is told from one that does
+  not belong to Chrono Mock at all, and says to close that version's applications. When the hook library
+  will not load in the application, the report says whether Chrono Mock itself cannot open it or it is
+  built for another machine. The error numbers stay in every message, and none of them is the
+  system's own text, which came in the system's language.
 - **A program the application starts under its own debugger no longer stalls the start for ten
   seconds or reads the real clock.** When the application under test started a program with
   `DEBUG_PROCESS` or `DEBUG_ONLY_THIS_PROCESS` (a launcher that debugs what it starts, say), Chrono Mock

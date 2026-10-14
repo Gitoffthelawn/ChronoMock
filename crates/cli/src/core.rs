@@ -780,6 +780,10 @@ const KEY_LEFT_RUNNING: &str = "session.left_running";
 /// can end it while one still runs, and `session.left_running` then says that beside it.
 const KEY_FOLLOWED_FAMILY: &str = "session.followed_family";
 
+/// A process that signed in to the session would not let the core wait on it, so the session could
+/// not see it close and may have ended while it still ran (R5-D3). It used to count as ended, silently.
+const KEY_MEMBER_UNWATCHABLE: &str = "session.member_unwatchable";
+
 /// The target vanished inside the guard window after starting a process the hook could not enter,
 /// usually one of the other bitness, which runs on the real clock (ADR-16).
 const KEY_HANDED_OFF_UNCOVERED: &str = "target.handed_off_uncovered";
@@ -942,6 +946,7 @@ pub(crate) fn close_session(
     // are short - and no per-process event can carry that, because those processes have no pid here
     // (R2-S9). It rides the session verdict, which is the one event that speaks for the whole family.
     let uncovered_processes = session.uncovered_process_count();
+    let unwatchable_members = session.unwatchable_member_count();
 
     // The counts every process ENDED with. The first event for a process is emitted inside the ADR-4
     // guard window, so its call counts are the first 300 ms of the session and never move again -
@@ -983,6 +988,9 @@ pub(crate) fn close_session(
     place_policy_keys(&mut session_warnings, policy_keys);
     if !followed.is_empty() {
         session_warnings.push(KEY_FOLLOWED_FAMILY.to_string());
+    }
+    if unwatchable_members > 0 {
+        session_warnings.push(KEY_MEMBER_UNWATCHABLE.to_string());
     }
     if left_running {
         session_warnings.push(KEY_LEFT_RUNNING.to_string());
