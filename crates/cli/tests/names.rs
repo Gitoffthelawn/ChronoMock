@@ -30,6 +30,12 @@
 //! first: the name must not be an ordinary English word (the scan is a whole-word match, so a common
 //! word would fire on prose everywhere), and the hint must describe the category rather than the
 //! product.
+//!
+//! EXCEPTIONS are whole lines, not names, and they are the maintainer's to make - rule 26 is
+//! untouchable, so a session that finds itself wanting one asks instead of adding it. Each exception
+//! is one exact line in one file (`ALLOWED_LINES`), so the same name written anywhere else, or that
+//! line changed by a single character, fires the scan again. The ceiling on how many there are only
+//! comes down.
 
 use std::path::{Path, PathBuf};
 
@@ -72,6 +78,24 @@ const FORBIDDEN: &[(u64, &str)] = &[
     (0x8225_5530_32a3_d679, "personal data from the code-signing certificate subject - the repository keeps the fingerprint and nothing else"),
 ];
 
+/// Lines that may carry a forbidden name: the file, FNV-1a of the line with its indentation trimmed,
+/// and why the line is not what rule 26 is about.
+///
+/// The line is hashed for the reason the names are - spelling it out would put the name back in this
+/// file. An exception has to be needed and has to be unique: a guard below fails when an entry stops
+/// matching exactly one line of its file, or matches a line with no forbidden name in it, so an
+/// exception cannot outlive the line it was made for.
+const ALLOWED_LINES: &[(&str, u64, &str)] = &[(
+    "README.md",
+    0x4860_4916_0bde_2efe,
+    "the community invite in the README's \"Follow me\" links - it says where people talk about the \
+     project, and nothing about what the tool was measured on",
+)];
+
+/// How many exceptions there may be. A ceiling that only comes down: raising it is a decision about
+/// an untouchable rule, which belongs to the maintainer and not to whoever is making a build pass.
+const ALLOWED_LINES_CEILING: usize = 1;
+
 /// FNV-1a, 64-bit. Fifteen lines rather than a dependency: this is a lookup key, not a digest.
 fn fnv1a64(word: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -94,8 +118,16 @@ struct Finding {
 /// runs of ASCII letters and digits, which is what splits `Product.exe` and `product-name` into parts
 /// a name can be recognised in.
 fn findings(source: &str) -> Vec<Finding> {
+    findings_allowing(source, &[])
+}
+
+/// The same scan, passing over the lines whose trimmed text hashes to one of `allowed`.
+fn findings_allowing(source: &str, allowed: &[u64]) -> Vec<Finding> {
     let mut out = Vec::new();
     for (number, line) in source.lines().enumerate() {
+        if !allowed.is_empty() && allowed.contains(&fnv1a64(line.trim())) {
+            continue;
+        }
         for word in line.split(|c: char| !c.is_ascii_alphanumeric()) {
             if word.is_empty() {
                 continue;
@@ -107,6 +139,15 @@ fn findings(source: &str) -> Vec<Finding> {
         }
     }
     out
+}
+
+/// The exceptions made for one file, by its path from the repository root with forward slashes.
+fn allowed_in(relative: &str) -> Vec<u64> {
+    ALLOWED_LINES
+        .iter()
+        .filter(|(file, _, _)| *file == relative)
+        .map(|(_, hash, _)| *hash)
+        .collect()
 }
 
 fn repo_root() -> PathBuf {
@@ -173,7 +214,7 @@ fn no_application_we_measured_on_is_named_anywhere_in_the_repository() {
         let Ok(text) = std::fs::read_to_string(path) else {
             continue; // a file that is not text cannot carry prose
         };
-        for finding in findings(&text) {
+        for finding in findings_allowing(&text, &allowed_in(&rel(path))) {
             // The token is deliberately NOT printed. This failure can appear in a public CI log.
             offenders.push(format!("{}:{} names {}", rel(path), finding.line, finding.hint));
         }
@@ -253,4 +294,80 @@ fn the_forbidden_list_is_present_and_well_formed() {
     // "simplified", every hash above would silently stop matching anything.
     assert_eq!(fnv1a64("zzcanaryzz"), 0xd760_33fd_22c7_ed49);
     assert_eq!(fnv1a64(""), 0xcbf2_9ce4_8422_2325, "the empty string is the FNV offset basis");
+
+    assert!(
+        ALLOWED_LINES.len() <= ALLOWED_LINES_CEILING,
+        "{} exceptions to rule 26 against a ceiling of {ALLOWED_LINES_CEILING} - an exception to an \
+         untouchable rule is the maintainer's to make, and the ceiling only comes down",
+        ALLOWED_LINES.len()
+    );
+    assert!(
+        ALLOWED_LINES.iter().all(|(_, hash, reason)| *hash != 0 && reason.len() > 20),
+        "an exception needs a real hash and a reason someone can read"
+    );
+}
+
+/// Every exception still points at exactly one line of its file, and that line still carries a
+/// forbidden name. An exception whose line was edited or removed is not narrow any more - it would sit
+/// here waiting for any line that happens to hash the same - and one over a line with nothing to
+/// forgive is dead weight that makes the list look longer than the rule allows.
+#[test]
+fn every_exception_still_matches_one_line_and_is_still_needed() {
+    for (file, hash, _) in ALLOWED_LINES {
+        let text = std::fs::read_to_string(repo_root().join(file))
+            .unwrap_or_else(|e| panic!("the exception names {file}, which cannot be read: {e}"));
+        let matching: Vec<&str> = text.lines().filter(|line| fnv1a64(line.trim()) == *hash).collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "an exception in {file} matches {} lines rather than one - the line it was made for was \
+             edited, removed or copied, so the exception has to be made again or dropped",
+            matching.len()
+        );
+        assert!(
+            !findings(matching[0]).is_empty(),
+            "the exception in {file} covers a line with no forbidden name in it, so it is not needed"
+        );
+    }
+}
+
+/// The exception seen working, on the canary: a line passes only word for word (indentation aside),
+/// only in the file it was made for, and never takes the rest of the file with it.
+#[test]
+fn an_exception_passes_one_exact_line_in_one_file_and_nothing_else() {
+    let canary = "zzcanaryzz";
+    let line = format!("<a href=\"https://example.invalid/{canary}\">{canary}</a>");
+    let allowed = [fnv1a64(&line)];
+
+    assert!(findings_allowing(&line, &allowed).is_empty(), "the allowed line itself fired");
+    assert!(
+        findings_allowing(&format!("    {line}"), &allowed).is_empty(),
+        "indentation alone must not undo an exception"
+    );
+    assert!(
+        findings_allowing(&format!("{line} "), &allowed).is_empty(),
+        "trailing space is indentation too, on the other side"
+    );
+    assert_eq!(
+        findings_allowing(&line.replace("example", "examp1e"), &allowed).len(),
+        2,
+        "a changed line is a different line, and the scan must see both names in it again"
+    );
+
+    let block = format!("{line}\nand {canary} once more\n{line}");
+    let found = findings_allowing(&block, &allowed);
+    assert_eq!(found.len(), 1, "the exception swallowed more than its own line");
+    assert_eq!(found[0].line, 2);
+
+    for (file, hash, _) in ALLOWED_LINES {
+        assert!(allowed_in(file).contains(hash), "{file} lost its own exception");
+        for elsewhere in [format!("site/{file}"), format!("{file}.bak"), file.to_ascii_lowercase()] {
+            if elsewhere != *file {
+                assert!(
+                    !allowed_in(&elsewhere).contains(hash),
+                    "the exception for {file} also applies to {elsewhere}"
+                );
+            }
+        }
+    }
 }
