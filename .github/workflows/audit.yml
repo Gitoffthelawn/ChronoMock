@@ -1,14 +1,20 @@
-# The vulnerability gate, asked on a schedule.
+# The vulnerability gates, asked on a schedule.
 #
-# CI runs the same check on every push, and this is not a duplicate of it: the two answer different
-# questions. CI catches a push that ADDS a vulnerable dependency. This catches an advisory published
-# against a dependency tree nobody has touched - which is the more likely of the two, and which no
-# commit-triggered workflow can ever notice, because there is no commit.
+# CI runs the same checks on every push and pull request, and this is not a duplicate of them: the
+# two answer different questions. CI catches a change that ADDS a vulnerable dependency. This
+# catches an advisory published against a dependency tree nobody has touched - which is the more
+# likely of the two, and which no commit-triggered workflow can ever notice, because there is no
+# commit.
+#
+# Two databases, one job each. RustSec through cargo-deny, which reads the graph that ships, and OSV
+# through OSV-Scanner, which reads every lock file in the tree and is the one that reports to the
+# Security tab. A red run is the notice, and the Security tab is where a finding stays until a
+# later run no longer reports it.
 name: Dependency audit
 
 on:
   schedule:
-    # Mondays, 06:00 UTC. Any weekly slot works; a fixed one makes a missed run obvious.
+    # Mondays, 06:00 UTC. Any weekly slot works, and a fixed one makes a missed run obvious.
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
@@ -31,3 +37,54 @@ jobs:
       - name: Advisory gate
         shell: pwsh
         run: ./.github/scripts/cargo-deny.ps1 -Command advisories
+
+  osv:
+    name: OSV advisories
+    runs-on: ubuntu-latest
+    # Writing a report into code scanning is the one permission this needs beyond reading the tree.
+    # `actions: read` is what upload-sarif asks for in a private repository, kept as codeql.yml keeps
+    # it so the two uploads stay alike.
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install the scanner
+        run: python .github/scripts/osv_gate.py install "$RUNNER_TEMP/osv"
+
+      # Twice, with the same arguments: JSON for the verdict, which counts what was read, and SARIF
+      # for the Security tab. The arguments match the pull request gate in security.yml, so both
+      # gates judge the same packages.
+      - name: Scan
+        run: |
+          scan() {
+            set +e
+            "$RUNNER_TEMP/osv/osv-scanner" scan source --no-resolve --all-packages \
+              --format "$1" --output-file "$2" -r ./
+            code=$?
+            set -e
+            echo "osv-scanner ($1) exit code: $code"
+            # Zero is clean and one is "found something". Anything above one is the scan failing.
+            if [ "$code" -gt 1 ]; then exit "$code"; fi
+          }
+          scan json "$RUNNER_TEMP/osv.json"
+          scan sarif "$RUNNER_TEMP/osv.sarif"
+
+      # Uploaded whatever the verdict says, so a finding reaches the Security tab on the run that
+      # found it, and an empty report closes the alerts a fix made obsolete.
+      - name: Report to code scanning
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ runner.temp }}/osv.sarif
+          category: osv-scanner
+
+      - name: Verdict
+        run: python .github/scripts/osv_gate.py verdict "$RUNNER_TEMP/osv.json"
