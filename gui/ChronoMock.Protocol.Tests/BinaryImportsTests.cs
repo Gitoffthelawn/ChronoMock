@@ -329,6 +329,36 @@ public class BinaryImportsTests
         }
     }
 
+    /// <summary>
+    /// The same pin for the clocks of the interrupt time, and here the function list is the point rather
+    /// than the module. The hook detours all three of them under the duration axis, so a DIRECT import of
+    /// the two precise ones would call back into its own detour once it stands - that is why the hook
+    /// reads them through the trampoline or the export resolved with <c>GetProcAddress</c>, and why its
+    /// one import from this API set is <c>QueryInterruptTime</c>, called only while that detour does not
+    /// stand. A module-only register would let either precise clock in under the same entry.
+    /// </summary>
+    /// <remarks>
+    /// Reversal probe, measured 2026-10-14: the hook's fallback in <c>real_quitp</c> rewritten as a direct
+    /// call of <c>QueryUnbiasedInterruptTimePrecise</c> and the x64 release hook rebuilt - this reddened on
+    /// the hook's list, and only this test among the import guards.
+    /// </remarks>
+    [Fact]
+    public void The_interrupt_time_api_set_is_imported_for_exactly_the_calls_the_register_allows()
+    {
+        foreach (var triple in new[] { X64, X86 })
+        {
+            Assert.Equal(["QueryInterruptTime", "QueryUnbiasedInterruptTimePrecise"], RealtimeImports(triple, "chrono.exe"));
+            Assert.Equal(["QueryInterruptTime"], RealtimeImports(triple, "chrono_hook.dll"));
+        }
+
+        static IEnumerable<string> RealtimeImports(string triple, string binary)
+        {
+            var table = PeImportTable.Read(RepoPaths.ReleaseBinary(RepoPaths.RepoRoot(), triple, binary));
+            var entry = Assert.Single(table.Entries, e => SameModule(e.Name, "api-ms-win-core-realtime-l1-1-1.dll"));
+            return entry.Functions.Order(StringComparer.Ordinal);
+        }
+    }
+
     // -----------------------------------------------------------------------------------------------
     // B2. The register describes imports that exist
     // -----------------------------------------------------------------------------------------------
