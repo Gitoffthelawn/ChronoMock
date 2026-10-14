@@ -55,6 +55,15 @@ static ONE_SESSION: Mutex<()> = Mutex::new(());
 
 type Handle = *mut c_void;
 
+// The three interrupt-time clocks (R5-F4) are exported by kernelbase alone, so they are linked from it.
+#[cfg_attr(target_arch = "x86", link(name = "kernelbase", kind = "raw-dylib", import_name_type = "undecorated"))]
+#[cfg_attr(not(target_arch = "x86"), link(name = "kernelbase", kind = "raw-dylib"))]
+unsafe extern "system" {
+    fn QueryInterruptTime(time: *mut u8);
+    fn QueryInterruptTimePrecise(time: *mut u8);
+    fn QueryUnbiasedInterruptTimePrecise(time: *mut u8);
+}
+
 #[cfg_attr(target_arch = "x86", link(name = "kernel32", kind = "raw-dylib", import_name_type = "undecorated"))]
 #[cfg_attr(not(target_arch = "x86"), link(name = "kernel32", kind = "raw-dylib"))]
 unsafe extern "system" {
@@ -317,6 +326,13 @@ fn read_through_odd_addresses(out: &Path) {
         // The duration axis and QPC, hooked only under --scale-duration and --scale-qpc.
         let ok = QueryUnbiasedInterruptTime(a.odd());
         line("quit", format!("{ok} {}", a.read::<u64>()));
+        // The interrupt-time clocks, on the duration axis since R5-F4 (wave 3 left them out of here).
+        QueryInterruptTime(a.odd());
+        line("qit", a.read::<u64>().to_string());
+        QueryInterruptTimePrecise(a.odd());
+        line("qitp", a.read::<u64>().to_string());
+        QueryUnbiasedInterruptTimePrecise(a.odd());
+        line("quitp", a.read::<u64>().to_string());
         let ok = QueryPerformanceCounter(a.odd());
         line("qpc", format!("{ok} {}", a.read::<i64>()));
         a.write::<i64>(-10_000);
@@ -495,9 +511,10 @@ fn lines(file: &Path) -> HashMap<String, Vec<String>> {
 }
 
 /// Every name the `odd` half writes, in order. The one after the last line present is where it died.
-const ODD_NAMES: [&str; 23] = [
+const ODD_NAMES: [&str; 26] = [
     "gstaft", "gstpaft", "gst", "glt", "ntqst", "gtzi", "gdtzi", "ftlft", "lftft", "stsl", "stslex", "tltst",
-    "tltstex", "quit", "qpc", "ntdelay", "swt", "swtex", "tptimer", "tptimerex", "child", "cpw", "done",
+    "tltstex", "quit", "qit", "qitp", "quitp", "qpc", "ntdelay", "swt", "swtex", "tptimer", "tptimerex", "child",
+    "cpw", "done",
 ];
 
 /// The first name the probe did not write, if any.
