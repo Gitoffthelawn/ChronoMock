@@ -19,11 +19,12 @@ namespace ChronoMock.App.Calc;
 /// always followed.
 /// </para>
 /// <para>
-/// 🔴 Not every failure the calculator surface can produce carries one. A bad moment, a preset that will
-/// not resolve, and a missing calendar FILE come out of shared code that predates these keys, and they
-/// arrive as a bare sentence. Those still show in English, and saying so is better than a mapping that
-/// pretends otherwise (rule 6). What they no longer show is the <c>chrono calc:</c> prefix, which is a
-/// process name leaking into an interface that has no processes in it.
+/// 🔴 Not every failure the calculator surface can produce carries one. Since R5 wave 2 a calendar that is
+/// missing or broken and every preset failure do (<c>calc.calendar_not_found</c>, <c>calc.preset_invalid</c>
+/// and the rest). What is left arrives as a bare sentence - today only a clock that could not be read -
+/// and still shows in English, and saying so is better than a mapping that pretends otherwise (rule 6). What it no longer shows is the
+/// <c>chrono calc:</c> prefix, which is a process name leaking into an interface that has no processes
+/// in it.
 /// </para>
 /// </summary>
 internal static class CalcErrorText

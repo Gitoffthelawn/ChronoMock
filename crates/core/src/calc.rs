@@ -17,7 +17,7 @@
 //! yet" vocabulary rather than a silent skip or a faked result (zasady/01 section 2).
 
 use super::{
-    civil_from_days, days_from_civil, is_leap, last_day_of_month, parse_civil, CIVIL_YEAR_MAX,
+    civil_from_days, days_from_civil, is_leap, last_day_of_month, CIVIL_YEAR_MAX,
     CIVIL_YEAR_MIN,
 };
 
@@ -75,7 +75,8 @@ pub enum Sign {
 
 /// A shift unit. Fixed-length units are a constant number of seconds - calendar
 /// units depend on the anchor date and are folded through civil arithmetic.
-/// `BusinessDays` is in the model but needs a calendar, so it is not built yet.
+/// `BusinessDays` needs a calendar: the calculator counts them with one, and a session, which has
+/// none, refuses them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
     Seconds,
@@ -313,9 +314,11 @@ pub enum EvalError {
     /// thing. A step is the second door into the year band - it builds its year arithmetically and
     /// never goes back through the parser (R3-1).
     YearOutOfRange { index: usize },
-    /// A business-day step asked for more than [`crate::calendar::MAX_BUSINESS_DAYS`]. A limit this
-    /// build sets, not an arithmetic one: it used to travel as `Overflow`, so `+2000000bd` was answered
-    /// with a sentence about the size of numbers while the number was fine (R4-N35).
+    /// The business-day steps of one evaluation, up to this one, add up to more than
+    /// [`crate::calendar::MAX_BUSINESS_DAYS`] (one step alone can, too). A limit this build sets, not an
+    /// arithmetic one: it used to travel as `Overflow`, so `+2000000bd` was answered with a sentence
+    /// about the size of numbers while the number was fine (R4-N35). Counted over the whole evaluation
+    /// since R5-B2, see `BusinessDayBudget`.
     TooManyBusinessDays { index: usize },
     /// A business-day step reached a day before the calendar's first year
     /// ([`crate::calendar::Calendar::valid_from`], carried here as `first_year`), where the calendar
@@ -329,7 +332,12 @@ pub enum EvalError {
 /// maps the validated fields to `CivilDateTime` - one validation path shared with the substitution
 /// moment, no silent normalization to March.
 pub fn parse_civil_datetime(s: &str) -> Result<CivilDateTime, String> {
-    let (y, mo, d, h, mi, sec) = parse_civil(s)?;
+    parse_civil_datetime_as(s, s)
+}
+
+/// [`parse_civil_datetime`], quoting `shown` in its refusals (see `crate::parse_civil_as`).
+fn parse_civil_datetime_as(s: &str, shown: &str) -> Result<CivilDateTime, String> {
+    let (y, mo, d, h, mi, sec) = super::parse_civil_as(s, shown)?;
     Ok(CivilDateTime {
         year: y,
         month: mo as u32,
@@ -354,6 +362,35 @@ fn is_a_civil_moment(c: &CivilDateTime) -> bool {
         && c.hour <= 23
         && c.minute <= 59
         && c.second <= 59
+}
+
+/// The business days one evaluation has asked a calendar to count so far, against
+/// [`crate::calendar::MAX_BUSINESS_DAYS`] for the WHOLE evaluation (R5-B2).
+///
+/// The limit used to stand on each step alone, so a preset of two hundred steps of `+1000000bd` stayed
+/// under it two hundred times and held the CPU for 5.7 s on a shipped calendar, measured, and a calendar
+/// of 2 000 holidays multiplied that. A step count limit on presets does not close it either: the
+/// command line repeats `--shift` as often as it fits. One budget for the evaluation bounds the walk
+/// whatever the surface, at the step that crosses it, before that step walks.
+#[derive(Default)]
+struct BusinessDayBudget {
+    spent: u64,
+}
+
+impl BusinessDayBudget {
+    /// Count `step` against the budget, refusing it when it takes the evaluation past the limit. Only
+    /// with a calendar: without one a business-day step is refused as needing it, which says more.
+    fn spend(&mut self, step: &Step, index: usize, has_calendar: bool) -> Result<(), EvalError> {
+        if let Step::Shift { amount, unit: Unit::BusinessDays, .. } = step
+            && has_calendar
+        {
+            self.spent = self.spent.saturating_add(amount.unsigned_abs());
+            if self.spent > crate::calendar::MAX_BUSINESS_DAYS.unsigned_abs() {
+                return Err(EvalError::TooManyBusinessDays { index });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Evaluate an expression against a context. Folds each step onto the running civil
@@ -395,7 +432,9 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
     let mut after_each = Vec::with_capacity(expr.steps.len());
     let mut clamped: Vec<(usize, u32)> = Vec::new();
     let mut calendar_reach: Option<CivilDateTime> = None;
+    let mut business_days = BusinessDayBudget::default();
     for (i, step) in expr.steps.iter().enumerate() {
+        business_days.spend(step, i, ctx.calendar.is_some())?;
         // A `zone` step re-expresses the running moment in another fixed-offset zone (same
         // instant, new wall-clock and bias). It is the only step that changes the zone, so it is
         // handled here where the bias lives - every other step folds the civil date and keeps the
@@ -633,13 +672,8 @@ fn shift_fixed(
     unit: Unit,
     index: usize,
 ) -> Result<CivilDateTime, EvalError> {
-    let unit_secs: i64 = match unit {
-        Unit::Seconds => 1,
-        Unit::Minutes => 60,
-        Unit::Hours => 3_600,
-        Unit::Days => 86_400,
-        Unit::Weeks => 604_800,
-        _ => unreachable!("shift_fixed only handles fixed-length units"),
+    let Some(unit_secs) = fixed_unit_seconds(unit) else {
+        unreachable!("shift_fixed only handles fixed-length units")
     };
     let ovf = || EvalError::Overflow { index };
     let delta = signed_amount.checked_mul(unit_secs).ok_or_else(ovf)?;
@@ -699,12 +733,11 @@ fn shift_months(cur: CivilDateTime, months: i64, index: usize) -> Result<(CivilD
 // clock by one step". Fixed-length units are a tick delta (kept exact, sub-second and all) -
 // calendar units are defined on the civil date in the SESSION zone, so they fold through it.
 
-/// Session-local civil fields from a UTC FILETIME. Pure arithmetic mirroring the civil half
-/// of `filetime_utc_to_wall` (no string, no parse, so it cannot fail).
-fn filetime_to_civil(ft_utc: i64, tz_bias_min: i32) -> CivilDateTime {
-    const DAYS_1601_TO_1970: i64 = 134_774;
+/// Session-local civil fields from a UTC FILETIME. Pure arithmetic, so it cannot fail - and the one
+/// conversion `filetime_utc_to_wall` formats, too.
+pub(crate) fn filetime_to_civil(ft_utc: i64, tz_bias_min: i32) -> CivilDateTime {
     let secs_1601 = ft_utc.div_euclid(10_000_000);
-    epoch_secs_to_civil(secs_1601 - DAYS_1601_TO_1970 * 86_400, tz_bias_min)
+    epoch_secs_to_civil(secs_1601 - crate::DAYS_1601_TO_1970 * 86_400, tz_bias_min)
 }
 
 /// Session-local civil fields from a UTC instant in seconds since the Unix epoch.
@@ -732,6 +765,20 @@ fn epoch_secs_to_civil(secs_utc: i64, tz_bias_min: i32) -> CivilDateTime {
     }
 }
 
+/// The seconds in one fixed-length unit, or `None` for a unit folded through the civil date. One table
+/// for the shift and for the tick delta of a jump, which had a copy each (R5-A11). Every unit is named,
+/// so a unit added to `Unit` has to be placed here.
+fn fixed_unit_seconds(unit: Unit) -> Option<i64> {
+    match unit {
+        Unit::Seconds => Some(1),
+        Unit::Minutes => Some(60),
+        Unit::Hours => Some(3_600),
+        Unit::Days => Some(86_400),
+        Unit::Weeks => Some(604_800),
+        Unit::Months | Unit::Quarters | Unit::Years | Unit::BusinessDays => None,
+    }
+}
+
 /// Signed length of a FIXED-length shift step in FILETIME ticks (100 ns), or `None` if the
 /// step is not a fixed-length shift (calendar units and business days need the civil fold,
 /// non-shift steps have no tick length). `Err` only on overflow of a fixed shift.
@@ -739,13 +786,8 @@ pub fn fixed_shift_ticks(step: &Step) -> Result<Option<i64>, EvalError> {
     let Step::Shift { sign, amount, unit } = step else {
         return Ok(None);
     };
-    let unit_secs: i64 = match unit {
-        Unit::Seconds => 1,
-        Unit::Minutes => 60,
-        Unit::Hours => 3_600,
-        Unit::Days => 86_400,
-        Unit::Weeks => 604_800,
-        _ => return Ok(None), // calendar unit or business days: civil fold
+    let Some(unit_secs) = fixed_unit_seconds(*unit) else {
+        return Ok(None); // calendar unit or business days: civil fold
     };
     let signed = match sign {
         Sign::Plus => *amount,
@@ -790,7 +832,8 @@ fn shift_filetime(ft_utc: i64, tz_bias_min: i32, step: &Step) -> Result<i64, Eva
 /// The target UTC FILETIME after applying ONE shift step to the current fake instant - the
 /// single source of truth for "current fake + one step" on the substitution jump path. A
 /// fixed-length unit adds a tick delta (sub-second precision preserved) - a calendar unit
-/// folds through the civil date in the session zone. Business days are not built yet.
+/// folds through the civil date in the session zone. Business days need a calendar, which a session
+/// does not have, so they are refused as `NeedsCalendar`.
 ///
 /// A target outside the session range is `Overflow`: rejected, never clamped (R4-S7c). Only an i64
 /// overflow was caught before, so `jump -300000d` was accepted and parked the clock on 1601-01-01 with
@@ -818,16 +861,9 @@ const MONTH_FULL: [&str; 12] = [
 ];
 const DOW_ABBR: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // 0 = Sunday
 
-/// Day of week for a civil date: 0 = Sunday .. 6 = Saturday. 1970-01-01 (day 0) was a Thursday.
+/// Day of week for a civil date: 0 = Sunday .. 6 = Saturday.
 fn day_of_week(civil: &CivilDateTime) -> usize {
-    (days_from_civil(civil.year, civil.month as i64, civil.day as i64) + 4).rem_euclid(7) as usize
-}
-
-/// A "+HH:MM" / "-HH:MM" offset for a session bias (UTC = local + bias, so the offset is -bias).
-fn offset_label(tz_bias_min: i32) -> String {
-    let off = -tz_bias_min;
-    let sign = if off < 0 { '-' } else { '+' };
-    format!("{sign}{:02}:{:02}", off.abs() / 60, off.abs() % 60)
+    crate::weekday(days_from_civil(civil.year, civil.month as i64, civil.day as i64)) as usize
 }
 
 /// A moment rendered in every fixed output format at once (docs/02 section 8, in that order).
@@ -845,13 +881,10 @@ pub struct Formats {
     pub filetime: Option<i64>,
 }
 
-/// FILETIME ticks (100 ns since 1601) at the Unix epoch (1970-01-01T00:00:00Z).
-const FT_1970: i64 = 116_444_736_000_000_000;
-
-/// The UTC FILETIME of a civil moment read in the session zone `tz_bias_min`, or `None` if the
-/// civil date cannot be represented as an instant (an extreme year whose ISO form does not
-/// round-trip). The single instant conversion behind both the instant-based output formats and
-/// the instant-based significance markers.
+/// The UTC FILETIME of a civil moment read in the session zone `tz_bias_min`, or `None` outside
+/// the FILETIME range (before 1601, after 30828). Only the `filetime` output format reads it - the
+/// other instant formats and the instant markers go through [`instant_epoch_secs`], which has no
+/// such end.
 fn instant_filetime(civil: &CivilDateTime, tz_bias_min: i32) -> Option<i64> {
     super::civil_fields_to_filetime_utc(
         civil.year,
@@ -881,7 +914,7 @@ fn instant_epoch_secs(civil: &CivilDateTime, tz_bias_min: i32) -> Option<i64> {
 /// Render `civil` (wall-clock in the session zone `tz_bias_min`) in every fixed format.
 pub fn formats(civil: &CivilDateTime, tz_bias_min: i32) -> Formats {
     let iso_date = format!("{}-{:02}-{:02}", format_year(civil.year), civil.month, civil.day);
-    let iso_datetime = format!("{}{}", civil.to_iso(), offset_label(tz_bias_min));
+    let iso_datetime = format!("{}{}", civil.to_iso(), crate::bias_label(tz_bias_min));
     let us = format!("{:02}/{:02}/{}", civil.month, civil.day, format_year(civil.year));
     let pl = format!("{:02}.{:02}.{}", civil.day, civil.month, format_year(civil.year));
 
@@ -952,6 +985,9 @@ pub fn format_with_mask(civil: &CivilDateTime, mask: &str) -> MaskRender {
     let chars: Vec<char> = mask.chars().collect();
     let mut text = String::new();
     let mut unknown: Vec<String> = Vec::new();
+    // The runs already reported, so each is listed once in the order it first appears. A set, because
+    // looking each run up in the list made a mask of 32 000 different letters take 0.95 s (R5-WY10).
+    let mut reported: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
@@ -972,7 +1008,7 @@ pub fn format_with_mask(civil: &CivilDateTime, mask: &str) -> MaskRender {
                 // and calling it unrecognised would bury the real finding in noise.
                 if c.is_alphabetic() {
                     let run: String = std::iter::repeat_n(c, n).collect();
-                    if !unknown.contains(&run) {
+                    if reported.insert(run.clone()) {
                         unknown.push(run);
                     }
                 }
@@ -1103,7 +1139,7 @@ fn iso_week(civil: &CivilDateTime) -> (i64, u32) {
 /// A different number from the ISO week, on purpose - both are shown side by side (7.3).
 fn us_week(civil: &CivilDateTime) -> u32 {
     let jan1 = days_from_civil(civil.year, 1, 1);
-    let jan1_dow = (jan1 + 4).rem_euclid(7); // 0 = Sunday, same basis as day_of_week
+    let jan1_dow = i64::from(crate::weekday(jan1)); // 0 = Sunday, same basis as day_of_week
     let week1_sunday = jan1 - jan1_dow; // the Sunday that starts week 1
     let days = days_from_civil(civil.year, civil.month as i64, civil.day as i64);
     ((days - week1_sunday) / 7 + 1) as u32
@@ -1294,9 +1330,11 @@ pub fn significance(
         });
     }
 
-    // Instant markers: the result interpreted in the session zone as a UTC instant.
-    if let Some(ft) = instant_filetime(civil, tz_bias_min) {
-        let epoch = (ft - FT_1970) / 10_000_000;
+    // Instant markers: the result interpreted in the session zone as a UTC instant. Counted in epoch
+    // seconds, not through FILETIME: FILETIME ends in the year 30828, so from there on the 2038 marker
+    // disappeared from dates that are long past it (R5-P22). `formats()` moved to epoch seconds for the
+    // same reason earlier.
+    if let Some(epoch) = instant_epoch_secs(civil, tz_bias_min) {
         if epoch == 0 {
             out.push(Significance::UnixEpoch);
         }
@@ -1339,6 +1377,10 @@ pub fn significance(
 pub enum DateReading {
     /// An unambiguous ISO 8601 date (dash-separated).
     Iso,
+    /// An ISO 8601 date and time with its own UTC offset (`Z` or `+02:00`), the RFC 3339 form this tool
+    /// prints itself. It names an instant, so it is shown in the session zone like an epoch (R5-D5,
+    /// item 5) - the analyser used to refuse it as a malformed second.
+    IsoOffset,
     /// The US reading of a numeric date: month first (MM/DD/YYYY).
     UsMonthDay,
     /// The Polish / European reading of a numeric date: day first (DD/MM/YYYY).
@@ -1356,6 +1398,7 @@ impl DateReading {
     pub fn key(&self) -> &'static str {
         match self {
             DateReading::Iso => "iso",
+            DateReading::IsoOffset => "iso_offset",
             DateReading::UsMonthDay => "us_month_day",
             DateReading::PlDayMonth => "pl_day_month",
             DateReading::EpochSeconds => "epoch_seconds",
@@ -1363,17 +1406,19 @@ impl DateReading {
         }
     }
 
-    /// Whether this reading names an instant (a number of seconds or milliseconds since 1970) rather
-    /// than civil fields someone wrote down. An instant has a wall clock only in some zone, so its
-    /// reading is the one that depends on the session zone, and the one that has a time of day.
+    /// Whether this reading names an instant (a number of seconds or milliseconds since 1970, or a date
+    /// and time with its own UTC offset) rather than civil fields someone wrote down. An instant has a
+    /// wall clock only in some zone, so its reading is the one that depends on the session zone, and the
+    /// one that has a time of day.
     pub fn is_instant(&self) -> bool {
-        matches!(self, DateReading::EpochSeconds | DateReading::EpochMillis)
+        matches!(self, DateReading::EpochSeconds | DateReading::EpochMillis | DateReading::IsoOffset)
     }
 
     /// English label for the CLI (a translation key when the calculator GUI arrives).
     pub fn label(&self) -> &'static str {
         match self {
             DateReading::Iso => "ISO 8601",
+            DateReading::IsoOffset => "ISO 8601 with UTC offset",
             DateReading::UsMonthDay => "US MM/DD/YYYY",
             DateReading::PlDayMonth => "PL DD/MM/YYYY",
             DateReading::EpochSeconds => "Unix epoch seconds",
@@ -1443,6 +1488,73 @@ fn epoch_readings(s: &str, zone_bias_min: i32) -> Option<Vec<(DateReading, Civil
     (!readings.is_empty()).then_some(readings)
 }
 
+/// The reading of an ISO 8601 date (`s`, trimmed `input`): civil fields as written, or - when a time
+/// carries a UTC offset - the instant they name, shown in the session zone (R5-D5, item 5).
+///
+/// RFC 3339 is the form this tool prints (`iso_datetime`, `2026-01-01T00:00:00+02:00`), and the
+/// analyser refused its own output: the offset and a fraction of a second came back as "bad second",
+/// and `Z` the same. A fraction (1 to 9 digits) is read and cut to the second, as every reading here is
+/// to the second. An offset is `Z`, `z` or `±HH:MM` after the time, inside the range a zone may have. A
+/// date alone stays a date at midnight. Every refusal quotes what was pasted, not the text built from
+/// it - `T00:00:00` appended to a date nobody wrote with a time.
+fn iso_reading(s: &str, input: &str, zone_bias_min: i32) -> Result<(DateReading, CivilDateTime), String> {
+    let Some((date, time)) = s.split_once(['T', ' ']) else {
+        return Ok((DateReading::Iso, parse_civil_datetime_as(&format!("{s}T00:00:00"), input)?));
+    };
+    let (time, offset) = split_utc_offset(time, input)?;
+    let whole = whole_seconds(time, input)?;
+    let civil = parse_civil_datetime_as(&format!("{date}T{whole}"), input)?;
+    let Some(bias) = offset else {
+        return Ok((DateReading::Iso, civil));
+    };
+    // The written year is inside the band, but the same instant shown in the session zone can fall a
+    // day past either end of it: `262143-12-31T23:59:59-14:59` in a zone of +14:59 is in the year
+    // 262144 (review round on PR #104).
+    convert_zone(civil, bias, zone_bias_min, 0)
+        .ok()
+        .filter(|at| crate::civil_year_in_band(at.year))
+        .map(|at| (DateReading::IsoOffset, at))
+        .ok_or_else(|| format!("'{input}' names an instant outside the range this build computes on"))
+}
+
+/// The time part without its UTC offset, and the offset as a bias (minutes, UTC = local + bias), or
+/// `None` when the time names no offset.
+fn split_utc_offset<'a>(time: &'a str, input: &str) -> Result<(&'a str, Option<i32>), String> {
+    if let Some(rest) = time.strip_suffix(['Z', 'z']) {
+        return Ok((rest, Some(0)));
+    }
+    let Some(at) = time.rfind(['+', '-']) else {
+        return Ok((time, None));
+    };
+    let (rest, offset) = time.split_at(at);
+    let refused = || format!("the UTC offset in '{input}' must be Z or +HH:MM / -HH:MM, from -14:59 to +14:59");
+    let two_digits = |t: &str| (t.len() == 2 && crate::is_ascii_digits(t)).then(|| t.parse::<i32>().ok()).flatten();
+    let (hours, minutes) = offset[1..]
+        .split_once(':')
+        .and_then(|(h, m)| Some((two_digits(h)?, two_digits(m)?)))
+        .filter(|&(_, m)| m <= 59)
+        .ok_or_else(refused)?;
+    // East of UTC is ahead, so its bias is negative: +02:00 is a bias of -120.
+    let span = hours * 60 + minutes;
+    let bias = if offset.starts_with('+') { -span } else { span };
+    if !crate::zone_bias_in_range(bias) {
+        return Err(refused());
+    }
+    Ok((rest.trim_end(), Some(bias)))
+}
+
+/// The time without a fraction of a second, which this model does not hold. A fraction is a dot and 1
+/// to 9 digits after the seconds - more digits than a nanosecond, or none, is refused by name.
+fn whole_seconds<'a>(time: &'a str, input: &str) -> Result<&'a str, String> {
+    let Some((whole, fraction)) = time.split_once('.') else {
+        return Ok(time);
+    };
+    if fraction.len() > 9 || !crate::is_ascii_digits(fraction) {
+        return Err(format!("the fraction of a second in '{input}' must be 1 to 9 digits"));
+    }
+    Ok(whole)
+}
+
 /// A civil date at midnight, or None if the month or day cannot exist - the validity gate that
 /// turns a candidate month/day order into a real date (month 13 and Feb 30 are rejected).
 fn civil_date(year: i64, month: i64, day: i64) -> Option<CivilDateTime> {
@@ -1499,9 +1611,7 @@ pub fn analyze_date(input: &str, zone_bias_min: i32) -> Result<DateAnalysis, Str
                 "expected an ISO date that starts with a four-digit year (YYYY-MM-DD), got '{input}'"
             ));
         }
-        let iso = if s.contains('T') || s.contains(' ') { s.to_string() } else { format!("{s}T00:00:00") };
-        let civil = parse_civil_datetime(&iso)?;
-        return Ok(DateAnalysis { readings: vec![(DateReading::Iso, civil)] });
+        return iso_reading(s, input, zone_bias_min).map(|reading| DateAnalysis { readings: vec![reading] });
     }
     // Numeric: exactly one separator kind, three parts, a four-digit year last.
     let sep = match (s.contains('/'), s.contains('.')) {
@@ -2406,6 +2516,10 @@ mod tests {
         assert!(!sig(&dt(2038, 1, 19, 3, 14, 6), 0).contains(&Significance::Year2038Boundary));
         // Well past it.
         assert!(sig(&dt(2050, 6, 1, 0, 0, 0), 0).contains(&Significance::Year2038Boundary));
+        // Past the end of FILETIME too (R5-P22): the marker was counted through FILETIME and
+        // disappeared from the year 30829 on, while the calculator reaches the year 262143.
+        assert!(sig(&dt(30829, 1, 1, 0, 0, 0), 0).contains(&Significance::Year2038Boundary));
+        assert!(sig(&dt(40000, 1, 1, 0, 0, 0), 0).contains(&Significance::Year2038Boundary));
     }
 
     #[test]
@@ -2515,6 +2629,43 @@ mod tests {
         assert_eq!(a.readings, vec![(DateReading::Iso, dt(2008, 8, 4, 0, 0, 0))]);
         // A time component is kept.
         assert_eq!(analyze_date("1990-08-03T23:59:59", 0).unwrap().readings[0].1, dt(1990, 8, 3, 23, 59, 59));
+    }
+
+    /// RFC 3339, the form this tool prints, is read (R5-D5, item 5): with an offset it is an instant
+    /// shown in the session zone, a fraction is cut to the second, and a refusal quotes the paste.
+    #[test]
+    fn analyze_reads_its_own_rfc3339_output() {
+        let one = |text: &str, zone: i32| analyze_date(text, zone).unwrap().readings;
+        // +02:00 is 08:00 UTC, and 10:00 again in a session zone of +02:00 (bias -120).
+        assert_eq!(one("2026-01-01T10:00:00+02:00", 0), vec![(DateReading::IsoOffset, dt(2026, 1, 1, 8, 0, 0))]);
+        assert_eq!(one("2026-01-01T10:00:00+02:00", -120), vec![(DateReading::IsoOffset, dt(2026, 1, 1, 10, 0, 0))]);
+        assert_eq!(one("2025-12-31T23:30:00-01:00", 0), vec![(DateReading::IsoOffset, dt(2026, 1, 1, 0, 30, 0))]);
+        assert_eq!(one("2026-01-01T10:00:00Z", 0), vec![(DateReading::IsoOffset, dt(2026, 1, 1, 10, 0, 0))]);
+        assert_eq!(one("2026-01-01T10:00:00.123456789Z", 0)[0].1, dt(2026, 1, 1, 10, 0, 0));
+        assert_eq!(one("2026-01-01 10:00:00 +02:00", 0)[0].1, dt(2026, 1, 1, 8, 0, 0), "a space before the offset");
+        // A fraction without an offset is still the civil fields as written.
+        assert_eq!(one("2026-01-01T10:00:00.5", 60), vec![(DateReading::Iso, dt(2026, 1, 1, 10, 0, 0))]);
+        assert!(DateReading::IsoOffset.is_instant() && !DateReading::Iso.is_instant());
+        // A year before 1 CE keeps its sign, which is not an offset.
+        assert_eq!(one("-0001-06-01T00:00:00", 0)[0].0, DateReading::Iso);
+
+        let err = analyze_date("2026-01-01T10:00:00.1234567890", 0).unwrap_err();
+        assert!(err.contains("fraction of a second") && err.contains("'2026-01-01T10:00:00.1234567890'"), "{err}");
+        let err = analyze_date("2026-01-01T10:00:00+15:00", 0).unwrap_err();
+        assert!(err.contains("UTC offset"), "{err}");
+        let err = analyze_date("2026-01-01T10:00:00+0200", 0).unwrap_err();
+        assert!(err.contains("UTC offset"), "{err}");
+        // The refusal quotes what was pasted, and names the month it refuses.
+        let err = analyze_date("2026-13-01", 0).unwrap_err();
+        assert!(err.contains("month 13") && err.contains("'2026-13-01'") && !err.contains("T00:00:00"), "{err}");
+
+        // A written year inside the band whose instant, in the session zone, falls past either end of
+        // it is refused, not shown as a year this build does not compute on (review round on PR #104).
+        assert_eq!(one("262143-12-31T23:59:59Z", 0)[0].1.year, crate::CIVIL_YEAR_MAX);
+        for (text, zone) in [("262143-12-31T23:59:59-14:59", -899), ("-262143-01-01T00:00:00+14:59", 899)] {
+            let err = analyze_date(text, zone).unwrap_err();
+            assert!(err.contains("outside the range") && err.contains(text), "{text}: {err}");
+        }
     }
 
     #[test]
@@ -2720,6 +2871,25 @@ mod tests {
         };
         assert_eq!(step(MAX_BUSINESS_DAYS + 1), Err(EvalError::TooManyBusinessDays { index: 0 }));
         assert_ne!(step(MAX_BUSINESS_DAYS), Err(EvalError::TooManyBusinessDays { index: 0 }));
+    }
+
+    /// The limit stands on the whole evaluation, not on each step (R5-B2): steps that are each under it
+    /// are refused at the one that takes the sum past it, before that one walks. Without a calendar the
+    /// first business-day step is refused as needing one, as before - that says more.
+    #[test]
+    fn business_day_steps_share_one_limit_for_the_evaluation() {
+        use crate::calendar::{Calendar, Observed, MAX_BUSINESS_DAYS};
+        let cal =
+            Calendar { id: "t".into(), country: "US".into(), weekend: vec![0, 6], observed: Observed::None, valid_from: None, law_as_of: None, holidays: vec![] };
+        let half = MAX_BUSINESS_DAYS / 2 + 1;
+        let walk = |signs: &[Sign], calendar: Option<&Calendar>| {
+            let steps = signs.iter().map(|&sign| Step::Shift { sign, amount: half, unit: Unit::BusinessDays }).collect();
+            eval(&MomentExpr { base: abs(dt(2026, 7, 6, 0, 0, 0)), steps }, &EvalContext { now: dt(2000, 1, 1, 0, 0, 0), zone_bias_min: 0, calendar })
+        };
+        // Forth and back counts both ways: the walk is the cost, not where it ends.
+        assert_eq!(walk(&[Sign::Plus, Sign::Minus], Some(&cal)), Err(EvalError::TooManyBusinessDays { index: 1 }));
+        assert!(walk(&[Sign::Plus], Some(&cal)).is_ok(), "one step under the limit is fine");
+        assert_eq!(walk(&[Sign::Plus, Sign::Minus], None), Err(EvalError::NeedsCalendar { index: 0 }));
     }
 
     /// A number at either end of i64, read as an epoch in any zone, is refused as out of range - the

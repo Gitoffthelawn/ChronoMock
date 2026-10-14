@@ -14,6 +14,10 @@ pub mod calc;
 /// module reusing the crate-private civil primitives.
 pub mod calendar;
 
+/// Which characters do not show as themselves - judged once for the readers of calendars and presets
+/// and for quoting what a target says (R5-B1).
+pub mod text;
+
 /// How the session expresses the target moment.
 ///
 /// Semantics (docs/01 section 4, untouchable rule 2): the entered moment is in
@@ -400,9 +404,16 @@ pub fn is_ascii_digits(s: &str) -> bool {
 /// Parse "YYYY-MM-DDTHH:MM:SS" (a space may replace the `T`). Strict on shape and
 /// on field ranges - deeper calendar validation comes later.
 fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
+    parse_civil_as(local, local)
+}
+
+/// [`parse_civil`], with every refusal quoting `shown` instead of `local`. The date analyser parses a
+/// text it built from the user's (a date alone gets `T00:00:00`, a fraction and an offset come off), and
+/// its refusals quoted that text, a moment nobody had typed (R5-D5, item 5).
+pub(crate) fn parse_civil_as(local: &str, shown: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
     let (date, time) = local
         .split_once(['T', ' '])
-        .ok_or_else(|| format!("moment must be YYYY-MM-DDTHH:MM:SS, got '{local}'"))?;
+        .ok_or_else(|| format!("moment must be YYYY-MM-DDTHH:MM:SS, got '{shown}'"))?;
     // A year before 1 CE carries a leading minus, and splitting on '-' would turn that into a
     // fourth field. The calculator can PRODUCE such a date - any shift back past year 1 does it -
     // so refusing to read one back meant the tool would not accept its own output: `--shift -10y`
@@ -414,16 +425,16 @@ fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
     let d: Vec<&str> = date.split('-').collect();
     let t: Vec<&str> = time.split(':').collect();
     if d.len() != 3 || t.len() != 3 {
-        return Err(format!("moment must be YYYY-MM-DDTHH:MM:SS, got '{local}'"));
+        return Err(format!("moment must be YYYY-MM-DDTHH:MM:SS, got '{shown}'"));
     }
     // Digits only, checked before the parse: `i64::from_str` also takes a leading `+`, so
     // `2026-+1-05T+9:00:00` read as a real moment (R4-N34). A sign has one place in this shape - in
     // front of the year, handled above - and no field of a date the tool prints ever carries one.
     let p = |s: &str, what: &str| -> Result<i64, String> {
         if !is_ascii_digits(s) {
-            return Err(format!("bad {what} in moment '{local}' (digits only)"));
+            return Err(format!("bad {what} in moment '{shown}' (digits only)"));
         }
-        s.parse::<i64>().map_err(|_| format!("bad {what} in moment '{local}'"))
+        s.parse::<i64>().map_err(|_| format!("bad {what} in moment '{shown}'"))
     };
     let (year, month, day) = (p(d[0], "year")?, p(d[1], "month")?, p(d[2], "day")?);
     // Rejected here rather than after the field checks: a year outside the band makes the leap-year
@@ -431,20 +442,20 @@ fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
     let year = if negative_year { -year } else { year };
     if !civil_year_in_band(year) {
         return Err(format!(
-            "year {year} in moment '{local}' is outside the range this build computes on \
+            "year {year} in moment '{shown}' is outside the range this build computes on \
              ({CIVIL_YEAR_MIN}..={CIVIL_YEAR_MAX})"
         ));
     }
     let (hour, min, sec) = (p(t[0], "hour")?, p(t[1], "minute")?, p(t[2], "second")?);
     if !(1..=12).contains(&month) {
-        return Err(format!("month out of range in '{local}'"));
+        return Err(format!("month {month} out of range (1..=12) in '{shown}'"));
     }
     // Reject a day that cannot exist in its month (e.g. 2026-02-31): BOTH the substitution moment
     // and the calculator refuse an impossible date here rather than let `days_from_civil` silently
     // roll it into the next month (untouchable rule 4/6 - never a silent wrong moment).
     let last = last_day_of_month(year, month) as i64;
     if !(1..=last).contains(&day) {
-        return Err(format!("day {day} out of range for month {month} in '{local}'"));
+        return Err(format!("day {day} out of range for month {month} in '{shown}'"));
     }
     // Field by field, left to right, and each refusal NAMES its field.
     //
@@ -454,10 +465,10 @@ fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
     // underneath said "time out of range" without saying WHICH of the three, on input where any of
     // them could be the one. A result that is right and cannot be explained is a defect here.
     if !(0..=23).contains(&hour) {
-        return Err(format!("hour {hour} out of range (0..=23) in '{local}'"));
+        return Err(format!("hour {hour} out of range (0..=23) in '{shown}'"));
     }
     if !(0..=59).contains(&min) {
-        return Err(format!("minute {min} out of range (0..=59) in '{local}'"));
+        return Err(format!("minute {min} out of range (0..=59) in '{shown}'"));
     }
     // A leap second gets its own refusal, because it used to get silently accepted and then move the
     // DATE. `:60` passed this check as a nod to leap seconds, and `moment_to_filetime_utc` then summed
@@ -472,11 +483,11 @@ fn parse_civil(local: &str) -> Result<(i64, i64, i64, i64, i64, i64), String> {
     // BELOW the hour and minute checks so it only ever answers for input whose only fault it is.
     if sec == 60 {
         return Err(format!(
-            "second 60 in '{local}' is a leap second - this model has none (use :59)"
+            "second 60 in '{shown}' is a leap second - this model has none (use :59)"
         ));
     }
     if !(0..=59).contains(&sec) {
-        return Err(format!("second {sec} out of range (0..=59) in '{local}'"));
+        return Err(format!("second {sec} out of range (0..=59) in '{shown}'"));
     }
     Ok((year, month, day, hour, min, sec))
 }
@@ -512,8 +523,6 @@ pub(crate) fn civil_fields_to_filetime_utc(
     s: i64,
     bias_min: i64,
 ) -> Option<i64> {
-    // Days between the FILETIME epoch (1601-01-01) and the Unix epoch (1970-01-01).
-    const DAYS_1601_TO_1970: i64 = 134_774;
     let ft = civil_fields_to_epoch_secs(y, mo, d, h, mi, s, bias_min)?
         .checked_add(DAYS_1601_TO_1970 * 86_400)?
         .checked_mul(10_000_000)?;
@@ -574,19 +583,31 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 /// Format a UTC FILETIME (100 ns ticks since 1601) as a session-zone wall-clock
 /// string "YYYY-MM-DDTHH:MM:SS". Inverse of `moment_to_filetime_utc` (no DST).
 pub fn filetime_utc_to_wall(ft_utc: i64, tz_bias_min: i32) -> String {
-    // Session-local = UTC - bias (UTC = local + bias), taken in whole SECONDS rather than ticks. The
-    // bias is a whole number of minutes, so dividing first gives exactly the same second for every
-    // input - and it cannot overflow, which subtracting the bias in ticks did: an instant at the end of
-    // the range in a zone east of UTC panicked a Chromium session core on its `state` event, leaving
-    // the browser behind with its debugging port open (R4-S8).
-    const DAYS_1601_TO_1970: i64 = 134_774;
-    let secs_1601 = ft_utc.div_euclid(10_000_000) - (tz_bias_min as i64) * 60;
-    let secs_1970 = secs_1601 - DAYS_1601_TO_1970 * 86_400;
-    let days = secs_1970.div_euclid(86_400);
-    let tod = secs_1970.rem_euclid(86_400);
-    let (y, mo, d) = civil_from_days(days);
-    let (hh, mi, ss) = (tod / 3600, (tod % 3600) / 60, tod % 60);
-    format!("{y:04}-{mo:02}-{d:02}T{hh:02}:{mi:02}:{ss:02}")
+    // The calculator's conversion, not a second copy of it (R5-A11): the two were written apart, and
+    // copies of this arithmetic had already drifted once. It works in whole SECONDS rather than ticks - the bias is a
+    // whole number of minutes, so dividing first gives exactly the same second for every input, and it
+    // cannot overflow, which subtracting the bias in ticks did: an instant at the end of the range in a
+    // zone east of UTC panicked a Chromium session core on its `state` event, leaving the browser
+    // behind with its debugging port open (R4-S8).
+    calc::filetime_to_civil(ft_utc, tz_bias_min).to_iso()
+}
+
+/// Days from the FILETIME epoch (1601-01-01) to the Unix epoch (1970-01-01). One constant for every
+/// conversion between the two counts, which wrote it out four times (R5-A11).
+pub const DAYS_1601_TO_1970: i64 = 134_774;
+
+/// The day of the week of a day counted from the Unix epoch: 0 = Sunday .. 6 = Saturday. 1970-01-01
+/// was a Thursday. One formula for the calculator and the calendar, which had three copies (R5-A11).
+pub(crate) fn weekday(days_since_epoch: i64) -> u32 {
+    (days_since_epoch + 4).rem_euclid(7) as u32
+}
+
+/// A session bias (minutes, UTC = local + bias) as the `+HH:MM` label every surface prints - the
+/// offset is the bias with its sign turned. The command line and the calculator each had a copy.
+pub fn bias_label(tz_bias_min: i32) -> String {
+    let offset = -tz_bias_min;
+    let sign = if offset < 0 { '-' } else { '+' };
+    format!("{sign}{:02}:{:02}", offset.abs() / 60, offset.abs() % 60)
 }
 
 // The relative-delta grammar (fixed-length ticks) was retired into the shared step model:

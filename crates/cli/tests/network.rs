@@ -195,6 +195,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          interpreter, which pings the loopback address, and nothing reaches past this machine",
     ),
     (
+        "crates/cli/tests/evidence_file.rs",
+        "spawn",
+        "runs the built binary on the command interpreter, which pings the loopback address, with \
+         the old evidence file held open, to see a verdict whose evidence could not take its path \
+         end with exit code 8. Nothing reaches past this machine",
+    ),
+    (
         "crates/cli/tests/target_console.rs",
         "spawn",
         "runs the built binary on the command interpreter, which prints a line, reads its input and \

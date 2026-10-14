@@ -669,7 +669,9 @@
   "calc.reading.pl_day_month": "Odczyt PL (DD/MM/RRRR)",
   "calc.reading.epoch_seconds": "Czas uniksowy w sekundach",
   "calc.reading.epoch_millis": "Czas uniksowy w milisekundach",
+  "calc.reading.iso_offset": "ISO 8601 z przesunięciem względem UTC",
   "calc.analyze_zone": "Liczba to chwila, nie data - pokazana w strefie {0}, wybranej powyżej.",
+  "calc.analyze_zone_offset": "Ta data ma własne przesunięcie względem UTC, więc jest chwilą - pokazana w strefie {0}, wybranej powyżej.",
 
   // Calculator builder (G3b): base kinds, shift units, calendars, and the significance markers.
   "calc.base.today": "Dziś",
@@ -703,7 +705,7 @@
   "calc.err.overflow": "Wynik wychodzi poza zakres, jaki ta wersja potrafi policzyć - użyj mniejszego przesunięcia.",
   "calc.err.bad_set_time": "Krok ustawienia godziny ma godzinę, minutę albo sekundę poza zakresem.",
   "calc.err.year_out_of_range": "Wynik wypada w roku spoza zakresu, na którym ta wersja liczy (od -262143 do 262143).",
-  "calc.err.business_days_limit": "Ten krok prosi o więcej niż 1 000 000 dni roboczych - tyle najwięcej liczy kalkulator.",
+  "calc.err.business_days_limit": "Kroki w dniach roboczych sumują się do ponad 1 000 000 dni roboczych - tyle najwięcej kalkulator liczy w jednym obliczeniu. Zmniejsz liczby tak, żeby razem dawały najwyżej 1 000 000.",
   "calc.err.before_calendar": "Krok w dniach roboczych sięga roku sprzed początku wybranego kalendarza, więc nie da się go policzyć - wybierz późniejszą datę albo inny kalendarz.",
   "calc.err.base_overflow": "Punkt startowy w UTC wskazuje chwilę spoza zakresu, jaki ta wersja potrafi wyrazić.",
   "calc.err.base_not_a_date": "Punkt startowy nie jest prawdziwą datą i godziną - sprawdź w nim miesiąc, dzień i godzinę.",
@@ -713,6 +715,13 @@
   "calc.err.bad_argument": "Któryś krok ma wartość, której kalkulator nie odczytuje. Przesunięcie musi być liczbą całkowitą bez znaku (kierunek wybiera się obok), godzina musi mieć postać HH:MM:SS, a strefa czasowa postać +HH:MM lub -HH:MM, w zakresie od -14:59 do +14:59.",
   "calc.err.analyze_unrecognized": "To nie jest format daty, który analiza rozpoznaje. Czyta ISO (2026-01-31), daty liczbowe z czterocyfrowym rokiem (31.01.2026) oraz samą liczbę jako znacznik czasu uniksowego.",
   "calc.err.preset_not_for_calculator": "Ten scenariusz opisuje sesję uruchomienia aplikacji, a nie datę do policzenia.",
+  "calc.err.calendar_not_found": "Nie można znaleźć wybranego kalendarza świąt - instalacja może być niekompletna albo jego plik zmieniono lub usunięto.",
+  "calc.err.calendar_invalid": "Pliku wybranego kalendarza świąt nie da się użyć - szczegóły poniżej mówią, co jest w nim nie tak.",
+  "calc.err.preset_not_found": "Nie można już znaleźć tego scenariusza - jego plik zmieniono albo usunięto po wczytaniu listy.",
+  "calc.err.preset_invalid": "Pliku tego scenariusza nie da się użyć - szczegóły poniżej mówią, co jest w nim nie tak.",
+  "calc.err.preset_not_built": "Ten scenariusz używa czegoś, czego ta wersja jeszcze nie liczy, więc nie ma czego pokazać.",
+  "calc.err.preset_parameter": "Którejś wartości tego scenariusza brakuje albo nie da się jej odczytać - sprawdź pola scenariusza.",
+  "calc.err.market_calendar_unavailable": "Ten scenariusz liczy dni robocze w kalendarzu świąt swojego rynku, a tego kalendarza nie da się wczytać - szczegóły poniżej mówią dlaczego.",
   // Two failures that are not the engine's: its answer arrived and was not usable. Rare, and worth saying
   // plainly rather than showing the reader a blank result they cannot explain.
   "calc.err.no_readings": "Analiza nie zwróciła żadnego odczytu dla tego wejścia.",

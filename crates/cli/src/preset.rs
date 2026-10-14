@@ -25,7 +25,7 @@ use chrono_core::calendar::Calendar;
 use chrono_core::filetime_utc_to_wall;
 
 use crate::calendar::{catalogue_search_places, check_declared_id, find_catalogue_file, is_valid_catalogue_id};
-use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit};
+use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit, unknown_unit};
 use crate::zone::parse_zone_to_bias;
 /// A parsed preset: its declared parameters and its RAW moment (docs/04 4.3), not yet resolved to a
 /// `MomentExpr` - because a parametric base/shift needs values (`--param` / `default`) that the file
@@ -144,6 +144,18 @@ impl PresetError {
     pub(crate) fn message(&self) -> &str {
         match self {
             PresetError::NotFound(m) | PresetError::BadFile(m) | PresetError::NotBuilt(m) => m,
+        }
+    }
+
+    /// The same failure, said to be in the step at `index` (from 0, named from 1). A preset's step that
+    /// would not resolve was refused with no word of which one, in a file whose steps are a list (R5-D5,
+    /// item 2).
+    fn at_step(self, index: usize) -> Self {
+        let place = |m: String| format!("step {}: {m}", index + 1);
+        match self {
+            PresetError::NotFound(m) => PresetError::NotFound(place(m)),
+            PresetError::BadFile(m) => PresetError::BadFile(place(m)),
+            PresetError::NotBuilt(m) => PresetError::NotBuilt(place(m)),
         }
     }
 }
@@ -482,7 +494,7 @@ pub(crate) fn shift_from(s: ShiftDto, values: &HashMap<String, ParamValue>) -> R
         return Err(PresetError::BadFile("shift amount must be non-negative (the sign carries direction)".into()));
     }
     let unit_str = s.unit.ok_or_else(|| PresetError::BadFile("shift needs a unit".into()))?;
-    let unit = parse_unit(&unit_str).ok_or_else(|| PresetError::BadFile(format!("unknown unit '{unit_str}' in shift")))?;
+    let unit = parse_unit(&unit_str).ok_or_else(|| PresetError::BadFile(format!("{} in shift", unknown_unit(&unit_str))))?;
     Ok(Step::Shift { sign, amount, unit })
 }
 
@@ -498,10 +510,36 @@ pub(crate) fn parse_shift_sign(sign: &Option<String>) -> Result<Sign, PresetErro
     }
 }
 
+/// The most steps a preset's moment may have. The shipped presets have at most three, so this is a
+/// bound on the implausible, not on the large - the way `MAX_HOLIDAYS` bounds a calendar.
+const MAX_PRESET_STEPS: usize = 64;
+
+/// The most parameters a preset may declare. The shipped presets declare at most two.
+const MAX_PARAMETERS: usize = 16;
+
+/// Refuse a preset too long to be one (R5-B2). A preset is a file people share, and its only bound was
+/// the 4 MiB of the file: 250 000 `snap` steps printed 15 MB, and 70 000 business-day steps would have
+/// run for about 26 minutes, measured by extrapolation. The core bounds the business days one
+/// calculation counts, this bounds the rest - and says so by name, where the author can fix it.
+fn refuse_oversized(steps: usize, parameters: usize) -> Result<(), PresetError> {
+    if steps > MAX_PRESET_STEPS {
+        return Err(PresetError::BadFile(format!(
+            "preset has {steps} steps, past the limit of {MAX_PRESET_STEPS} this build reads - remove steps until it has {MAX_PRESET_STEPS} or fewer"
+        )));
+    }
+    if parameters > MAX_PARAMETERS {
+        return Err(PresetError::BadFile(format!(
+            "preset declares {parameters} parameters, past the limit of {MAX_PARAMETERS} this build reads - remove parameters until it has {MAX_PARAMETERS} or fewer"
+        )));
+    }
+    Ok(())
+}
+
 /// Parse a preset from JSON WITHOUT resolving its moment (pure - no I/O, no parameter values). The
 /// moment stays raw because a parametric base/shift needs values `resolve_parameters` supplies later -
 /// a non-parametric preset resolves trivially (empty values). Unknown major schema is refused.
 pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
+    crate::calendar::refuse_hidden_characters("preset", text).map_err(PresetError::BadFile)?;
     let dto: PresetDto =
         crate::calendar::from_object(text).map_err(|e| PresetError::BadFile(crate::calendar::json_refusal("preset", &e)))?;
     if dto.schema != "chronomock.preset/1" {
@@ -519,6 +557,7 @@ pub(crate) fn parse_preset(text: &str) -> Result<Preset, PresetError> {
             dto.applies_to
         )));
     }
+    refuse_oversized(dto.moment.steps.len(), dto.parameters.len())?;
     let parameters = dto.parameters.into_iter().map(parse_parameter).collect::<Result<Vec<_>, _>>()?;
     refuse_contradictions(&parameters, &dto.moment)?;
     let time_mode = time_mode_from(dto.time_mode)?;
@@ -716,7 +755,12 @@ pub(crate) fn resolve_hint(
 /// evaluates - the core never sees a parameter.
 pub(crate) fn resolve_moment(moment: MomentDto, values: &HashMap<String, ParamValue>) -> Result<MomentExpr, PresetError> {
     let base = base_from(moment.base, values)?;
-    let steps = moment.steps.into_iter().map(|s| step_from(s, values)).collect::<Result<Vec<_>, _>>()?;
+    let steps = moment
+        .steps
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| step_from(s, values).map_err(|e| e.at_step(i)))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(MomentExpr { base, steps })
 }
 
@@ -762,7 +806,7 @@ pub(crate) fn duration_value(id: &str, amount: i64, unit_str: &str) -> Result<Pa
         return Err(PresetError::BadFile(format!("parameter '{id}' amount must be non-negative")));
     }
     let unit = parse_unit(unit_str)
-        .ok_or_else(|| PresetError::BadFile(format!("parameter '{id}': unknown unit '{unit_str}'")))?;
+        .ok_or_else(|| PresetError::BadFile(format!("parameter '{id}': {}", unknown_unit(unit_str))))?;
     Ok(ParamValue::Duration { amount, unit })
 }
 
@@ -1096,6 +1140,86 @@ mod tests {
         let m = resolve_no_params(p).unwrap();
         assert_eq!(m.base, Base::Today);
         assert_eq!(m.steps, vec![Step::Snap(SnapTarget::EndOfMonth)]);
+    }
+
+    /// A step that will not resolve is named by its place in the list, and a unit the grammar does not
+    /// read is refused with the units it does (R5-D5, items 2 and 3).
+    #[test]
+    fn a_step_that_will_not_resolve_is_named_by_its_number() {
+        let json = r#"{"schema": "chronomock.preset/1", "id": "s", "name": { "en": "n" }, "explains": { "en": "e" },
+            "applies_to": "both", "moment": { "base": "today", "steps": [
+                { "snap": "end-of-month" }, { "shift": { "sign": "+", "amount": 2, "unit": "mth" } } ] } }"#;
+        let err = resolve_no_params(parse_preset(json).unwrap()).unwrap_err();
+        assert!(err.message().starts_with("step 2: unknown unit 'mth' (use s, m, h, d, w, mo, q, y, bd"), "{}", err.message());
+    }
+
+    /// A preset longer than any real one is refused by its count, at the limit it is not (R5-B2).
+    #[test]
+    fn a_preset_past_the_step_or_parameter_limit_is_refused() {
+        let preset = |steps: usize, parameters: usize| {
+            let steps = vec![r#"{ "snap": "end-of-month" }"#; steps].join(",");
+            let params: Vec<String> = (0..parameters).map(|i| format!(r#"{{ "id": "p{i}", "type": "date" }}"#)).collect();
+            format!(
+                r#"{{"schema": "chronomock.preset/1", "id": "long", "name": {{ "en": "n" }}, "explains": {{ "en": "e" }},
+                    "applies_to": "both", "parameters": [{}], "moment": {{ "base": "today", "steps": [{steps}] }} }}"#,
+                params.join(",")
+            )
+        };
+        assert!(parse_preset(&preset(MAX_PRESET_STEPS, MAX_PARAMETERS)).is_ok(), "at both limits");
+        let err = parse_preset(&preset(MAX_PRESET_STEPS + 1, 0)).unwrap_err();
+        assert!(err.message().contains("65 steps") && err.message().contains("limit of 64"), "{}", err.message());
+        assert!(err.message().contains("remove steps until it has 64 or fewer"), "says what to do: {}", err.message());
+        let err = parse_preset(&preset(1, MAX_PARAMETERS + 1)).unwrap_err();
+        assert!(err.message().contains("17 parameters") && err.message().contains("limit of 16"), "{}", err.message());
+        assert!(err.message().contains("remove parameters until it has 16 or fewer"), "says what to do: {}", err.message());
+    }
+
+    /// The measured attack (R5-B1): an `explains` with a carriage return, an erase-line sequence and a
+    /// hide-text sequence printed a fake `result:` line over the real one. Refused by place, in any
+    /// language of the text, and in a parameter's label as much as in the name.
+    #[test]
+    fn a_preset_text_with_a_hidden_character_is_refused_by_its_place() {
+        let escape = |code: u32| format!("\\u{code:04x}");
+        let preset = |explains_pl: &str, label: &str| {
+            format!(
+                r#"{{"schema": "chronomock.preset/1", "id": "p", "name": {{ "en": "n" }},
+                    "explains": {{ "en": "e", "pl": "{explains_pl}" }}, "applies_to": "both",
+                    "parameters": [ {{ "id": "d", "type": "date", "label": {{ "en": "{label}" }} }} ],
+                    "moment": {{ "base": {{ "parameter": "d" }}, "steps": [] }} }}"#
+            )
+        };
+        assert!(parse_preset(&preset("ok", "Start date")).is_ok(), "plain texts pass");
+        let attack = format!("{}{}[2K  result:  1999-12-31T23:59:59{}[8m", escape(0x0D), escape(0x1B), escape(0x1B));
+        let err = parse_preset(&preset(&attack, "Start date")).unwrap_err();
+        assert!(err.message().contains("the text in `explains.pl`") && err.message().contains("U+000D"), "{}", err.message());
+        assert_eq!(err.exit_code(), 1, "a bad file, not a missing feature");
+        let err = parse_preset(&preset("ok", &format!("Start{}date", escape(0x2066)))).unwrap_err();
+        assert!(err.message().contains("`parameters[0].label.en`") && err.message().contains("U+2066"), "{}", err.message());
+    }
+
+    /// serde quotes an unknown step as it found it, and two files reach that quote with a hidden
+    /// character the walk before it never saw (review round on PR #104): one that is not JSON past the
+    /// step, and one whose `steps` is given twice, where the walk holds only the second. The refusal
+    /// writes the character as its code.
+    #[test]
+    fn a_refusal_quoting_the_file_writes_a_hidden_character_as_its_code() {
+        let escape = format!("\\u{:04x}", 0x1B);
+        let bad_steps = format!(r#""steps": [ {{ "x{escape}[2K": 1 }} ]"#);
+        let preset = |moment: &str, tail: &str| {
+            format!(
+                r#"{{"schema": "chronomock.preset/1", "id": "p", "name": {{ "en": "n" }}, "explains": {{ "en": "e" }},
+                    "applies_to": "both", "moment": {{ "base": {{ "absolute": "2030-01-01T00:00:00" }}, {moment} }}{tail} }}"#
+            )
+        };
+        for (case, text) in [
+            ("not JSON past the step", preset(&bad_steps, ",")),
+            ("the steps given twice", preset(&format!(r#"{bad_steps}, "steps": []"#), "")),
+        ] {
+            let said = parse_preset(&text).unwrap_err().message().to_string();
+            assert!(said.contains("unknown variant"), "{case}: {said}");
+            assert!(!said.chars().any(chrono_core::text::is_hidden_char), "{case}: {said:?}");
+            assert!(said.contains("x\\u{001b}[2K"), "{case}: {said}");
+        }
     }
 
     /// An `{ "absolute": ... }` base resolves to a fixed civil moment - a malformed one is refused at

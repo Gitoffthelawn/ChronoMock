@@ -42,10 +42,7 @@ pub(crate) fn cdp_probe(argv: &[String]) -> i32 {
         }
     };
     match client.call("Browser.getVersion", serde_json::json!({}), None) {
-        Ok(v) => outln!(
-            "browser: {}",
-            v.get("product").and_then(serde_json::Value::as_str).unwrap_or("?")
-        ),
+        Ok(v) => outln!("browser: {}", product_of(&v)),
         Err(e) => {
             diag!("chrono: Browser.getVersion: {e}");
             return 3;
@@ -68,6 +65,12 @@ pub(crate) fn cdp_probe(argv: &[String]) -> i32 {
         }
     }
     0
+}
+
+/// The browser's name for itself from `Browser.getVersion`, quoted the way every text from the target is
+/// (R5-B9, item 2) - the field is the peer's to fill, and it reaches the terminal.
+fn product_of(version: &serde_json::Value) -> String {
+    cdp::sanitise_target_text(version.get("product").and_then(serde_json::Value::as_str).unwrap_or("?"))
 }
 
 /// Hidden probe (CDP slice C2 verification): detect a Chromium/Electron target, launch it under our
@@ -96,10 +99,7 @@ pub(crate) fn cdp_launch_probe(argv: &[String]) -> i32 {
     let code = match cdp::CdpClient::connect_to_port("127.0.0.1", launched.port, reach_by()) {
         Ok(mut c) => match c.call("Browser.getVersion", serde_json::json!({}), None) {
             Ok(v) => {
-                outln!(
-                    "browser: {}",
-                    v.get("product").and_then(serde_json::Value::as_str).unwrap_or("?")
-                );
+                outln!("browser: {}", product_of(&v));
                 0
             }
             Err(e) => {
@@ -419,5 +419,18 @@ mod tests {
 
         let forged = probe_target_line("-", "page\nchrono core: verdict: works", "ws://127.0.0.1:9333/x");
         assert!(!forged.contains('\n'), "target words reached the line raw: {forged}");
+    }
+
+    /// The browser names itself, and that name reaches the terminal escaped like every other text of
+    /// the target's (R5-B9, item 2). A name that is missing or is not a text is said as `?`.
+    #[test]
+    fn the_browser_product_is_quoted_escaped_and_a_missing_one_is_a_question_mark() {
+        let hidden = format!("Chromium{}[2K", char::from_u32(0x1B).unwrap());
+        let said = product_of(&serde_json::json!({ "product": hidden }));
+        assert!(!said.chars().any(chrono_core::text::is_hidden_char), "{said:?}");
+        assert!(said.starts_with("Chromium") && said.contains("[2K"), "{said}");
+        assert_eq!(product_of(&serde_json::json!({ "product": "Chromium/140.0" })), "Chromium/140.0");
+        assert_eq!(product_of(&serde_json::json!({})), "?");
+        assert_eq!(product_of(&serde_json::json!({ "product": 140 })), "?");
     }
 }

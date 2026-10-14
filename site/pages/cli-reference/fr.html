@@ -246,6 +246,7 @@
           <tr><td>5</td><td>l'opération n'est pas intégrée à cette version - par exemple un scénario dont le moment exige un calendrier que <code>run</code> ne sait pas encore charger. Volontairement distinct d'une erreur d'utilisation : vous avez demandé quelque chose qui n'existe pas encore, pas quelque chose d'erroné</td></tr>
           <tr><td>6</td><td>l'exécution a été écourtée - <code>--timeout</code> a expiré, ou le moteur a cessé de répondre pendant 15 secondes et a été arrêté. Ce n'est pas un verdict : la session a été interrompue, elle ne prouve donc rien sur la cible, dans un sens ou dans l'autre</td></tr>
           <tr><td>7</td><td>une autre session est déjà en cours - une seule session à la fois. Il suffit de réessayer une fois qu'elle est terminée</td></tr>
+          <tr><td>8</td><td>la session a abouti à un verdict, mais sa preuve n'est pas dans le fichier que désigne <code>--report</code> - le disque était plein, ou un autre programme gardait l'ancien fichier ouvert, qui reste alors tel quel. Le verdict figure toujours dans le rapport qu'affiche la commande</td></tr>
         </tbody>
       </table>
     </div>

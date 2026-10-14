@@ -60,9 +60,9 @@ fn production_source(path: &Path) -> String {
 /// out of the set without needing a hand-written blocklist.
 fn is_key_shaped(s: &str) -> bool {
     // File names share the shape. The list is short, explicit and only ever grows when a new kind of
-    // file name shows up in the sources (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, and an
-    // Electron application's app.asar).
-    const FILE_SUFFIXES: [&str; 8] = [".dat", ".bin", ".exe", ".dll", ".json", ".js", ".now", ".asar"];
+    // file name shows up in the sources (icudtl.dat, snapshot_blob.bin, v8_context_snapshot.bin, an
+    // Electron application's app.asar, and evidence.txt, the name a `--report` refusal suggests).
+    const FILE_SUFFIXES: [&str; 9] = [".dat", ".bin", ".exe", ".dll", ".json", ".js", ".now", ".asar", ".txt"];
     has_key_shape(s) && !FILE_SUFFIXES.iter().any(|suffix| s.ends_with(suffix))
 }
 

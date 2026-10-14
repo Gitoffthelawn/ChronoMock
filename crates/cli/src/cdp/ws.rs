@@ -131,9 +131,11 @@ impl WsClient {
         let status_end = find_subslice(&rbuf, b"\r\n").unwrap_or(end);
         let status = String::from_utf8_lossy(&rbuf[..status_end]).into_owned();
         if !status.contains(" 101") {
+            // The peer's own words, up to the whole header cap, so they are quoted the way every other
+            // text from the target is: escaped and cut short (R5-B9, item 2).
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionRefused,
-                format!("websocket upgrade refused: {status}"),
+                format!("websocket upgrade refused: {}", super::sanitise_target_text(&status)),
             ));
         }
         // What came with the 101 is the start of the first frame, and the reader begins from it.
@@ -572,6 +574,24 @@ pub(crate) mod tests {
             rx.recv().unwrap_or_default()
         });
         (port, log)
+    }
+
+    /// A refused upgrade quotes the peer's status line escaped and cut short (R5-B9, item 2): a control
+    /// sequence in it cannot reach the terminal, and a status line up to the whole header cap does not
+    /// become one line of the diagnostic.
+    #[test]
+    fn a_refused_upgrade_quotes_the_status_line_escaped_and_short() {
+        let (port, server) = server(move |mut s| {
+            let mut status = b"HTTP/1.1 400 \x1b[2Kfake\x1b[8m ".to_vec();
+            status.extend(std::iter::repeat_n(b'x', 4000));
+            status.extend_from_slice(b"\r\n\r\n");
+            s.write_all(&status).unwrap();
+        });
+        let err = WsClient::connect("127.0.0.1", port, "/", soon()).err().expect("refused");
+        let text = err.to_string();
+        assert!(!text.contains('\x1b'), "no escape character reaches the message: {text:?}");
+        assert!(text.contains("\\u{001b}") && text.contains("(truncated)"), "{text}");
+        server.join().unwrap();
     }
 
     /// R4-N27: once the upgrade is through, the socket has no read timeout. A read that times out

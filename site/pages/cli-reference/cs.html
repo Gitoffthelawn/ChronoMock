@@ -231,6 +231,7 @@
           <tr><td>5</td><td>operace není v tomto vydání sestavena - například preset, jehož okamžik potřebuje kalendář, který <code>run</code> zatím nedokáže načíst. Záměrně odlišné od chyby použití: požádali jste o něco, co zatím neexistuje, ne o něco špatného</td></tr>
           <tr><td>6</td><td>běh byl přerušen - vypršel <code>--timeout</code>, nebo jádro přestalo na 15 sekund odpovídat a bylo zastaveno. Není to verdikt: sezení bylo přerušeno, takže nic o cíli neprokazuje ani jedním směrem</td></tr>
           <tr><td>7</td><td>už běží jiné sezení - vždy jen jedno sezení naráz. Stačí to zkusit znovu, až skončí</td></tr>
+          <tr><td>8</td><td>sezení došlo k verdiktu, ale jeho důkaz není v souboru, který určuje <code>--report</code> - disk byl plný, nebo jiný program držel starý soubor otevřený, a ten pak zůstane beze změny. Verdikt je dál ve zprávě, kterou příkaz vypíše</td></tr>
         </tbody>
       </table>
     </div>

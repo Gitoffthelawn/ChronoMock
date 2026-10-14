@@ -1071,6 +1071,14 @@ public sealed class CalculatorViewModel : ObservableObject
         Readings.Clear();
     }
 
+    /// <summary>The sentence above instant readings. A number is an instant because it carries no
+    /// date, a date with an offset (<c>2026-01-01T10:00:00+02:00</c>, R5-D5 item 5) because it names its
+    /// own zone - the line for the number said "a number" of a date, so the second one has its own.</summary>
+    internal static string AnalysisZoneKey(IEnumerable<CalcReading> readings)
+        => readings.Any(r => string.Equals(r.Reading, "iso_offset", StringComparison.Ordinal))
+            ? "calc.analyze_zone_offset"
+            : "calc.analyze_zone";
+
     private void ApplyAnalysis(CalcResult result)
     {
         if (result.Analysis is not { } analysis)
@@ -1087,7 +1095,7 @@ public sealed class CalculatorViewModel : ObservableObject
         // (R4-S23) - the CLI prints the same line above them. A date written as fields has none to name.
         AnalysisZoneLine = analysis.Readings.Any(r => r.Instant)
             ? TextFormat.Translate(
-                Tr, "calc.analyze_zone",
+                Tr, AnalysisZoneKey(analysis.Readings),
                 ZoneLabel.FromBiasMinutes(analysis.ZoneBiasMin) + (_baseZone.IsHost ? $" ({Tr("zone.host")})" : string.Empty))
             : string.Empty;
         Readings.Clear();

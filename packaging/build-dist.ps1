@@ -217,8 +217,9 @@ Copy-Item -LiteralPath $x64hook -Destination $coreX64
 Copy-Item -LiteralPath $x86core -Destination $coreX86
 Copy-Item -LiteralPath $x86hook -Destination $coreX86
 
-# 3c. Shared data once at the root - the launcher runs each core with this folder as the working
-#     directory, so the core's ./calendars and ./presets lookup resolves here.
+# 3c. Shared data once at the root. A core in core/x64 or core/x86 recognises this layout and reads the
+#     root's calendars and presets as its own catalogue, so it never falls back to the working directory
+#     (R5-B6). One copy, so a calendar added by hand is added in one place.
 Copy-Item -Path (Join-Path $root 'calendars') -Destination $stage -Recurse
 Copy-Item -Path (Join-Path $root 'presets') -Destination $stage -Recurse
 

@@ -8,7 +8,15 @@ use std::collections::HashMap;
 
 use chrono_proto::{TargetConsole, TargetSpec};
 
+use crate::cli::{flag_value, refuse_repeat};
 use crate::zone::parse_zone_to_bias;
+
+/// The flags of `run` that take exactly one value, each refused when given twice (R5-P16). `--param`
+/// repeats on purpose, one parameter each, and refuses a repeated id on its own.
+const ONE_VALUE_FLAGS: [&str; 11] = [
+    "--at", "--preset", "--zone", "--mode", "--args", "--cwd", "--ticks", "--timeout", "--set-after", "--jump-after",
+    "--report",
+];
 
 pub(crate) struct RunArgs {
     pub(super) target: String,
@@ -286,37 +294,43 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     // combined with them instead of silently ignoring one source.
     let mut saw_time_flag = false;
 
+    // The flags of ONE_VALUE_FLAGS seen so far, so a second one is refused instead of winning.
+    let mut given: Vec<&str> = Vec::new();
+
     let mut i = 0;
     while i < argv.len() {
+        refuse_repeat(&mut given, argv[i].as_str(), &ONE_VALUE_FLAGS)?;
         match argv[i].as_str() {
             "--at" => {
                 i += 1;
-                at = Some(argv.get(i).ok_or("--at needs a value")?.clone());
+                at = Some(flag_value(argv, i, "--at", "a moment like 2026-01-31T00:00:00 or +3d")?.to_string());
                 saw_time_flag = true;
             }
             "--preset" => {
                 i += 1;
-                preset = Some(argv.get(i).ok_or("--preset needs an id like month-end")?.clone());
+                preset = Some(flag_value(argv, i, "--preset", "an id like month-end")?.to_string());
             }
             "--param" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--param needs id=value like start_date=2026-01-01")?;
+                let raw = flag_value(argv, i, "--param", "id=value like start_date=2026-01-01")?;
                 let (id, value) = raw
                     .split_once('=')
                     .ok_or_else(|| format!("--param must be id=value, got '{raw}'"))?;
                 if id.is_empty() {
                     return Err(format!("--param needs a non-empty id, got '{raw}'"));
                 }
-                params.insert(id.to_string(), value.to_string());
+                if params.insert(id.to_string(), value.to_string()).is_some() {
+                    return Err(format!("--param {id} is given twice - pass each parameter once"));
+                }
             }
             "--zone" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--zone needs a value like +02:00")?;
+                let raw = flag_value(argv, i, "--zone", "a value like +02:00")?;
                 zone_bias_min = Some(parse_zone_to_bias(raw)?);
             }
             "--mode" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--mode needs a value like x60")?;
+                let raw = flag_value(argv, i, "--mode", "a value like x60")?;
                 let (m, mult) = parse_mode(raw)?;
                 mode = m;
                 multiplier = mult;
@@ -324,19 +338,20 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             }
             "--args" => {
                 i += 1;
+                // Not through `flag_value`: the target's own command line is made of flags.
                 let raw = argv.get(i).ok_or("--args needs a value")?;
                 args = split_args(raw);
             }
             "--cwd" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--cwd needs a value")?;
+                let raw = flag_value(argv, i, "--cwd", "a folder")?;
                 // An explicitly empty value is a usage error, not "no directory". The two mean
                 // different things on the wire (absent vs present-and-empty) and only one of them is
                 // something CreateProcessW can be given.
                 if raw.trim().is_empty() {
                     return Err("--cwd needs a directory - omit the flag to start where the tool does".into());
                 }
-                cwd = Some(raw.clone());
+                cwd = Some(raw.to_string());
             }
             "--scale-duration" => {
                 scale_duration = true;
@@ -345,12 +360,12 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             flag if engine.take(flag) || switches.take(flag) => {}
             "--ticks" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--ticks needs a value")?;
+                let raw = flag_value(argv, i, "--ticks", "a number of heartbeats")?;
                 ticks = raw.parse().map_err(|_| format!("bad --ticks value '{raw}'"))?;
             }
             "--timeout" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--timeout needs a value in seconds")?;
+                let raw = flag_value(argv, i, "--timeout", "a value in seconds")?;
                 let secs: u64 = raw.parse().map_err(|_| format!("bad --timeout value '{raw}'"))?;
                 if secs == 0 {
                     return Err("--timeout must be at least 1 second".into());
@@ -359,12 +374,12 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             }
             "--set-after" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--set-after needs <tick>:<multiplier>")?;
+                let raw = flag_value(argv, i, "--set-after", "<tick>:<multiplier>")?;
                 set_after = Some(parse_set_after(raw)?);
             }
             "--jump-after" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--jump-after needs <tick>:<moment>")?;
+                let raw = flag_value(argv, i, "--jump-after", "<tick>:<moment>")?;
                 let (t, mom) = raw
                     .split_once(':')
                     .ok_or("--jump-after must be <tick>:<moment>")?;
@@ -372,7 +387,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             }
             "--report" => {
                 i += 1;
-                report = Some(argv.get(i).ok_or("--report needs a path")?.clone());
+                report = Some(flag_value(argv, i, "--report", "a path for the evidence file")?.to_string());
             }
             other if other.starts_with("--") => {
                 return Err(format!("unknown flag '{other}'"));
@@ -610,5 +625,60 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(ok.params.get("start_date").map(String::as_str), Some("2026-01-01"));
+    }
+
+    fn words(s: &[&str]) -> Vec<String> {
+        s.iter().map(|w| w.to_string()).collect()
+    }
+
+    /// The refusal of a command line that must be refused.
+    fn refusal(s: &[&str]) -> String {
+        match parse_run_args(&words(s)) {
+            Err(e) => e,
+            Ok(_) => panic!("accepted {s:?}"),
+        }
+    }
+
+    /// A flag that takes a value no longer swallows the flag after it (R5-P16): `--report --dry-run`
+    /// ran the target and wrote the evidence into a file named `--dry-run`, and `--report
+    /// --no-embedded` dropped the opt-out. The refusal names the flag it would have taken.
+    #[test]
+    fn a_value_flag_refuses_the_next_flag_as_its_value() {
+        for flag in ["--report", "--at", "--preset", "--zone", "--mode", "--cwd", "--ticks", "--timeout", "--set-after", "--jump-after"] {
+            let err = refusal(&["app.exe", flag, "--dry-run"]);
+            assert!(err.contains(&format!("{flag} needs")) && err.contains("'--dry-run'"), "{flag}: {err}");
+        }
+        let err = refusal(&["app.exe", "--report", "--no-embedded"]);
+        assert!(err.contains("'--no-embedded'"), "{err}");
+        let err = refusal(&["--param", "--json", "--preset", "m", "app.exe"]);
+        assert!(err.contains("--param needs") && err.contains("'--json'"), "{err}");
+    }
+
+    /// `--args` is the one value made of flags - the target's own command line - and keeps taking them.
+    /// A folder or path that starts with two dashes is still reachable, written from the current folder.
+    #[test]
+    fn the_target_arguments_and_a_dotted_path_still_pass() {
+        let ra = parse_run_args(&words(&["app.exe", "--args", "--help --verbose", "--dry-run"])).unwrap();
+        assert_eq!(ra.args, vec!["--help", "--verbose"]);
+        assert!(ra.dry_run, "the flag after the value is still read as a flag");
+        let ra = parse_run_args(&words(&["app.exe", "--report", r".\--evidence.txt"])).unwrap();
+        assert_eq!(ra.report.as_deref(), Some(r".\--evidence.txt"));
+    }
+
+    /// A flag that takes one value is refused when given twice, where the last one used to win in
+    /// silence, and so is a parameter id given twice (R5-P16, the same rule `calc` has had since R4-N32).
+    #[test]
+    fn a_one_value_flag_or_a_parameter_given_twice_is_refused() {
+        let err = refusal(&["app.exe", "--report", "a.txt", "--report", "b.txt"]);
+        assert!(err.contains("--report is given twice"), "{err}");
+        let err = refusal(&["--at", "2026-01-01T00:00:00", "app.exe", "--at", "2027-01-01T00:00:00"]);
+        assert!(err.contains("--at is given twice"), "{err}");
+        let err = refusal(&["--preset", "m", "--param", "a=1", "--param", "a=2", "app.exe"]);
+        assert!(err.contains("--param a is given twice"), "{err}");
+        let two = parse_run_args(&words(&["--preset", "m", "--param", "a=1", "--param", "b=2", "app.exe"])).unwrap();
+        assert_eq!(two.params.len(), 2, "two different parameters are two values, not a repeat");
+        // A value word is never read as a flag, so `--args` carrying `--report` repeats nothing.
+        let ra = parse_run_args(&words(&["app.exe", "--args", "--report", "--report", "r.txt"])).unwrap();
+        assert_eq!(ra.report.as_deref(), Some("r.txt"));
     }
 }

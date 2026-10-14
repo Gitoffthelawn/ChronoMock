@@ -239,6 +239,7 @@
           <tr><td>5</td><td>a operação não está incluída nesta versão - por exemplo, um cenário cujo momento precisa de um calendário que o <code>run</code> ainda não consegue carregar. Deliberadamente distinto de um erro de uso: você pediu algo que ainda não existe, não algo errado</td></tr>
           <tr><td>6</td><td>a execução foi interrompida - <code>--timeout</code> expirou, ou o motor parou de responder por 15 segundos e foi parado. Isto não é um veredito: a sessão foi interrompida, então não prova nada sobre o alvo, em nenhum dos sentidos</td></tr>
           <tr><td>7</td><td>outra sessão já está em execução - uma sessão por vez. Basta tentar de novo quando ela terminar</td></tr>
+          <tr><td>8</td><td>a sessão chegou a um veredito, mas a evidência não está no arquivo indicado por <code>--report</code> - o disco estava cheio, ou outro programa mantinha o arquivo antigo aberto, que então fica como estava. O veredito continua no relatório que o comando exibe</td></tr>
         </tbody>
       </table>
     </div>

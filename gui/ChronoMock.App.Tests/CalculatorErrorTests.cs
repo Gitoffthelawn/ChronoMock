@@ -75,12 +75,12 @@ public class CalculatorErrorTests
     public void A_refusal_with_nothing_extra_to_say_shows_no_second_line()
     {
         // No key, so the message IS the sentence - a second copy of it underneath would be noise.
-        const string keyless = "chrono calc: calendar 'pl' not found (looked in <exe>/calendars)";
+        const string keyless = "chrono calc: cannot resolve current time: the clock could not be read";
 
         var text = WpfTestHost.Invoke(() => CalculatorViewModel.DescribeCalcError(keyless));
         var detail = WpfTestHost.Invoke(() => CalculatorViewModel.DetailForCalcError(keyless));
 
-        Assert.Equal("calendar 'pl' not found (looked in <exe>/calendars)", text);
+        Assert.Equal("cannot resolve current time: the clock could not be read", text);
         Assert.Equal(string.Empty, detail);
     }
 

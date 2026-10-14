@@ -23,8 +23,7 @@ use std::collections::HashMap;
 use chrono_core::calc::{Base, EvalContext, EvalError, MomentExpr, Sign, Step};
 use chrono_core::filetime_utc_to_wall;
 
-use crate::calendar::load_calendar;
-use crate::cli::print_calc_usage;
+use crate::cli::{flag_value, print_calc_usage};
 use crate::grammar::{parse_base, parse_nearest, parse_set_time, parse_shift, parse_snap};
 use crate::output::{diag, out, outln};
 use crate::preset::{
@@ -97,10 +96,10 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     // Load the calendar (if requested) before evaluating: a missing or malformed calendar is a
     // usage error surfaced before any result, never a silently dropped metadata field.
     let mut calendar = match &ca.calendar {
-        Some(id) => match load_calendar(id) {
+        Some(id) => match load_named_calendar(id) {
             Ok(c) => Some(c),
-            Err(e) => {
-                diag!("chrono: {e}");
+            Err(line) => {
+                diag!("{line}");
                 return 1;
             }
         },
@@ -148,7 +147,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 let implied = match adopt_market_calendar(&p, &mut calendar) {
                     Ok(line) => line,
                     Err(e) => {
-                        diag!("chrono calc: {e}");
+                        diag!("chrono calc: {e} (calc.market_calendar_unavailable)");
                         return 1;
                     }
                 };
@@ -158,14 +157,14 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 let values = match resolve_parameters(&p.parameters, &ca.params, None) {
                     Ok(v) => v,
                     Err(e) => {
-                        diag!("chrono calc: {}", e.message());
+                        diag!("{}", preset_refusal(&e, PresetStage::Parameters));
                         return e.exit_code();
                     }
                 };
                 let moment = match resolve_moment(p.moment, &values) {
                     Ok(m) => m,
                     Err(e) => {
-                        diag!("chrono calc: {}", e.message());
+                        diag!("{}", preset_refusal(&e, PresetStage::File));
                         return e.exit_code();
                     }
                 };
@@ -175,7 +174,7 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
                 (moment, Some(header), Some(pj))
             }
             Err(e) => {
-                diag!("chrono calc: {}", e.message());
+                diag!("{}", preset_refusal(&e, PresetStage::File));
                 return e.exit_code();
             }
         },
@@ -485,6 +484,44 @@ pub(crate) fn calc_moment_json(
     serde_json::to_string(&doc).unwrap_or_else(|e| format!(r#"{{"error":"serialize: {e}"}}"#))
 }
 
+/// The calendar `--calendar` names, or the line refusing it, ending in a key that says which failure it
+/// is (R5-D5, item 2). The window translates the key, and these came to it as a bare English sentence:
+/// a calendar that is not there and one that is there and cannot be used need different hands, and an
+/// id that cannot be a file name is an argument to fix.
+fn load_named_calendar(id: &str) -> Result<chrono_core::calendar::Calendar, String> {
+    let path = crate::calendar::find_calendar_file(id).map_err(|e| {
+        if crate::calendar::is_valid_catalogue_id(id) {
+            format!("chrono calc: {e} (calc.calendar_not_found)")
+        } else {
+            format!("chrono calc: {e} (calc.bad_argument)")
+        }
+    })?;
+    crate::calendar::load_calendar_at(&path, id).map_err(|e| format!("chrono calc: {e} (calc.calendar_invalid)"))
+}
+
+/// Where a preset failed, which decides what a bad file means: the file itself (or its moment), or the
+/// values given for its parameters on the command line or in the window's fields.
+#[derive(Clone, Copy)]
+enum PresetStage {
+    File,
+    Parameters,
+}
+
+/// The line refusing a preset, ending in its key (R5-D5, item 2). A file that is not there and a build
+/// that does not resolve a part of it have a key of their own wherever they come from. A bad file has
+/// two, because the same kind of error is fixed in the file at one stage and in the values at the other.
+/// Each key stands inside its sentence, the shape `tests/wire_keys.rs` reads a calculator key by.
+fn preset_refusal(e: &crate::preset::PresetError, stage: PresetStage) -> String {
+    use crate::preset::PresetError;
+    let m = e.message();
+    match (e, stage) {
+        (PresetError::NotFound(_), _) => format!("chrono calc: {m} (calc.preset_not_found)"),
+        (PresetError::NotBuilt(_), _) => format!("chrono calc: {m} (calc.preset_not_built)"),
+        (PresetError::BadFile(_), PresetStage::Parameters) => format!("chrono calc: {m} (calc.preset_parameter)"),
+        (PresetError::BadFile(_), PresetStage::File) => format!("chrono calc: {m} (calc.preset_invalid)"),
+    }
+}
+
 /// Count a preset's business days in its market's calendar when no `--calendar` named one, and say so.
 ///
 /// The window's calculator selects that calendar when the preset is chosen and `run --preset` has used
@@ -559,27 +596,6 @@ fn reject_second_base(seen: &mut Option<&'static str>, flag: &'static str) -> Re
             *seen = Some(flag);
             Ok(())
         }
-    }
-}
-
-/// The word after a flag, which is its value - refused when it is missing or is itself a flag.
-///
-/// A flag took the next word whatever it was, so `--format --json` read `--json` as the mask, printed
-/// text where JSON was asked for, and said nothing of the flag it had swallowed (R4-N32). No value
-/// that comes through here starts with two dashes: a shift and a zone carry one sign, ids and dates
-/// none, and a mask that must open with two dashes quotes them (`'--'yyyy`). So such a word is named
-/// as the flag it is, the way `--at` names it in `chrono run`.
-///
-/// `--analyze` does not come through here. What it takes is pasted text, a typo can put two dashes
-/// in front of a real date, and the analyser's own refusal already names the text for what it is -
-/// taking it here would put a refusal about arguments on the analysis panel of the GUI.
-fn flag_value<'a>(argv: &'a [String], i: usize, flag: &str, needs: &str) -> Result<&'a str, String> {
-    match argv.get(i) {
-        None => Err(format!("{flag} needs {needs}")),
-        Some(word) if word.starts_with("--") => {
-            Err(format!("{flag} needs {needs}, but the next word is the flag '{word}'"))
-        }
-        Some(word) => Ok(word),
     }
 }
 
@@ -661,7 +677,7 @@ pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
             }
             "--analyze" => {
                 i += 1;
-                // Not through `flag_value` - see there why pasted text is taken as it comes.
+                // Not through `cli::flag_value` - see there why pasted text is taken as it comes.
                 let raw = argv.get(i).ok_or("--analyze needs a date like 04/08/2008")?;
                 set_once(&mut analyze, "--analyze", raw.clone())?;
             }
@@ -818,9 +834,9 @@ pub(crate) fn describe_calc_error(e: &EvalError) -> String {
             chrono_core::CIVIL_YEAR_MAX
         ),
         EvalError::TooManyBusinessDays { index } => format!(
-            "chrono calc: step {} asks for more than {} business days - the most this counts (calc.business_days_limit)",
+            "chrono calc: step {} takes the business days of this calculation past {limit} - the most one calculation counts, all its steps together. Lower the counts so they add up to {limit} or less (calc.business_days_limit)",
             index + 1,
-            chrono_core::calendar::MAX_BUSINESS_DAYS
+            limit = chrono_core::calendar::MAX_BUSINESS_DAYS
         ),
         EvalError::BeforeCalendar { index, first_year } => format!(
             "chrono calc: step {} reaches a day before {first_year}, the first year the calendar covers - pick a later date or another calendar (calc.before_calendar)",
@@ -972,10 +988,10 @@ pub(crate) fn render_analysis(
     // them - and only for them: a date written as fields does not move with the zone.
     if instant {
         let from_host = if zone_from_host { ", from the host" } else { "" };
-        out.push_str(&format!(
-            "  zone:    {}{from_host}  (the number is an instant, shown in this zone)\n",
-            format_bias(bias)
-        ));
+        // A date with its own offset is an instant for another reason than a number is (R5-D5, item 5).
+        let offset = analysis.readings.iter().any(|(r, _)| *r == chrono_core::calc::DateReading::IsoOffset);
+        let what = if offset { "the date carries its own UTC offset, so it is an instant" } else { "the number is an instant" };
+        out.push_str(&format!("  zone:    {}{from_host}  ({what}, shown in this zone)\n", format_bias(bias)));
     }
     let written = time_written(input);
     for (reading, civil) in &analysis.readings {
@@ -1111,6 +1127,41 @@ pub(crate) fn describe_step(step: &Step) -> String {
 mod tests {
     use super::*;
 
+    /// A date with its own offset is shown as the instant it is, in the session zone, with the zone
+    /// line saying why - not the line written for a bare number (R5-D5, item 5).
+    #[test]
+    fn a_date_with_an_offset_is_analysed_as_an_instant() {
+        let input = "2026-01-01T10:00:00+02:00";
+        let analysis = chrono_core::calc::analyze_date(input, 0).unwrap();
+        let now = chrono_core::calc::parse_civil_datetime("2026-06-01T00:00:00").unwrap();
+        let text = render_analysis(&analysis, input, &now, Some(0), false, None);
+        assert!(text.contains("ISO 8601 with UTC offset:  2026-01-01T08:00:00"), "{text}");
+        assert!(text.contains("the date carries its own UTC offset, so it is an instant"), "{text}");
+        assert!(!text.contains("the number is an instant"), "{text}");
+        let json = calc_analysis_json(&analysis, input, &now, Some(0), None);
+        assert!(json.contains(r#""reading":"iso_offset""#) && json.contains(r#""instant":true"#), "{json}");
+    }
+
+    /// A calendar or preset failure ends in a key the window translates (R5-D5, item 2), and the key
+    /// says which failure it is. A bad file and a bad value for its parameters are two keys, because
+    /// one is fixed in the file and the other on the command line or in the window's fields.
+    #[test]
+    fn calendar_and_preset_failures_end_in_their_own_key() {
+        use crate::preset::PresetError;
+        let line = |e: PresetError, stage| preset_refusal(&e, stage);
+        assert!(line(PresetError::NotFound("gone".into()), PresetStage::File).ends_with("gone (calc.preset_not_found)"));
+        assert!(line(PresetError::NotBuilt("later".into()), PresetStage::Parameters).ends_with("(calc.preset_not_built)"));
+        assert!(line(PresetError::BadFile("bad".into()), PresetStage::File).ends_with("bad (calc.preset_invalid)"));
+        assert!(line(PresetError::BadFile("no value".into()), PresetStage::Parameters).ends_with("(calc.preset_parameter)"));
+
+        // The test runs where no calendar folder answers, so a valid id is not found, and an id that
+        // cannot be a file name is an argument to fix.
+        let missing = load_named_calendar("no-such-calendar").expect_err("not found");
+        assert!(missing.starts_with("chrono calc: ") && missing.ends_with("(calc.calendar_not_found)"), "{missing}");
+        let bad_id = load_named_calendar("../pl").expect_err("refused");
+        assert!(bad_id.ends_with("(calc.bad_argument)"), "{bad_id}");
+    }
+
     #[test]
     fn calc_exit_codes_split_bad_input_from_needs_data() {
         // Not built / needs data -> code 5 - bad input -> usage 1.
@@ -1130,6 +1181,7 @@ mod tests {
             "got: {msg}"
         );
         assert!(!msg.contains("overflow"), "the number is fine - only the limit is past, got: {msg}");
+        assert!(msg.contains("Lower the counts so they add up to 1000000 or less"), "says what to do: {msg}");
     }
 
     #[test]

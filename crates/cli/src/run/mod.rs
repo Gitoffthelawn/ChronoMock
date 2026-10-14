@@ -12,6 +12,8 @@
 mod args;
 /// Gathering what the session said, event by event.
 mod collect;
+/// `--report`: where the evidence file may go, and writing it whole.
+mod evidence_file;
 /// Deciding what time the session runs with, before anything is spawned.
 mod moment;
 /// `--dry-run`: describing the session instead of running it.
@@ -152,7 +154,13 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
             return 1;
         }
     };
-    if let Some(problem) = elevation_problem(&ra, chrono_mech::process_elevated(std::process::id())) {
+    // A run whose evidence has nowhere to go is refused before it starts, not after the session has
+    // run and cannot be run again (R5-B9, item 1).
+    let report_problem = || ra.report.as_deref().and_then(|path| evidence_file::path_problem(path, &ra.target));
+    if let Some(problem) = elevation_problem(&ra, chrono_mech::process_elevated(std::process::id()))
+        .map(str::to_string)
+        .or_else(report_problem)
+    {
         diag!("chrono: {problem}");
         return 1;
     }
@@ -255,13 +263,18 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         // the one a tester cites (untouchable rule 4).
         timed_out.or(core_lost.then_some("core_lost")),
     );
-    if let Some(path) = &ra.report {
-        let params = evidence_params(&ra, &spec, now_bias, started_utc);
-        match std::fs::write(path, render_evidence(&report, &params)) {
-            Ok(()) => diag!("chrono: evidence written to {path}"),
-            Err(e) => diag!("chrono: cannot write evidence to {path}: {e}"),
+    let evidence_written = match &ra.report {
+        None => true,
+        Some(path) => {
+            let params = evidence_params(&ra, &spec, now_bias, started_utc);
+            let written = evidence_file::write(path, &render_evidence(&report, &params));
+            match &written {
+                Ok(()) => diag!("chrono: evidence written to {path}"),
+                Err(e) => diag!("chrono: {e}"),
+            }
+            written.is_ok()
         }
-    }
+    };
     if !ra.json {
         out!("{}", render_report(&report));
     }
@@ -288,11 +301,56 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
 
     // The tool's exit code is the session verdict, carried by the core's exit code
     // (docs/08 section 8).
-    let code = driver_exit_code(status.ok().and_then(|s| s.code()));
+    let core_code = status.ok().and_then(|s| s.code());
+    let code = driver_exit_code(core_code);
     if code == 3 {
-        diag!("chrono: the core ended without a verdict - this run proves nothing about the target");
+        diag!("{}", no_verdict_notice(core_code));
     }
-    code
+    let with_evidence = exit_code_with_evidence(code, evidence_written);
+    if with_evidence != code {
+        diag!("{}", evidence_lost_notice(code, ra.report.as_deref().unwrap_or_default()));
+    }
+    with_evidence
+}
+
+/// The exit code of a run whose session reached a verdict that the evidence file of `--report` does
+/// not hold (R5-D28). The driver's own, never the core's.
+const EVIDENCE_NOT_WRITTEN_EXIT: i32 = 8;
+
+/// The exit code once the evidence file is accounted for (R5-D28, review round on PR #104).
+///
+/// A verdict whose evidence did not reach the path `--report` named becomes 8. The verdict alone said
+/// 0 over a folder that held no evidence, or an older file: when the old file is held open the rename
+/// fails and the old file stays, so a pipeline keeping that file as the proof of this run kept the proof
+/// of another. The verdict is still in the report on standard output, and in the scratch file the line
+/// before names when the write got that far. A code that is no verdict (1, 2, 3, 5, 6, 7) stays - it
+/// already says the run proves nothing, and says why.
+fn exit_code_with_evidence(code: i32, evidence_written: bool) -> i32 {
+    match code {
+        0 | 4 | 10 | 11 | 12 if !evidence_written => EVIDENCE_NOT_WRITTEN_EXIT,
+        _ => code,
+    }
+}
+
+/// What the driver says when a verdict gives way to [`EVIDENCE_NOT_WRITTEN_EXIT`].
+fn evidence_lost_notice(verdict_code: i32, path: &str) -> String {
+    format!(
+        "chrono: exit code {EVIDENCE_NOT_WRITTEN_EXIT}, not the verdict's {verdict_code} - {path} does not hold this session's evidence, the line above says why"
+    )
+}
+
+/// What the driver says when the session closed but the core's exit code is no verdict. The core's own
+/// code is named whenever it is not the 3 it maps to (R5-D4, item 3): a panic (101), an access violation
+/// or a kill came out as a bare 3, and that one number was all a pipeline kept of why. `core_lost_notice`
+/// has named it since R4/12a, this path did not.
+fn no_verdict_notice(core_code: Option<i32>) -> String {
+    let base = "chrono: the core ended without a verdict";
+    let tail = "this run proves nothing about the target";
+    match core_code {
+        Some(3) => format!("{base} - {tail}"),
+        Some(c) => format!("{base} (exit code {}) - {tail}", crate::report::exit_code_label(c)),
+        None => format!("{base} (exit code unknown) - {tail}"),
+    }
 }
 
 /// What reading the session produced: the events gathered, which limit cut the read short when one
@@ -943,6 +1001,18 @@ mod tests {
         assert!(core_lost_notice(None, false)[0].contains("(exit code unknown)"));
     }
 
+    /// The code that becomes 3 is still said, so a panic, a crash and a kill stay apart (R5-D4, item 3).
+    #[test]
+    fn the_no_verdict_line_names_the_core_code_it_replaced() {
+        let panic = no_verdict_notice(Some(101));
+        assert!(panic.contains("(exit code 101)") && panic.contains("without a verdict"), "{panic}");
+        let crashed = no_verdict_notice(Some(0xC000_0005u32 as i32));
+        assert!(crashed.contains("0xC0000005"), "an access violation is named as one: {crashed}");
+        assert!(no_verdict_notice(None).contains("(exit code unknown)"));
+        // The core's own internal-error code is the 3 it maps to, so nothing is lost and nothing is added.
+        assert!(!no_verdict_notice(Some(3)).contains("exit code"), "{}", no_verdict_notice(Some(3)));
+    }
+
     /// A core killed from outside carries no verdict, and the number it does carry is in no table
     /// the contract publishes - measured at -1. A pipeline branches on this, so an unknown code
     /// becomes the internal-error code instead of being passed through as if it meant something
@@ -953,8 +1023,23 @@ mod tests {
             assert_eq!(driver_exit_code(Some(verdict)), verdict);
         }
         assert_eq!(driver_exit_code(Some(-1)), 3, "a killed core must not look like a verdict");
-        assert_eq!(driver_exit_code(Some(8)), 3);
+        assert_eq!(driver_exit_code(Some(EVIDENCE_NOT_WRITTEN_EXIT)), 3, "8 is the driver's own, never the core's");
         assert_eq!(driver_exit_code(Some(0xC000_0005u32 as i32)), 3, "an access violation is not a verdict");
         assert_eq!(driver_exit_code(None), 3, "no code at all is not a verdict either");
+    }
+
+    /// A verdict whose evidence file was not written gives way to 8, and every code that is no verdict
+    /// keeps its own (R5-D28).
+    #[test]
+    fn a_verdict_without_its_evidence_file_becomes_exit_code_8() {
+        for verdict in [0, 4, 10, 11, 12] {
+            assert_eq!(exit_code_with_evidence(verdict, true), verdict);
+            assert_eq!(exit_code_with_evidence(verdict, false), EVIDENCE_NOT_WRITTEN_EXIT, "verdict {verdict}");
+        }
+        for no_verdict in [1, 2, 3, 5, 6, crate::core::SESSION_BUSY_EXIT] {
+            assert_eq!(exit_code_with_evidence(no_verdict, false), no_verdict);
+        }
+        let said = evidence_lost_notice(10, "e.txt");
+        assert!(said.contains("exit code 8") && said.contains("verdict's 10") && said.contains("e.txt"), "{said}");
     }
 }

@@ -79,21 +79,22 @@ public sealed class CalcErrorTextTests
         Assert.Equal("calc.overflow", CalcErrorText.KeyOf("chrono calc: something (calc.overflow)"));
         Assert.Null(CalcErrorText.KeyOf("chrono calc: mentions calc.overflow in passing"));
         Assert.Null(CalcErrorText.KeyOf("chrono calc: an aside (which is prose, not a key)"));
-        Assert.Null(CalcErrorText.KeyOf("chrono: calendar 'pl' not found (looked in <exe>/calendars)"));
+        Assert.Null(CalcErrorText.KeyOf("chrono: the file could not be read (in the data folder)"));
     }
 
     /// <summary>
-    ///🔴 Not every calculator failure carries a key - a bad moment, an unresolvable preset and a missing
-    /// calendar file come out of shared code that predates them. Those stay English, which is honest. What
-    /// they must NOT keep is the command-line prefix: a window has no processes in it, and "chrono calc:"
-    /// tells the reader about an implementation detail instead of about their mistake.
+    ///🔴 Not every calculator failure carries a key. Since R5 wave 2 a missing or broken calendar and every
+    /// preset failure do, and what is left is rare: today only the clock that could not be read. It stays
+    /// English, which is honest. What it must NOT keep is the command-line prefix: a window has no
+    /// processes in it, and "chrono calc:" tells the reader about an implementation detail instead of
+    /// about their mistake.
     /// </summary>
     [Fact]
     public void A_failure_with_no_key_keeps_its_sentence_and_loses_the_command_line_prefix()
     {
         Assert.Equal(
-            "calendar 'pl' not found (looked in <exe>/calendars)",
-            CalcErrorText.Describe("chrono calc: calendar 'pl' not found (looked in <exe>/calendars)", Translator()));
+            "cannot resolve current time: the clock could not be read",
+            CalcErrorText.Describe("chrono calc: cannot resolve current time: the clock could not be read", Translator()));
 
         Assert.Equal(
             "second 60 in '2026-01-01T00:00:60' is a leap second - this model has none (use :59)",

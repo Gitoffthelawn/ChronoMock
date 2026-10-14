@@ -234,6 +234,7 @@
           <tr><td>5</td><td>işlem bu sürümde derlenmemiş - örneğin anı bir takvim gerektiren ve <code>run</code>’ın henüz yükleyemediği bir senaryo. Bilerek kullanım hatasından ayrı tutulmuştur: yanlış bir şey istemediniz, henüz var olmayan bir şey istediniz</td></tr>
           <tr><td>6</td><td>çalıştırma yarıda kesildi - <code>--timeout</code> doldu ya da motor 15 saniye boyunca yanıt vermeyi bıraktı ve durduruldu. Bu bir karar değildir: oturum kesintiye uğradığı için hedef hakkında ne bir yönde ne de diğerinde bir şey kanıtlar</td></tr>
           <tr><td>7</td><td>başka bir oturum zaten çalışıyor - aynı anda tek oturum. O bittikten sonra yeniden denemek yeterli</td></tr>
+          <tr><td>8</td><td>oturum bir karara vardı, ancak kanıtı <code>--report</code> ile verilen dosyada değil - disk doluydu ya da başka bir program eski dosyayı açık tutuyordu, o dosya da olduğu gibi kalır. Karar, komutun yazdırdığı raporda yine yer alır</td></tr>
         </tbody>
       </table>
     </div>

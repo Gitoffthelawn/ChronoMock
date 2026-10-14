@@ -31,8 +31,29 @@ pub(crate) fn parse_shift(raw: &str) -> Result<Step, String> {
         return Err(format!("shift needs a number, got '{raw}'"));
     }
     let amount: i64 = num.parse().map_err(|_| format!("bad number in shift '{raw}'"))?;
-    let unit = parse_unit(unit_str).ok_or_else(|| format!("unknown unit '{unit_str}' in shift '{raw}'"))?;
+    let unit = parse_unit(unit_str).ok_or_else(|| format!("{} in shift '{raw}'", unknown_unit(unit_str)))?;
     Ok(Step::Shift { sign, amount, unit })
+}
+
+/// Every unit, in the order a refusal lists them.
+const UNITS: [Unit; 9] = [
+    Unit::Seconds,
+    Unit::Minutes,
+    Unit::Hours,
+    Unit::Days,
+    Unit::Weeks,
+    Unit::Months,
+    Unit::Quarters,
+    Unit::Years,
+    Unit::BusinessDays,
+];
+
+/// The refusal of a unit this grammar does not read, with the units it does (R5-D5, item 3). `snap`
+/// and `nearest` already listed their targets, and `--shift +2mth` left the reader to guess. The list
+/// comes from [`unit_code`], so a unit added there is listed here too.
+pub(crate) fn unknown_unit(token: &str) -> String {
+    let codes: Vec<&str> = UNITS.iter().map(|&u| unit_code(u)).collect();
+    format!("unknown unit '{token}' (use {} - m is minutes, mo is months)", codes.join(", "))
 }
 
 /// Map a unit token (short code or full name) to a canonical unit. 🔴 `m` is minutes,
@@ -172,6 +193,9 @@ mod tests {
         assert!(parse_shift("18years").is_err()); // no sign
         assert!(parse_shift("+years").is_err()); // no number
         assert!(parse_shift("+18zz").is_err()); // unknown unit
+        // The refusal lists the units it reads (R5-D5, item 3), all of them, from the one table.
+        let err = parse_shift("+2mth").unwrap_err();
+        assert!(err.contains("unknown unit 'mth'") && err.contains("use s, m, h, d, w, mo, q, y, bd"), "{err}");
         assert!(parse_shift("+").is_err()); // sign only
     }
 

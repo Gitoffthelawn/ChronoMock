@@ -266,9 +266,11 @@ pub(crate) fn sanitise_target_text(text: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            // U+2028 and U+2029 are not control characters, but plenty of readers break a line on
-            // them - including the JS engine at the other end of this very protocol.
-            c if c.is_control() || c == '\u{2028}' || c == '\u{2029}' => {
+            // Control characters, and what shows as something else: the line and paragraph separators,
+            // which plenty of readers break a line on (the JS engine at the other end of this very
+            // protocol among them), and the format characters, which reorder or hide the rest - a
+            // right-to-left override in a process name reverses what follows it (R5-B1).
+            c if chrono_core::text::is_hidden_char(c) => {
                 out.push_str(&format!("\\u{{{:04x}}}", c as u32));
             }
             c => out.push(c),
@@ -654,6 +656,11 @@ mod tests {
         // An escape sequence would otherwise let a target repaint the terminal it is reported in.
         assert_eq!(sanitise_target_text("esc\u{1b}[31m"), "esc\\u{001b}[31m");
         assert_eq!(sanitise_target_text("sep\u{2028}arator"), "sep\\u{2028}arator");
+        // A format character shows too, so it cannot reverse or hide what follows it (R5-B1).
+        let reversed: String = ['a', char::from_u32(0x202E).unwrap(), 'b'].iter().collect();
+        assert_eq!(sanitise_target_text(&reversed), "a\\u{202e}b");
+        let zero_width: String = ['a', char::from_u32(0x200B).unwrap(), 'b'].iter().collect();
+        assert_eq!(sanitise_target_text(&zero_width), "a\\u{200b}b");
     }
 
     #[test]
