@@ -18,6 +18,7 @@ mod batch;
 mod ending;
 mod environment;
 mod family;
+mod held;
 mod host_zone;
 mod job;
 mod listeners;
@@ -1565,7 +1566,9 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             let _ = CloseHandle(hmap);
             return Err(PrepareError::Control("MapViewOfFile returned null".into()));
         }
-        let ctl = view.Value as *mut Ctl;
+        // From here every way out releases the view and the mapping on its own (R5-A6).
+        let control = held::ControlView::new(hmap, view);
+        let ctl = control.ctl();
 
         // A surviving section can only be an orphan here: we hold the session lock, so no live core
         // owns it - it was left by a killed core whose target self-detached to real time, or by one
@@ -1583,8 +1586,6 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             // cannot recognise. A section the OS just created is zero-filled, so a bare name-squat
             // fails this, and so does a block written by a build with a different layout.
             if !header_is_ours(ctl) {
-                let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-                let _ = CloseHandle(hmap);
                 return Err(PrepareError::Control(
                     "the session control block is held by something that is not this tool - \
                      refusing to reuse it"
@@ -1636,45 +1637,27 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // suspended - killed by the window after its patience ran out, Ctrl+C, a crash - left it
         // suspended for good, holding its executable and the hook library open. Its children stay out
         // of the job.
-        let (pi, start_job) = match create_in_job(&app, &cmdline, target, CREATE_SUSPENDED, true) {
-            Ok(started) => started,
-            Err(e) => {
-                let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-                let _ = CloseHandle(hmap);
-                return Err(PrepareError::Launch(e));
-            }
-        };
+        let (pi, start_job) = create_in_job(&app, &cmdline, target, CREATE_SUSPENDED, true).map_err(PrepareError::Launch)?;
+        // Until it runs, every way out ends it, closes its handles and drops its job (R5-A6, H-2).
+        let suspended = held::SuspendedTarget::new(pi, start_job);
 
         // 2a. Refuse a target this core cannot reach, before trying (R2-S1). The process exists but is
-        // still suspended - it has not run an instruction - so terminating it here costs the tester
+        // still suspended - it has not run an instruction - so ending it here costs the tester
         // nothing and leaves no half-started application behind.
-        if let Some((target_bits, core_bits)) = bitness_mismatch(pi.hProcess) {
-            let _ = TerminateProcess(pi.hProcess, 1);
-            let _ = CloseHandle(pi.hThread);
-            let _ = CloseHandle(pi.hProcess);
-            let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-            let _ = CloseHandle(hmap);
+        if let Some((target_bits, core_bits)) = bitness_mismatch(suspended.process()) {
             return Err(PrepareError::BitnessMismatch(target_bits, core_bits));
         }
 
-        // 3. Inject the hook into the suspended target.
-        if let Err(e) = inject(pi.hProcess, &dll_wide) {
-            // Injection failed, so the target is UNHOOKED and still SUSPENDED (it never ran an instruction).
-            // Terminate it (H-2): resuming - the old "let it die naturally" - would run an unhooked process
-            // to completion reading REAL time, a silent orphan the caller never asked to run, and hand back
-            // a "session" that substituted nothing. Clean up the mapped control view too (M-2).
-            let _ = TerminateProcess(pi.hProcess, 1);
-            let _ = CloseHandle(pi.hThread);
-            let _ = CloseHandle(pi.hProcess);
-            let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-            let _ = CloseHandle(hmap);
-            return Err(e);
-        }
+        // 3. Inject the hook into the suspended target. A failed injection leaves it UNHOOKED and still
+        // SUSPENDED, and it is ended on the way out (H-2): resuming - the old "let it die naturally" -
+        // would run an unhooked process to completion reading REAL time, a silent orphan the caller
+        // never asked to run, and hand back a "session" that substituted nothing. The view goes too (M-2).
+        inject(suspended.process(), &dll_wide)?;
 
         // 4. Find the parent's OWN coverage slot (it published its pid in DllMain, before resume, so
         // this is deterministic) and read the install bitmask. If the hook could not claim a slot
         // (best-effort failure in the target), report no coverage rather than guessing - honest.
-        let parent_pid = pi.dwProcessId;
+        let parent_pid = suspended.pid();
         let parent_slot = find_pid_slot(ctl, parent_pid, None);
         let installed = match parent_slot {
             Some(slot) => read_installed(cov_at(ctl, slot)),
@@ -1689,17 +1672,13 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // ResumeThread returns the thread's previous suspend count, or u32::MAX (-1) on failure. A failed
         // resume would leave the target SUSPENDED forever while WaitForSingleObject below reads it as
         // "still alive/healthy" (M-3) - a frozen process handed back as a running session that never does
-        // anything. Terminate and fail loudly instead (the hook's mapped section dies with the target).
-        if ResumeThread(pi.hThread) == u32::MAX {
-            let _ = TerminateProcess(pi.hProcess, 1);
-            let _ = CloseHandle(pi.hThread);
-            let _ = CloseHandle(pi.hProcess);
-            let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: view.Value });
-            let _ = CloseHandle(hmap);
+        // anything. It is ended on the way out instead, loudly (the hook's mapped section dies with it).
+        if ResumeThread(suspended.thread()) == u32::MAX {
             return Err(PrepareError::Inject("ResumeThread failed - target left suspended".into()));
         }
         // It runs now, so the job lets go of it before the guard window: from here a core that dies
         // leaves the application running, as ADR-14 promises.
+        let (pi, start_job) = suspended.into_running();
         let start_job_note = let_go_of(start_job);
         let waited = WaitForSingleObject(pi.hProcess, GUARD_MS);
         let coverage = match parent_slot {
@@ -1724,9 +1703,10 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         if let Some(slot) = parent_slot {
             reported_slots[slot] = true;
         }
+        let (ctl_addr, hmap) = control.into_session();
         let session = Session {
             pid: parent_pid,
-            ctl_addr: view.Value as usize,
+            ctl_addr,
             hmap,
             hprocess: pi.hProcess,
             start_real,
