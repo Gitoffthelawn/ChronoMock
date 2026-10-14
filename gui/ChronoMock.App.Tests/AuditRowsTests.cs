@@ -92,6 +92,26 @@ public class AuditRowsTests
         Assert.Equal("128004", rows[0].CallsText);
     }
 
+    /// <summary>R5-WY11: a count that stopped at the hook's ceiling carries that to its row, covered and
+    /// observed alike, and the count column says "at least" around it - an exact count stays bare.</summary>
+    [Fact]
+    public void A_count_at_the_ceiling_reads_as_at_least()
+    {
+        var rows = AuditRowsConverter.Fold(
+            covered: [Channel("GetSystemTimeAsFileTime", 1_048_576) with { Capped = true }, Channel("GetSystemTime", 3)],
+            uncovered: [], observed: [Channel("WaitForSingleObject", 1_048_576) with { Capped = true }],
+            unobserved: [], installedLate: []);
+        string Translate(string key) => key == "audit.calls_at_least" ? "at least {0}" : key;
+
+        var capped = rows.Single(r => r.Channel == "GetSystemTimeAsFileTime");
+        Assert.True(capped.CallsAtLeast);
+        Assert.Equal("at least 1048576", AuditCountConverter.Text(capped, Translate));
+        Assert.True(rows.Single(r => r.Channel == "WaitForSingleObject").CallsAtLeast);
+        var exact = rows.Single(r => r.Channel == "GetSystemTime");
+        Assert.False(exact.CallsAtLeast);
+        Assert.Equal("3", AuditCountConverter.Text(exact, Translate));
+    }
+
     [Fact]
     public void An_unset_binding_value_folds_to_no_rows_rather_than_throwing()
     {

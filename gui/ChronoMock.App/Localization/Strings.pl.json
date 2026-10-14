@@ -385,6 +385,7 @@
   "audit.col_source": "Skąd czytała",
   "audit.col_reads": "Odczyty",
   "audit.status_fake": "fałszywy zegar",
+  "audit.calls_at_least": "co najmniej {0}",
   "audit.status_real": "prawdziwy zegar",
   "audit.status_by_design": "prawdziwy zegar, celowo",
   "audit.status_by_design_late": "prawdziwy zegar, celowo, zaczepiona późno",
@@ -414,6 +415,7 @@
   "audit.engines_note_none": "Sesja się do nich podłączyła, ale żadna ich strona nie dostała w ten sposób zegara sesji. Pod ten port można podłączyć własne DevTools, żeby obejrzeć te strony.",
   "coverage.reads": "{0} - odczytano {1} razy",
   "coverage.reads_one": "{0} - odczytano raz",
+  "coverage.reads_at_least": "{0} - odczytano co najmniej {1} razy",
   "coverage.family_note": "Uruchomiło się kilka procesów - liczniki wywołań są z pierwszego, a ostrzeżenia i wszystko czytane z prawdziwego zegara dotyczą wszystkich.",
   "coverage.contexts_note": "Aplikacja Chromium - każdy kontekst JS jest wypisany osobno (strona i jej workery), nigdy sumowane.",
 
@@ -467,8 +469,10 @@
   // date shown in the session's time zone is the part that confuses a reader.
   "runtime.go_wall_clock_unreachable": "Ta aplikacja jest zbudowana w Go. Jej runtime czyta datę wprost ze współdzielonej pamięci systemu, zamiast pytać o nią Windows, więc widzi PRAWDZIWĄ datę i żadne ustawienie tego nie zmieni. Strefa czasowa sesji do niej dociera, więc pokazywane godziny to prawdziwy czas wyrażony w strefie sesji.",
   "coverage.session_clock_never_read": "Żaden proces w tej sesji ani razu nie odczytał zegara, który sesja zastępuje, więc nic z tego, co zrobiła aplikacja, nie wzięło się z fałszywej daty. Kanały powyżej są założone i działają - aplikacja po prostu wzięła czas skądinąd, na przykład ze źródła spoza tego komputera.",
+  "time.host_slept": "Komputer spał w trakcie sesji. Zegar sesji w tym czasie stał, jak przy pauzie - sen nigdy nie jest mnożony przez prędkość.",
+  "timer.absolute_due_converted": "Aplikacja ustawiła timer albo czekanie na konkretną chwilę na zegarze, a potem sesja przeskoczyła albo zmieniła prędkość. Taki termin zamienia się w odstęp w chwili ustawienia, według ówczesnej prędkości, więc termin oczekujący w chwili ruchu zegara wybije tam, gdzie doszedłby stary zegar. Windows przesuwa takie własne timery razem z zegarem.",
   "time.fake_clock_clamped": "Fałszywy zegar doszedł do ostatniej daty, jaką ta wersja potrafi wyrazić (rok 30828), i stanął tam do końca sesji. Późniejsze odczyty nie są datami, które dałaby wybrana prędkość.",
-  "time.duration_axis_clamped": "Liczniki monotoniczne (licznik tyknięć, nieobciążony czas przerwań oraz QPC, gdy skalowany) doszły do końca swojego zakresu i stanęły, więc czas, jaki upłynął wewnątrz aplikacji, przestał rosnąć, mimo że sesja trwała dalej. Mniejsza prędkość albo krótsza sesja tego unika.",
+  "time.duration_axis_clamped": "Liczniki monotoniczne (licznik tyknięć, czas przerwań oraz QPC, gdy skalowany) doszły do końca swojego zakresu i stanęły, więc czas, jaki upłynął wewnątrz aplikacji, przestał rosnąć, mimo że sesja trwała dalej. Mniejsza prędkość albo krótsza sesja tego unika.",
   "session.left_running": "Aplikacja nadal działała, gdy sesja się skończyła. Jest już z powrotem na prawdziwej dacie i godzinie, a jej liczniki czasu biegną dalej w normalnym tempie od miejsca, w którym zostawiła je sesja, zamiast się cofnąć. Timer cykliczny ustawiony, gdy jej timery były przyspieszone, zachowuje skrócony odstęp, który wtedy dostał. Żeby wystartowała od zera na prawdziwym zegarze, uruchom ją ponownie.",
   "session.followed_family": "Program wybrany do sesji zakończył się, gdy uruchomione przez niego programy nadal działały na fałszywym zegarze, więc sesja trwała dalej dla nich, zamiast skończyć się razem z nim. Program, który działa dalej po zamknięciu aplikacji, też trzyma sesję otwartą - zatrzymaj sesję, gdy skończysz.",
   "target.single_instance_suspected": "zakończył się zaraz po uruchomieniu, zanim fałszywy zegar dało się potwierdzić - zwykle to aplikacja jednoinstancyjna, która przekazała pracę swojej działającej już kopii, więc zamknij tę kopię i uruchom ponownie",

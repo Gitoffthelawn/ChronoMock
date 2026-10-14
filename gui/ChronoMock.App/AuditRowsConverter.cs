@@ -14,11 +14,37 @@ namespace ChronoMock.App;
 /// A string rather than an enum because the template's triggers compare it, and a trigger compares text.</param>
 /// <param name="Calls">The read count, or null for a channel the session could not count (the ones it did
 /// not hook, and the ones nothing was hooked in).</param>
-public sealed record AuditRow(string Channel, string StatusKey, string Status, long? Calls)
+/// <param name="CallsAtLeast">The count stopped at the hook's ceiling, so it is a floor (R5-WY11): the table
+/// says "at least" before it (<see cref="AuditCountConverter"/>).</param>
+public sealed record AuditRow(string Channel, string StatusKey, string Status, long? Calls, bool CallsAtLeast = false)
 {
     /// <summary>The count as the table prints it: the same invariant digits the copy-summary uses, so the
     /// screen and the clipboard never disagree about a number. Empty where there is no count.</summary>
     public string CallsText => Calls?.ToString(CultureInfo.InvariantCulture) ?? string.Empty;
+}
+
+/// <summary>
+/// The count column of one audit row: the digits, or the "at least" phrase around them when the count
+/// stopped at the hook's ceiling (R5-WY11) - the audit never shows a ceiling as if it were a count.
+/// </summary>
+/// <remarks>
+/// A converter over the row rather than a property of it, so the row stays a plain record the fold can build
+/// and the tests can read without a window, and the phrase follows the interface language like every other
+/// piece of text (untouchable rule 15) - the pattern <see cref="PagesReachedNoteConverter"/> set.
+/// </remarks>
+public sealed class AuditCountConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is AuditRow row ? Text(row, TranslationKeyConverter.Resolve) : string.Empty;
+
+    /// <summary>The column's text for <paramref name="row"/>, testable with any translation.</summary>
+    public static string Text(AuditRow row, Func<string, string> translate)
+        => row.CallsAtLeast
+            ? Localization.TextFormat.Translate(translate, "audit.calls_at_least", row.CallsText)
+            : row.CallsText;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException("The audit table is read-only.");
 }
 
 /// <summary>The status words of the audit table, in the order the table lists them: the readings that
@@ -91,11 +117,11 @@ public sealed class AuditRowsConverter : IMultiValueConverter
         var rows = new List<AuditRow>();
         rows.AddRange(uncovered.Select(name => new AuditRow(name, "audit.status_real", AuditStatus.Real, null)));
         rows.AddRange(observedList.Select(c => late.Contains(c.Channel)
-            ? new AuditRow(c.Channel, "audit.status_by_design_late", AuditStatus.ByDesignLate, c.Calls)
-            : new AuditRow(c.Channel, "audit.status_by_design", AuditStatus.ByDesign, c.Calls)));
+            ? new AuditRow(c.Channel, "audit.status_by_design_late", AuditStatus.ByDesignLate, c.Calls, c.Capped)
+            : new AuditRow(c.Channel, "audit.status_by_design", AuditStatus.ByDesign, c.Calls, c.Capped)));
         rows.AddRange(unobserved.Select(name => new AuditRow(name, "audit.status_unwatched", AuditStatus.Unwatched, null)));
         rows.AddRange(coveredList.Where(c => late.Contains(c.Channel))
-            .Select(c => new AuditRow(c.Channel, "audit.status_late", AuditStatus.Late, c.Calls)));
+            .Select(c => new AuditRow(c.Channel, "audit.status_late", AuditStatus.Late, c.Calls, c.Capped)));
         // A late name no counted list carries is still a fact the core reported, and the audit never
         // drops one (untouchable rule 4): it gets its row, without a count.
         var counted = new HashSet<string>(
@@ -103,7 +129,7 @@ public sealed class AuditRowsConverter : IMultiValueConverter
         rows.AddRange(installedLate.Where(name => !counted.Contains(name))
             .Select(name => new AuditRow(name, "audit.status_late", AuditStatus.Late, null)));
         rows.AddRange(coveredList.Where(c => !late.Contains(c.Channel))
-            .Select(c => new AuditRow(c.Channel, "audit.status_fake", AuditStatus.Fake, c.Calls)));
+            .Select(c => new AuditRow(c.Channel, "audit.status_fake", AuditStatus.Fake, c.Calls, c.Capped)));
         return rows;
     }
 

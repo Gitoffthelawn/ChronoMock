@@ -85,6 +85,11 @@ fn unit_process() -> String {
     UNIT_PROCESS.to_string()
 }
 
+/// Leaves a zero count off the wire, where an absent field already reads as zero.
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 /// A DevTools endpoint the session reached inside the application: the pid that holds it, the
 /// loopback port, and what the engine calls itself in `/json/version` (cleaned). The port is here
 /// rather than in a warning's text because keys are static - a tester who wants to attach their
@@ -137,6 +142,10 @@ pub struct TimeSpec {
 pub struct CoveredChannel {
     pub channel: String,
     pub calls: u64,
+    /// The count stopped at the hook's ceiling, so the target called the channel AT LEAST `calls` times
+    /// (R5-WY11). Absent when false, and an older message without it reads as an exact count. Additive.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capped: bool,
 }
 
 /// A process the family spawned without the hook inside it - it ran on the real clock. `image` is
@@ -345,6 +354,21 @@ pub enum Event {
         /// target, and for a session that ended while the target ran. Additive.
         #[serde(default)]
         followed: Vec<FollowedProcess>,
+        /// How long the machine slept during the session, in milliseconds, when it slept at least a
+        /// second (R5-P1, R5-D34) - the time the session clock stood still (ADR-5), said beside the
+        /// `time.host_slept` warning. Absent when the machine did not sleep. Additive.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        host_slept_ms: u64,
+    },
+    /// The machine slept while the session ran, noticed at the first heartbeat after it woke (R5-P1,
+    /// R5-D34). The session clock stood still for that time - sleep is never multiplied by the speed
+    /// (ADR-5, docs/01 section 3.0a) - and this is the record of it in the session's log. `slept_ms` is
+    /// this sleep, `total_slept_ms` every sleep of the session so far. Spontaneous, no id. Additive: a
+    /// client that does not know the type ignores the line.
+    HostSlept {
+        v: u32,
+        slept_ms: u64,
+        total_slept_ms: u64,
     },
     Ended {
         v: u32,
@@ -562,8 +586,8 @@ mod tests {
             v: PROTOCOL_VERSION,
             pid: 42,
             kind: UNIT_PROCESS.into(),
-            covered: vec![CoveredChannel { channel: "GetSystemTime".into(), calls: 3 }],
-            observed: vec![CoveredChannel { channel: "WaitForSingleObject".into(), calls: 5 }],
+            covered: vec![CoveredChannel { channel: "GetSystemTime".into(), calls: 3, capped: false }],
+            observed: vec![CoveredChannel { channel: "WaitForSingleObject".into(), calls: 5, capped: false }],
             uncovered: vec![],
             unobserved: vec!["WaitOnAddress".into()],
             installed_late: vec!["timeGetTime".into()],
@@ -647,6 +671,7 @@ mod tests {
                 FollowedProcess { pid: 5150, image: Some("app.exe".into()) },
                 FollowedProcess { pid: 5151, image: None },
             ],
+            host_slept_ms: 0,
         };
         let line = ev.to_ndjson();
         assert!(line.starts_with(r#"{"type":"session_verdict""#), "got {line}");
@@ -693,6 +718,33 @@ mod tests {
             }
             _ => panic!("wrong event variant"),
         }
+    }
+
+    /// R5-P1, R5-D34, R5-WY11. The sleep travels as its own event and as a total on the verdict, which an
+    /// older message lacks and reads as no sleep, and a count at the ceiling says so beside the number,
+    /// left off the wire when it is exact.
+    #[test]
+    fn the_sleep_and_the_ceiling_travel_and_older_messages_read_as_none() {
+        let slept = Event::HostSlept { v: 1, slept_ms: 28_800_000, total_slept_ms: 28_860_000 };
+        let line = slept.to_ndjson();
+        assert_eq!(line, r#"{"type":"host_slept","v":1,"slept_ms":28800000,"total_slept_ms":28860000}"#);
+        match parse_event(&line).expect("the event parses back") {
+            Event::HostSlept { slept_ms, total_slept_ms, .. } => assert_eq!((slept_ms, total_slept_ms), (28_800_000, 28_860_000)),
+            _ => panic!("wrong event variant"),
+        }
+        let older = r#"{"type":"session_verdict","v":1,"verdict":"works","reason_key":"session.family_covered","process_count":1}"#;
+        let parsed = parse_event(older).unwrap();
+        match &parsed {
+            Event::SessionVerdict { host_slept_ms, .. } => assert_eq!(*host_slept_ms, 0),
+            _ => panic!("wrong event variant"),
+        }
+        assert!(!parsed.to_ndjson().contains("host_slept_ms"), "no sleep leaves the field off the wire");
+        let exact = CoveredChannel { channel: "GetSystemTime".into(), calls: 3, capped: false };
+        assert!(!serde_json::to_string(&exact).unwrap().contains("capped"), "an exact count carries no flag");
+        let floor = CoveredChannel { channel: "GetSystemTime".into(), calls: 1_048_576, capped: true };
+        assert!(serde_json::to_string(&floor).unwrap().contains(r#""capped":true"#));
+        let old: CoveredChannel = serde_json::from_str(r#"{"channel":"GetSystemTime","calls":7}"#).unwrap();
+        assert!(!old.capped, "an older message reads as an exact count");
     }
 
     /// R2-S9. `warning_keys` was added to session_verdict after the field set was already in use, so a
@@ -748,7 +800,7 @@ mod tests {
             v: PROTOCOL_VERSION,
             pid: 3,
             kind: UNIT_CONTEXT.into(),
-            covered: vec![CoveredChannel { channel: "page Date.now".into(), calls: 12 }],
+            covered: vec![CoveredChannel { channel: "page Date.now".into(), calls: 12, capped: false }],
             observed: vec![],
             uncovered: vec![],
             unobserved: vec![],

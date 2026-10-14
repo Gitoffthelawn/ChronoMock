@@ -31,6 +31,7 @@
            core and the VM emit) to text in the current language (untouchable rules 15/16). -->
       <local:TranslationKeyConverter x:Key="KeyToText" />
       <local:AuditRowsConverter x:Key="AuditRows" />
+      <local:AuditCountConverter x:Key="AuditCount" />
       <local:UncoveredProcessRowsConverter x:Key="UncoveredProcessRows" />
       <local:EngineRowsConverter x:Key="EngineRows" />
       <local:PagesReachedNoteConverter x:Key="PagesReachedNote" />

@@ -45,6 +45,8 @@ public partial class ComponentCatalogue : UserControl
         new("NtQuerySystemTime", "audit.status_unwatched", AuditStatus.Unwatched, null),
         new("timeGetTime", "audit.status_late", AuditStatus.Late, 7),
         new("GetSystemTimeAsFileTime", "audit.status_fake", AuditStatus.Fake, 128004),
+        // A count that stopped at the hook's ceiling (R5-WY11): the column reads "at least".
+        new("QueryUnbiasedInterruptTimePrecise", "audit.status_fake", AuditStatus.Fake, 1_048_576, CallsAtLeast: true),
         new("GetSystemTimePreciseAsFileTimeWithAnImpossiblyLongName", "audit.status_fake", AuditStatus.Fake, 9876543210),
     ];
 

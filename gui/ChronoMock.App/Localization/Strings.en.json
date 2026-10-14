@@ -398,6 +398,7 @@
   "audit.col_source": "Read from",
   "audit.col_reads": "Reads",
   "audit.status_fake": "fake clock",
+  "audit.calls_at_least": "at least {0}",
   "audit.status_real": "real clock",
   "audit.status_by_design": "real clock, by design",
   "audit.status_by_design_late": "real clock, by design, hooked late",
@@ -433,6 +434,7 @@
   // the raw count sat beside - built in code (SessionViewModel.FormatChannel), P6.
   "coverage.reads": "{0} - read {1} times",
   "coverage.reads_one": "{0} - read once",
+  "coverage.reads_at_least": "{0} - read at least {1} times",
   "coverage.family_note": "Several processes ran - the call counts are the first one's, while the warnings and everything read from the real clock cover all of them.",
   "coverage.contexts_note": "A Chromium application - every JS context is listed on its own (the page and its workers), never added together.",
 
@@ -491,8 +493,10 @@
   // date shown in the session's time zone is the part that confuses a reader.
   "runtime.go_wall_clock_unreachable": "This application was built with Go. Its runtime reads the date straight from shared system memory instead of asking Windows for it, so it sees the REAL date and no setting here can change that. The session time zone does reach it, so the times it shows are the real time expressed in the session's zone.",
   "coverage.session_clock_never_read": "No process in this session ever read a clock the session replaces, so nothing this application did came from the fake date. The channels above are in place and working - the application simply took its time from somewhere else, such as a source outside this computer.",
+  "time.host_slept": "The computer slept during the session. The session clock stood still while it slept, as during a pause - sleep is never multiplied by the speed factor.",
+  "timer.absolute_due_converted": "This application set a timer or a wait for a given date and time, and the session then jumped or changed speed. Such a deadline is turned into a delay when it is set, at the speed in force then, so one still pending when the clock moved fires where the old clock would have reached it. Windows moves its own such timers along with the clock.",
   "time.fake_clock_clamped": "The fake clock reached the last date this build can represent (year 30828) and stood there for the rest of the session. Later readings are not the dates the chosen speed would have produced.",
-  "time.duration_axis_clamped": "The monotonic counters (tick count, unbiased interrupt time, and QPC when scaled) reached the end of their range and stood there, so elapsed time inside the application stopped advancing even though the session went on. A lower speed or a shorter session avoids it.",
+  "time.duration_axis_clamped": "The monotonic counters (tick count, interrupt time, and QPC when scaled) reached the end of their range and stood there, so elapsed time inside the application stopped advancing even though the session went on. A lower speed or a shorter session avoids it.",
   // The session does not stop the application, so it says which way each clock went once it lets go: "back to real time" alone reads as "the counters went back too", which is what letting go used to do.
   "session.left_running": "The application was still running when the session ended. It is back on the real date and time now, and its tick counts and elapsed-time counters carry on at normal speed from where the session left them instead of jumping back. A repeating timer it set while its timers were sped up keeps the shorter interval it was given. Restart it for a clean run on the real clock.",
   // A launcher, a restart after an update, a script that runs "start app.exe": the program the tester chose ends on purpose and the session goes on for what it started (ADR-16). Says why the session outlived it, and the one way that can surprise.

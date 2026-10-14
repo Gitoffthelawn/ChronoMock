@@ -57,10 +57,10 @@ use chrono_ctl::{
     read_late_installed, read_pid,
     read_pid_count, rebase,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
-    read_timers_at_floor,
+    read_timers_at_floor, read_absolute_dues, calls_capped, clock_fence,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header, FullAnchor,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
-    Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, IDX_TIMEGETTIME, MAX_COV_PIDS,
+    Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, DEADLINE_CHANNELS, IDX_TIMEGETTIME, MAX_COV_PIDS,
 };
 use windows::core::{s, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
@@ -89,7 +89,9 @@ use windows::Win32::System::Threading::{
     PROCESS_SYNCHRONIZE,
 };
 use windows::Win32::System::Performance::QueryPerformanceCounter;
-use windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTime;
+use windows::Win32::System::WindowsProgramming::{
+    QueryInterruptTime, QueryUnbiasedInterruptTime, QueryUnbiasedInterruptTimePrecise,
+};
 
 /// What to launch.
 pub struct Target<'a> {
@@ -183,6 +185,9 @@ pub struct Session {
     /// unspend time already spent.
     fake_elapsed_before: std::cell::Cell<i64>,
     rate_segment_real0: std::cell::Cell<i64>,
+    /// The sleep bias when the session started (100 ns), so `state` can say how long the machine has
+    /// slept since (R5-P1).
+    sleep_bias0: i64,
     tz_bias: i32,
     /// The duration axis is opt-in - coverage gathering needs it to know whether the
     /// Duration channels are expected.
@@ -367,6 +372,12 @@ pub struct SessionState {
     pub tz_bias: i32,
     pub elapsed_fake_ms: i64,
     pub elapsed_real_ms: i64,
+    /// How long the machine has slept since the session started, in milliseconds (R5-P1, R5-D1). The
+    /// session clock stands still while the machine sleeps (ADR-5) - its real base is the unbiased
+    /// interrupt time, which leaves sleep out - so this is the time the session did not count, and the
+    /// core says so. Measured as the growth of the sleep bias (`chrono_ctl::sleep_bias`), which Windows
+    /// moves only when the machine wakes, so it is exact rather than a difference of two clocks.
+    pub host_slept_ms: i64,
     /// Whether the duration axes are standing at the end of their range - see
     /// [`SessionState::duration_at_range_end`]. Carried on the snapshot rather than recomputed by the
     /// reader, because it depends on the same `now_real` the rest of this snapshot was taken at.
@@ -383,6 +394,21 @@ pub struct SessionState {
 /// in the event the panel and the evidence export are built from (R2-X2).
 pub fn project_fake_ft(anchor_fake: i64, anchor_real: i64, now_real: i64, multiplier: i64) -> i64 {
     chrono_ctl::fake_wall_at(anchor_fake, anchor_real, now_real, multiplier)
+}
+
+/// Fake ticks elapsed since the session started: what was banked in earlier rate segments (`before`),
+/// plus the current segment, which began at `segment_real0`, at the rate in force. Frozen (m = 0)
+/// contributes nothing, which is correct - a frozen clock spends no fake time.
+///
+/// Saturating, and never below the banked amount (R5-P17). It wrapped until R5: at the maximum multiplier
+/// the product passed the top of an i64 about 10.7 days in, and `state`, `ended` and the report announced a
+/// NEGATIVE fake elapsed time of some nine hundred million seconds. Standing at the top is still not a true
+/// number, which is why it never comes alone: the duration axis runs at a rate at least this one from a base
+/// at zero or above, so it reaches the top first and `time.duration_axis_clamped` says so
+/// (`chrono_ctl::dur_axis_at_range_end`).
+fn fake_elapsed_ticks(before: i64, segment_real0: i64, now_real: i64, m: i64) -> i64 {
+    let segment = now_real.saturating_sub(segment_real0).max(0).saturating_mul(m.max(0));
+    before.saturating_add(segment)
 }
 
 // The session range is stated twice: in `chrono-core`, which admits a moment and depends on nothing,
@@ -496,7 +522,7 @@ impl Session {
     /// real = the actual system time (the core is not hooked, so this is genuine).
     pub fn state(&self) -> SessionState {
         let (a_fake, a_real, m) = unsafe { read_anchor(self.ctl()) };
-        let now_real = quit_now();
+        let now_real = quitp_now();
         let fake_ft = project_fake_ft(a_fake, a_real, now_real, m);
         // Read from the SAME anchor snapshot and the same `now_real` as the projection above, so the
         // flag describes the numbers beside it rather than a moment slightly later.
@@ -507,17 +533,15 @@ impl Session {
             multiplier: m,
             tz_bias: self.tz_bias,
             elapsed_fake_ms: self.fake_elapsed_ticks(now_real, m) / 10_000,
-            elapsed_real_ms: now_real.wrapping_sub(self.start_real) / 10_000,
-            duration_saturated: chrono_ctl::dur_axis_at_range_end(dur.q0, dur.m, now_real),
+            elapsed_real_ms: now_real.saturating_sub(self.start_real).max(0) / 10_000,
+            host_slept_ms: sleep_bias_now().saturating_sub(self.sleep_bias0).max(0) / 10_000,
+            duration_saturated: chrono_ctl::dur_axis_at_range_end(dur.quit_c0, dur.q0, dur.m, now_real),
         }
     }
 
-    /// Fake ticks elapsed since the session started: what was banked in earlier rate segments, plus the
-    /// current segment at the rate in force. Frozen (m = 0) contributes nothing, which is correct - a
-    /// frozen clock spends no fake time.
+    /// Fake ticks elapsed since the session started - see [`fake_elapsed_ticks`].
     fn fake_elapsed_ticks(&self, now_real: i64, m: i64) -> i64 {
-        let segment = now_real.wrapping_sub(self.rate_segment_real0.get()).wrapping_mul(m);
-        self.fake_elapsed_before.get().wrapping_add(segment)
+        fake_elapsed_ticks(self.fake_elapsed_before.get(), self.rate_segment_real0.get(), now_real, m)
     }
 
     /// End the current rate segment at `now_real`, banking its fake time.
@@ -591,7 +615,7 @@ impl Session {
     /// a later clock and answer above where the axis then carried on. The wall anchor goes through the
     /// same clamped projection the hook serves and `state` reports (R4-S7a).
     pub fn set_multiplier(&self, m: i64) {
-        let done = unsafe { rebase(self.ctl_mut(), m, quit_now, qpc_now) };
+        let done = unsafe { rebase(self.ctl_mut(), m, quitp_now, qpc_now) };
         // Bank the fake time spent at the OLD rate before the new one starts, so elapsed stays an
         // integral over the whole session instead of being rescaled by whatever the latest rate is.
         self.close_rate_segment(done.now, done.old_m);
@@ -601,7 +625,7 @@ impl Session {
     /// The duration axis anchors separately in the hook, so it is not affected - a
     /// backward jump never rewinds it (untouchable rule 3).
     pub fn jump(&self, to_ft: i64) {
-        let now = quit_now();
+        let now = quitp_now();
         let (_, _, cur_m) = unsafe { read_anchor(self.ctl()) };
         unsafe { write_anchor(self.ctl_mut(), to_ft, now, cur_m) };
     }
@@ -622,13 +646,24 @@ impl Session {
         &self,
         step: &chrono_core::calc::Step,
     ) -> Result<(), chrono_core::calc::EvalError> {
-        let now = quit_now();
+        let now = quitp_now();
         let (a_fake, a_real, cur_m) = unsafe { read_anchor(self.ctl()) };
         // From the clock the target actually reads, clamp included - see `set_multiplier` (R4-S7a).
         let fake_now = project_fake_ft(a_fake, a_real, now, cur_m);
         let target = chrono_core::calc::step_target(fake_now, self.tz_bias, step)?;
         unsafe { write_anchor(self.ctl_mut(), target, now, cur_m) };
         Ok(())
+    }
+
+    /// How many absolute deadlines the whole family has had converted so far (R5-D2). The core asks it at
+    /// every jump and speed change: a deadline converted before the clock moved fires where the old clock
+    /// would have reached it, which the audit says (`timer.absolute_due_converted`). Every slot is read,
+    /// published or not - a slot reserved by a process whose hook has not finished yet counts zero, and one
+    /// whose process has ended still holds what it counted (S-9).
+    pub fn absolute_dues_total(&self) -> u64 {
+        (0..MAX_COV_PIDS).fold(0u64, |sum, slot| {
+            sum.saturating_add(unsafe { read_absolute_dues(cov_at(self.ctl(), slot)) })
+        })
     }
 
     /// Scan the PID registry for processes not yet reported (children that joined the
@@ -1043,12 +1078,39 @@ fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
 }
 
-fn quit_now() -> i64 {
-    let mut t: u64 = 0;
-    unsafe {
-        let _ = QueryUnbiasedInterruptTime(&mut t);
-    }
-    t as i64
+/// The real clock every anchor of the session is read from: `QueryUnbiasedInterruptTimePrecise`, the
+/// unbiased interrupt time read from the timer hardware (R5-P2, R5-D31, ADR-24).
+///
+/// The same epoch and the same sleep semantics as `QueryUnbiasedInterruptTime` - disassembled on both
+/// bitnesses (2026-10-14), it is the precise interrupt time minus the same sleep bias - so ADR-5 holds. What
+/// changes is the resolution: the plain one stands on the last timer interrupt, up to 15.6 ms at the default
+/// timer and multiplied by the speed in the fake clock, and a fake `GetSystemTimePreciseAsFileTime` that
+/// projected from it stood still for 47 ms at a time at x60 (measured). The precise channels in the hook read
+/// this clock too, the others the plain one, which is never ahead of it - `chrono_ctl::fake_wall_at` holds
+/// those at the anchor until their clock catches up.
+///
+/// Between two fences because the clock may come from the processor's time-stamp counter, which is ordered
+/// with nothing around it (`chrono_ctl::clock_fence`). The core is never hooked, so the call goes straight
+/// to the system.
+fn quitp_now() -> i64 {
+    clock_fence();
+    let t = unsafe { QueryUnbiasedInterruptTimePrecise() } as i64;
+    clock_fence();
+    t
+}
+
+/// How long the machine has slept since it started (100 ns), read as `chrono_ctl::sleep_bias` describes.
+fn sleep_bias_now() -> i64 {
+    chrono_ctl::sleep_bias(
+        || {
+            let mut t: u64 = 0;
+            unsafe {
+                let _ = QueryUnbiasedInterruptTime(&mut t);
+            }
+            t as i64
+        },
+        || unsafe { QueryInterruptTime() } as i64,
+    )
 }
 
 /// Current raw QueryPerformanceCounter value. QPC is a system-wide counter, so the core reads the same
@@ -1225,6 +1287,25 @@ unsafe fn floor_warning_keys(cov: *const Cov) -> Vec<String> { unsafe {
     keys
 }}
 
+/// Whether `ch` is a deadline channel in a session that does not scale durations (R5-D2). The deadline
+/// channels stand in EVERY session, but without scale_duration they convert only an absolute deadline:
+/// their calls are mostly relative waits and timers the session leaves real, so listing them as substituted
+/// would claim every `Sleep` was. They are reported only when they did NOT stand (`deadline_gaps`).
+fn deadline_only(ch: &chrono_ctl::ChannelDef, scale_duration: bool) -> bool {
+    !scale_duration && DEADLINE_CHANNELS & ch.bit != 0
+}
+
+/// The deadline channels that did not stand in a session that does not scale durations - its absolute
+/// deadlines then ran on the real clock, a gap the audit names in every session (R5-D2). Its own function
+/// so `gather_coverage` stays under its pinned complexity ceiling.
+fn deadline_gaps(installed: u64, scale_duration: bool) -> Vec<String> {
+    CHANNELS
+        .iter()
+        .filter(|ch| deadline_only(ch, scale_duration) && installed & ch.bit == 0)
+        .map(|ch| ch.name.to_string())
+        .collect()
+}
+
 /// Build one process's coverage from its `Cov` section: the install bitmask and the
 /// live per-channel call counters. Iterates the single-source `CHANNELS` table so the
 /// report names exactly what the hook installs.
@@ -1249,7 +1330,8 @@ unsafe fn gather_coverage(
     // optional module from a module the application never loaded. Read only for a channel that is not
     // installed, so one that failed at startup and went live on the late scan is simply covered.
     let failed = read_failed_channels(cov);
-    for (idx, ch) in CHANNELS.iter().enumerate() {
+    out.uncovered.extend(deadline_gaps(installed, scale_duration));
+    for (idx, ch) in CHANNELS.iter().enumerate().filter(|(_, ch)| !deadline_only(ch, scale_duration)) {
         // The duration axis and the TIME observers are opt-in: with scale_duration off, their channels
         // are not expected. The spawn observer (NtCreateUserProcess) is NOT opt-in - process creation
         // is watched regardless - so it is absent from this gate.
@@ -1284,7 +1366,7 @@ unsafe fn gather_coverage(
                         _ => {}
                     }
                 }
-                out.observed.push(ChannelCoverage { channel: ch.name.to_string(), calls });
+                out.observed.push(ChannelCoverage { channel: ch.name.to_string(), calls, capped: calls_capped(calls) });
             } else if ch.module.in_every_process() || failed & ch.bit != 0 {
                 // "Wanted and not installed" in a module every process has, or one the hook says it
                 // could not switch on: either way the hook failed. That used to produce no line at
@@ -1297,10 +1379,8 @@ unsafe fn gather_coverage(
             continue;
         }
         if installed & ch.bit != 0 {
-            out.covered.push(ChannelCoverage {
-                channel: ch.name.to_string(),
-                calls: read_calls(cov, idx),
-            });
+            let calls = read_calls(cov, idx);
+            out.covered.push(ChannelCoverage { channel: ch.name.to_string(), calls, capped: calls_capped(calls) });
         } else if ch.module.in_every_process() || failed & ch.bit != 0 {
             // Failed install, and a real coverage gap: the module is in every process (kernelbase
             // included, since kernel32 is built on it), or it is an optional one the hook found loaded
@@ -1521,7 +1601,8 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
         // Stamped before the anchor, so anything that outlives this core is recognisable as ours.
         write_header(ctl);
 
-        let start_real = quit_now();
+        let start_real = quitp_now();
+        let sleep_bias0 = sleep_bias_now();
         // Initialize the duration anchor from the REAL clock (the core is not hooked, so GetTickCount64 and
         // QUIT are genuine). The fake-QUIT base and the real base both start at `start_real`, and the tick
         // count is that QUIT in milliseconds plus an offset chosen so it starts at the real GetTickCount64
@@ -1654,6 +1735,7 @@ pub fn prepare(spec: &SessionSpec, target: &Target, hook_dll: &Path) -> Result<P
             start_real,
             fake_elapsed_before: std::cell::Cell::new(0),
             rate_segment_real0: std::cell::Cell::new(start_real),
+            sleep_bias0,
             tz_bias,
             scale_duration: spec.scale_duration,
             scale_qpc: spec.scale_qpc,
@@ -2552,5 +2634,61 @@ mod tests {
         assert!(!gathered.covered.is_empty(), "a live mask must report covered channels");
         assert!(gathered.uncovered.is_empty(), "nothing is missing when every bit is set");
         assert_eq!(chrono_core::verdict_from_coverage(&gathered), chrono_core::Verdict::Works);
+    }
+
+    /// R5-D2. The deadline channels stand in every session. Without `--scale-duration` they convert only
+    /// an absolute deadline, so they are not listed as substituted (their calls are mostly waits the
+    /// session leaves real) - but a deadline channel that did NOT stand is a gap in any session.
+    #[test]
+    fn the_deadline_channels_are_expected_in_every_session_and_listed_only_when_they_scale() {
+        let cov = zeroed_cov();
+        let all = CHANNELS.iter().fold(0u64, |acc, ch| acc | ch.bit);
+        let names = |list: &[chrono_core::ChannelCoverage]| list.iter().map(|c| c.channel.clone()).collect::<Vec<_>>();
+
+        let plain = unsafe { gather_coverage(&cov as *const Cov, all, false, false) };
+        for name in ["SetWaitableTimer", "SetWaitableTimerEx", "SetThreadpoolTimer", "SetThreadpoolTimerEx", "NtDelayExecution"] {
+            assert!(!names(&plain.covered).contains(&name.to_string()), "{name} listed as substituted without the duration axis");
+            assert!(!plain.uncovered.contains(&name.to_string()), "{name} called a gap while it stood");
+        }
+
+        let failed = unsafe { gather_coverage(&cov as *const Cov, all & !chrono_ctl::CH_SWT, false, false) };
+        assert_eq!(failed.uncovered, vec!["SetWaitableTimer".to_string()], "a deadline channel that did not stand is a gap");
+
+        let scaled = unsafe { gather_coverage(&cov as *const Cov, all, true, false) };
+        assert!(names(&scaled.covered).contains(&"NtDelayExecution".to_string()), "under the duration axis it is listed");
+    }
+
+    /// R5-WY11. A count that stopped at the hook's ceiling travels as "at least", covered and observed alike.
+    #[test]
+    fn a_count_at_the_ceiling_is_marked_as_a_floor() {
+        let mut cov = zeroed_cov();
+        cov.calls[chrono_ctl::IDX_GSTAFT] = chrono_ctl::CALLS_CAP;
+        cov.calls[chrono_ctl::IDX_GST] = chrono_ctl::CALLS_CAP - 1;
+        cov.calls[chrono_ctl::IDX_WFSO] = chrono_ctl::CALLS_CAP;
+        let all = CHANNELS.iter().fold(0u64, |acc, ch| acc | ch.bit);
+        let gathered = unsafe { gather_coverage(&cov as *const Cov, all, true, false) };
+        let find = |list: &[chrono_core::ChannelCoverage], name: &str| {
+            list.iter().find(|c| c.channel == name).cloned().expect("channel listed")
+        };
+        assert!(find(&gathered.covered, "GetSystemTimeAsFileTime").capped);
+        assert!(!find(&gathered.covered, "GetSystemTime").capped, "one under the ceiling is exact");
+        assert!(find(&gathered.observed, "WaitForSingleObject").capped);
+    }
+
+    /// R5-P17. The fake elapsed time stands at the top of its range instead of wrapping to a negative
+    /// number, and a reading behind the segment's start adds nothing.
+    #[test]
+    fn the_fake_elapsed_time_saturates_and_never_goes_negative() {
+        let m = chrono_core::MULTIPLIER_MAX;
+        // Eleven days of real time at the maximum multiplier: the product passes the top of an i64.
+        let eleven_days = 10_000_000i64 * 86_400 * 11;
+        assert_eq!(fake_elapsed_ticks(0, 0, eleven_days, m), i64::MAX);
+        // Banked time plus a segment that would carry it over the top.
+        assert_eq!(fake_elapsed_ticks(i64::MAX - 5, 0, 10_000_000, 60), i64::MAX);
+        // An ordinary segment.
+        assert_eq!(fake_elapsed_ticks(1_000, 10_000_000, 20_000_000, 60), 1_000 + 10_000_000 * 60);
+        // Frozen spends nothing, and a clock behind the segment's start adds nothing.
+        assert_eq!(fake_elapsed_ticks(1_000, 0, 10_000_000, 0), 1_000);
+        assert_eq!(fake_elapsed_ticks(1_000, 10_000_000, 9_000_000, 60), 1_000);
     }
 }

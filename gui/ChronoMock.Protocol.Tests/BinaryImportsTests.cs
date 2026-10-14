@@ -151,6 +151,20 @@ public class BinaryImportsTests
             "WakeByAddressAll, which are the standard library's locks"
         ),
         (
+            "chrono.exe", "api-ms-win-core-realtime-l1-1-1.dll",
+            "an API set rather than a library, the clocks of the interrupt time (R5 wave 3). Measured " +
+            "2026-10-14 with dumpbin, both bitnesses: QueryUnbiasedInterruptTimePrecise, the clock every anchor " +
+            "of a session is read from, and QueryInterruptTime, read beside the plain unbiased time to learn how " +
+            "long the machine slept. Local clocks, nothing else"
+        ),
+        (
+            "chrono_hook.dll", "api-ms-win-core-realtime-l1-1-1.dll",
+            "an API set rather than a library. Measured 2026-10-14 with dumpbin, both bitnesses: " +
+            "QueryInterruptTime, and nothing else - the fallback of the hook's own reading of the interrupt " +
+            "time when its detour does not stand. The precise unbiased clock is resolved with GetProcAddress " +
+            "instead, because a direct call would land in the hook's own detour once it is hooked"
+        ),
+        (
             "chrono.exe", "oleaut32.dll",
             "SysFreeString and SysStringLen. BSTR handling, which arrives with the windows crate"
         ),
