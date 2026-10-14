@@ -245,6 +245,46 @@ pub(crate) fn is_help_flag(word: &str) -> bool {
     matches!(word, "--help" | "-h")
 }
 
+/// The word after a flag, which is its value - refused when it is missing or is itself a flag.
+///
+/// A flag took the next word whatever it was, so `calc --format --json` read `--json` as the mask and
+/// printed text where JSON was asked for (R4-N32), and `run --report --dry-run` ran the target and wrote
+/// the evidence into a file named `--dry-run` instead of printing the plan (R5-P16). `--report
+/// --no-embedded` swallowed the opt-out the same way. No value that comes through here starts with two
+/// dashes: a shift and a zone carry one sign, ids, numbers and dates none, a mask that must open with
+/// two dashes quotes them (`'--'yyyy`), and a path or folder that does can be written `.\--name`. So such
+/// a word is named as the flag it is.
+///
+/// Two values do not come through here. `run --args` takes the target's own command line, which is
+/// made of flags. `calc --analyze` takes pasted text, where a typo can put two dashes in front of a real
+/// date, and the analyser's own refusal already names the text for what it is.
+pub(crate) fn flag_value<'a>(argv: &'a [String], i: usize, flag: &str, needs: &str) -> Result<&'a str, String> {
+    match argv.get(i) {
+        None => Err(format!("{flag} needs {needs}")),
+        Some(word) if word.starts_with("--") => {
+            Err(format!("{flag} needs {needs}, but the next word is the flag '{word}'"))
+        }
+        Some(word) => Ok(word),
+    }
+}
+
+/// Refuse a flag that takes one value when it is given a second time. Read on the flag words alone,
+/// before any value, so one check covers every such flag of a command.
+///
+/// The last one used to win, which dropped the first in silence: two `--report` paths wrote one file,
+/// two `--at` moments started from the second. Two values are a contradiction, not a preference order
+/// (R4-N32 for `calc`, R5-P16 for `run`). `given` holds the flags of `once` seen so far.
+pub(crate) fn refuse_repeat<'a>(given: &mut Vec<&'a str>, word: &'a str, once: &[&str]) -> Result<(), String> {
+    if !once.contains(&word) {
+        return Ok(());
+    }
+    if given.contains(&word) {
+        return Err(format!("{word} is given twice - pass it once"));
+    }
+    given.push(word);
+    Ok(())
+}
+
 /// Whether the words after a command ask for its help: `run --help`, `calc -h`. Only the FIRST word
 /// counts, because `--help` further along can be meant for the target (`--args --help`).
 pub(crate) fn asks_for_help(rest: &[String]) -> bool {

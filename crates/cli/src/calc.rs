@@ -24,7 +24,7 @@ use chrono_core::calc::{Base, EvalContext, EvalError, MomentExpr, Sign, Step};
 use chrono_core::filetime_utc_to_wall;
 
 use crate::calendar::load_calendar;
-use crate::cli::print_calc_usage;
+use crate::cli::{flag_value, print_calc_usage};
 use crate::grammar::{parse_base, parse_nearest, parse_set_time, parse_shift, parse_snap};
 use crate::output::{diag, out, outln};
 use crate::preset::{
@@ -562,27 +562,6 @@ fn reject_second_base(seen: &mut Option<&'static str>, flag: &'static str) -> Re
     }
 }
 
-/// The word after a flag, which is its value - refused when it is missing or is itself a flag.
-///
-/// A flag took the next word whatever it was, so `--format --json` read `--json` as the mask, printed
-/// text where JSON was asked for, and said nothing of the flag it had swallowed (R4-N32). No value
-/// that comes through here starts with two dashes: a shift and a zone carry one sign, ids and dates
-/// none, and a mask that must open with two dashes quotes them (`'--'yyyy`). So such a word is named
-/// as the flag it is, the way `--at` names it in `chrono run`.
-///
-/// `--analyze` does not come through here. What it takes is pasted text, a typo can put two dashes
-/// in front of a real date, and the analyser's own refusal already names the text for what it is -
-/// taking it here would put a refusal about arguments on the analysis panel of the GUI.
-fn flag_value<'a>(argv: &'a [String], i: usize, flag: &str, needs: &str) -> Result<&'a str, String> {
-    match argv.get(i) {
-        None => Err(format!("{flag} needs {needs}")),
-        Some(word) if word.starts_with("--") => {
-            Err(format!("{flag} needs {needs}, but the next word is the flag '{word}'"))
-        }
-        Some(word) => Ok(word),
-    }
-}
-
 /// Keep a flag's value, refusing a second one. For these flags the last one used to win, which
 /// dropped the first in silence - two zones, two calendars or two masks are a contradiction, not a
 /// preference order (R4-N32). The step flags repeat on purpose (each is one step), and the base has
@@ -661,7 +640,7 @@ pub(crate) fn parse_calc_args(argv: &[String]) -> Result<CalcArgs, String> {
             }
             "--analyze" => {
                 i += 1;
-                // Not through `flag_value` - see there why pasted text is taken as it comes.
+                // Not through `cli::flag_value` - see there why pasted text is taken as it comes.
                 let raw = argv.get(i).ok_or("--analyze needs a date like 04/08/2008")?;
                 set_once(&mut analyze, "--analyze", raw.clone())?;
             }
@@ -818,7 +797,7 @@ pub(crate) fn describe_calc_error(e: &EvalError) -> String {
             chrono_core::CIVIL_YEAR_MAX
         ),
         EvalError::TooManyBusinessDays { index } => format!(
-            "chrono calc: step {} asks for more than {} business days - the most this counts (calc.business_days_limit)",
+            "chrono calc: step {} takes the business days of this calculation past {} - the most one calculation counts, all its steps together (calc.business_days_limit)",
             index + 1,
             chrono_core::calendar::MAX_BUSINESS_DAYS
         ),

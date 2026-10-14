@@ -14,6 +14,10 @@ pub mod calc;
 /// module reusing the crate-private civil primitives.
 pub mod calendar;
 
+/// Which characters do not show as themselves - judged once for the readers of calendars and presets
+/// and for quoting what a target says (R5-B1).
+pub mod text;
+
 /// How the session expresses the target moment.
 ///
 /// Semantics (docs/01 section 4, untouchable rule 2): the entered moment is in

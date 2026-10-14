@@ -58,9 +58,31 @@ Notable changes to Chrono Mock, newest first. The format follows
   the first two seconds, then every 250 ms for as long as the session lasts. It now backs off to once
   a second, so a console program that never loads those libraries is woken once a second instead of
   four times. A library loaded later than that is hooked up to a second after it arrives.
+- **`chrono run` refuses a flag given twice.** A flag that takes one value (`--at`, `--preset`,
+  `--zone`, `--mode`, `--args`, `--cwd`, `--ticks`, `--timeout`, `--set-after`, `--jump-after`,
+  `--report`) used to let the last one win in silence, and so did `--param` with the same id. Both are
+  now refused with exit code 1, the way `chrono calc` already refused them.
+- **The business-day limit counts the whole calculation.** No more than 1,000,000 business days are
+  counted in one calculation, all its steps together, where the limit used to stand on each step
+  alone - so two hundred steps of a million business days each held the processor for seconds. The
+  refusal names the step that goes past it, before that step is counted.
+- **A preset has at most 64 steps and 16 parameters.** The shipped presets have at most three and
+  two. A longer file is refused by its count, like a calendar with more than 2,000 holidays.
+- **"Not found" for a calendar or a preset names the folders and the ids on offer.** It printed
+  `looked in <exe>/calendars` as written and no id at all. It now names the folder by its path and the
+  ids it holds, or says that neither folder exists.
+- **An unexpected exit code of the core is named.** When the session closed but the core ended with a
+  code that is not a verdict, such as 101 for a crash in the tool itself, `chrono run` still exits with
+  3 and now says which code the core ended with, as it already did for a core that stopped before the
+  session closed.
 
 ### Fixed
 
+- **A flag that takes a value no longer swallows the flag after it.** `chrono run app.exe --report
+  --dry-run` ran the application and wrote the evidence into a file named `--dry-run` instead of
+  printing the plan, and `--report --no-embedded` dropped the opt-out. A word that starts with two
+  dashes is now refused as the value of a flag, naming both. `--args` still takes flags, because they
+  are the application's own, and a path that starts with two dashes can be written `.\--name`.
 - **A window, sound or network library present at the start can no longer take the hook with it.**
   The hook keeps such a library loaded for as long as the application runs, as it already did for one
   loaded later, so an application that frees it cannot leave the report claiming a function whose
@@ -68,6 +90,24 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Security
 
+- **A calendar or preset file cannot hide text from the terminal.** A text or key in such a file that
+  holds a control character, a format character (the ones that reverse the direction of text or have
+  no width) or a line separator is now refused when the file is read, naming the place in the file,
+  the position and the character. A preset whose description held a carriage return and an escape
+  sequence printed a fake result line over the real one. These files are made to be shared, and none
+  of the shipped ones holds such a character. The same characters in what an application or a browser
+  says about itself - a process name, an error, a refused connection - are now shown escaped.
+- **`--report` cannot overwrite a program, and writes its file whole.** The path is checked before the
+  session starts, also in a dry run: a folder that does not exist, a folder, the application itself and
+  any other program file are refused with exit code 1. The evidence is written to a temporary file
+  beside the target name and then renamed over it, so a failure leaves no half-written file, and when
+  the old file cannot be replaced the message names the temporary one that holds the evidence.
+- **A core in the window's package reads only the package's calendars and presets.** Run on its own
+  from `core\x64` or `core\x86`, it found no catalogue beside it and read the one in the current folder,
+  so a calendar placed in a shared folder could answer business-day questions in a report. It now reads
+  the package's own folders and never the current folder's. The window was not affected.
+- **A catalogue file is read with a bound.** Its size and its contents come through one open file, and
+  the read stops past the 4 MiB limit even when the file grows while it is read.
 - **The window package carries .NET 10.0.13.** It is the .NET security release of 2026-10-13, and
   the window, which brings its own runtime, bundles it in place of 10.0.12. The command line does not
   run on .NET and is unchanged.

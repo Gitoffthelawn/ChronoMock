@@ -313,9 +313,11 @@ pub enum EvalError {
     /// thing. A step is the second door into the year band - it builds its year arithmetically and
     /// never goes back through the parser (R3-1).
     YearOutOfRange { index: usize },
-    /// A business-day step asked for more than [`crate::calendar::MAX_BUSINESS_DAYS`]. A limit this
-    /// build sets, not an arithmetic one: it used to travel as `Overflow`, so `+2000000bd` was answered
-    /// with a sentence about the size of numbers while the number was fine (R4-N35).
+    /// The business-day steps of one evaluation, up to this one, add up to more than
+    /// [`crate::calendar::MAX_BUSINESS_DAYS`] (one step alone can, too). A limit this build sets, not an
+    /// arithmetic one: it used to travel as `Overflow`, so `+2000000bd` was answered with a sentence
+    /// about the size of numbers while the number was fine (R4-N35). Counted over the whole evaluation
+    /// since R5-B2, see `BusinessDayBudget`.
     TooManyBusinessDays { index: usize },
     /// A business-day step reached a day before the calendar's first year
     /// ([`crate::calendar::Calendar::valid_from`], carried here as `first_year`), where the calendar
@@ -354,6 +356,35 @@ fn is_a_civil_moment(c: &CivilDateTime) -> bool {
         && c.hour <= 23
         && c.minute <= 59
         && c.second <= 59
+}
+
+/// The business days one evaluation has asked a calendar to count so far, against
+/// [`crate::calendar::MAX_BUSINESS_DAYS`] for the WHOLE evaluation (R5-B2).
+///
+/// The limit used to stand on each step alone, so a preset of two hundred steps of `+1000000bd` stayed
+/// under it two hundred times and held the CPU for 5.7 s on a shipped calendar, measured, and a calendar
+/// of 2 000 holidays multiplied that. A step count limit on presets does not close it either: the
+/// command line repeats `--shift` as often as it fits. One budget for the evaluation bounds the walk
+/// whatever the surface, at the step that crosses it, before that step walks.
+#[derive(Default)]
+struct BusinessDayBudget {
+    spent: u64,
+}
+
+impl BusinessDayBudget {
+    /// Count `step` against the budget, refusing it when it takes the evaluation past the limit. Only
+    /// with a calendar: without one a business-day step is refused as needing it, which says more.
+    fn spend(&mut self, step: &Step, index: usize, has_calendar: bool) -> Result<(), EvalError> {
+        if let Step::Shift { amount, unit: Unit::BusinessDays, .. } = step
+            && has_calendar
+        {
+            self.spent = self.spent.saturating_add(amount.unsigned_abs());
+            if self.spent > crate::calendar::MAX_BUSINESS_DAYS.unsigned_abs() {
+                return Err(EvalError::TooManyBusinessDays { index });
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Evaluate an expression against a context. Folds each step onto the running civil
@@ -395,7 +426,9 @@ pub fn eval(expr: &MomentExpr, ctx: &EvalContext) -> Result<EvalOutcome, EvalErr
     let mut after_each = Vec::with_capacity(expr.steps.len());
     let mut clamped: Vec<(usize, u32)> = Vec::new();
     let mut calendar_reach: Option<CivilDateTime> = None;
+    let mut business_days = BusinessDayBudget::default();
     for (i, step) in expr.steps.iter().enumerate() {
+        business_days.spend(step, i, ctx.calendar.is_some())?;
         // A `zone` step re-expresses the running moment in another fixed-offset zone (same
         // instant, new wall-clock and bias). It is the only step that changes the zone, so it is
         // handled here where the bias lives - every other step folds the civil date and keeps the
@@ -2720,6 +2753,25 @@ mod tests {
         };
         assert_eq!(step(MAX_BUSINESS_DAYS + 1), Err(EvalError::TooManyBusinessDays { index: 0 }));
         assert_ne!(step(MAX_BUSINESS_DAYS), Err(EvalError::TooManyBusinessDays { index: 0 }));
+    }
+
+    /// The limit stands on the whole evaluation, not on each step (R5-B2): steps that are each under it
+    /// are refused at the one that takes the sum past it, before that one walks. Without a calendar the
+    /// first business-day step is refused as needing one, as before - that says more.
+    #[test]
+    fn business_day_steps_share_one_limit_for_the_evaluation() {
+        use crate::calendar::{Calendar, Observed, MAX_BUSINESS_DAYS};
+        let cal =
+            Calendar { id: "t".into(), country: "US".into(), weekend: vec![0, 6], observed: Observed::None, valid_from: None, law_as_of: None, holidays: vec![] };
+        let half = MAX_BUSINESS_DAYS / 2 + 1;
+        let walk = |signs: &[Sign], calendar: Option<&Calendar>| {
+            let steps = signs.iter().map(|&sign| Step::Shift { sign, amount: half, unit: Unit::BusinessDays }).collect();
+            eval(&MomentExpr { base: abs(dt(2026, 7, 6, 0, 0, 0)), steps }, &EvalContext { now: dt(2000, 1, 1, 0, 0, 0), zone_bias_min: 0, calendar })
+        };
+        // Forth and back counts both ways: the walk is the cost, not where it ends.
+        assert_eq!(walk(&[Sign::Plus, Sign::Minus], Some(&cal)), Err(EvalError::TooManyBusinessDays { index: 1 }));
+        assert!(walk(&[Sign::Plus], Some(&cal)).is_ok(), "one step under the limit is fine");
+        assert_eq!(walk(&[Sign::Plus, Sign::Minus], None), Err(EvalError::NeedsCalendar { index: 0 }));
     }
 
     /// A number at either end of i64, read as an epoch in any zone, is refused as out of range - the

@@ -703,7 +703,7 @@
   "calc.err.overflow": "Wynik wychodzi poza zakres, jaki ta wersja potrafi policzyć - użyj mniejszego przesunięcia.",
   "calc.err.bad_set_time": "Krok ustawienia godziny ma godzinę, minutę albo sekundę poza zakresem.",
   "calc.err.year_out_of_range": "Wynik wypada w roku spoza zakresu, na którym ta wersja liczy (od -262143 do 262143).",
-  "calc.err.business_days_limit": "Ten krok prosi o więcej niż 1 000 000 dni roboczych - tyle najwięcej liczy kalkulator.",
+  "calc.err.business_days_limit": "Kroki w dniach roboczych sumują się do ponad 1 000 000 dni roboczych - tyle najwięcej kalkulator liczy w jednym obliczeniu.",
   "calc.err.before_calendar": "Krok w dniach roboczych sięga roku sprzed początku wybranego kalendarza, więc nie da się go policzyć - wybierz późniejszą datę albo inny kalendarz.",
   "calc.err.base_overflow": "Punkt startowy w UTC wskazuje chwilę spoza zakresu, jaki ta wersja potrafi wyrazić.",
   "calc.err.base_not_a_date": "Punkt startowy nie jest prawdziwą datą i godziną - sprawdź w nim miesiąc, dzień i godzinę.",

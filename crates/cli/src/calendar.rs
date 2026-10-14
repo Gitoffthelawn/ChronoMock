@@ -227,26 +227,45 @@ pub(crate) fn is_valid_catalogue_id(id: &str) -> bool {
 /// are testable without touching the process's real working directory.
 pub(crate) fn find_catalogue_in(exe_dir: Option<&std::path::Path>, cwd: &std::path::Path, kind: &str, id: &str) -> Option<std::path::PathBuf> {
     let name = format!("{id}.json");
-    if let Some(dir) = exe_dir {
-        let installed = dir.join(kind);
+    if let Some(installed) = exe_dir.and_then(|dir| installed_catalogue_dir(dir, kind)) {
+        // An installed catalogue answers for itself, including "not here".
         let candidate = installed.join(&name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        if installed.is_dir() {
-            return None; // an installed catalogue answers for itself, including "not here"
-        }
+        return candidate.is_file().then_some(candidate);
     }
     let local = cwd.join(kind).join(&name);
     local.is_file().then_some(local)
 }
 
+/// The `<kind>` folder that belongs to the executable in `exe_dir`, when there is one: the folder
+/// beside it, or for a core inside the window's package (`core\x64\chrono.exe`, `core\x86\chrono.exe`)
+/// the one at the root of that package, where the package keeps its one copy of the data.
+///
+/// The second is what made the rule above hold for the window's package (R5-B6). Its cores have no
+/// catalogue beside them, so they fell through to the working directory - harmless from the window,
+/// which starts them in the package root, and exactly the rescue the rule forbids for anyone running
+/// `core\x64\chrono.exe calc --calendar us-banking` from a folder someone else can write to. Copying
+/// the data beside each core instead would make three copies, and a calendar added by hand (the README
+/// invites it) would have to be added to all of them. The layout is matched by its exact names, two
+/// levels and no further, so no other folder above an executable is ever read.
+fn installed_catalogue_dir(exe_dir: &std::path::Path, kind: &str) -> Option<std::path::PathBuf> {
+    let beside = exe_dir.join(kind);
+    if beside.is_dir() {
+        return Some(beside);
+    }
+    let named = |dir: &std::path::Path, names: &[&str]| {
+        dir.file_name().and_then(|n| n.to_str()).is_some_and(|n| names.iter().any(|want| n.eq_ignore_ascii_case(want)))
+    };
+    let core = exe_dir.parent().filter(|core| named(exe_dir, &["x64", "x86"]) && named(core, &["core"]))?;
+    let root = core.parent()?.join(kind);
+    root.is_dir().then_some(root)
+}
+
 /// The `<kind>` directory a lookup by id would read from, by the same rule as [`find_catalogue_in`]:
-/// the one beside the executable when it exists, which then answers for itself, else the working
-/// directory's. `None` when neither exists. The preset catalogue lists this directory, so a file it
-/// lists is one `--preset` finds.
+/// the one that belongs to the executable when it exists, which then answers for itself, else the
+/// working directory's. `None` when neither exists. The preset catalogue lists this directory, so a
+/// file it lists is one `--preset` finds.
 pub(crate) fn find_catalogue_dir_in(exe_dir: Option<&std::path::Path>, cwd: &std::path::Path, kind: &str) -> Option<std::path::PathBuf> {
-    if let Some(installed) = exe_dir.map(|dir| dir.join(kind)).filter(|dir| dir.is_dir()) {
+    if let Some(installed) = exe_dir.and_then(|dir| installed_catalogue_dir(dir, kind)) {
         return Some(installed);
     }
     let local = cwd.join(kind);
@@ -273,16 +292,51 @@ pub(crate) fn find_catalogue_file(kind: &str, id: &str) -> Option<std::path::Pat
 /// `./<kind>` for an installed one that never consulted it would send the reader to fix the wrong
 /// folder - in the single message they have to act on (rule 6).
 pub(crate) fn catalogue_search_places(kind: &str) -> String {
-    let installed = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join(kind)))
-        .is_some_and(|d| d.is_dir());
-    if installed {
-        format!("looked in <exe>/{kind}")
-    } else {
-        format!("looked in <exe>/{kind} and ./{kind}")
+    let exe = std::env::current_exe().ok();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    catalogue_search_places_in(exe.as_ref().and_then(|e| e.parent()), &cwd, kind)
+}
+
+/// [`catalogue_search_places`] for given folders. The folders are named as the paths they are, and the
+/// one that answered lists the ids it holds (R5-D5, item 1): the message said `looked in <exe>/calendars`,
+/// with the placeholder printed as it stands, and gave no hint of which ids would have worked.
+pub(crate) fn catalogue_search_places_in(exe_dir: Option<&std::path::Path>, cwd: &std::path::Path, kind: &str) -> String {
+    let Some(dir) = find_catalogue_dir_in(exe_dir, cwd, kind) else {
+        let beside = exe_dir.map(|d| format!("{} and ", d.join(kind).display())).unwrap_or_default();
+        return format!("looked for {beside}{} - neither folder exists", cwd.join(kind).display());
+    };
+    match catalogue_ids(&dir).as_slice() {
+        [] => format!("looked in {}, which holds no {kind}", dir.display()),
+        ids => format!("looked in {}, which holds {}", dir.display(), ids.join(", ")),
     }
 }
+
+/// The ids a catalogue folder offers - the names of its `.json` files that are valid ids - sorted, and
+/// at most [`LISTED_IDS`] of them with the count of the rest. Read only for a refusal, never on the way
+/// to a result.
+fn catalogue_ids(dir: &std::path::Path) -> Vec<String> {
+    let mut ids: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let is_json = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
+            let id = path.file_stem()?.to_str()?.to_string();
+            (is_json && is_valid_catalogue_id(&id)).then_some(id)
+        })
+        .collect();
+    ids.sort_unstable();
+    if ids.len() > LISTED_IDS {
+        let rest = ids.len() - LISTED_IDS;
+        ids.truncate(LISTED_IDS);
+        ids.push(format!("and {rest} more"));
+    }
+    ids
+}
+
+/// How many ids a "not found" message lists before it counts the rest.
+const LISTED_IDS: usize = 30;
 
 pub(crate) fn find_calendar_file(id: &str) -> Result<std::path::PathBuf, String> {
     if !is_valid_catalogue_id(id) {
@@ -337,19 +391,29 @@ pub(crate) const MAX_HOLIDAYS: usize = 2000;
 /// Read a catalogue file, refusing one too large to be a catalogue.
 ///
 /// The size is checked before the read, not after, which is the whole point - a file that cannot be a
-/// catalogue never has to fit in memory to be rejected.
+/// catalogue never has to fit in memory to be rejected. Both go through one open handle, and the read
+/// itself stops one byte past the limit. Asking the path for its size and then reading the path again
+/// left a window in which the file could be swapped or grow, and the read had no ceiling of its own
+/// (R5-B9, item 6).
 pub(crate) fn read_catalogue_file(path: &std::path::Path) -> Result<String, String> {
-    let size = std::fs::metadata(path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?
-        .len();
+    use std::io::Read;
+    let cannot_read = |e: std::io::Error| format!("cannot read {}: {e}", path.display());
+    let file = std::fs::File::open(path).map_err(cannot_read)?;
+    let size = file.metadata().map_err(cannot_read)?.len();
     if size > MAX_CATALOGUE_BYTES {
         return Err(format!(
             "{} is {size} bytes, past the {MAX_CATALOGUE_BYTES}-byte limit for a catalogue file",
             path.display()
         ));
     }
-
-    let mut bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(MAX_CATALOGUE_BYTES + 1).read_to_end(&mut bytes).map_err(cannot_read)?;
+    if bytes.len() as u64 > MAX_CATALOGUE_BYTES {
+        return Err(format!(
+            "{} grew past the {MAX_CATALOGUE_BYTES}-byte limit for a catalogue file while it was read",
+            path.display()
+        ));
+    }
     // A UTF-8 byte order mark is skipped (R4-N37). Windows PowerShell 5.1 writes one for
     // `-Encoding UTF8`, and JSON parsers may ignore it (RFC 8259 section 8.1). serde does not, and read
     // it as a stray character before the first brace: "expected value at line 1 column 1", of a file
@@ -453,10 +517,67 @@ pub(crate) fn from_object<'de, T: Deserialize<'de>>(text: &'de str) -> serde_jso
     Ok(value)
 }
 
+/// Refuse a catalogue file - a calendar or a preset - that holds a character which does not show as
+/// itself anywhere in it, in a text or in a key (R5-B1, [`chrono_core::text::is_hidden_char`]).
+///
+/// Catalogue files are written to be shared, calendars by outsiders on purpose, and their texts reach a
+/// terminal and the evidence a tester quotes. A preset whose `explains` held a carriage return and an
+/// erase-line sequence printed a fake `result:` line over the real one, measured. Refused rather than
+/// escaped when printed, because none of these characters has an honest use in a one-line name and
+/// none of the shipped files holds one. The whole document is walked, before the typed read: many
+/// refusals quote what the file says (an unknown schema, a value of `observed`, serde's unknown field),
+/// so a check of the known text fields alone would still let such a character out through an error
+/// message. A file that is not JSON at all passes here and the typed read names what is wrong with it.
+pub(crate) fn refuse_hidden_characters(kind: &str, text: &str) -> Result<(), String> {
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Ok(());
+    };
+    let refusal = |place: String, at: usize, c: char| {
+        format!(
+            "{kind} file: {place} holds U+{:04X} at character {at} - a character that does not show as itself, which a {kind} cannot carry because it can change what a terminal shows",
+            c as u32
+        )
+    };
+    let mut pending = vec![(String::new(), &root)];
+    while let Some((path, value)) = pending.pop() {
+        match value {
+            serde_json::Value::String(s) => {
+                if let Some((at, c)) = chrono_core::text::first_hidden_char(s) {
+                    return Err(refusal(format!("the text {}", json_place(&path)), at, c));
+                }
+            }
+            serde_json::Value::Array(items) => {
+                pending.extend(items.iter().enumerate().rev().map(|(i, item)| (format!("{path}[{i}]"), item)));
+            }
+            serde_json::Value::Object(map) => {
+                for (key, item) in map.iter().rev() {
+                    if let Some((at, c)) = chrono_core::text::first_hidden_char(key) {
+                        return Err(refusal(format!("a key {}", json_place(&path)), at, c));
+                    }
+                    pending.push((json_child(&path, key), item));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Where in a catalogue file a JSON path points, as a refusal says it.
+fn json_place(path: &str) -> String {
+    if path.is_empty() { "at the top level".to_string() } else { format!("in `{path}`") }
+}
+
+/// The path of `key` inside the object at `path`, written the way the file's author reads it.
+fn json_child(path: &str, key: &str) -> String {
+    if path.is_empty() { key.to_string() } else { format!("{path}.{key}") }
+}
+
 /// Parse and validate a calendar from its JSON text, mapping the `chronomock.calendar/1` schema to the
 /// engine's types. Separated from the on-disk lookup (symmetry with `parse_preset`) so the shipped
 /// calendars can be golden-tested against the real engine without the file-resolution step.
 pub(crate) fn calendar_from_text(text: &str) -> Result<chrono_core::calendar::Calendar, String> {
+    refuse_hidden_characters("calendar", text)?;
     let schema: SchemaDto = from_object(text).map_err(|e| json_refusal("calendar", &e))?;
     // An unknown major schema version is refused, not half-understood (docs/04 section 3.1).
     if schema.schema != "chronomock.calendar/1" {
@@ -624,6 +745,33 @@ mod tests {
 
         // At the limit is fine - the bound is a ceiling on the implausible, not on the large.
         assert!(calendar_from_text(&with_holidays(MAX_HOLIDAYS)).is_ok());
+    }
+
+    /// A text or a key holding a character that does not show as itself is refused before anything
+    /// else reads the file, by its place in the file and its code point (R5-B1). The characters go
+    /// into the JSON as escapes, the way a shared file carries them, built at run time so this source
+    /// holds none of them.
+    #[test]
+    fn a_calendar_text_or_key_with_a_hidden_character_is_refused_by_its_place() {
+        let escape = |code: u32| format!("\\u{code:04x}");
+        let calendar = |local: &str, extra: &str| {
+            format!(
+                r#"{{"schema":"chronomock.calendar/1","id":"probe","country":"XX","weekend":["saturday","sunday"],"observed":"none","valid_from":2000,"law_as_of":"2026-01-01","source":"t"{extra},"holidays":[{{"id":"h","name":{{"en":"H","local":"{local}"}},"rule":{{"type":"easter_offset","offset":1}},"source":"probe"}}]}}"#
+            )
+        };
+        assert!(calendar_from_text(&calendar("Wielkanoc", "")).is_ok(), "a plain name passes");
+
+        let err = calendar_from_text(&calendar(&format!("Wielka{}noc", escape(0x202E)), "")).unwrap_err();
+        assert!(
+            err.contains("the text in `holidays[0].name.local`") && err.contains("U+202E") && err.contains("character 7"),
+            "{err}"
+        );
+        // The measured attack: a carriage return and an erase-line sequence.
+        let err = calendar_from_text(&calendar(&format!("ok{}{}[2K", escape(0x0D), escape(0x1B)), "")).unwrap_err();
+        assert!(err.contains("U+000D"), "{err}");
+        // A key too, because serde quotes an unknown field by its name.
+        let err = calendar_from_text(&calendar("H", &format!(r#","x{}":1"#, escape(0x200B)))).unwrap_err();
+        assert!(err.contains("a key at the top level") && err.contains("U+200B"), "{err}");
     }
 
     /// A catalogue file is outside input, and `read_to_string` on it was the last unbounded read in
@@ -968,6 +1116,62 @@ mod tests {
             Some(cwd.join("calendars").join("us-banking.json"))
         );
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A core inside the window's package (`core\x64`, `core\x86`) reads the catalogue at the package
+    /// root and is not rescued from the working directory either (R5-B6). Matched by the exact names, so
+    /// a folder that only looks like the layout is not read.
+    #[test]
+    fn a_core_in_the_window_package_reads_the_package_catalogue_and_nothing_else() {
+        let root = crate::testutil::unique_temp_dir("chrono-catalogue-package");
+        let package = root.join("ChronoMock");
+        let cwd = root.join("downloads");
+        std::fs::create_dir_all(package.join("calendars")).unwrap();
+        std::fs::create_dir_all(cwd.join("calendars")).unwrap();
+        std::fs::write(cwd.join("calendars").join("us-banking.json"), "{}").unwrap();
+        std::fs::write(cwd.join("calendars").join("planted.json"), "{}").unwrap();
+        let shipped = package.join("calendars").join("us-banking.json");
+        std::fs::write(&shipped, "{}").unwrap();
+
+        for arch in ["x64", "x86", "X64"] {
+            let core = package.join("core").join(arch);
+            std::fs::create_dir_all(&core).unwrap();
+            assert_eq!(find_catalogue_in(Some(&core), &cwd, "calendars", "us-banking"), Some(shipped.clone()), "{arch}");
+            assert_eq!(find_catalogue_in(Some(&core), &cwd, "calendars", "planted"), None, "{arch}: not rescued");
+            assert_eq!(find_catalogue_dir_in(Some(&core), &cwd, "calendars"), Some(package.join("calendars")));
+        }
+        // Not the layout: an `x64` under some other folder, and a folder deeper down.
+        let other = package.join("tools").join("x64");
+        std::fs::create_dir_all(&other).unwrap();
+        assert_eq!(find_catalogue_dir_in(Some(&other), &cwd, "calendars"), Some(cwd.join("calendars")));
+        let deeper = package.join("core").join("x64").join("bin");
+        std::fs::create_dir_all(&deeper).unwrap();
+        assert_eq!(find_catalogue_dir_in(Some(&deeper), &cwd, "calendars"), Some(cwd.join("calendars")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// "Not found" names the folders as the paths they are and lists the ids the folder that answered
+    /// holds (R5-D5, item 1) - it printed `<exe>/calendars` as written and no id at all.
+    #[test]
+    fn not_found_names_the_real_folders_and_the_ids_on_offer() {
+        let root = crate::testutil::unique_temp_dir("chrono-catalogue-places");
+        let exe_dir = root.join("app");
+        let cwd = root.join("work");
+        std::fs::create_dir_all(exe_dir.join("calendars")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        for name in ["pl.json", "us-banking.json", "notes.txt", "bad name.json"] {
+            std::fs::write(exe_dir.join("calendars").join(name), "{}").unwrap();
+        }
+        let said = catalogue_search_places_in(Some(&exe_dir), &cwd, "calendars");
+        assert!(!said.contains("<exe>"), "{said}");
+        assert!(said.contains(&exe_dir.join("calendars").display().to_string()), "{said}");
+        assert!(said.ends_with("which holds pl, us-banking"), "only valid ids of .json files, sorted: {said}");
+
+        let bare = root.join("bare");
+        std::fs::create_dir_all(&bare).unwrap();
+        let said = catalogue_search_places_in(Some(&bare), &cwd, "calendars");
+        assert!(said.contains("neither folder exists") && said.contains(&cwd.join("calendars").display().to_string()), "{said}");
         let _ = std::fs::remove_dir_all(&root);
     }
 
