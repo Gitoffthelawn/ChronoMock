@@ -124,6 +124,7 @@ fn probe_samples_the_duration_axes_past_the_session_end() {
             let tail_rate = (reading[0] - tick0) / (now - t0).max(1.0);
             let heads = head_rates.unwrap_or([0.0; AXES.len()]).map(|r| format!("{r:.2}"));
             let backs = worst.map(|w| format!("{:.1}", -w));
+            // The layout `measured` reads back, `NUMBERS` in all: the heads, the tail, the backs.
             let line = format!("{} {tail_rate:.2} {}", heads.join(" "), backs.join(" "));
             std::fs::write(&out, line).expect("the probe writes its result");
             return;
@@ -134,10 +135,13 @@ fn probe_samples_the_duration_axes_past_the_session_end() {
 /// What the probe wrote: the head rate of every axis, the tail rate of the tick count, and the step back
 /// on every axis.
 struct Measured {
-    heads: [f64; 6],
+    heads: [f64; AXES.len()],
     tail: f64,
-    backs: [f64; 6],
+    backs: [f64; AXES.len()],
 }
+
+/// How many numbers the probe writes, in the order `Measured` holds them.
+const NUMBERS: usize = 2 * AXES.len() + 1;
 
 /// The injected library, which `cargo test` does not build (`dry_run.rs` has the whole story).
 fn injected_library() -> PathBuf {
@@ -147,15 +151,21 @@ fn injected_library() -> PathBuf {
         .join("chrono_hook.dll")
 }
 
-/// What the probe wrote, or `None` when it wrote nothing or not every number.
-fn measured(file: &std::path::Path) -> Option<Measured> {
-    let text = std::fs::read_to_string(file).ok()?;
-    let values: Vec<f64> = text.split_whitespace().filter_map(|v| v.parse().ok()).collect();
-    let all: [f64; 13] = values.try_into().ok()?;
-    Some(Measured {
+/// What the probe wrote, or why it cannot be read. The reason quotes the text, so a probe and a reader
+/// that disagree about the layout read as that, not as a probe that wrote nothing.
+fn measured(file: &std::path::Path) -> Result<Measured, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("no result file ({e})"))?;
+    let values = text
+        .split_whitespace()
+        .map(str::parse)
+        .collect::<Result<Vec<f64>, _>>()
+        .map_err(|e| format!("not every word is a number ({e}): {text:?}"))?;
+    let all: [f64; NUMBERS] =
+        values.try_into().map_err(|v: Vec<f64>| format!("{} numbers where {NUMBERS} belong: {text:?}", v.len()))?;
+    Ok(Measured {
         heads: std::array::from_fn(|i| all[i]),
-        tail: all[6],
-        backs: std::array::from_fn(|i| all[7 + i]),
+        tail: all[AXES.len()],
+        backs: std::array::from_fn(|i| all[AXES.len() + 1 + i]),
     })
 }
 
@@ -190,7 +200,7 @@ fn an_application_left_running_keeps_its_duration_axes_moving_forward() {
         .output()
         .expect("the probe must run without a session");
     assert!(run.status.success(), "the probe failed without a session: {}", String::from_utf8_lossy(&run.stdout));
-    let control = measured(&control).expect("the probe wrote nothing without a session");
+    let control = measured(&control).unwrap_or_else(|why| panic!("the probe's result without a session: {why}"));
     assert!(
         control.heads.iter().all(|&r| r < 2.0) && control.tail < 2.0,
         "without a session the axes moved at ({}) then x{}, so this probe cannot tell",
@@ -220,9 +230,8 @@ fn an_application_left_running_keeps_its_duration_axes_moving_forward() {
         .expect("the tool must run");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let context = || format!("stdout: {stdout} stderr: {}", String::from_utf8_lossy(&out.stderr));
-    let Some(session) = measured(&session) else {
-        panic!("the probe wrote nothing under the session. {}", context());
-    };
+    let session =
+        measured(&session).unwrap_or_else(|why| panic!("the probe's result under the session: {why}. {}", context()));
     // Every axis the step-back check reads has to have been scaled, or that check proves nothing on it.
     assert!(
         session.heads.iter().all(|&r| r > 10.0),

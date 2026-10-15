@@ -2881,7 +2881,7 @@ unsafe fn inherit_into_child(r: i32, pi: *mut PROCESS_INFORMATION, flags: u32) {
 unsafe fn inherit_into_debugged_child(info: &PROCESS_INFORMATION, resume: bool) -> bool { unsafe {
     // The caller owns `info`'s handles and may close them as soon as CreateProcess returns, so the
     // waiting thread needs handles of its own. Taken before anything starts in the child.
-    let (Some(process), Some(thread)) = (own_handle(info.hProcess), own_handle(info.hThread)) else {
+    let Some((process, thread)) = own_handles(info.hProcess, info.hThread) else {
         return false;
     };
     let Some(load) = begin_remote_load(process) else {
@@ -2939,6 +2939,21 @@ unsafe fn own_handle(handle: HANDLE) -> Option<HANDLE> { unsafe {
     DuplicateHandle(GetCurrentProcess(), handle, GetCurrentProcess(), &mut own, 0, false, DUPLICATE_SAME_ACCESS)
         .ok()
         .map(|()| own)
+}}
+
+/// Second handles to a child and to its first thread, both or neither. When the second cannot be had,
+/// the first is closed again: left open, it would keep the child's process object alive in the
+/// application under test for as long as that application runs, once for every debugged child it starts.
+///
+/// # Safety
+/// Each must be a handle of this process, or one `DuplicateHandle` refuses.
+unsafe fn own_handles(process: HANDLE, thread: HANDLE) -> Option<(HANDLE, HANDLE)> { unsafe {
+    let process = own_handle(process)?;
+    let Some(thread) = own_handle(thread) else {
+        let _ = CloseHandle(process);
+        return None;
+    };
+    Some((process, thread))
 }}
 
 /// Count a child the hook tried to follow into, once its load has ended: nothing when it signed in,
@@ -3993,6 +4008,35 @@ mod tests {
         ];
         for (failure, look) in cases {
             assert!(join_refusal(&look).is_some(), "{failure}");
+        }
+    }
+
+    /// A debugged child's two handles are taken both or neither: when the second duplicate fails, the
+    /// first is closed again. The two used to be taken side by side, and whichever succeeded stayed open in
+    /// the application under test.
+    #[test]
+    fn a_failed_second_duplicate_leaves_no_handle_open() {
+        use windows::Win32::System::Threading::GetProcessHandleCount;
+        const TRIES: u32 = 256;
+        // SAFETY: the pseudo-handles of this process and thread, and a null handle, which DuplicateHandle
+        // refuses. Every handle that comes back is closed here.
+        unsafe {
+            let count = || {
+                let mut n = 0u32;
+                GetProcessHandleCount(GetCurrentProcess(), &mut n).expect("this process can count its handles");
+                n
+            };
+            let (process, thread) =
+                own_handles(GetCurrentProcess(), GetCurrentThread()).expect("both handles of this process duplicate");
+            let _ = CloseHandle(thread);
+            let _ = CloseHandle(process);
+            let before = count();
+            for _ in 0..TRIES {
+                assert!(own_handles(GetCurrentProcess(), HANDLE::default()).is_none(), "a null thread handle duplicated");
+            }
+            // Other tests open and close handles meanwhile, so the bound is half of what a leak would add.
+            let grew = count().saturating_sub(before);
+            assert!(grew < TRIES / 2, "{grew} handles stayed open after {TRIES} failed pairs");
         }
     }
 

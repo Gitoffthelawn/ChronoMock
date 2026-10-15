@@ -171,11 +171,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   uncovered although the hook joined it a moment later. The wait now happens in a thread of its own,
   the call returns at once, and the program starts once the hook is in place. A debugger that asks
   for the program suspended and resumes it itself can still start it before the hook is in.
-- **A child process Windows could not start is no longer reported as running on the real clock.** When
-  the application under test started a program Windows ended while loading it, before the program ran
-  (a library it needs is missing, say), the report listed that program among the processes the hook
-  could not follow, said it ran on the real clock and gave the session a `partial` verdict. It never
-  ran, so it is left out now, the way Chrono Mock already read its own target.
+- **A child process that Windows could not start is no longer reported as running on the real
+  clock.** When the application under test started a program that Windows ended while loading it,
+  before the program ran (a library it needs is missing, say), the report listed that program among the
+  processes the hook could not follow, said it ran on the real clock and gave the session a `partial`
+  verdict. It never ran, so it is left out now, the way Chrono Mock already read its own target.
 - **On 32-bit Windows with `--scale-qpc`, the precise system clocks no longer follow the scaled
   counter.** Windows computes them through the exported `QueryPerformanceCounter` there, so after the
   session the application's precise wall clock stayed ahead of the real one by everything the counter had

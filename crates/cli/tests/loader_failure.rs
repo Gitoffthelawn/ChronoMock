@@ -11,6 +11,9 @@
 //! Both sessions here run with the error mode a program started from Explorer has (the default, which
 //! shows the window), whatever mode the test runner itself was given. The broken target is a copy of
 //! this test binary with one imported library renamed, so nothing has to be built for it.
+//!
+//! A third session runs the same broken copy as a CHILD of the application under test, which the hook
+//! loads itself into and reads the end of the way the core reads its own target's (R5-A7, R5-F8).
 
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -41,10 +44,30 @@ const MISSING_LIBRARY: &str = "cmzz9.dll";
 /// Well under the ten seconds the remote thread is given, which is how long the window used to hold it.
 const AT_ONCE: Duration = Duration::from_secs(6);
 
+/// Where the child probe writes how the child it started ended. Unset, the probe returns at once.
+const CHILD_OUT: &str = "CHRONO_LOADER_CHILD_PROBE_OUT";
+
+/// The program the child probe starts.
+const CHILD_TARGET: &str = "CHRONO_LOADER_CHILD_PROBE_TARGET";
+
+/// The child probe's own name.
+const CHILD_PROBE: &str = "probe_starts_a_child_and_writes_how_it_ended";
+
+/// `SEM_FAILCRITICALERRORS`: no error window for a failure Windows meets on this process's behalf, and
+/// a child inherits the mode (MS Learn, `SetErrorMode`).
+const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+
+/// `STATUS_DLL_NOT_FOUND`, the code the loader ends a process with when a library it imports is missing.
+const STATUS_DLL_NOT_FOUND: &str = "0xC0000135";
+
+/// Well past the session's opening guard window of 300 ms (ADR-4).
+const PAST_THE_GUARD: Duration = Duration::from_secs(1);
+
 #[cfg_attr(target_arch = "x86", link(name = "kernel32", kind = "raw-dylib", import_name_type = "undecorated"))]
 #[cfg_attr(not(target_arch = "x86"), link(name = "kernel32", kind = "raw-dylib"))]
 unsafe extern "system" {
     fn GetErrorMode() -> u32;
+    fn SetErrorMode(mode: u32) -> u32;
 }
 
 /// Writes the error mode this process runs with, as a number.
@@ -57,6 +80,25 @@ fn probe_reports_the_error_mode_it_runs_with() {
     // SAFETY: no arguments, no state - it reads this process's mode.
     let mode = unsafe { GetErrorMode() };
     std::fs::write(PathBuf::from(out), mode.to_string()).expect("the probe writes its mode");
+}
+
+/// Starts the program `CHILD_TARGET` names, waits for it, and writes its exit code in hexadecimal.
+#[test]
+#[ignore = "the target of the child session test in this file, not a test on its own"]
+fn probe_starts_a_child_and_writes_how_it_ended() {
+    let (Some(out), Some(target)) = (std::env::var_os(CHILD_OUT), std::env::var_os(CHILD_TARGET)) else {
+        return;
+    };
+    // The child inherits this mode, so its missing library ends it at once instead of holding it on
+    // Windows's error window, which nobody in a test run can close.
+    // SAFETY: no pointers, it sets this process's mode.
+    unsafe { SetErrorMode(SEM_FAILCRITICALERRORS) };
+    let status = Command::new(target).status().expect("the child is created");
+    let code = status.code().map_or_else(|| "none".to_string(), |c| format!("{:#X}", c as u32));
+    std::fs::write(PathBuf::from(out), code).expect("the probe writes how the child ended");
+    // A target gone inside the session's first 300 ms reads as one that handed its work on (ADR-4), and
+    // the session then gives no verdict on its family at all.
+    std::thread::sleep(PAST_THE_GUARD);
 }
 
 /// The injected library, which `cargo test` does not build (`dry_run.rs` has the whole story).
@@ -198,5 +240,53 @@ fn an_application_runs_with_the_error_mode_it_inherited() {
     // Started with the default mode, it must run with the default mode: the window switched off for its
     // loading has to be back on before its own code reads the mode.
     assert_eq!(seen, "0", "the application runs with a mode it did not inherit. {}", context());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A child the application starts and Windows ends while loading it never ran a line of its own, so the
+/// session does not name it among the processes on the real clock (R5-F8). The hook used to take the
+/// loader's status for a loaded library, find no sign-in from the child and count it uncovered, which
+/// turned a `works` session into `partial` over a program that never ran.
+#[test]
+fn a_child_windows_ends_while_loading_it_is_not_reported_as_running_on_the_real_clock() {
+    let _session = one_session_at_a_time();
+    let dir = scratch("child");
+    let me = std::env::current_exe().expect("the test binary knows its own path");
+    let mut image = std::fs::read(&me).expect("the test binary is readable");
+    let renamed = rename_an_import(&mut image, MISSING_LIBRARY).expect("the test binary has an import to rename");
+    let broken = dir.join("broken.exe");
+    std::fs::write(&broken, &image).expect("the broken copy is written");
+    let file = dir.join("child.txt");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_chrono"))
+        .args(["run", &me.display().to_string(), "--at", "2077-01-01T00:00:00", "--zone", "+00:00", "--json"])
+        .args(["--args", &format!("--ignored --exact {CHILD_PROBE} --test-threads 1")])
+        .env(CHILD_OUT, &file)
+        .env(CHILD_TARGET, &broken)
+        .output()
+        .expect("the tool must run");
+    let ended = std::fs::read_to_string(&file).unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let context = || {
+        format!(
+            "renamed {renamed} to {MISSING_LIBRARY}, the child ended with {ended:?}\nstdout:\n{stdout}\nstderr:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        )
+    };
+
+    // The child was started and its loader ended it, or nothing below is about such a child.
+    assert_eq!(ended, STATUS_DLL_NOT_FOUND, "the child did not end the way a missing library ends it. {}", context());
+    let verdict = stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|event| event["type"] == "session_verdict")
+        .unwrap_or_else(|| panic!("the session gave no verdict. {}", context()));
+    assert_eq!(
+        verdict["uncovered_children_total"], 0,
+        "a child that never ran was counted as a process on the real clock. {}",
+        context()
+    );
+    assert_eq!(verdict["verdict"], "works", "the session is not a works session. {}", context());
+    assert_eq!(out.status.code(), Some(0), "a works session is exit 0. {}", context());
     let _ = std::fs::remove_dir_all(&dir);
 }
