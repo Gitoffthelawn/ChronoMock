@@ -8,6 +8,8 @@
 
 mod launch;
 mod session;
+#[cfg(test)]
+mod shim_exec;
 mod ws;
 
 use serde_json::Value;

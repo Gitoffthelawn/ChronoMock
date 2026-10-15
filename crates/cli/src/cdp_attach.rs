@@ -211,6 +211,10 @@ pub(crate) struct AttacherOutcome {
     pub(crate) zone_missed: usize,
     /// How many pages were hidden at some point while their timers ran faster (R4-N28).
     pub(crate) hidden_fast: usize,
+    /// How many contexts had a timer the engine's 4 ms floor held back at the session's speed (R5-P6).
+    pub(crate) timers_capped: usize,
+    /// How many pages had a frame in their process the shim did not reach (R5-P5).
+    pub(crate) frames_unreached: usize,
 }
 
 pub(crate) struct Attacher {
@@ -229,6 +233,10 @@ pub(crate) struct Attacher {
     /// [`MAX_CONTEXTS`].
     seen: Vec<u32>,
     failed: usize,
+    /// The pages whose shim is their new-document hook's to give, by index, with whether the index was
+    /// known before (R5-F11): covered once their audit shows the shim, counted as not covered while
+    /// they wait - at the end too (R5-D46).
+    awaiting: HashMap<u32, bool>,
     /// The row the contexts past [`MAX_CONTEXTS`] are counted in: the index of the first of them.
     pool: Option<u32>,
     /// How many contexts were counted in the pool's row, each once.
@@ -293,6 +301,7 @@ impl Attacher {
             requests: Requests::default(),
             seen: Vec::new(),
             failed: 0,
+            awaiting: HashMap::new(),
             pool: None,
             pooled: 0,
             reached_running: 0,
@@ -327,18 +336,6 @@ impl Attacher {
         self.zone = Some(bias_min);
     }
 
-    /// How many contexts read a zone other than the session's at some point - the override did not
-    /// reach them, or their process lost it.
-    pub(crate) fn zone_missed(&self) -> usize {
-        self.requests.zone_missed()
-    }
-
-    /// How many pages were hidden at some point while their timers ran faster - an engine slows the
-    /// timers of a hidden window, unless the session started it with that switched off (R4-N28).
-    pub(crate) fn hidden_fast(&self) -> usize {
-        self.requests.hidden_fast()
-    }
-
     /// Shorten the client's poll interval and call deadline - see `CdpClient::set_budgets`. For an
     /// attacher driven from a loop that has its own cadence to keep.
     pub(crate) fn set_budgets(&mut self, poll: Duration, call: Duration) {
@@ -360,18 +357,23 @@ impl Attacher {
         let moves_missed = self.requests.moves_missed();
         let zone_missed = self.requests.zone_missed();
         let hidden_fast = self.requests.hidden_fast();
+        let timers_capped = self.requests.timers_capped();
+        let frames_unreached = self.requests.frames_unreached();
         let seen = self.seen();
         let contexts = self.contexts_covered();
+        let failed = self.failed();
         AttacherOutcome {
             seen,
             counts: self.requests.into_counts(self.pool),
-            failed: self.failed,
+            failed,
             pooled: self.pooled,
             contexts,
             reached_running: self.reached_running,
             moves_missed,
             zone_missed,
             hidden_fast,
+            timers_capped,
+            frames_unreached,
         }
     }
 
@@ -447,6 +449,12 @@ impl Attacher {
             Ok(Some(cdp::Msg::Response { id, result, error })) => {
                 let reply = if error.is_none() { Ok(result) } else { Err(()) };
                 self.requests.on_reply(id, reply, &mut self.client);
+                // A page that waited for its shim and showed it in this answer is covered from now on.
+                for index in self.requests.take_confirmed() {
+                    if let Some(known) = self.awaiting.remove(&index) {
+                        self.cover(index, known, false);
+                    }
+                }
                 Pumped::Idle
             }
             Ok(Some(cdp::Msg::Event { method, params, .. })) if method == "Target.attachedToTarget" => {
@@ -555,9 +563,6 @@ impl Attacher {
         let deadline = attach_deadline(Instant::now(), self.client.call_budget(), cap);
         let known = !tid.is_empty() && self.index_by_target.contains_key(&tid);
         let index = context_index_for(&tid, &mut self.index_by_target, next_index);
-        // Past the ceiling of own rows the context is shimmed all the same and counted in the pool's
-        // row (R5-P20): a ceiling on the audit must not take the coverage away (rule 27).
-        let pooled = past_ceiling(&self.seen, index);
         if self.probe_clock && self.reads_session_clock_natively(&sid, origin, deadline) {
             // Covered by the native mechanism already: it has a row of its own under its pid, and a
             // shim here would scale the fake wall twice. Released, and not counted as a context.
@@ -573,32 +578,27 @@ impl Attacher {
             cdp::inject_page(&mut self.client, &sid, &shim, zone.as_deref(), deadline)
         };
         match injected {
-            Ok(cdp::Injected { script, children, running }) => {
+            Ok(cdp::Injected { script, children, running, awaiting }) => {
                 if !children && cdp::starts_workers(&ty) {
                     // The context is on the session clock, but it refused auto-attach, so a worker it
                     // starts runs on the real clock unseen. Counted as one that could not be reached,
                     // so the verdict says some were not rather than that all were (rule 4).
                     self.failed += 1;
                 }
+                // The target named its own context type, and that name becomes a coverage key in the
+                // report and on the wire. Cleaned here, at the one place a context is built.
+                self.requests.push(CdpContext::new(index, sid, cdp::sanitise_target_text(&ty), tid, script).awaiting(awaiting));
+                if awaiting {
+                    // No document yet: the hook gives the first one its shim, and the first audit that
+                    // answers from it makes the page covered (R5-F11, R5-D46).
+                    self.awaiting.insert(index, known);
+                    return;
+                }
                 // Reached while it was already running (R5-P7): a page whose own scripts the shim found
                 // before it, a worker that was not paused on start. Its scripts may have read the real
                 // clock first - said, once per context. A page paused on start finds no scripts.
                 let late = if cdp::is_worker(&ty) { !waiting } else { running };
-                if late && !known {
-                    self.reached_running += 1;
-                }
-                if pooled {
-                    // Once per context: a pooled one that comes back under its old index is not another.
-                    if !known {
-                        self.pooled += 1;
-                    }
-                    self.pool.get_or_insert(index);
-                } else if !self.seen.contains(&index) {
-                    self.seen.push(index);
-                }
-                // The target named its own context type, and that name becomes a coverage key in the
-                // report and on the wire. Cleaned here, at the one place a context is built.
-                self.requests.push(CdpContext::new(index, sid, cdp::sanitise_target_text(&ty), tid, script).pooled(pooled));
+                self.cover(index, known, late);
             }
             Err(e) => {
                 // The shim did not take, and the injection stopped before its own resume call: let
@@ -608,6 +608,25 @@ impl Attacher {
                 self.say("a page or worker could not take the time shim", &e);
                 self.resume(&sid);
             }
+        }
+    }
+
+    /// Count a context the shim is in as covered: a row of its own, or past the ceiling of own rows the
+    /// pool's row (R5-P20 - a ceiling on the audit must not take the coverage away, rule 27), and
+    /// whether it was reached `late`, already running (R5-P7). `known`: it came back under the index it
+    /// had, and is not counted again.
+    fn cover(&mut self, index: u32, known: bool, late: bool) {
+        if late && !known {
+            self.reached_running += 1;
+        }
+        if past_ceiling(&self.seen, index) {
+            if !known {
+                self.pooled += 1;
+            }
+            self.pool.get_or_insert(index);
+            self.requests.pool_context(index);
+        } else if !self.seen.contains(&index) {
+            self.seen.push(index);
         }
     }
 
@@ -781,22 +800,12 @@ impl Attacher {
         self.pooled
     }
 
-    /// How many contexts were reached while already running (R5-P7).
-    pub(crate) fn reached_running(&self) -> usize {
-        self.reached_running
-    }
-
-    /// The counts, handed over for the end-of-session fold, the pooled contexts' in the pool's row.
-    pub(crate) fn into_counts(self) -> BTreeMap<(u32, String), u64> {
-        self.requests.into_counts(self.pool)
-    }
-
     /// How many contexts attached and could not be shimmed, plus the ones shimmed that refused to
-    /// attach the workers they start - a worker of theirs would run on the real clock unseen.
+    /// attach the workers they start - a worker of theirs would run on the real clock unseen - and the
+    /// pages whose shim never showed (R5-D46).
     pub(crate) fn failed(&self) -> usize {
-        self.failed
+        self.failed + self.awaiting.len()
     }
-
 }
 
 /// A target as it arrived: its session, its type and id as the browser named them, and whether it was
@@ -1057,8 +1066,7 @@ mod tests {
             attacher.pump(origin, &mut next);
         }
         assert_eq!(attacher.contexts().len(), 4, "all four were shimmed");
-        assert_eq!(attacher.reached_running(), 2, "the loaded page and the worker that was not paused");
-        drop(attacher);
+        assert_eq!(attacher.into_outcome().reached_running, 2, "the loaded page and the worker that was not paused");
         drop(browser);
     }
 
@@ -1195,6 +1203,91 @@ mod tests {
         assert_eq!(zone_to("S2"), 2, "the one left is given the zone again, once");
     }
 
+    /// R5-F11, R5-D46: a frame of another site reached before its first document waits for its shim. It
+    /// is no covered context and no audit row until an audit answers from its shim - counted as one the
+    /// session could not cover while it waits, at the end too - and is covered once one does.
+    #[test]
+    fn a_frame_waiting_for_its_shim_is_covered_only_once_its_audit_shows_it() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let loaded = Arc::new(AtomicBool::new(false));
+        let document = Arc::clone(&loaded);
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let expr = request["params"]["expression"].as_str().unwrap_or("");
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "F1", "type": "iframe" }] }))],
+                "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                "Runtime.evaluate" if expr == cdp::COUNTS_EXPR => {
+                    let value = if document.load(Ordering::SeqCst) { json!({ "now": 2, "frames": 0 }) } else { serde_json::Value::Null };
+                    vec![(id, json!({ "result": { "value": value } }))]
+                }
+                "Runtime.evaluate" => {
+                    vec![(serde_json::Value::Null, json!({ "id": id, "error": { "code": -32000, "message": "Cannot find default execution context" } }))]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        let audit = |attacher: &mut Attacher, next: &mut u32| {
+            attacher.request_counts();
+            for _ in 0..20 {
+                attacher.pump(origin, next);
+            }
+        };
+        audit(&mut attacher, &mut next);
+        assert_eq!((attacher.contexts_covered(), attacher.failed()), (0, 1), "waiting: not covered, counted as not");
+        assert!(attacher.seen().is_empty(), "and no row of its own");
+        loaded.store(true, Ordering::SeqCst);
+        audit(&mut attacher, &mut next);
+        assert_eq!((attacher.contexts_covered(), attacher.failed()), (1, 0), "its shim answered: covered");
+        assert_eq!(attacher.seen(), [1], "the row of the first context");
+        drop(attacher);
+        drop(browser.join());
+    }
+
+    /// R5-D46, CodeRabbit on #111: a frame that went away before any audit showed its shim stays one the
+    /// session could not cover - its going does not take it off the count, at the end too.
+    #[test]
+    fn a_frame_that_goes_before_its_shim_showed_stays_uncovered() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "F1", "type": "iframe" }] }))],
+                "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                // Resumed, and gone before its first document - the frame was removed from its page.
+                "Runtime.runIfWaitingForDebugger" => vec![
+                    (id, json!({})),
+                    (serde_json::Value::Null, json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "S1", "targetId": "F1" } })),
+                ],
+                "Runtime.evaluate" => {
+                    vec![(serde_json::Value::Null, json!({ "id": id, "error": { "code": -32000, "message": "Cannot find default execution context" } }))]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        let detached = (0..50).any(|_| attacher.pump(origin, &mut next) == Pumped::Detached);
+        assert!(detached, "the fake browser said the frame went away");
+        assert!(attacher.contexts().is_empty(), "it is no longer driven");
+        let outcome = attacher.into_outcome();
+        assert_eq!((outcome.contexts, outcome.failed), (0, 1), "and it is still one the session could not cover");
+        assert!(outcome.seen.is_empty());
+        drop(browser.join());
+    }
+
     /// CodeRabbit on #89: two pages share one renderer and its zone override, and the protocol does not
     /// order commands across sessions. Here the second page's renderer is busy and runs its last count
     /// only when its release arrives, reading another zone if the session's was replaced before. The
@@ -1229,7 +1322,7 @@ mod tests {
                 }
                 "Runtime.evaluate" if expr == cdp::COUNTS_EXPR => vec![(id, count(reset))],
                 // The zone read: the machine's offsets once the zone was given back, the session's before.
-                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => {
+                "Runtime.evaluate" if expr.contains("S.zoneRead(") => {
                     let shown = if reset { json!([-60, -120]) } else { json!([-330, -330]) };
                     vec![(id, json!({ "result": { "value": shown } }))]
                 }
@@ -1259,8 +1352,7 @@ mod tests {
         let released = attacher.release(&cdp::release_expr(), &machine, origin, &mut next, deadline);
         assert_eq!(released.unconfirmed, 0, "both pages confirmed they were let go");
         assert_eq!(released.zone, ZoneTally { back: 2, kept: 0, unanswered: 0 }, "both read back the machine's zone");
-        assert_eq!(attacher.zone_missed(), 0, "the busy page's last count read the session's zone");
-        drop(attacher);
+        assert_eq!(attacher.into_outcome().zone_missed, 0, "the busy page's last count read the session's zone");
         let log = browser.join().unwrap();
         let zone_of = |r: &serde_json::Value| r["method"] == "Emulation.setTimezoneOverride" && r["params"]["timezoneId"] != "GMT+05:30";
         let resets: Vec<usize> = (0..log.len()).filter(|&i| zone_of(&log[i])).collect();
@@ -1296,11 +1388,11 @@ mod tests {
                 }
                 "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
                 // The second page is busy from the release on: it answers nothing more.
-                "Runtime.evaluate" if session == "S2" && (expr == cdp::release_expr() || expr.contains("getTimezoneOffset()]")) => {
+                "Runtime.evaluate" if session == "S2" && (expr == cdp::release_expr() || expr.contains("S.zoneRead(")) => {
                     Vec::new()
                 }
                 "Runtime.evaluate" if expr == cdp::release_expr() => vec![(id, json!({ "result": { "value": "ok" } }))],
-                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => {
+                "Runtime.evaluate" if expr.contains("S.zoneRead(") => {
                     vec![(id, json!({ "result": { "value": [-60, -120] } }))]
                 }
                 _ => vec![(id, json!({}))],
@@ -1337,7 +1429,7 @@ mod tests {
                     "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
                     "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
                     "Runtime.evaluate" if expr == cdp::release_expr() => vec![(id, json!({ "result": { "value": "ok" } }))],
-                    "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => {
+                    "Runtime.evaluate" if expr.contains("S.zoneRead(") => {
                         answer.clone().map(|v| vec![(id, json!({ "result": { "value": v } }))]).unwrap_or_default()
                     }
                     _ => vec![(id, json!({}))],
@@ -1364,7 +1456,7 @@ mod tests {
         let (none, log) = release_with(Some(json!([-60, -120])), None);
         assert_eq!(none.zone, ZoneTally::default());
         assert!(log.iter().all(|r| r["method"] != "Emulation.setTimezoneOverride"), "no zone set, none given back");
-        assert!(log.iter().all(|r| !r["params"]["expression"].as_str().unwrap_or("").contains("getTimezoneOffset()]")));
+        assert!(log.iter().all(|r| !r["params"]["expression"].as_str().unwrap_or("").contains("S.zoneRead(")));
     }
 
     /// R4-S14: a turn takes everything that is already here, not one message - and reports what

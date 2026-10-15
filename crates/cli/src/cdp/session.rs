@@ -15,30 +15,39 @@ use std::io;
 use std::time::Instant;
 
 /// The time shim, with `__MULT__`/`__DUR__`/`__FAKE_START__`/`__REAL_START__`/`__SCHEDULED__`/
-/// `__WALL_MAX__` filled in by [`build_shim`]. A guard (`__chronomock`) keeps the originals wrapped
-/// exactly once: a second run in the same document only sets the clock it carries, so of two
+/// `__WALL_MAX__`/`__ZONE__` filled in by [`build_shim`]. A guard (`__chronomock`) keeps the originals
+/// wrapped exactly once: a second run in the same document only sets the clock it carries, so of two
 /// new-document hooks the one added last decides (R4-W5). `fakeNow` is
 /// `fakeStart + (realNow - realStart) * M`, so M = 1 is a pure wall offset and M > 1 accelerates.
 ///
-/// The clock lives in the mutable `__chronomock` object and every override reads it live. It is one
-/// segment (`fakeStart`/`realStart`/`M` for the wall, `perfBase`/`perfAnchorReal`/`D` for the
-/// duration axis) plus at most one rate change scheduled for an instant (`scheduled`), and the
-/// driver moves it only through the object's own methods - the CDP equivalent of the native hook
-/// re-reading `Ctl`:
+/// The clock is closed over, and `__chronomock` is a frozen object of methods on a property that is
+/// neither enumerable, writable nor configurable (R5-B8): a page's own scripts do not see it among their
+/// globals, and cannot move the clock but through the methods the session uses - the CDP equivalent of
+/// the native hook re-reading `Ctl`. The clock is one segment (`fakeStart`/`realStart`/`M` for the wall,
+/// `perfBase`/`perfAnchorReal`/`D` for the duration axis) plus at most one rate change scheduled for an
+/// instant (`scheduled`):
 /// - `schedule(at, M, D)` - a rate change in a Chromium session. It takes effect at `at`, the same
 ///   instant the panel's clock changes at, from wherever this context's own segment stands then, so
 ///   the wall never steps at the change (R4-S17, ADR-9 R4/14b). A context reached after `at` changes
 ///   at its own now and says `late`.
-/// - `set(fakeStart, realStart, M, D, scheduled)` - the whole clock at once: a jump, the release, a
+/// - `set(fakeStart, realStart, M, D, scheduled, wallMax, Z)` - the whole clock at once: a jump, a
 ///   second install, and every move of the pages of an embedded engine, which follow the host's clock
-///   as it is.
-/// - `settle()` - the scheduled change folded in once its instant has come. Every read calls it
-///   first, so a change takes effect at its own instant whoever reads first.
+///   as it is. The last two are left as they are when not given.
+/// - `release()` - the real clock, and the audit started over.
+/// - `audit()` - the counts and the facts the session reads once a second.
+/// - `zoneRead(a, b)` - the offset the engine's own `Date` shows at two instants, after the release.
 ///
-/// Every change re-anchors the duration axis at the rate it ran at, so `performance.now` stays
-/// continuous and never runs backward when the rate drops (untouchable rule 3). A rate change cannot,
-/// however, reschedule a `setInterval` already queued at the old rate - that stays at its old cadence
-/// (the driver warns).
+/// Every read settles the scheduled change first, so it takes effect at its own instant whoever reads
+/// first. Every change re-anchors the duration axis at the rate it ran at, so `performance.now` stays
+/// continuous and never runs backward when the rate drops (untouchable rule 3). A repeating timer takes
+/// a new rate from its next tick (R5-P6). A one-time timer already waiting finishes its wait at the rate
+/// it was armed with - the engine holds it (the driver warns).
+///
+/// The session's commands reach a page's own document, and a frame of the page is another document: the
+/// moves, the audit and the release are handed down from here to every frame the page's JS can reach,
+/// which carries a shim of its own from the page's new-document hook (R5-P5, measured on Electron 44).
+/// The audit says how many it reached, and the session counts the ones it did not against the page's
+/// frame tree.
 ///
 /// The wall and the duration axis have separate rates. `M` moves the wall (`Date`), `D` moves the
 /// timers and `performance.now`. A Chromium session sets both to the multiplier. A page inside a
@@ -53,11 +62,11 @@ const SHIM_TEMPLATE: &str = r#"(function(){
        before this one reached it, which must not keep it on the clock it left behind. Scripts run in
        the order they were added, so the newest runs last and its whole clock stands, the change still
        to come included. Anything else under that name is not this shim, and the context is not
-       covered - said as a failure rather than reported shimmed (untouchable rule 4). */
+       covered - said as a failure rather than reported shimmed (untouchable rule 4). A shim of an older
+       build keeps its limits in open fields, which its set does not take. */
     if (typeof O.set !== 'function') { throw new Error('__chronomock is held by something else'); }
-    O.wallMax = __WALL_MAX__;
-    O.Z = __ZONE__;
-    O.set(__FAKE_START__, __REAL_START__, __MULT__, __DUR__, __SCHEDULED__);
+    if (typeof O.release !== 'function') { O.wallMax = __WALL_MAX__; O.Z = __ZONE__; }
+    O.set(__FAKE_START__, __REAL_START__, __MULT__, __DUR__, __SCHEDULED__, __WALL_MAX__, __ZONE__);
     return 'already';
   }
   var _OrigDate = Date;
@@ -76,15 +85,12 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     Z: __ZONE__,                    /* getTimezoneOffset() of the session's zone, null when it sets none */
     zoneMissed: 0,                  /* 1 once this context has read another zone */
     hiddenFast: 0,                  /* 1 once this page was hidden while its timers ran faster */
+    capped: 0,                      /* 1 once a timer had to run more often than the engine's 4 ms floor */
     perfBase: _perf ? _perf() : 0,  /* where performance.now stood when the shim arrived (R4-S16) */
     perfAnchorReal: _perf ? _perf() : 0,
     perfRead: 0,                    /* the real reading behind the last performance.now handed out */
-    _realNow: _now,
-    _realPerf: _perf,
-    _Date: _OrigDate,               /* the engine's own Date, for the zone read after the release */
     counts: { si: 0, st: 0, now: 0, date: 0, intl: 0, perf: 0 }
   };
-  globalThis.__chronomock = S;
 
   /* What performance.now has reached at the rate it ran at becomes the base at the real reading p, so
      a new rate never integrates the past again (untouchable rule 3). */
@@ -92,7 +98,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
   /* The scheduled change takes effect at its instant: the wall goes on from where the segment puts it
      then, and the duration axis from its real reading then - derived through the wall, and never
      below a reading already handed out, so neither steps back whoever reads first. */
-  S.settle = function(){
+  function settle(){
     var c = S.scheduled;
     if (!c) { return; }
     var t = _now();
@@ -103,39 +109,153 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     S.M = c.M;
     if (_perf) { anchorDuration(Math.max(_perf() - (t - c.at), S.perfAnchorReal, S.perfRead)); }
     S.D = c.D;
-  };
+  }
   /* A rate change scheduled for the instant at, the same for the panel and for every context. One
      still waiting is replaced - the core replaced it too, at that instant. Received after at, the
      change takes effect now: the clock stays continuous, but stands (now - at) times the change in
      rate away from the panel, and the answer says so. */
-  S.schedule = function(at, m, d){
-    S.settle();
+  function scheduleHere(at, m, d){
+    settle();
     var t = _now();
     S.scheduled = { at: Math.max(at, t), M: m, D: d };
-    S.settle();
+    settle();
     return t > at ? 'late' : 'ok';
-  };
+  }
   /* The whole clock at once: the duration axis re-anchored at the rate it ran at, then the segment and
-     the change still to come, which takes effect at once if its instant has passed. */
-  S.set = function(fakeStart, realStart, m, d, scheduled){
-    S.settle();
+     the change still to come, which takes effect at once if its instant has passed. The scheduled
+     change is copied, because a frame's shim is handed the page's own object. */
+  function setHere(fakeStart, realStart, m, d, scheduled, wallMax, zone){
+    settle();
     if (_perf) { anchorDuration(_perf()); }
-    S.fakeStart = fakeStart; S.realStart = realStart; S.M = m; S.D = d; S.scheduled = scheduled;
-    S.settle();
-    return 'ok';
-  };
-  function durationRate(){ if (S.scheduled) { S.settle(); } return S.D || 1; }
+    if (wallMax !== undefined) { S.wallMax = wallMax; }
+    if (zone !== undefined) { S.Z = zone; }
+    S.fakeStart = fakeStart; S.realStart = realStart; S.M = m; S.D = d;
+    S.scheduled = scheduled ? { at: scheduled.at, M: scheduled.M, D: scheduled.D } : null;
+    settle();
+  }
+  function durationRate(){ if (S.scheduled) { settle(); } return S.D || 1; }
   function fakeNow(){
-    if (S.scheduled) { S.settle(); }
+    if (S.scheduled) { settle(); }
     return Math.round(Math.min(S.fakeStart + (_now() - S.realStart) * S.M, S.wallMax));
   }
+  function perfNow(){
+    var rate = durationRate(), p = _perf();
+    S.perfRead = p;
+    return S.perfBase + (p - S.perfAnchorReal) * rate;
+  }
+
+  /* window.length is [Replaceable]: a page's script can assign it, and a number the page chose must not
+     decide which frames are looked at, or how many times a second (CodeRabbit on #111). The engine's own
+     getter is taken now, before the page's scripts, and the count is held under a ceiling - a frame past
+     it is one the session counts as not reached, from the frame tree. */
+  var _frameCount = (function(){
+    for (var o = globalThis, k = 0; o && k < 4; o = Object.getPrototypeOf(o), k++) {
+      try {
+        var d = Object.getOwnPropertyDescriptor(o, 'length');
+        if (d) { return typeof d.get === 'function' ? d.get : null; }
+      } catch (e) { return null; }
+    }
+    return null;
+  })();
+  var FRAMES_MAX = 1024;
+  /* The frames of this document the page's JS reaches - its own origin, with a shim of this build - get
+     what this document gets (R5-P5). The session's commands reach the page's own document only. A frame
+     of another origin throws on the first look and is left to the session, which counts it against the
+     page's frame tree, and nothing is looked for below it. Returns how many took fn. */
+  function eachFrame(fn){
+    var w = (typeof window !== 'undefined' && window === globalThis) ? window : null, n = 0, reached = 0;
+    if (!w) { return 0; }
+    try { n = _frameCount ? _frameCount.call(w) : w.length; } catch (e) { return 0; }
+    n = Math.min(Number(n) >>> 0, FRAMES_MAX);
+    for (var i = 0; i < n; i++) {
+      var o = null;
+      try { o = w[i].__chronomock; } catch (e) { o = null; }
+      if (o && o !== api && typeof o.audit === 'function' && typeof o.release === 'function') {
+        try { fn(o); reached++; } catch (e) {}
+      }
+    }
+    return reached;
+  }
+
+  /* Whether this context reads the session's zone. The override belongs to the renderer PROCESS and
+     has one holder there: a second page in the process reads it without holding it, and goes back to
+     the host's zone without a word when the holder closes (measured). So the answer to the override
+     proves nothing, and the reading is checked here, at install and on every audit. */
+  function checkZone(){
+    if (S.Z === null) { return; }
+    try { if (new _OrigDate(fakeNow()).getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; } } catch (e) {}
+  }
+  /* Whether this page is hidden while its timers run faster: a Chromium engine slows the timers of a
+     hidden window to about once a second, which takes the speed-up away from them (R4-N28, measured).
+     Looked at on install, when the page's visibility changes, and on every audit, so a rate raised
+     while hidden is seen within a second. A worker has no document. */
+  function checkHidden(){
+    try { if (typeof document !== 'undefined' && document.hidden && durationRate() > 1) { S.hiddenFast = 1; } } catch (e) {}
+  }
+
+  var api = {
+    set: function(fakeStart, realStart, m, d, scheduled, wallMax, zone){
+      setHere(fakeStart, realStart, m, d, scheduled, wallMax, zone);
+      eachFrame(function(f){ f.set(fakeStart, realStart, m, d, scheduled, wallMax, zone); });
+      return 'ok';
+    },
+    schedule: function(at, m, d){
+      var answer = scheduleHere(at, m, d);
+      eachFrame(function(f){ f.schedule(at, m, d); });
+      return answer;
+    },
+    /* The real wall with the duration axis on at rate 1, and the audit started over: what a page reads
+       after the session is no evidence about its zone, and a session that reaches the page later must
+       not take this one's facts and calls for its own (CodeRabbit on #89) - the counts asked with the
+       release run first in the same context, and the session keeps the highest count it was told. */
+    release: function(){
+      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;
+      for (var k in S.counts) { S.counts[k] = 0; }
+      setHere(0, 0, 1, 1, null);
+      eachFrame(function(f){ f.release(); });
+      return 'ok';
+    },
+    /* What the session reads once a second: the call counts, the facts the end report draws on, and
+       how many frames below this document answered - their counts and facts are this page's. */
+    audit: function(){
+      checkZone();
+      checkHidden();
+      var o = { zone: S.zoneMissed, hidden: S.hiddenFast, capped: S.capped, frames: 0 }, k;
+      for (k in S.counts) { o[k] = S.counts[k]; }
+      eachFrame(function(f){
+        var a = f.audit();
+        for (k in S.counts) { o[k] += a[k] > 0 ? a[k] : 0; }
+        o.zone = (o.zone || a.zone) ? 1 : 0;
+        o.hidden = (o.hidden || a.hidden) ? 1 : 0;
+        o.capped = (o.capped || a.capped) ? 1 : 0;
+        o.frames += 1 + (a.frames > 0 ? a.frames : 0);
+      });
+      return o;
+    },
+    /* The offset the engine's own Date shows at two instants - a page that replaced Date does not
+       answer for the engine (ADR-21). */
+    zoneRead: function(a, b){
+      try { return [new _OrigDate(a).getTimezoneOffset(), new _OrigDate(b).getTimezoneOffset()]; } catch (e) { return null; }
+    }
+  };
+  Object.freeze(api);
+  /* Before anything is replaced: a page whose global object takes no new property fails here, as a
+     context the session could not cover, not as one half shimmed. */
+  Object.defineProperty(globalThis, '__chronomock', { value: api, enumerable: false, writable: false, configurable: false });
 
   /* Replace Date so new Date() (no args), Date() and Date.now() read the session clock; every other
      form (parsing, explicit fields) is unchanged. Reflect.construct with new.target keeps a subclass
-     (class X extends Date) an X - building a plain Date here dropped its prototype (R4-W6). */
-  function CMDate() {
+     (class X extends Date) an X - building a plain Date here dropped its prototype (R4-W6). A Date
+     built here, from no value or from one, is built directly: its prototype is the engine's, which
+     is this one's (R5-WY3). */
+  function CMDate(value) {
     if (!new.target) { S.counts.date++; return _dateString.call(new _OrigDate(fakeNow())); }
-    if (arguments.length === 0) { S.counts.date++; return Reflect.construct(_OrigDate, [fakeNow()], new.target); }
+    var n = arguments.length;
+    if (n === 0) {
+      S.counts.date++;
+      return new.target === CMDate ? new _OrigDate(fakeNow()) : Reflect.construct(_OrigDate, [fakeNow()], new.target);
+    }
+    if (n === 1 && new.target === CMDate) { return new _OrigDate(value); }
     return Reflect.construct(_OrigDate, arguments, new.target);
   }
   CMDate.prototype = _OrigDate.prototype;
@@ -174,46 +294,107 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     }
   }
 
-  /* setInterval/setTimeout read the duration rate live, so a NEW timer picks up the current rate; one
-     already scheduled keeps its old cadence (the kernel already queued it). */
-  var _si = globalThis.setInterval, _st = globalThis.setTimeout;
-  if (_si) { globalThis.setInterval = function(fn, d){ S.counts.si++; var a = [].slice.call(arguments, 2); return _si.apply(globalThis, [fn, (d || 0) / durationRate()].concat(a)); }; }
-  if (_st) { globalThis.setTimeout = function(fn, d){ S.counts.st++; var a = [].slice.call(arguments, 2); return _st.apply(globalThis, [fn, (d || 0) / durationRate()].concat(a)); }; }
-  if (_perf) {
-    performance.now = function(){
-      S.counts.perf++;
-      var rate = durationRate(), p = _perf();
-      S.perfRead = p;
-      return S.perfBase + (p - S.perfAnchorReal) * rate;
+  /* Timers (R5-P6). A delay is the page's, in fake milliseconds, read as the engine reads it - a whole
+     number, anything else 0 - and divided by the duration rate, rounded: the engine cut 1000 / 60 down
+     to 16 and ran the timer 4% fast (measured). At the rate 1 a one-time timer goes to the engine as it
+     came. A repeating timer with a function is a chain of one-time timers, each aimed one step at the
+     rate of now past the last tick, so a change of speed reaches it from its next tick - a native one
+     kept the cadence it was armed with - and its own lateness is made good at the next tick. A tick
+     missed whole is not made up: the chain goes on from now.
+     The engine runs a nested timer no sooner than 4 ms past a nesting level of 5 (HTML, measured on
+     Electron 44 from the seventh), so a timer that would have to run more often than that at this speed
+     runs slower than it - noted for the audit, and a repeating one handed over to the engine's own
+     repeating timer, which keeps that floor's cadence best. The level is followed as the engine follows it, through
+     the callbacks the shim runs: a timer armed from a promise that a callback left behind is not seen
+     at its level, and is not noted. */
+  var _si = globalThis.setInterval, _st = globalThis.setTimeout, _ci = globalThis.clearInterval, _ct = globalThis.clearTimeout;
+  var level = 0;                    /* the timer nesting level of the callback the shim runs now, 0 outside one */
+  var chains = (typeof Map === 'function' && _st && _ct) ? new Map() : null;  /* a repeating timer's id -> its chain */
+  var realNow = _perf || _now;
+  function fakeDelay(d){ var n = Number(d) | 0; return n > 0 ? n : 0; }
+  /* deep: armed past the nesting level the floor starts at. An engine's own repeating timer always gets
+     there, from its seventh tick. */
+  function floored(n, ms, rate, deep){ if (deep && rate > 1 && n > 0 && ms < 4) { S.capped = 1; } }
+  function nested(fn, lv, args){
+    return function(){ var prev = level; level = lv; try { return fn.apply(this, args); } finally { level = prev; } };
+  }
+  /* Arm the chain's next tick from inside the tick before it, as the engine nests it. Under the floor
+     a chain would lose the time each tick takes to the next one's 4 ms - 210 ticks a second where the
+     engine's own repeating timer keeps 250 (measured on Electron 44) - so there the chain hands over to
+     the engine's own, until a tick finds the speed changed. */
+  function arm(c){
+    var now = realNow(), rate = durationRate(), step = c.n / rate;
+    floored(c.n, step, rate, c.level > 5);
+    if (c.level > 5 && step < 4 && _si && _ci) {
+      c.native = step;
+      c.id = _si.call(globalThis, c.run, Math.round(step));
+      return c.id;
+    }
+    c.native = null;
+    c.due = c.due + step < now ? now + step : c.due + step;
+    c.id = _st.call(globalThis, c.run, Math.max(0, Math.round(c.due - now)));
+    return c.id;
+  }
+  if (_st) {
+    globalThis.setTimeout = function(fn, d, ...args){
+      S.counts.st++;
+      var rate = durationRate();
+      if (rate <= 1) { return _st.call(globalThis, fn, d, ...args); }
+      var n = fakeDelay(d), ms = Math.round(n / rate);
+      floored(n, ms, rate, level > 5);
+      if (typeof fn !== 'function') { return _st.call(globalThis, fn, ms, ...args); }
+      return _st.call(globalThis, nested(fn, level + 1, args), ms);
     };
   }
+  if (_si) {
+    globalThis.setInterval = function(fn, d, ...args){
+      S.counts.si++;
+      if (!chains || typeof fn !== 'function') {
+        var rate = durationRate(), n = fakeDelay(d), ms = rate <= 1 ? d : Math.round(n / rate);
+        floored(n, ms, rate, true);
+        return _si.call(globalThis, fn, ms, ...args);
+      }
+      var c = { fn: fn, args: args, n: fakeDelay(d), due: realNow(), level: level, id: 0, run: null, native: null };
+      c.run = function(){
+        var prev = level;
+        level = c.level + 1;
+        c.level = level;
+        if (c.native === null) {
+          arm(c);
+        } else if (c.n / durationRate() !== c.native) {
+          _ci.call(globalThis, c.id);
+          c.due = realNow();
+          arm(c);
+        }
+        try { c.fn.apply(this, c.args); } finally { level = prev; }
+      };
+      var id = arm(c);
+      chains.set(id, c);
+      return id;
+    };
+  }
+  /* A repeating timer's id is its first tick's, and stands for the tick waiting now. Either clear takes
+     either kind, as the engine's do. */
+  function clearChain(id){
+    var c = chains && chains.get(id);
+    if (!c) { return false; }
+    chains.delete(id);
+    if (c.native === null) { _ct.call(globalThis, c.id); } else { _ci.call(globalThis, c.id); }
+    return true;
+  }
+  if (_ct) { globalThis.clearTimeout = function(id){ if (!clearChain(id)) { _ct.call(globalThis, id); } }; }
+  if (_ci) { globalThis.clearInterval = function(id){ if (!clearChain(id)) { _ci.call(globalThis, id); } }; }
+  if (_perf) {
+    performance.now = function(){ S.counts.perf++; return perfNow(); };
+    /* performance.timeOrigin plus performance.now() is how a page builds "now" from the high-resolution
+       clock, so the origin is read as the session clock less the duration axis, each time it is read,
+       and the sum is Date.now() (R5-P8). performance.toJSON() keeps the engine's own. */
+    try {
+      Object.defineProperty(performance, 'timeOrigin', { configurable: true, enumerable: true, get: function(){ return fakeNow() - perfNow(); } });
+    } catch (e) {}
+  }
 
-  /* Whether this context reads the session's zone. The override belongs to the renderer PROCESS and
-     has one holder there: a second page in the process reads it without holding it, and goes back to
-     the host's zone without a word when the holder closes (measured). So the answer to the override
-     proves nothing, and the reading is checked here, at install and on every audit. */
-  function checkZone(){
-    if (S.Z === null) { return; }
-    try { if (new _OrigDate(fakeNow()).getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; } } catch (e) {}
-  }
-  /* Whether this page is hidden while its timers run faster than real time: a Chromium engine slows
-     the timers of a hidden window to about once a second, which takes the speed-up away from them
-     (R4-N28, measured). Looked at on install, when the page's visibility changes, and on every audit,
-     so a rate raised while hidden is seen within a second. A worker has no document. */
-  function checkHidden(){
-    try { if (typeof document !== 'undefined' && document.hidden && durationRate() > 1) { S.hiddenFast = 1; } } catch (e) {}
-  }
   try { if (typeof document !== 'undefined' && document.addEventListener) { document.addEventListener('visibilitychange', checkHidden); } } catch (e) {}
-  /* What the session reads once a second: the call counts, and the facts the end report draws on. */
-  S.audit = function(){
-    checkZone();
-    checkHidden();
-    var o = {};
-    for (var k in S.counts) { o[k] = S.counts[k]; }
-    o.zone = S.zoneMissed;
-    o.hidden = S.hiddenFast;
-    return o;
-  };
   checkZone();
   checkHidden();
   /* Whether the page's own scripts were here before the shim (R5-P7): a script element already in the
@@ -316,16 +497,17 @@ pub fn set_expr(fake0: i64, real0: i64, mult: i64, dur: i64, scheduled: Option<S
     set_call("", fake0, real0, mult, dur, scheduled)
 }
 
-/// The release: the clock of [`set_expr`] on `(0, 0, 1, 1)`, the shim stops judging the zone it reads,
-/// and its audit starts over. What a page reads after the session is no evidence about the session's
-/// zone, so a count asked after the release cannot report that zone as missed (CodeRabbit on #89). And
-/// a page let go keeps its shim, so a session that reaches it later would take this session's zone
-/// miss, hidden-window fact and calls for its own (CodeRabbit on #89, second review): they are zeroed
-/// here, after this session read them - the counts asked with the release run first in the same
-/// context, and the session keeps the highest count it was told.
+/// The release: the shim's own `release`, the clock of [`set_expr`] on `(0, 0, 1, 1)` with the zone
+/// no longer judged and the audit started over, in the page and the frames it reaches. What a page
+/// reads after the session is no evidence about the session's zone, so a count asked after the release
+/// cannot report that zone as missed (CodeRabbit on #89). And a page let go keeps its shim, so a
+/// session that reaches it later would take this session's zone miss, hidden-window fact and calls for
+/// its own (CodeRabbit on #89, second review): they are zeroed after this session read them - the counts
+/// asked with the release run first in the same context, and the session keeps the highest count it
+/// was told. A shim of an older build has no `release`, and its open fields are zeroed here instead.
 pub fn release_expr() -> String {
     set_call(
-        "S.Z=null;S.zoneMissed=0;S.hiddenFast=0;for(var k in S.counts){S.counts[k]=0;}",
+        "if(typeof S.release==='function')return S.release();S.Z=null;S.zoneMissed=0;S.hiddenFast=0;for(var k in S.counts){S.counts[k]=0;}",
         0,
         0,
         1,
@@ -336,13 +518,14 @@ pub fn release_expr() -> String {
 
 /// The expression that reads what a context shows for the zone after the release: `getTimezoneOffset()`
 /// at the two instants `at_ms` (Unix-epoch ms), as an array of two numbers, `null` when it could not.
-/// Through the engine's own `Date` the shim kept, so a page that replaced `Date` cannot answer for it -
-/// and through `Date` where there is no shim of this build. A date given as a number neither reads the
-/// session clock nor counts as a call (ADR-21).
+/// Through the engine's own `Date` the shim kept (its `zoneRead`), so a page that replaced `Date` cannot
+/// answer for it - through the `_Date` a shim of an older build kept open, and through `Date` where
+/// there is no shim. A date given as a number neither reads the session clock nor counts as a call
+/// (ADR-21).
 pub fn zone_read_expr(at_ms: [i64; 2]) -> String {
+    let [a, b] = at_ms;
     format!(
-        "(function(){{var S=globalThis.__chronomock,D=(S&&S._Date)||Date;try{{return [new D({}).getTimezoneOffset(),new D({}).getTimezoneOffset()];}}catch(e){{return null;}}}})()",
-        at_ms[0], at_ms[1]
+        "(function(){{var S=globalThis.__chronomock;if(S&&typeof S.zoneRead==='function')return S.zoneRead({a},{b});var D=(S&&S._Date)||Date;try{{return [new D({a}).getTimezoneOffset(),new D({b}).getTimezoneOffset()];}}catch(e){{return null;}}}})()"
     )
 }
 
@@ -390,6 +573,16 @@ pub struct Injected {
     /// read the real clock before it. Always `false` for a worker, which the caller judges by whether
     /// it was paused on start.
     pub running: bool,
+    /// The page had no document to evaluate in yet, and its shim is the new-document hook's to give
+    /// (R5-F11): covered only once its audit shows the shim is there (R5-D46).
+    pub awaiting: bool,
+}
+
+/// Whether a failed evaluate found no document to run in - a frame of another site, attached paused
+/// before its first document, has none (R5-F11, measured on Electron 44). The text is the engine's:
+/// read here, at the one place that judges it, and nowhere else.
+fn found_no_document(error: &io::Error) -> bool {
+    error.to_string().contains("Cannot find default execution context")
 }
 
 /// Install the shim into a page (or frame) session: as an add-script hook so every future document
@@ -414,6 +607,11 @@ pub struct Injected {
 /// The zone override, when the session sets one, goes first of all, so the page's own first script
 /// already reads the session's zone. Not waited for either: whether it took is read in the page by the
 /// shim (see [`set_zone`]).
+///
+/// A frame of another site is a target of its own, attached paused before its first document: the
+/// evaluate finds nothing to run in. The hook gives that document its shim before its own scripts, so
+/// with the hook in such a frame is not a failure - it used to be taken back and left on the real clock
+/// (R5-F11). The caller counts it covered once its audit shows the shim (`awaiting`).
 pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, zone: Option<&str>, deadline: Instant) -> io::Result<Injected> {
     set_zone(client, session_id, zone)?;
     client.send("Page.enable", json!({}), Some(session_id))?;
@@ -426,8 +624,9 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, zone: O
             return Err(e);
         }
     };
-    let running = match shim_reply(client, shimmed, deadline) {
-        Ok(answer) => answer == "running",
+    let (running, awaiting) = match shim_reply(client, shimmed, deadline) {
+        Ok(answer) => (answer == "running", false),
+        Err(e) if script.is_some() && found_no_document(&e) => (false, true),
         Err(e) => {
             take_back(client, session_id, script.as_deref());
             return Err(e);
@@ -435,7 +634,7 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, zone: O
     };
     let children = auto_attach_children(client, session_id, deadline);
     let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
-    Ok(Injected { script, children, running })
+    Ok(Injected { script, children, running, awaiting })
 }
 
 /// Take back an injection that failed after its first steps went in (CodeRabbit on #85). The caller
@@ -471,7 +670,7 @@ pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, zone:
     // the worker is released, so one it starts in its first script is paused for the shim too.
     let children = auto_attach_children(client, session_id, deadline);
     let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
-    Ok(Injected { script: None, children, running: false })
+    Ok(Injected { script: None, children, running: false, awaiting: false })
 }
 
 /// Put a context on the session's zone, without waiting: `zone` is a [`zone_id`], `None` for a session
@@ -593,17 +792,14 @@ mod tests {
         assert_eq!(scheduled_js(Some(freeze)), "{ at: 7, M: 0, D: 1 }");
     }
 
-    /// The two rates are independent: a page inside a natively hooked application keeps its timers
-    /// real while its wall runs fast (docs/09 section 12.6), and a frozen wall never stops a timer
-    /// (untouchable rule 3), so the duration rate is floored at 1 whatever the caller passes.
+    /// The two rates are filled in independently, and a frozen wall never stops a timer (untouchable
+    /// rule 3), so the duration rate is floored at 1 whatever the caller passes. What the timers do with
+    /// them is run in Node (`shim_exec`: a timer keeps its delay when only the wall runs fast).
     #[test]
     fn the_wall_rate_and_the_duration_rate_are_filled_in_separately() {
         let s = build_shim(0, 0, 60, 1, None, 0, None);
         assert!(s.contains("M: 60,"), "{s}");
         assert!(s.contains("D: 1,"), "{s}");
-        assert!(s.contains("function durationRate(){ if (S.scheduled) { S.settle(); } return S.D || 1; }"));
-        assert_eq!(s.matches("(d || 0) / durationRate()").count(), 2, "both timers read the duration rate");
-        assert!(!s.contains("/ (S.M || 1)"), "no timer divides by the wall rate any more");
 
         let frozen = build_shim(0, 0, 0, 0, None, 0, None);
         assert!(frozen.contains("M: 0,"), "{frozen}");
@@ -611,43 +807,18 @@ mod tests {
     }
 
     /// R4-W5: a second run of the shim in one document - the newer of two new-document hooks, which
-    /// runs last - sets the whole clock it carries, the scheduled change included, instead of
-    /// returning untouched. Anything else holding the name is a failure, not a page reported shimmed.
-    /// The behaviour is measured in Node (tools/probes/r4-14/w5-test.mjs) and on a live page - this
-    /// pins the source.
+    /// runs last - sets the whole clock it carries, the scheduled change, the last instant and the zone
+    /// included. A shim of an older build gets the last two in its open fields. Anything else holding
+    /// the name is a failure, not a page reported shimmed. Run in Node (`shim_exec`: a second install,
+    /// and the clock closed over) - this pins what the guard is given.
     #[test]
     fn a_second_run_sets_the_clock_it_carries() {
         let next = ScheduledRate { at_ms: 2_500, mult: 60, dur: 60 };
-        let s = build_shim(1_000, 2_000, 1, 1, Some(next), 3_000, None);
+        let s = build_shim(1_000, 2_000, 1, 1, Some(next), 3_000, Some(-60));
         let guard = &s[..s.find("return 'already';").expect("the guard returns early")];
-        assert!(guard.contains("O.wallMax = 3000;"), "{guard}");
-        assert!(guard.contains("O.set(1000, 2000, 1, 1, { at: 2500, M: 60, D: 60 });"), "{guard}");
+        assert!(guard.contains("if (typeof O.release !== 'function') { O.wallMax = 3000; O.Z = -60; }"), "{guard}");
+        assert!(guard.contains("O.set(1000, 2000, 1, 1, { at: 2500, M: 60, D: 60 }, 3000, -60);"), "{guard}");
         assert!(guard.contains("if (typeof O.set !== 'function') { throw "), "{guard}");
-    }
-
-    /// R4-S17 in the source the pages get: every move goes through the shim's own methods, every read
-    /// settles the scheduled change first, and a change takes effect at its instant from the
-    /// segment, with the duration axis re-anchored at the old rate before the new one is written. The
-    /// behaviour is measured in Node (tools/probes/r4-14/s17-test.mjs) and on a live page - this pins
-    /// the source.
-    #[test]
-    fn a_scheduled_change_takes_effect_at_its_instant_whoever_reads_first() {
-        let s = build_shim(0, 0, 60, 60, None, 0, None);
-        let settle = &s[s.find("S.settle = function(){").expect("settle")..s.find("S.schedule =").expect("schedule")];
-        assert!(settle.contains("if (t < c.at) { return; }"), "{settle}");
-        assert!(settle.contains("S.fakeStart = Math.min(S.fakeStart + (c.at - S.realStart) * S.M, S.wallMax);"));
-        assert!(settle.contains("anchorDuration(Math.max(_perf() - (t - c.at), S.perfAnchorReal, S.perfRead))"));
-        assert!(settle.find("anchorDuration(").unwrap() < settle.find("S.D = c.D;").unwrap(), "the old rate first");
-
-        let schedule = &s[s.find("S.schedule =").unwrap()..s.find("S.set =").expect("set")];
-        assert!(schedule.contains("S.scheduled = { at: Math.max(at, t), M: m, D: d };"), "{schedule}");
-        assert!(schedule.contains("return t > at ? 'late' : 'ok';"), "{schedule}");
-
-        let set = &s[s.find("S.set =").unwrap()..s.find("function durationRate").unwrap()];
-        assert!(set.find("anchorDuration(_perf())").unwrap() < set.find("S.D = d;").unwrap(), "{set}");
-
-        assert!(s.contains("function fakeNow(){\n    if (S.scheduled) { S.settle(); }"), "the wall settles first");
-        assert!(s.contains("var rate = durationRate(), p = _perf();"), "performance.now settles first");
     }
 
     /// Every API the report names has its counter in the shim, and the shim counts nothing the report
@@ -679,15 +850,15 @@ mod tests {
         assert!(s.contains("perfBase: _perf ? _perf() : 0,"), "performance.now does not restart at 0");
     }
 
-    /// The zone read of the release (ADR-21) goes through the engine's own `Date`, which the shim keeps,
-    /// so a page that replaced `Date` does not answer for the engine - and through `Date` where no shim
-    /// of this build is. It reads the two instants it is given and nothing else. The behaviour is checked
-    /// in Node (tools/probes/r4-14/shim-test.mjs) - this pins the source.
+    /// The zone read of the release (ADR-21) asks the shim's `zoneRead`, which reads through the engine's
+    /// own `Date`, so a page that replaced `Date` does not answer for the engine - through the `_Date` a
+    /// shim of an older build kept open, and through `Date` where there is no shim. It reads the two
+    /// instants it is given and nothing else. Run in Node (`shim_exec`: the session moves, and the clock
+    /// closed over) - this pins the instants.
     #[test]
     fn the_zone_read_goes_through_the_engines_own_date() {
-        let s = build_shim(0, 0, 1, 1, None, 0, Some(-330));
-        assert!(s.contains("_Date: _OrigDate,"), "the shim keeps the engine's Date");
         let read = zone_read_expr([1_768_478_400_000, 1_784_116_800_000]);
+        assert!(read.contains("return S.zoneRead(1768478400000,1784116800000);"), "{read}");
         assert!(read.contains("D=(S&&S._Date)||Date;"), "{read}");
         assert!(read.contains("[new D(1768478400000).getTimezoneOffset(),new D(1784116800000).getTimezoneOffset()]"), "{read}");
     }
@@ -818,6 +989,49 @@ mod tests {
         );
     }
 
+    /// R5-F11: a frame of another site, attached paused before its first document, has no context for
+    /// the shim's evaluate - the engine's own words, measured on Electron 44. With the hook in, the
+    /// document it gets takes the shim from the hook, so the frame is not taken back but handed on as
+    /// waiting for its shim, and resumed. Any other failure is still a failure, and so is this one for a
+    /// page whose hook gave no identifier - nothing would carry the shim to its document.
+    #[test]
+    fn a_frame_with_no_document_yet_waits_for_its_shim_from_the_hook() {
+        use std::time::Duration;
+        let inject = |message: &'static str, hook_id: Option<&'static str>| {
+            let (port, browser) = super::super::ws::tests::fake_browser_holding(move |request| {
+                let id = request["id"].clone();
+                match request["method"].as_str().unwrap_or("") {
+                    "Page.addScriptToEvaluateOnNewDocument" => {
+                        vec![(id, hook_id.map_or_else(|| json!({}), |h| json!({ "identifier": h })))]
+                    }
+                    "Runtime.evaluate" if request["params"]["expression"] == "SHIM" => {
+                        vec![(Value::Null, json!({ "id": id, "error": { "code": -32000, "message": message } }))]
+                    }
+                    _ => vec![(id, json!({}))],
+                }
+            });
+            let ws = super::super::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+            let mut client = CdpClient::from_ws(ws);
+            let injected = inject_page(&mut client, "F", "SHIM", None, Instant::now() + Duration::from_secs(2));
+            drop(client);
+            let methods: Vec<String> =
+                browser.join().unwrap().iter().map(|r| r["method"].as_str().unwrap_or("").to_string()).collect();
+            (injected, methods)
+        };
+        let (waits, methods) = inject("Cannot find default execution context", Some("h1"));
+        let waits = waits.expect("a frame with no document is not a failure");
+        assert!(waits.awaiting && !waits.running, "it waits for its shim, and nothing of it ran yet");
+        assert_eq!(waits.script.as_deref(), Some("h1"));
+        assert!(methods.iter().all(|m| m != "Page.removeScriptToEvaluateOnNewDocument"), "its hook stays: {methods:?}");
+        assert_eq!(methods.last().map(String::as_str), Some("Runtime.runIfWaitingForDebugger"), "and it is resumed");
+
+        let (other, methods) = inject("Execution context was destroyed.", Some("h1"));
+        assert!(other.is_err(), "another failure is a failure");
+        assert!(methods.iter().any(|m| m == "Page.removeScriptToEvaluateOnNewDocument"), "taken back: {methods:?}");
+        let (hookless, _) = inject("Cannot find default execution context", None);
+        assert!(hookless.is_err(), "with no hook to carry the shim, no document is a failure");
+    }
+
     /// The methods a page and a worker are sent when the session sets a zone, against a browser that
     /// answers everything at once - the zone answer included, which is not waited for.
     fn methods_sent(worker: bool, zone: Option<&str>) -> Vec<(String, Value)> {
@@ -863,20 +1077,6 @@ mod tests {
         }
     }
 
-    /// A page hidden while its timers run faster is noted - on install, when its visibility changes, and
-    /// on every audit - and handed to the session with the counts (R4-N28). Only a page: a worker has
-    /// no document.
-    #[test]
-    fn the_shim_notes_a_page_hidden_while_its_timers_run_faster() {
-        let s = build_shim(0, 0, 60, 60, None, 0, None);
-        assert!(s.contains("hiddenFast: 0,"));
-        assert!(s.contains("typeof document !== 'undefined' && document.hidden && durationRate() > 1) { S.hiddenFast = 1; }"));
-        assert!(s.contains("document.addEventListener('visibilitychange', checkHidden);"));
-        assert!(s.contains("    checkHidden();\n    var o = {};"), "every audit looks");
-        assert!(s.contains("    o.hidden = S.hiddenFast;"));
-        assert!(s.contains("  checkHidden();\n  /* Whether the page's own scripts"), "the install looks");
-    }
-
     /// R5-P7: the shim says whether the page's own scripts were in its document before it - they may
     /// have read the real clock first - and the session counts that page as reached while running. A
     /// new document's hook runs before them and finds none.
@@ -902,17 +1102,16 @@ mod tests {
         assert_eq!(zone_id(30), "GMT-00:30", "a negative offset under an hour keeps its sign");
     }
 
-    /// The shim carries the offset it checks its context reads, and checks it at install and on every
-    /// audit - the answer to the override is no proof (a second page in a process reads the holder's
-    /// override and loses it with the holder). A session with no zone checks nothing.
+    /// The shim carries the offset it checks its context reads - the answer to the override is no proof
+    /// (a second page in a process reads the holder's override and loses it with the holder) - and a
+    /// second install carries it too. A session with no zone carries none. The check itself, at install
+    /// and at every audit, is run in Node (`shim_exec`: the audit notes a zone it did not read).
     #[test]
-    fn the_shim_checks_the_zone_its_context_reads() {
+    fn the_shim_carries_the_zone_its_context_reads() {
         let s = build_shim(0, 0, 1, 1, None, 0, Some(-330));
         assert!(s.contains("Z: -330,"), "{s}");
-        assert!(s.contains("O.Z = -330;"), "a second install carries the zone too");
-        assert!(s.contains("getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; }"));
-        assert!(s.contains("S.audit = function(){\n    checkZone();"));
-        assert!(s.contains("  checkZone();\n  checkHidden();\n  /* Whether the page's own scripts"));
+        assert!(s.contains("O.Z = -330;"), "a second install over an older shim carries the zone too");
+        assert!(s.contains("O.set(0, 0, 1, 1, null, 0, -330);"), "and over one of this build");
         assert!(build_shim(0, 0, 1, 1, None, 0, None).contains("Z: null,"));
         assert!(COUNTS_EXPR.contains("__chronomock.audit()"));
     }

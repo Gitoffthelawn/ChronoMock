@@ -530,7 +530,9 @@
   "chromium.main_process_uncovered": "This application is built on Electron. Its windows follow the fake clock, but the part of it that runs outside the windows reads the real date and time - a date it works out there, a reminder it schedules or a check it makes at start uses the real clock.",
   "chromium.context_reached_running": "Some pages or workers were already running when the session reached them. Scripts that ran before that may have read the real clock, and a timer they set before keeps its real interval.",
   "chromium.contexts_pooled":"The application opened more than 256 web pages and workers. All of them ran on the fake clock, and the ones past the 256th are counted together in the last row.",
-  "chromium.rate_change_affects_running_timers": "The speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence.",
+  "chromium.rate_change_affects_running_timers": "The speed changed in flight. The clock and new timers took it at once, a repeating timer from its next tick, and a one-time timer that was already waiting finished its wait at the old speed.",
+  "chromium.timer_rate_capped": "Some timers would have to run more often than every 4 ms at this speed. The browser does not allow that, so they ran slower than the chosen speed - the clock itself kept it.",
+  "chromium.frames_unreached": "Some frames inside a page were out of the session's reach. Such a frame keeps the clock it started with (the real one, if it was there before the session), does not follow a jump or a speed change, and its calls are not counted.",
   "chromium.clock_move_missed": "A web page took a speed change or a jump late or not at all, usually because it was busy, so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one.",
 
   // Cleanup residue the core reports in `ended.residue_keys` when a teardown could not finish (rules 4, 6). Today only a CDP session raises one (the temporary browser profile could not be removed); a native session always ends clean. Rendered verbatim in the panel and the summary.

@@ -56,7 +56,7 @@ pub(crate) fn core_mode() -> i32 {
     // Read the first command (`start`) from a reader we hand to the session loop
     // afterwards, so it can keep reading subsequent commands (query, end).
     let mut reader = BufReader::new(std::io::stdin());
-    let (target, time, force) = match read_start(&mut reader) {
+    let Start { id: start_id, target, time, force } = match read_start(&mut reader) {
         Ok(start) => start,
         Err(refusal) => {
             emit(&Event::Error {
@@ -79,7 +79,7 @@ pub(crate) fn core_mode() -> i32 {
     // same machine protocol, so the GUI and CLI consume it identically. `ready` was already emitted
     // (its bitness is this core's own - the driver skips the bitness gate for a Chromium target).
     if cdp::is_chromium_target(&target.path) {
-        return cdp_session(target, time, reader);
+        return cdp_session(start_id, target, time, reader);
     }
 
     // Prepare and start the session (Stage 2: real injection of one wall channel).
@@ -88,7 +88,7 @@ pub(crate) fn core_mode() -> i32 {
         None => {
             emit(&Event::Error {
                 v: PROTOCOL_VERSION,
-                id: Some(1),
+                id: Some(start_id),
                 code: 3,
                 key: "core.hook_dll_missing".into(),
                 origin: "core".into(),
@@ -110,7 +110,7 @@ pub(crate) fn core_mode() -> i32 {
         Err((code, key)) => {
             emit(&Event::Error {
                 v: PROTOCOL_VERSION,
-                id: Some(1),
+                id: Some(start_id),
                 code,
                 key: key.into(),
                 origin: "core".into(),
@@ -216,7 +216,7 @@ pub(crate) fn core_mode() -> i32 {
             }
             emit(&Event::Verdict {
                 v: PROTOCOL_VERSION,
-                id: Some(1),
+                id: Some(start_id),
                 verdict: verdict.wire().into(),
                 refuse_start: refuse,
                 reason_key: reason_key.into(),
@@ -236,7 +236,7 @@ pub(crate) fn core_mode() -> i32 {
             let (code, key, origin, detail) = map_prepare_error(e);
             emit(&Event::Error {
                 v: PROTOCOL_VERSION,
-                id: Some(1),
+                id: Some(start_id),
                 code,
                 key: key.into(),
                 origin: origin.into(),
@@ -259,6 +259,17 @@ pub(crate) const SESSION_BUSY_EXIT: i32 = 7;
 pub(crate) const REFUSALS_WITHOUT_ENDED: [&str; 4] =
     ["protocol.no_command", "protocol.bad_command", "protocol.version_mismatch", "protocol.expected_start"];
 
+/// The opening `start` as the session takes it. Its id is what every answer to it carries - the verdict
+/// and an error before the session runs - where the core used to answer `1` whatever the client sent
+/// (R5-P18). Both built-in clients send 1, so neither saw it.
+#[derive(Debug)]
+pub(crate) struct Start {
+    id: u64,
+    target: TargetSpec,
+    time: TimeSpec,
+    force: bool,
+}
+
 /// Why an opening `start` was refused.
 ///
 /// Every one of these is exit code 1 and an error event. What differs is the key, the id it answers
@@ -280,9 +291,7 @@ pub(crate) struct StartRefusal {
 ///
 /// The refusal travels as a value rather than an event, which keeps this a pure function of its
 /// input and leaves what to emit, and in what order, with the caller.
-pub(crate) fn read_start<R: BufRead>(
-    reader: &mut R,
-) -> Result<(TargetSpec, TimeSpec, bool), StartRefusal> {
+pub(crate) fn read_start<R: BufRead>(reader: &mut R) -> Result<Start, StartRefusal> {
     let mut line = String::new();
     // A line past the cap reads as "no command": the stream has stopped making sense, and the honest
     // answer is the refusal below rather than a guess at what the first megabyte meant.
@@ -294,7 +303,7 @@ pub(crate) fn read_start<R: BufRead>(
         return Err(StartRefusal { key: "protocol.bad_command", id: None, needs_ended: false });
     };
     match cmd {
-        Command::Start { v, target, time, force, .. } => {
+        Command::Start { v, id, target, time, force } => {
             // The version field is in every message BECAUSE the receiver is meant to check it. Nobody
             // did on this side, so it was a field the contract promised and the code ignored (R2-K3) -
             // a client speaking a version this core does not would have been served silently, with
@@ -318,11 +327,11 @@ pub(crate) fn read_start<R: BufRead>(
             {
                 return Err(StartRefusal {
                     key: "target.cwd_missing",
-                    id: Some(1),
+                    id: Some(id),
                     needs_ended: true,
                 });
             }
-            Ok((target, time, force))
+            Ok(Start { id, target, time, force })
         }
         _ => Err(StartRefusal { key: "protocol.expected_start", id: None, needs_ended: false }),
     }
@@ -1460,16 +1469,20 @@ mod tests {
         std::fs::remove_dir_all(&other).ok();
     }
 
-    fn read(stream: &str) -> Result<(TargetSpec, TimeSpec, bool), StartRefusal> {
+    fn read(stream: &str) -> Result<Start, StartRefusal> {
         read_start(&mut BufReader::new(std::io::Cursor::new(stream.as_bytes().to_vec())))
     }
 
     /// A `start` built through the real serializer rather than hand-written JSON, so the test cannot
     /// drift from the shape the wire actually carries.
     fn start_line(v: u32, cwd: Option<&str>) -> String {
+        start_line_with_id(v, 1, cwd)
+    }
+
+    fn start_line_with_id(v: u32, id: u64, cwd: Option<&str>) -> String {
         serde_json::to_string(&Command::Start {
             v,
-            id: 1,
+            id,
             target: TargetSpec {
                 path: "app.exe".into(),
                 args: Vec::new(),
@@ -1594,13 +1607,29 @@ mod tests {
     /// session on the way.
     #[test]
     fn a_well_formed_start_carries_its_target_and_time_through() {
-        let (target, time, force) =
+        let Start { id, target, time, force } =
             read(&start_line(PROTOCOL_VERSION, None)).expect("a well-formed start is accepted");
+        assert_eq!(id, 1);
         assert_eq!(target.path, "app.exe");
         assert_eq!(target.cwd, None);
         assert_eq!(time.mode, "flow");
         assert_eq!(time.moment.local.as_deref(), Some("2038-01-19T03:14:07"));
         assert!(!force);
+    }
+
+    /// R5-P18: an answer to `start` carries the id the client gave it. Read at an id that is not 1, the
+    /// one both built-in clients send, so the old constant cannot pass for it - and every answer the
+    /// core gives before its session runs takes the id from the start, not from a digit in the source.
+    #[test]
+    fn an_answer_to_start_carries_the_id_the_client_gave_it() {
+        assert_eq!(read(&start_line_with_id(PROTOCOL_VERSION, 42, None)).expect("accepted").id, 42);
+        let refused = read(&start_line_with_id(PROTOCOL_VERSION, 42, Some("C:/no-such-folder-chrono-mock-test")))
+            .expect_err("expected a refusal");
+        assert_eq!(refused.id, Some(42));
+        for (file, source) in [("core.rs", include_str!("core.rs")), ("cdp_session.rs", include_str!("cdp_session.rs"))] {
+            let production = &source[..source.find("#[cfg(test)]").expect("a test module")];
+            assert!(!production.contains("id: Some(1)"), "{file} answers the start with a fixed id");
+        }
     }
 
     /// A value left in the registry is said first, because the panel shows the warnings through a window

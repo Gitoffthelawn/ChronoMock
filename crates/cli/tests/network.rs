@@ -159,6 +159,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "binds a loopback listener on a port the system picks, so the mechanism's read of the          local TCP table can be seen to name this process and that port. Nothing connects to it          and it is closed before the test ends",
     ),
     (
+        "crates/cli/src/cdp/shim_exec.rs",
+        "spawn",
+        "the time shim's execution tests (R5-A10) run Node on a scenario file the test wrote, a JS scope \
+         whose clocks and timers the scenario drives itself. The scenario opens nothing and reaches \
+         nothing past this machine",
+    ),
+    (
         "crates/cli/tests/dry_run.rs",
         "spawn",
         "the dry-run guard runs the built binary: with --dry-run, which must start nothing and must \
