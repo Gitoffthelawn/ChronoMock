@@ -27,8 +27,8 @@ use chrono_proto::{ReachedEngine, TargetSpec};
 use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, MachineZone, Pumped, ShimOrigin};
 use crate::cdp_requests::ZoneTally;
-use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED};
-use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms};
+use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED, KEY_CONTEXTS_POOLED, KEY_CONTEXT_REACHED_RUNNING};
+use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms, resync_due};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::{engine_env, qt_port_told};
 use crate::output::diag;
@@ -41,15 +41,13 @@ use crate::unhooked_tree::UnhookedTree;
 const POLL: Duration = Duration::from_millis(10);
 const CALL: Duration = Duration::from_secs(2);
 
-/// Past this much fake drift between what the pages hold and what the host reads, the pages are
-/// re-anchored to the host (docs/09 section 12.5). At x60 that is 17 ms of real drift - below what
-/// the two clock bases disagree by in ordinary running, so a re-anchor happens across a sleep or a
-/// clock correction and not otherwise.
-pub(crate) const DRIFT_MS: i64 = 1_000;
 
 /// A DevTools endpoint was reached inside the application: a debugging port stands open in it for
 /// as long as its engine runs, and the port is named in `session_verdict.engines`.
 pub(crate) const KEY_DEBUG_PORT_OPEN: &str = "embedded.debug_port_open";
+/// The application outlived the session with the channel's variables in its environment: a web engine
+/// it starts from now on opens a debugging port too, until it is restarted (R5-B7, R5-D5).
+pub(crate) const KEY_VARIABLES_OUTLIVE_SESSION: &str = "embedded.variables_outlive_session";
 /// The pages of the application ran on the session clock through its engine's debugging port - said
 /// in place of the strong claim that they read the real clock, which the reached pages refute.
 pub(crate) const KEY_WEB_ENGINE_REACHED: &str = "embedded.web_engine_reached";
@@ -291,10 +289,18 @@ impl Launch {
 /// What the bridge covered, handed over at the end of the session for the family verdict, the
 /// per-context coverage events and the session warnings.
 pub(crate) struct Outcome {
+    /// The audit's rows, every engine's: the contexts with a row of their own, and each attacher's
+    /// pool row when it went past its ceiling (R5-P20).
     pub(crate) seen: Vec<u32>,
     pub(crate) counts: BTreeMap<(u32, String), u64>,
     pub(crate) failed: usize,
-    pub(crate) overflow: usize,
+    /// How many contexts were counted in pool rows.
+    pub(crate) pooled: usize,
+    /// How many contexts were shimmed, pooled ones included.
+    pub(crate) contexts: usize,
+    /// How many of them were reached while already running (R5-P7) - an engine's pages usually load
+    /// before the session finds its port.
+    reached_running: usize,
     /// Whether any endpoint was attached to at all. Without one there is nothing to judge.
     pub(crate) reached: bool,
     rate_changed: bool,
@@ -336,15 +342,25 @@ impl Outcome {
     /// on the session's zone, and the shim in it checks what it reads. This used to compare the
     /// session's bias with the host's bias of today, which said nothing about a fake date across a
     /// daylight-saving change: a January date showed an hour off with both biases equal in summer.
-    pub(crate) fn session_warnings(&self) -> Vec<String> {
+    ///
+    /// `left_running` is whether the application outlived the session: with the channel on, its
+    /// environment still tells a web engine it starts to open a debugging port, and nothing can take
+    /// that back but a restart (R5-B7, R5-D5) - said whether or not an engine was reached in the session.
+    pub(crate) fn session_warnings(&self, left_running: bool) -> Vec<String> {
         let mut out = self.warnings.clone();
         out.extend(self.unreached_warnings());
         let pages = !self.seen.is_empty();
         if self.reached {
             out.push(KEY_DEBUG_PORT_OPEN.to_string());
         }
-        if self.overflow > 0 {
-            out.push("chromium.context_ceiling_reached".to_string());
+        if left_running && self.channel_on {
+            out.push(KEY_VARIABLES_OUTLIVE_SESSION.to_string());
+        }
+        if pages && self.reached_running > 0 {
+            out.push(KEY_CONTEXT_REACHED_RUNNING.to_string());
+        }
+        if self.pooled > 0 {
+            out.push(KEY_CONTEXTS_POOLED.to_string());
         }
         if self.rate_changed && pages {
             out.push("chromium.rate_change_affects_running_timers".to_string());
@@ -706,7 +722,7 @@ impl EmbeddedBridge {
             return;
         }
         if let Some(pushed) = self.pushed
-            && drift_ms(pushed, fresh).abs() > DRIFT_MS
+            && resync_due(drift_ms(pushed, fresh), pushed.mult)
         {
             self.move_clock(&cdp_set_expr(fresh), fresh);
             self.pushed = Some(fresh);
@@ -810,7 +826,9 @@ impl EmbeddedBridge {
             seen: Vec::new(),
             counts: BTreeMap::new(),
             failed: 0,
-            overflow: 0,
+            pooled: 0,
+            contexts: 0,
+            reached_running: 0,
             reached: self.reached,
             rate_changed: self.rate_changed,
             engines: self.engines,
@@ -832,15 +850,17 @@ impl EmbeddedBridge {
         });
         for (engine, part) in self.closed.into_iter().chain(live) {
             // Every page counted to the engine it came through, so a client claims an engine's pages
-            // only for the engine that had some (R5, P15). The total stays `seen`.
+            // only for the engine that had some (R5, P15). The total stays `contexts`.
             if let Some(reached) = engine.and_then(|i| outcome.engines.get_mut(i)) {
-                let pages = u32::try_from(part.seen.len()).unwrap_or(u32::MAX);
+                let pages = u32::try_from(part.contexts).unwrap_or(u32::MAX);
                 reached.context_count = reached.context_count.saturating_add(pages);
             }
             outcome.seen.extend(part.seen);
             outcome.counts.extend(part.counts);
             outcome.failed += part.failed;
-            outcome.overflow += part.overflow;
+            outcome.pooled += part.pooled;
+            outcome.contexts += part.contexts;
+            outcome.reached_running += part.reached_running;
             outcome.zone_missed += part.zone_missed;
             outcome.hidden_fast += part.hidden_fast;
         }
@@ -983,12 +1003,14 @@ mod tests {
         assert_eq!(weak, vec!["embedded.web_engine_processes_uncovered"]);
     }
 
-    fn outcome(reached: bool, seen: &[u32], overflow: usize, rate_changed: bool, warnings: &[&str]) -> Outcome {
+    fn outcome(reached: bool, seen: &[u32], pooled: usize, rate_changed: bool, warnings: &[&str]) -> Outcome {
         Outcome {
             seen: seen.to_vec(),
             counts: BTreeMap::new(),
             failed: 0,
-            overflow,
+            pooled,
+            contexts: seen.len() + pooled,
+            reached_running: 0,
             reached,
             rate_changed,
             engines: Vec::new(),
@@ -1003,8 +1025,8 @@ mod tests {
         }
     }
 
-    /// Each warning only when it happened: the open port once an engine was reached, the ceiling
-    /// once a page was refused past it, the running-timers caveat once the rate changed WITH pages
+    /// Each warning only when it happened: the open port once an engine was reached, the pool once a
+    /// page went past the ceiling of own rows, the running-timers caveat once the rate changed WITH pages
     /// to feel it, the zone once there are pages AND one of them read another zone than the
     /// session's. What the bridge noted along the way (an unreachable engine, say) comes first, in the
     /// order it was noted.
@@ -1014,20 +1036,20 @@ mod tests {
             o.zone_missed = 1;
             o
         };
-        assert!(missed_zone(outcome(false, &[], 0, false, &[])).session_warnings().is_empty());
-        assert_eq!(missed_zone(outcome(true, &[], 0, true, &[])).session_warnings(), vec![KEY_DEBUG_PORT_OPEN]);
+        assert!(missed_zone(outcome(false, &[], 0, false, &[])).session_warnings(false).is_empty());
+        assert_eq!(missed_zone(outcome(true, &[], 0, true, &[])).session_warnings(false), vec![KEY_DEBUG_PORT_OPEN]);
         assert_eq!(
-            missed_zone(outcome(true, &[1], 1, true, &[KEY_ENGINE_UNREACHABLE])).session_warnings(),
+            missed_zone(outcome(true, &[1], 1, true, &[KEY_ENGINE_UNREACHABLE])).session_warnings(false),
             vec![
                 KEY_ENGINE_UNREACHABLE,
                 KEY_DEBUG_PORT_OPEN,
-                "chromium.context_ceiling_reached",
+                "chromium.contexts_pooled",
                 "chromium.rate_change_affects_running_timers",
                 KEY_ZONE_IS_HOST,
             ]
         );
         assert_eq!(
-            outcome(true, &[1], 0, false, &[]).session_warnings(),
+            outcome(true, &[1], 0, false, &[]).session_warnings(false),
             vec![KEY_DEBUG_PORT_OPEN],
             "pages that read the session's zone are not said to read the host's"
         );
@@ -1035,10 +1057,24 @@ mod tests {
             let mut o = outcome(true, &[1], 0, false, &[]);
             o.hidden_fast = 1;
             o.timers_kept = timers_kept;
-            o.session_warnings()
+            o.session_warnings(false)
         };
         assert_eq!(hidden(false), vec![KEY_DEBUG_PORT_OPEN, KEY_BACKGROUND_TIMERS_SLOWED], "a hidden page's timers slowed (R4-N28)");
         assert_eq!(hidden(true), vec![KEY_DEBUG_PORT_OPEN], "not when the engine was started with that switched off");
+    }
+
+    /// R5-B7, R5-D5: an application that outlives the session keeps the channel's variables, so a web
+    /// engine it starts later opens a debugging port too - said whether an engine was reached or not,
+    /// and only when the channel was on (with `--no-embedded` nothing was set).
+    #[test]
+    fn an_application_left_running_with_the_channel_on_is_told_its_engines_will_open_a_port() {
+        let reached = outcome(true, &[1], 0, false, &[]);
+        assert_eq!(reached.session_warnings(true), vec![KEY_DEBUG_PORT_OPEN, KEY_VARIABLES_OUTLIVE_SESSION]);
+        assert_eq!(reached.session_warnings(false), vec![KEY_DEBUG_PORT_OPEN], "ended with the session: nothing outlives it");
+        let none_reached = outcome(false, &[], 0, false, &[]);
+        assert_eq!(none_reached.session_warnings(true), vec![KEY_VARIABLES_OUTLIVE_SESSION], "an engine it opens later is the case");
+        let off = Outcome { channel_on: false, ..outcome(false, &[], 0, false, &[]) };
+        assert!(off.session_warnings(true).is_empty(), "with the channel off nothing was set");
     }
 
     fn host(elevated: Option<bool>) -> Option<WebView2Host> {
@@ -1123,7 +1159,7 @@ mod tests {
         assert!(!with_host(false, &[KEY_DISCOVERY_UNAVAILABLE], host(None)).engine_missed());
         assert!(with_host(false, &[KEY_QT_PORT_TAKEN], host(None)).engine_missed());
         assert_eq!(
-            with_host(false, &[], host(Some(true))).session_warnings(),
+            with_host(false, &[], host(Some(true))).session_warnings(false),
             vec![KEY_WEBVIEW2_NOT_REACHED, KEY_ELEVATED_HOST]
         );
     }

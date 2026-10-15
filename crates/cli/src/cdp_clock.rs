@@ -14,7 +14,7 @@ use crate::cdp::{self, ScheduledRate};
 use crate::cdp_attach::ShimOrigin;
 use crate::events::{jump_error_key, moment_error_key, start_time_mode};
 use crate::grammar::parse_shift;
-use crate::zone::{epoch_ms_to_wall, moment_epoch_ms, FT_UNIX_EPOCH, WALL_MAX_MS, WALL_MIN_MS};
+use crate::zone::{epoch_ms_to_wall, moment_epoch_ms, now_epoch_ms, FT_UNIX_EPOCH, WALL_MAX_MS, WALL_MIN_MS};
 
 /// How long after it is asked for a rate change takes effect - on the panel and in every page at one
 /// instant (R4-S17, ADR-9 R4/14b). Taking effect at the moment of the command, the panel changed at
@@ -89,6 +89,10 @@ pub(crate) struct CdpClock {
     /// Whether the wall has been seen standing at [`WALL_MAX_MS`]. Set where the wall is read, so a
     /// heartbeat, a query or a rate change that found it there is remembered after a jump back.
     reached_end: Cell<bool>,
+    /// How far the system clock the pages read stands ahead of the axis this clock runs on, in ms
+    /// (R5-F6, R5-D42): zero at the start, and it grows by every sleep of the machine and every
+    /// correction of its clock. The origin the pages get is given on their clock through it.
+    wall_offset: i64,
 }
 
 impl CdpClock {
@@ -105,7 +109,36 @@ impl CdpClock {
             bias,
             session_real0: real0_ms,
             reached_end: Cell::new(false),
+            wall_offset: 0,
         }
+    }
+
+    /// The system clock stands `offset` ms ahead of this clock's axis now (see `wall_offset`).
+    pub(crate) fn set_wall_offset(&mut self, offset: i64) {
+        self.wall_offset = offset;
+    }
+
+    /// How far the system clock stands ahead of this clock's axis, as last set.
+    pub(crate) fn wall_offset(&self) -> i64 {
+        self.wall_offset
+    }
+
+    /// How far, in fake ms, the pages stand from this clock at `now` when they were last given it at
+    /// `pushed_offset`: the system clock they read moved by the difference since, and their wall with
+    /// it, times the rate they run at now - a change scheduled for an instant already past included
+    /// (CodeRabbit on #110). Positive means the pages run ahead - after a sleep, say.
+    pub(crate) fn pages_drift_ms(&self, now: i64, pushed_offset: i64) -> i64 {
+        self.wall_offset.saturating_sub(pushed_offset).saturating_mul(self.segment_at(now).mult)
+    }
+
+    /// The rate the clock runs at `now`, a scheduled change already past included.
+    pub(crate) fn mult_at(&self, now: i64) -> i64 {
+        self.segment_at(now).mult
+    }
+
+    /// A rate change as the pages take it: its instant on the system clock they read.
+    pub(crate) fn for_pages(&self, next: ScheduledRate) -> ScheduledRate {
+        ScheduledRate { at_ms: next.at_ms.saturating_add(self.wall_offset), ..next }
     }
 
     /// The segment the clock runs on at `now`: the scheduled change taken once its instant has come.
@@ -161,7 +194,8 @@ impl CdpClock {
                 wall: epoch_ms_to_wall(self.fake_wall_ms(now), self.bias),
                 zone_bias_min: self.bias,
             },
-            real: Clock { wall: epoch_ms_to_wall(now, self.bias), zone_bias_min: self.bias },
+            // The real wall is the system clock's, whatever this clock's axis did across a sleep.
+            real: Clock { wall: epoch_ms_to_wall(now.saturating_add(self.wall_offset), self.bias), zone_bias_min: self.bias },
             multiplier: self.target_mult(),
             elapsed_fake_ms: self.elapsed_fake_ms(now),
             elapsed_real_ms: self.elapsed_real_ms(now),
@@ -245,15 +279,58 @@ impl CdpClock {
     /// still waiting, not the session's initial values, so a context attaching after an in-flight
     /// change starts on the same clock as every other one (rule 3). A Chromium session runs the
     /// duration axis at the wall rate - the acceleration is the point of driving it.
+    ///
+    /// Given on the system clock the pages read (R5-F6): this clock runs on interrupt time, which a
+    /// sleep or a clock correction does not move, and the pages on `Date.now`, which they do - the
+    /// real instants are shifted by `wall_offset`, so a page reads what the panel reads.
     pub(crate) fn shim_origin(&self) -> ShimOrigin {
         ShimOrigin {
             fake0: self.segment.wall_fake0,
-            real0: self.segment.wall_real0,
+            real0: self.segment.wall_real0.saturating_add(self.wall_offset),
             mult: self.segment.mult,
             dur: self.segment.mult,
-            scheduled: self.scheduled,
+            scheduled: self.scheduled.map(|next| self.for_pages(next)),
         }
     }
+}
+
+/// The axis a Chromium session's clock runs on (R5-F6, R5-D42): Unix-epoch ms that equal the system
+/// clock at the start and then go on with unbiased interrupt time - the clock the native anchors stand on
+/// (ADR-5). A sleep of the machine and a correction of its clock move the system clock and not this one,
+/// so the session clock stands still across a sleep, as a native session's does, where it used to run on
+/// through it at the session speed. With the sleep the machine has had since the start, for `host_slept`.
+pub(crate) struct HostAxis {
+    wall0: i64,
+    quit0: i64,
+    bias0: i64,
+    /// The most sleep read so far, in ms - the reading is a lower bound when an interrupt falls between
+    /// its clocks (`chrono_ctl::sleep_bias`), and the count must never go back.
+    slept_ms: i64,
+}
+
+impl HostAxis {
+    pub(crate) fn start() -> HostAxis {
+        let quit0 = chrono_mech::unbiased_interrupt_time();
+        HostAxis { wall0: now_epoch_ms(), quit0, bias0: chrono_mech::slept_since_boot(), slept_ms: 0 }
+    }
+
+    /// Now, on the axis.
+    pub(crate) fn now(&self) -> i64 {
+        axis_ms(self.wall0, self.quit0, chrono_mech::unbiased_interrupt_time())
+    }
+
+    /// How long the machine has slept since the start, in ms, never less than read before.
+    pub(crate) fn slept_ms(&mut self) -> i64 {
+        let read = chrono_mech::slept_since_boot().saturating_sub(self.bias0).max(0) / 10_000;
+        self.slept_ms = self.slept_ms.max(read);
+        self.slept_ms
+    }
+}
+
+/// The axis at interrupt time `quit_now` (100 ns): the system clock at the start plus the interrupt time
+/// gone by since, in whole ms. Pure, so the projection is tested without a clock.
+fn axis_ms(wall0: i64, quit0: i64, quit_now: i64) -> i64 {
+    wall0.saturating_add(quit_now.saturating_sub(quit0) / 10_000)
 }
 
 /// A UTC FILETIME as Unix-epoch milliseconds, saturating at either end of the range rather than
@@ -275,6 +352,27 @@ pub(crate) fn shim_origin_from_state(state: &chrono_mech::SessionState, scale_du
         dur: if scale_duration { state.multiplier.max(1) } else { 1 },
         scheduled: None,
     }
+}
+
+/// Past this much fake drift between what the pages hold and what the session clock reads, the pages are
+/// given the clock again (docs/09 section 12.5) - in a session of the native mechanism and, since R5-F6,
+/// in a Chromium session. At x60 that is 17 ms of real drift - below what the two clock bases disagree
+/// by in ordinary running, so a re-anchor happens across a sleep or a clock correction and not otherwise.
+pub(crate) const DRIFT_MS: i64 = 1_000;
+
+/// The least real time the pages stand from the session clock before they are given it again, however
+/// fast the clock runs (CodeRabbit on #110). The two clocks are read in whole milliseconds, so they
+/// disagree by one now and then in ordinary running, and at x10 000 one millisecond is ten seconds of
+/// session time - past [`DRIFT_MS`] on every turn, a clock move to every page each time.
+pub(crate) const RESYNC_FLOOR_MS: i64 = 50;
+
+/// Whether pages that stand `drift_fake_ms` of session time from the clock running at `mult` are to
+/// be given it again: past [`DRIFT_MS`] of session time and [`RESYNC_FLOOR_MS`] of real time both. A
+/// frozen clock never drifts.
+pub(crate) fn resync_due(drift_fake_ms: i64, mult: i64) -> bool {
+    let drift = drift_fake_ms.unsigned_abs();
+    let real = drift.checked_div(mult.unsigned_abs()).unwrap_or(0);
+    drift > DRIFT_MS.unsigned_abs() && real >= RESYNC_FLOOR_MS.unsigned_abs()
 }
 
 /// How far, in fake milliseconds, the clock the pages were last given has walked away from the
@@ -356,6 +454,61 @@ mod tests {
 
     fn origin(fake0: i64, real0: i64, mult: i64) -> ShimOrigin {
         ShimOrigin { fake0, real0, mult, dur: mult, scheduled: None }
+    }
+
+    /// R5-F6: the session axis is the system clock at the start plus the interrupt time gone by since,
+    /// so a sleep, which interrupt time does not count, does not move it.
+    #[test]
+    fn the_session_axis_goes_on_with_interrupt_time_from_the_start() {
+        assert_eq!(axis_ms(1_000_000, 50_000_000, 50_000_000), 1_000_000);
+        assert_eq!(axis_ms(1_000_000, 50_000_000, 50_000_000 + 25_000_000), 1_002_500, "2.5 s of interrupt time");
+        assert_eq!(axis_ms(i64::MAX - 1, 0, i64::MAX), i64::MAX, "saturating, never wrapping");
+    }
+
+    /// R5-F6, R5-D42: across a sleep the system clock moves and the session clock does not. The pages
+    /// are given the clock on the system clock, so a page reads what the panel reads. The pages that
+    /// still hold the clock of before the sleep stand ahead by the sleep times the speed, and that is
+    /// past `DRIFT_MS`. A rate change still waiting is moved by the same offset.
+    #[test]
+    fn the_pages_are_given_the_clock_on_the_system_clock_they_read() {
+        let mut clock = CdpClock::new(2_000_000_000_000, 1_000_000, 60, 0);
+        let session_now = 1_010_000; // ten seconds of interrupt time on
+        assert_eq!(clock.fake_wall_ms(session_now), 2_000_000_600_000);
+        // The machine slept five seconds: the system clock is five seconds ahead of the axis.
+        clock.set_wall_offset(5_000);
+        let wall_now = session_now + 5_000;
+        let origin = clock.shim_origin();
+        let page_reads = origin.fake0 + (wall_now - origin.real0) * origin.mult;
+        assert_eq!(page_reads, clock.fake_wall_ms(session_now), "a page given the clock now reads the panel's");
+        assert_eq!(clock.pages_drift_ms(session_now, 0), 300_000, "the pages of before the sleep run five seconds times 60 ahead");
+        assert!(resync_due(clock.pages_drift_ms(session_now, 0), 60));
+        assert_eq!(clock.pages_drift_ms(session_now, 5_000), 0, "pages given it after the sleep do not");
+        let next = clock.set_multiplier_at(1, session_now);
+        assert_eq!(clock.for_pages(next).at_ms, next.at_ms + 5_000, "the change at the same instant on their clock");
+        assert_eq!(clock.shim_origin().scheduled.map(|s| s.at_ms), Some(next.at_ms + 5_000));
+        // CodeRabbit on #110: once the change's instant is past, the drift is at the rate the pages run
+        // at then - x1 here, where the segment still says x60.
+        assert_eq!(clock.pages_drift_ms(next.at_ms + 1, 0), 5_000, "five seconds at x1");
+        // The panel's real wall is the system clock's.
+        match clock.state_event_at(session_now) {
+            Event::State { real, .. } => assert_eq!(real.wall, epoch_ms_to_wall(wall_now, 0)),
+            other => panic!("expected state, got {other:?}"),
+        }
+    }
+
+    /// CodeRabbit on #110: the pages are given the clock again past a second of session time AND 50 ms
+    /// of real time. The two clocks are read in whole milliseconds and disagree by one now and then, which
+    /// at x10 000 is ten seconds of session time - every turn would have moved every page.
+    #[test]
+    fn a_resync_needs_session_time_and_real_time_both() {
+        assert!(!resync_due(10_000, 10_000), "1 ms of real time at x10 000 is not a sleep");
+        assert!(!resync_due(-20_000, 10_000), "nor 2 ms the other way");
+        assert!(resync_due(500_000, 10_000), "50 ms at x10 000 is");
+        assert!(!resync_due(999, 1), "under a second at x1 is not");
+        assert!(resync_due(1_001, 1), "over a second at x1 is");
+        assert!(!resync_due(2_400, 60), "40 ms at x60 is not");
+        assert!(resync_due(3_000, 60), "50 ms at x60 is");
+        assert!(!resync_due(0, 0), "a frozen clock never drifts");
     }
 
     /// A FILETIME to epoch milliseconds, and the end of the range does not come out as a date before

@@ -46,8 +46,33 @@ Notable changes to Chrono Mock, newest first. The format follows
   Such a deadline is turned into a delay when it is set, at the speed of that moment, so one still
   pending when the session jumped or changed speed fires where the old clock would have reached it.
   The new warning `timer.absolute_due_converted` appears only when that can have happened.
+- **The report says which browser a Chromium session drove.** `session_verdict` carries what the
+  browser calls itself (`browser`, such as `Chrome/152.0.7977.149`), and the report and the evidence file
+  have a `browser:` line under the target. A native session leaves it out.
+- **The report says when a page or worker was already running when the session reached it**
+  (`chromium.context_reached_running`): a page whose own scripts were in it before the time shim, or a
+  worker that was not paused on start. Its scripts may have read the real clock first, and a timer it
+  set before keeps its real interval. Said in a Chromium session and for the web engines inside an
+  application, whose pages usually load before the session finds them.
+- **The report says when an application left running will open a debugging port later**
+  (`embedded.variables_outlive_session`). With the web engine channel on, the application keeps the
+  setting that makes its engine open a debugging port, so a web view it opens after the session opens
+  one too, reachable by other programs on the computer, until the application is restarted.
 
 ### Changed
+
+- **A Chromium session covers every page and worker, however many there are.** The audit gives the
+  first 256 a row of their own and counts the rest together in the last row, and every one of them runs
+  on the session clock. Past 256 they used to be refused the time shim and ran on the real clock, which
+  an application that starts a worker per task reached within minutes, and the verdict said `partial`.
+  The warning `chromium.context_ceiling_reached` is replaced by `chromium.contexts_pooled`, and
+  `context_count` counts every context.
+- **A Chromium session's clock stands still while the computer sleeps, and a correction of the system
+  clock no longer moves it,** as in a native session. It used to run on through a sleep at the session
+  speed: one hour corrected on the system clock moved the session clock sixty hours at x60.
+  The pages are given the clock again when they stand more than a second of session time from it, the
+  session logs `host_slept`, and the report warns `time.host_slept`. A page that runs a script in the
+  moment between waking and that correction reads the moved clock.
 
 - **A call count stops at 1 048 576 and is then shown as "at least".** Every clock call used to write
   one shared counter, which cost a target with many threads several times the price of the call itself
@@ -150,6 +175,30 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A Chromium session that could not start says what it left behind.** When the browser never opened
+  its debugging port, the session ended only the process it had started, tried once to remove the
+  profile and reported `clean` whatever happened. It now ends everything the browser started and removes
+  the profile the way the end of a session does, and a profile it cannot remove is named
+  (`cleanup.chromium_profile_left`).
+- **A process that refuses to be opened counts as running.** One that runs as administrator or as
+  another user used to read as ended: the clean-up of old Chromium profiles could remove the profile of
+  a live session, and a session took such a member of its application for closed. It now counts as
+  running, and the session says `session.left_running` for it.
+- **Looking for web engines inside an application goes on after a failed read.** One table of
+  listening sockets that could not be read ended the search for the whole session, and took the other
+  table with it. The two are read apart now and a failed read is tried again. The search gives up, and
+  says so (`embedded.discovery_unavailable`), only when the IPv4 table, the one web engines open their
+  debugging port on, could not be read several times in a row.
+- **A Chromium session reaches the first window sooner.** It looks for the browser's debugging port
+  every 10 ms instead of every 150 ms and connects by the address the browser writes beside the port,
+  so the first window of an application is paused for the time shim more often.
+- **Pages and workers the session could not reach are counted and named.** One the session could not
+  attach to was skipped without a word, and why a time shim failed was dropped - both now count against
+  the verdict, and the first three are named on the diagnostic stream. A connection that closes while the
+  browser still runs says why.
+- **A Chromium session lets go of what it does not drive.** A second debugging session on a page, a page
+  the native mechanism covers and a target with no JavaScript are detached from instead of being kept
+  for the whole session, and the session remembers a bounded number of the workers that came and went.
 - **A process of the session that cannot be watched is named.** The session lasts while a process on
   its clock runs, and one that would not let Chrono Mock wait on it (access denied) used to count as
   ended, so the session could end while it still ran, without a word. The report now says so

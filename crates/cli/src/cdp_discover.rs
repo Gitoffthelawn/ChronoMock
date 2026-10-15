@@ -27,8 +27,11 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono_mech::ListenerTable;
+
 use crate::cdp;
 use crate::embedded::{is_devtools_version, role_from_command_line};
+use crate::output::diag;
 
 /// A DevTools endpoint found in the family: the pid that holds it, the loopback host and port to
 /// connect to (`::1` for an IPv6 socket, `127.0.0.1` otherwise), and what the engine calls itself in
@@ -45,8 +48,8 @@ pub(crate) struct Discovered {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Notice {
     Found(Discovered),
-    /// The table could not be read at all - said once, then the thread ends. The session goes on
-    /// without the channel, and the caller reports the loss (untouchable rule 6).
+    /// Neither table could be read for several sweeps in a row - said once, then the thread ends. The
+    /// session goes on without the channel, and the caller reports the loss (untouchable rule 6).
     Unavailable(String),
     /// The port the Qt engine was told to open is held by something that is not a DevTools endpoint:
     /// a process outside the family bound it first, or one inside the family that never answered as
@@ -121,9 +124,20 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, qt_port: Option<u16>
                 Err(TryRecvError::Disconnected) => return,
             }
         }
-        let table = match chrono_mech::listening_sockets() {
-            Ok(t) => t,
-            Err(e) => {
+        let read = chrono_mech::listening_sockets();
+        if let Ok(ListenerTable { unread: Some(missing), .. }) = &read
+            && !looking.partial_said
+        {
+            looking.partial_said = true;
+            diag!("chrono: one table of listening sockets could not be read ({missing}) - looking on with the other");
+        }
+        let table = match looking.failures.note(read) {
+            Read::Table(t) => t,
+            Read::Again => {
+                thread::sleep(SWEEP);
+                continue;
+            }
+            Read::GiveUp(e) => {
                 let _ = notices.send(Notice::Unavailable(e));
                 return;
             }
@@ -158,9 +172,56 @@ fn run(pids: &Receiver<Vec<u32>>, notices: &Sender<Notice>, qt_port: Option<u16>
     }
 }
 
+/// How many sweeps in a row may find neither table readable before the thread gives up and says so.
+/// One failed read used to end the discovery for the whole session (R5-P24), while a table that
+/// changes size faster than it is read - the API's one ordinary failure - is gone on the next sweep.
+const UNREADABLE_SWEEPS: u32 = 5;
+
+/// What one read of the tables comes to for the thread.
+#[derive(Debug, PartialEq, Eq)]
+enum Read {
+    /// The sockets to look through - both tables, or the one that could be read.
+    Table(Vec<chrono_mech::Listener>),
+    /// Neither table could be read this sweep: try again on the next.
+    Again,
+    /// Neither could be read [`UNREADABLE_SWEEPS`] times in a row, with the last reason.
+    GiveUp(String),
+}
+
+/// The failed reads in a row.
+#[derive(Default)]
+struct Failures {
+    in_a_row: u32,
+}
+
+impl Failures {
+    /// Take one read: a table with IPv4 in it resets the count, and a read without it counts until
+    /// [`UNREADABLE_SWEEPS`]. The IPv4 table is the one an engine opens its debugging port on
+    /// (`127.0.0.1`), so the session cannot look for engines without it, and that loss reaches the report
+    /// as before (`embedded.discovery_unavailable`) - looking on with IPv6 alone and saying it on stderr
+    /// only took it out (CodeRabbit on #110). One without IPv6 is a table: what it misses is an engine
+    /// someone opened on `::1`, which is said on stderr.
+    fn note(&mut self, read: Result<ListenerTable, String>) -> Read {
+        let failed = match read {
+            Ok(table) if table.ipv4_read => {
+                self.in_a_row = 0;
+                return Read::Table(table.sockets);
+            }
+            Ok(table) => table.unread.unwrap_or_else(|| "IPv4: the table was not read".to_string()),
+            Err(e) => e,
+        };
+        self.in_a_row += 1;
+        if self.in_a_row >= UNREADABLE_SWEEPS { Read::GiveUp(failed) } else { Read::Again }
+    }
+}
+
 /// What the thread keeps from one sweep to the next.
 #[derive(Default)]
 struct Looking {
+    /// The tables that could not be read in a row.
+    failures: Failures,
+    /// One table could not be read, and that was said - once a session.
+    partial_said: bool,
     memory: Memory,
     /// When the engine was first seen running in each Qt process of the family ([`QT_ENGINE_GRACE`]).
     engine_since: HashMap<u32, Instant>,
@@ -481,6 +542,40 @@ impl Memory {
 mod tests {
     use super::*;
     use chrono_mech::Listener;
+
+    /// R5-P24: a sweep that reads no table is tried again, and only several in a row end the
+    /// discovery - one failed read used to end it for the whole session. A read in between starts the
+    /// count over, and one table alone is a table.
+    #[test]
+    fn a_table_that_cannot_be_read_is_tried_again_before_the_discovery_gives_up() {
+        let mut failures = Failures::default();
+        for _ in 1..UNREADABLE_SWEEPS {
+            assert_eq!(failures.note(Err("busy".into())), Read::Again);
+        }
+        let one = listener(1, 9222, true);
+        let partial = ListenerTable { sockets: vec![one], unread: Some("IPv6: failed".into()), ipv4_read: true };
+        assert_eq!(failures.note(Ok(partial)), Read::Table(vec![one]), "the table that was read counts");
+        for _ in 1..UNREADABLE_SWEEPS {
+            assert_eq!(failures.note(Err("busy".into())), Read::Again, "the count started over");
+        }
+        assert_eq!(failures.note(Err("still busy".into())), Read::GiveUp("still busy".into()));
+    }
+
+    /// CodeRabbit on #110: a read without the IPv4 table - the one engines open their port on - is a
+    /// failed read for the discovery, so its loss ends in `embedded.discovery_unavailable` as before
+    /// instead of a line on stderr while the session looks on with IPv6 alone.
+    #[test]
+    fn a_read_without_the_ipv4_table_counts_as_a_failed_read() {
+        let mut failures = Failures::default();
+        let v6_only = || {
+            let only = Listener { pid: 1, port: 9222, loopback: true, v6: true, addr_v4: 0 };
+            Ok(ListenerTable { sockets: vec![only], unread: Some("IPv4: failed with 8".into()), ipv4_read: false })
+        };
+        for _ in 1..UNREADABLE_SWEEPS {
+            assert_eq!(failures.note(v6_only()), Read::Again);
+        }
+        assert_eq!(failures.note(v6_only()), Read::GiveUp("IPv4: failed with 8".into()));
+    }
 
     fn listener(pid: u32, port: u16, loopback: bool) -> Listener {
         let addr_v4 = if loopback { chrono_mech::IPV4_LOOPBACK_ADDR } else { 0x0501_A8C0 };

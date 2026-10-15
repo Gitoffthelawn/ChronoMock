@@ -139,6 +139,26 @@ pub(crate) fn unsupported_command(id: u64) -> Event {
     }
 }
 
+/// The shortest sleep of the machine a session tells about (R5-P1). The sleep bias moves only when the
+/// machine wakes, so any growth is a real sleep, and the threshold only keeps a resume of a fraction of a
+/// second out of the log - it is three orders of magnitude above the scatter that a difference of two clocks
+/// would have had (plan R5, 4.5). The native session and the Chromium session alike (R5-F6).
+pub(crate) const SLEPT_REPORTED_MS: i64 = 1_000;
+
+/// The machine slept during the session, and the session clock stood still for it (ADR-5, docs/01 3.0a).
+pub(crate) const KEY_HOST_SLEPT: &str = "time.host_slept";
+
+/// How much sleep the log owes: everything since the last announcement, once it reaches the threshold.
+pub(crate) fn sleep_to_announce(announced_ms: i64, total_ms: i64) -> Option<i64> {
+    let new = total_ms.saturating_sub(announced_ms);
+    (new >= SLEPT_REPORTED_MS).then_some(new)
+}
+
+/// The total sleep as `session_verdict` carries it: 0, which the wire leaves out, below the threshold.
+pub(crate) fn reported_sleep_ms(total_ms: i64) -> u64 {
+    if total_ms >= SLEPT_REPORTED_MS { total_ms as u64 } else { 0 }
+}
+
 pub(crate) fn ended_clean() -> Event {
     Event::Ended {
         v: PROTOCOL_VERSION,

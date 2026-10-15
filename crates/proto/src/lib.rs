@@ -359,6 +359,11 @@ pub enum Event {
         /// `time.host_slept` warning. Absent when the machine did not sleep. Additive.
         #[serde(default, skip_serializing_if = "is_zero")]
         host_slept_ms: u64,
+        /// What the browser a Chromium session drove calls itself (`Browser.getVersion`, e.g.
+        /// `Chrome/152.0.7977.149`), cleaned - which engine the evidence is about (R5-D6, R5-D44).
+        /// Absent for a native session, and when the browser did not say. Additive.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        browser: Option<String>,
     },
     /// The machine slept while the session ran, noticed at the first heartbeat after it woke (R5-P1,
     /// R5-D34). The session clock stood still for that time - sleep is never multiplied by the speed
@@ -672,6 +677,7 @@ mod tests {
                 FollowedProcess { pid: 5151, image: None },
             ],
             host_slept_ms: 0,
+            browser: None,
         };
         let line = ev.to_ndjson();
         assert!(line.starts_with(r#"{"type":"session_verdict""#), "got {line}");
@@ -781,6 +787,20 @@ mod tests {
             Event::SessionVerdict { engines, .. } => assert_eq!(engines[0].context_count, 0),
             _ => panic!("wrong event variant"),
         }
+    }
+
+    /// R5-D44: the browser a Chromium session drove travels on its verdict, and a verdict without it -
+    /// a native session's, or an older core's - parses as none and writes no key.
+    #[test]
+    fn the_browser_of_a_chromium_session_round_trips_and_is_absent_otherwise() {
+        let older = r#"{"type":"session_verdict","v":1,"verdict":"works","reason_key":"session.family_covered","process_count":1}"#;
+        let parsed = parse_event(older).unwrap();
+        assert!(matches!(&parsed, Event::SessionVerdict { browser: None, .. }));
+        assert!(!parsed.to_ndjson().contains("browser"), "no browser, no key");
+        let with = older.replace(r#""process_count":1"#, r#""process_count":1,"browser":"Chrome/152.0.7977.149""#);
+        let parsed = parse_event(&with).unwrap();
+        assert!(matches!(&parsed, Event::SessionVerdict { browser: Some(b), .. } if b == "Chrome/152.0.7977.149"));
+        assert!(parsed.to_ndjson().contains(r#""browser":"Chrome/152.0.7977.149""#));
     }
 
     /// `coverage.kind` names the namespace of `pid`: a process the hook is inside, or a JS context

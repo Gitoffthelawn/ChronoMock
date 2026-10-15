@@ -40,6 +40,8 @@ pub(crate) struct CdpContext {
     /// What it showed for the zone after the session gave this machine's back: `getTimezoneOffset()` at
     /// the two instants of the read ([`cdp::zone_read_expr`]), once it answered with two numbers.
     zone_read: Option<[i32; 2]>,
+    /// One past the ceiling of own rows (R5-P20): its counts go to the pool's row, not a row of its own.
+    pooled: bool,
 }
 
 impl CdpContext {
@@ -54,7 +56,13 @@ impl CdpContext {
             released: false,
             release_answer: None,
             zone_read: None,
+            pooled: false,
         }
+    }
+
+    /// The same context, counted in the pool's row (R5-P20).
+    pub(crate) fn pooled(self, pooled: bool) -> CdpContext {
+        CdpContext { pooled, ..self }
     }
 }
 
@@ -199,6 +207,10 @@ pub(crate) struct Requests {
     /// Per-context call counts, keyed by `(context index, "type api")`, merged by max so a peak
     /// survives a reload.
     counts: BTreeMap<(u32, String), u64>,
+    /// What the pooled contexts that went away counted, summed by `"type api"` (R5-P20). A pooled
+    /// context's own peaks move here when it goes, so the table is as large as the live list, however
+    /// many workers an application starts and ends.
+    pool_sum: BTreeMap<String, u64>,
     /// The pages that missed a clock move: one that did not take its new hook, one that answered the
     /// move with anything but `ok` or `no-shim` (`late` from R4-S17), and one that had not answered by
     /// the end. A page once, however many moves it missed - the warning is about pages, and the set
@@ -226,17 +238,24 @@ impl Requests {
 
     /// Drop a context that went away - a closed window, a recycled worker - with its requests in
     /// flight. They are not counted as missed: a page that is gone has no clock to stand apart. A
-    /// reload does not detach its target, so it is not this. `true` when something was dropped.
-    pub(crate) fn forget(&mut self, session: &str, target: &str) -> bool {
-        let gone: Vec<String> = self
+    /// reload does not detach its target, so it is not this. A pooled context's counts move to the
+    /// pool's sum. Returns the target ids of what was dropped, empty when nothing was.
+    pub(crate) fn forget(&mut self, session: &str, target: &str) -> Vec<String> {
+        let is_gone = |c: &CdpContext| (!session.is_empty() && c.session_id == session) || (!target.is_empty() && c.target_id == target);
+        let gone: Vec<(String, String, u32, bool)> = self
             .contexts
             .iter()
-            .filter(|c| (!session.is_empty() && c.session_id == session) || (!target.is_empty() && c.target_id == target))
-            .map(|c| c.session_id.clone())
+            .filter(|c| is_gone(c))
+            .map(|c| (c.session_id.clone(), c.target_id.clone(), c.index, c.pooled))
             .collect();
-        self.contexts.retain(|c| !gone.contains(&c.session_id));
-        self.asked.retain(|_, a| !gone.iter().any(|s| s == a.session()));
-        !gone.is_empty()
+        self.contexts.retain(|c| !is_gone(c));
+        self.asked.retain(|_, a| !gone.iter().any(|(s, ..)| s == a.session()));
+        for (_, _, index, pooled) in &gone {
+            if *pooled {
+                fold_into(&mut self.pool_sum, &mut self.counts, *index);
+            }
+        }
+        gone.into_iter().map(|(_, target, ..)| target).collect()
     }
 
     /// Give every live context the zone override `zone` - a zone id, or an empty string to take it away.
@@ -424,7 +443,19 @@ impl Requests {
         self.missed.len()
     }
 
-    pub(crate) fn into_counts(self) -> BTreeMap<(u32, String), u64> {
+    /// The counts, every pooled context's summed into the row of `pool` (R5-P20) - the live ones' peaks
+    /// and what the ones that went away left in the pool's sum.
+    pub(crate) fn into_counts(mut self, pool: Option<u32>) -> BTreeMap<(u32, String), u64> {
+        let live_pooled: Vec<u32> = self.contexts.iter().filter(|c| c.pooled).map(|c| c.index).collect();
+        for index in live_pooled {
+            fold_into(&mut self.pool_sum, &mut self.counts, index);
+        }
+        if let Some(pool) = pool {
+            for (api, n) in self.pool_sum {
+                let entry = self.counts.entry((pool, api)).or_insert(0);
+                *entry = entry.saturating_add(n);
+            }
+        }
         self.counts
     }
 
@@ -531,6 +562,18 @@ fn unhook_all(ctx: &mut CdpContext, asked: &mut HashMap<u64, Asked>, out: &mut i
     }
 }
 
+/// Move one pooled context's peaks out of the table and add them to the pool's sum (R5-P20).
+fn fold_into(pool_sum: &mut BTreeMap<String, u64>, counts: &mut BTreeMap<(u32, String), u64>, index: u32) {
+    let own: Vec<String> =
+        counts.range((index, String::new())..).take_while(|((i, _), _)| *i == index).map(|((_, api), _)| api.clone()).collect();
+    for api in own {
+        if let Some(n) = counts.remove(&(index, api.clone())) {
+            let entry = pool_sum.entry(api).or_insert(0);
+            *entry = entry.saturating_add(n);
+        }
+    }
+}
+
 /// Merge one context's counts reply into the table, by max per `(index, "type api")`.
 fn merge_counts(counts: &mut BTreeMap<(u32, String), u64>, index: u32, ty: &str, reply: &Value) {
     let Some(obj) = reply.get("result").and_then(|r| r.get("value")).and_then(Value::as_object) else {
@@ -615,6 +658,30 @@ mod tests {
             r.push(c);
         }
         r
+    }
+
+    /// R5-P20: a pooled context's counts go to the pool's row, summed. One that went away leaves its
+    /// peaks to the pool's sum and its entries leave the table, so the table is as large as the live
+    /// list however many workers come and go. The live pooled ones are added at the end, and a context
+    /// with a row of its own keeps it.
+    #[test]
+    fn a_pooled_context_leaves_its_counts_to_the_pool_and_its_place_in_the_table() {
+        let pooled = |session: &str, index: u32| {
+            CdpContext::new(index, session.into(), "worker".into(), format!("T-{session}"), None).pooled(true)
+        };
+        let mut r = requests(vec![page("P", "h0"), pooled("A", 7), pooled("B", 8)]);
+        let mut wire = Wire::default();
+        r.request_counts(&mut wire);
+        let answer = |n: u64| Ok(json!({ "result": { "value": { "now": n } } }));
+        r.on_reply(wire.ids(EVALUATE, "P")[0], answer(2), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "A")[0], answer(3), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "B")[0], answer(5), &mut wire);
+        assert_eq!(r.forget("A", ""), vec!["T-A".to_string()]);
+        assert!(!r.counts.keys().any(|(i, _)| *i == 7), "a pooled context that went away leaves the table");
+        let counts = r.into_counts(Some(7));
+        assert_eq!(counts.get(&(7, "worker Date.now".to_string())), Some(&8), "3 that went away plus 5 still live");
+        assert_eq!(counts.get(&(1, "page Date.now".to_string())), Some(&2), "a row of its own stays its own");
+        assert!(!counts.keys().any(|(i, _)| *i == 8), "a live pooled one is in the pool's row only");
     }
 
     /// R4-W5 kept without waiting on anyone: a page gets its move only after its new hook is back,
@@ -766,7 +833,7 @@ mod tests {
         assert!(!r.counts_settled());
         let p = wire.ids(EVALUATE, "P")[0];
         r.on_reply(p, Ok(json!({ "result": { "value": { "now": 7 } } })), &mut wire);
-        let counts = r.into_counts();
+        let counts = r.into_counts(None);
         assert_eq!(counts.get(&(1, "page Date.now".to_string())), Some(&7));
         assert_eq!(counts.get(&(2, "worker Date.now".to_string())), Some(&4));
     }
@@ -778,13 +845,13 @@ mod tests {
         let mut r = requests(vec![page("P", "h0"), worker("W")]);
         let mut wire = Wire::default();
         let waiting = r.start_move("MOVE", "SHIM", &mut wire);
-        assert!(r.forget("", "T-P"));
+        assert_eq!(r.forget("", "T-P"), vec!["T-P".to_string()], "the target that went away is named");
         assert!(r.answered(&waiting));
         r.on_reply(waiting[0], hook("h1"), &mut wire);
         assert!(wire.ids(EVALUATE, "P").is_empty(), "nothing is sent to a page that is gone");
         r.settle_moves();
         assert_eq!(r.moves_missed(), 1, "only W, which never answered");
-        assert!(!r.forget("nobody", ""), "nothing to drop");
+        assert!(r.forget("nobody", "").is_empty(), "nothing to drop");
     }
 
     /// A connection that can no longer send: the move is missed and the release is not confirmed -
@@ -840,7 +907,7 @@ mod tests {
         r.on_reply(wire.ids(EVALUATE, "P")[1], answer(0), &mut wire);
         r.on_reply(wire.ids(EVALUATE, "W")[1], answer(0), &mut wire);
         assert_eq!(r.zone_missed(), 1, "a later right reading does not undo an earlier wrong one");
-        assert!(r.forget("P", ""));
+        assert!(!r.forget("P", "").is_empty());
         assert_eq!(r.zone_missed(), 1, "a closed page keeps its evidence");
     }
 
@@ -957,7 +1024,7 @@ mod tests {
         let mut r = requests(vec![page("P", "h0"), worker("W")]);
         let mut wire = Wire::default();
         r.give_zone_back("Europe/Warsaw", "READ", &mut wire);
-        assert!(r.forget("W", ""));
+        assert!(!r.forget("W", "").is_empty());
         assert!(!r.zones_settled(), "P has not answered");
         r.on_reply(wire.ids(SET_ZONE, "P")[0], Ok(json!({})), &mut wire);
         assert_eq!(wire.ids(EVALUATE, "W").len(), 0, "nothing goes to a context that is gone");

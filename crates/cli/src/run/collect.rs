@@ -38,6 +38,8 @@ pub(super) struct Collector {
     followed: Vec<chrono_proto::FollowedProcess>,
     // How long the machine slept during the session, from `session_verdict` (R5-P1).
     host_slept_ms: u64,
+    // What the browser of a Chromium session calls itself, from `session_verdict` (R5-D44).
+    browser: Option<String>,
     // Set when the opening verdict refused the session, with what the core could not end (R4-S5), and
     // whether it could not look for all of the application's processes.
     refused: Option<Vec<chrono_proto::FollowedProcess>>,
@@ -86,6 +88,7 @@ impl Collector {
                 engines,
                 followed,
                 host_slept_ms,
+                browser,
                 ..
             } => {
                 self.session_line = Some((verdict, reason_key, process_count));
@@ -96,6 +99,7 @@ impl Collector {
                 self.engines = engines;
                 self.followed = followed;
                 self.host_slept_ms = host_slept_ms;
+                self.browser = browser;
             }
             Event::Vanished { reason_key, lived_ms, .. } => {
                 self.vanished = Some((reason_key, lived_ms));
@@ -235,6 +239,7 @@ impl Collector {
             observed,
             capped,
             host_slept_ms: self.host_slept_ms,
+            browser: self.browser,
             timing: self.timing,
             target_exit: self.target_exit,
             residue: self.residue,
@@ -320,6 +325,7 @@ mod tests {
             engines: Vec::new(),
             followed: vec![chrono_proto::FollowedProcess { pid: 200, image: Some("app.exe".into()) }],
             host_slept_ms: 0,
+            browser: None,
         });
 
         let report = c.into_report("app.exe".into(), false, None);

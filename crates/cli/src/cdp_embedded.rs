@@ -235,10 +235,10 @@ pub(crate) fn cdp_embedded_probe(argv: &[String]) -> i32 {
         }
     }
 
-    let shimmed: usize = attachers.iter().map(|a| a.seen().len()).sum();
+    let shimmed: usize = attachers.iter().map(Attacher::contexts_covered).sum();
     let failed: usize = attachers.iter().map(Attacher::failed).sum();
-    let overflow: usize = attachers.iter().map(Attacher::overflow).sum();
-    outln!("summary: ports {} contexts {shimmed} failed {failed} past-ceiling {overflow}", attachers.len());
+    let pooled: usize = attachers.iter().map(Attacher::pooled).sum();
+    outln!("summary: ports {} contexts {shimmed} failed {failed} pooled {pooled}", attachers.len());
     if launched.is_some() {
         // Explicitly here for the printout - the drop at the end of the function would do it too.
         drop(launched);

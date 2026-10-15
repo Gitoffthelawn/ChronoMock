@@ -42,6 +42,9 @@ pub struct LaunchedChromium {
     /// kernel does for a killed core as well (see `chrono_mech::PlainChild`).
     child: PlainChild,
     pub port: u16,
+    /// The browser endpoint's path from `DevToolsActivePort`, which the connection takes instead of
+    /// asking `/json/version` (R5-WY9). Checked where it is used, because the browser wrote it.
+    pub ws_path: Option<String>,
     user_data_dir: PathBuf,
     /// Set by [`cleanup`], read by [`Drop`]. Two jobs, and the second is the reason it exists: it
     /// keeps the drop from repeating work that already ran, and it keeps the drop from removing a
@@ -92,29 +95,52 @@ impl LaunchedChromium {
         // opens the debug port - and ending a launcher that already exited ends nothing.
         self.child.terminate();
         let _ = self.child.wait_exit(PROCESS_END_WAIT_MS);
-        // Chromium's own child processes (renderer, GPU) briefly outlive the main process we killed and
-        // keep file locks on the profile, so an immediate remove races and fails. They self-terminate a
-        // few hundred ms after the parent dies (broken IPC channel), so retry over ~half a second, each
-        // attempt continuing to clear whatever the previous one could not. Only if the profile is STILL
-        // on disk after the retries do we report it honestly, rather than pretend it was clean or
-        // false-alarm on a dir that vanished just after the last attempt (rules 4, 6). The common case
-        // succeeds on the first try with no delay.
-        for attempt in 0..5 {
-            if !self.user_data_dir.exists() {
-                return Vec::new();
-            }
-            if std::fs::remove_dir_all(&self.user_data_dir).is_ok() {
-                return Vec::new();
-            }
-            if attempt < 4 {
-                std::thread::sleep(Duration::from_millis(120));
-            }
+        remove_profile(&self.user_data_dir)
+    }
+}
+
+/// Remove a profile directory, and name what is left of it. Chromium's own child processes (renderer,
+/// GPU) briefly outlive the main process we killed and keep file locks on the profile, so an immediate
+/// remove races and fails. They self-terminate a few hundred ms after the parent dies (broken IPC
+/// channel), so retry over ~half a second, each attempt continuing to clear whatever the previous one
+/// could not. Only if the profile is STILL on disk after the retries do we report it honestly, rather
+/// than pretend it was clean or false-alarm on a dir that vanished just after the last attempt (rules 4,
+/// 6). The common case succeeds on the first try with no delay.
+fn remove_profile(dir: &Path) -> Vec<String> {
+    for attempt in 0..5 {
+        if !dir.exists() {
+            return Vec::new();
         }
-        if self.user_data_dir.exists() {
-            vec!["cleanup.chromium_profile_left".to_string()]
-        } else {
-            Vec::new()
+        if std::fs::remove_dir_all(dir).is_ok() {
+            return Vec::new();
         }
+        if attempt < 4 {
+            std::thread::sleep(Duration::from_millis(120));
+        }
+    }
+    if dir.exists() { vec!["cleanup.chromium_profile_left".to_string()] } else { Vec::new() }
+}
+
+/// A launch that did not become a session, and what its cleanup left behind. A browser that never
+/// opened its port was ended and its profile removed the way the end of a session does it (R5-Z1): the
+/// timeout used to end the process alone, try the removal once and drop the outcome, and the session
+/// then said `clean: true` over a profile that may hold the app's cookies.
+#[derive(Debug)]
+pub struct LaunchFailed {
+    pub error: io::Error,
+    /// `ended.residue_keys` for the start that failed, empty when nothing was left.
+    pub residue: Vec<String>,
+}
+
+impl std::fmt::Display for LaunchFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl From<io::Error> for LaunchFailed {
+    fn from(error: io::Error) -> LaunchFailed {
+        LaunchFailed { error, residue: Vec::new() }
     }
 }
 
@@ -194,7 +220,7 @@ pub const PORT_WAIT_SECS: u64 = 15;
 /// record it in the file. Fails loudly if the port never appears (remote debugging disabled, or not
 /// actually a Chromium app) rather than pretending the session started.
 ///
-/// `on_wait` is called on every pass of the wait loop (about every 150 ms). It exists because this
+/// `on_wait` is called on every pass of the wait loop (every [`PORT_POLL`]). It exists because this
 /// wait is the longest stretch of silence in a CDP session: the caller has accepted `start` and can
 /// emit nothing until the port appears, so a client watching for liveness cannot tell a browser
 /// that is still unpacking from a core that has died. Beating the session heartbeat from here
@@ -204,7 +230,7 @@ pub fn launch_chromium(
     args: &[String],
     cwd: Option<&str>,
     mut on_wait: impl FnMut(),
-) -> io::Result<LaunchedChromium> {
+) -> Result<LaunchedChromium, LaunchFailed> {
     // A user-supplied --user-data-dir would win over ours (Chromium takes the last one), and the
     // session would then run on the REAL profile of a real browser - the one thing the isolated
     // profile exists to prevent, and something the tester was told in writing does not happen
@@ -220,7 +246,8 @@ pub fn launch_chromium(
                 "'{bad}' collides with the isolated profile and debug port this session needs - \
                  remove it from --args"
             ),
-        ));
+        )
+        .into());
     }
 
     sweep_orphan_profiles(&std::env::temp_dir());
@@ -231,8 +258,9 @@ pub fn launch_chromium(
     let child = match chrono_mech::launch_plain(&chromium_target(target, &arguments, cwd)) {
         Ok(c) => c,
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&user_data_dir);
-            return Err(io::Error::other(format!("cannot launch chromium target '{target}': {e}")));
+            let residue = remove_profile(&user_data_dir);
+            let error = io::Error::other(format!("cannot launch chromium target '{target}': {e}"));
+            return Err(LaunchFailed { error, residue });
         }
     };
     // A browser the system would not start in a job still makes a session that works - it only loses
@@ -248,8 +276,8 @@ pub fn launch_chromium(
     // Set once the process we spawned has exited, so its code can go into the error message.
     let mut child_exit: Option<String> = None;
     loop {
-        if let Some(port) = read_active_port(&port_file) {
-            return Ok(LaunchedChromium { child, port, user_data_dir, cleaned: false });
+        if let Some((port, ws_path)) = read_active_port(&port_file) {
+            return Ok(LaunchedChromium { child, port, ws_path, user_data_dir, cleaned: false });
         }
         // A target that dies immediately - wrong flags, not a Chromium app after all, a crash on
         // startup - used to cost the full 15 s and then a guess for an error message. Watch the
@@ -266,29 +294,44 @@ pub fn launch_chromium(
                 }
             }
         if Instant::now() >= deadline {
-            child.terminate();
-            let _ = child.wait_exit(PROCESS_END_WAIT_MS);
-            let _ = std::fs::remove_dir_all(&user_data_dir);
             let detail = child_exit.unwrap_or_default();
-            return Err(io::Error::new(
+            let error = io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
                     "chromium did not open a debug port{detail} \
                      (remote debugging disabled, or not a Chromium app?)"
                 ),
-            ));
+            );
+            return Err(give_up(child, user_data_dir, error));
         }
         on_wait();
-        std::thread::sleep(Duration::from_millis(150));
+        std::thread::sleep(PORT_POLL);
     }
 }
 
-/// The first line of `DevToolsActivePort` is the port - a `0` there means "not chosen yet".
-fn read_active_port(port_file: &Path) -> Option<u16> {
-    let contents = std::fs::read_to_string(port_file).ok()?;
-    let port: u16 = contents.lines().next()?.trim().parse().ok()?;
-    (port != 0).then_some(port)
+/// A launch that waited for the port in vain, ended the way a session ends: the whole job, then the
+/// profile with its retries - what a launcher started in the meantime holds the profile too (R5-Z1).
+fn give_up(child: PlainChild, user_data_dir: PathBuf, error: io::Error) -> LaunchFailed {
+    let residue = LaunchedChromium { child, port: 0, ws_path: None, user_data_dir, cleaned: false }.shutdown_with_residue();
+    LaunchFailed { error, residue }
 }
+
+/// What `DevToolsActivePort` says: the port on the first line - a `0` there means "not chosen yet" -
+/// and the browser endpoint's path on the second, when there is one.
+fn read_active_port(port_file: &Path) -> Option<(u16, Option<String>)> {
+    let contents = std::fs::read_to_string(port_file).ok()?;
+    let mut lines = contents.lines();
+    let port: u16 = lines.next()?.trim().parse().ok()?;
+    let path = lines.next().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
+    (port != 0).then_some((port, path))
+}
+
+/// How often the launch looks for `DevToolsActivePort` (R5-P7). The browser creates its first window
+/// right after it writes the file, and a page that runs before auto-attach is armed is not paused for
+/// the shim: measured on Electron 44, polling every 150 ms found the file about 60 ms later than every
+/// 10 ms did, and the page's first script ran in that gap. A read of a file that is not there yet,
+/// a hundred times a second for at most [`PORT_WAIT_SECS`].
+const PORT_POLL: Duration = Duration::from_millis(10);
 
 /// Best-effort sweep of profile directories a force-killed driver left behind (P3, pre-release audit).
 ///
@@ -445,10 +488,45 @@ mod tests {
         let pid = child.pid;
         assert!(process_is_running(pid), "the placeholder child never started");
 
-        drop(LaunchedChromium { child, port: 1, user_data_dir: dir.clone(), cleaned: false });
+        drop(LaunchedChromium { child, port: 1, ws_path: None, user_data_dir: dir.clone(), cleaned: false });
 
         assert!(!process_is_running(pid), "the drop left the launched process running");
         assert!(!dir.exists(), "the drop left the profile directory behind");
+        drop(guard);
+    }
+
+    /// R5-Z1: a launch that gave up waiting for the port ends the browser and removes its profile the
+    /// way a session's end does, and what it cannot remove it names. The timeout used to try once, drop
+    /// the outcome, and the session said `clean: true` over the profile left in %TEMP%.
+    #[test]
+    fn a_launch_that_gives_up_ends_the_browser_and_names_the_profile_it_could_not_remove() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("chrono-give-up-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let guard = TempDirGuard(dir.clone());
+        std::fs::create_dir_all(&dir).expect("fixture profile");
+
+        // A file held open with no sharing, as a renderer holds the cookies: the profile cannot go.
+        let held = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(0)
+            .open(dir.join("Cookies"))
+            .expect("held file");
+        let child = spawn_placeholder_child();
+        let pid = child.pid;
+        let failed = give_up(child, dir.clone(), io::Error::from(io::ErrorKind::TimedOut));
+        assert!(!process_is_running(pid), "the browser was left running");
+        assert_eq!(failed.error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(failed.residue, vec!["cleanup.chromium_profile_left".to_string()], "the profile left behind is named");
+        drop(held);
+
+        // Nothing holding it: the profile goes, and nothing is named.
+        let child = spawn_placeholder_child();
+        let failed = give_up(child, dir.clone(), io::Error::from(io::ErrorKind::TimedOut));
+        assert!(failed.residue.is_empty(), "{:?}", failed.residue);
+        assert!(!dir.exists(), "the profile was left behind");
         drop(guard);
     }
 
@@ -524,6 +602,7 @@ mod tests {
         let mut inst = LaunchedChromium {
             child: spawn_placeholder_child(),
             port: 1,
+            ws_path: None,
             user_data_dir: dir.clone(),
             cleaned: false,
         };
@@ -546,14 +625,17 @@ mod tests {
     fn a_user_supplied_profile_or_port_flag_is_refused_not_silently_overridden() {
         for arg in ["--user-data-dir=/home/me/real", "--remote-debugging-port=9222"] {
             match launch_chromium("no-such-app.exe", &[arg.to_string()], None, || {}) {
-                Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidInput, "for {arg}"),
+                Err(e) => assert_eq!(e.error.kind(), io::ErrorKind::InvalidInput, "for {arg}"),
                 Ok(_) => panic!("a colliding flag must be refused: {arg}"),
             }
         }
         // An ordinary argument still passes the check (this one then fails to launch, which is a
         // different error entirely - the point is that it got that far).
         match launch_chromium("no-such-app.exe", &["--enable-logging".to_string()], None, || {}) {
-            Err(e) => assert_ne!(e.kind(), io::ErrorKind::InvalidInput),
+            Err(e) => {
+                assert_ne!(e.error.kind(), io::ErrorKind::InvalidInput);
+                assert!(e.residue.is_empty(), "nothing was started, so nothing was left: {:?}", e.residue);
+            }
             Ok(_) => panic!("a missing target cannot launch"),
         }
     }
@@ -586,7 +668,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("DevToolsActivePort");
         std::fs::write(&f, "51234\n/devtools/browser/abc\n").unwrap();
-        assert_eq!(read_active_port(&f), Some(51234));
+        assert_eq!(read_active_port(&f), Some((51234, Some("/devtools/browser/abc".to_string()))));
+        // The port alone is enough - the path is asked over HTTP then.
+        std::fs::write(&f, "51234\n").unwrap();
+        assert_eq!(read_active_port(&f), Some((51234, None)));
         std::fs::write(&f, "0\n").unwrap();
         assert_eq!(read_active_port(&f), None);
         std::fs::remove_dir_all(&dir).ok();

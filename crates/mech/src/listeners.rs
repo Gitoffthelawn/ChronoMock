@@ -65,14 +65,39 @@ const AF_INET6: u32 = 23;
 /// whose table grows faster than it can be read, and that is reported rather than looped on.
 const GROW_ATTEMPTS: usize = 4;
 
-/// Every listening TCP socket on the machine, IPv4 and IPv6, each with its owning pid. An error is
-/// the API's own word for the caller to report - never a panic, never an empty list dressed as a
-/// quiet machine.
-pub fn listening_sockets() -> Result<Vec<Listener>, String> {
-    let mut out = Vec::new();
-    out.extend(read_v4()?);
-    out.extend(read_v6()?);
-    Ok(out)
+/// The listening sockets that could be read, and what could not be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListenerTable {
+    pub sockets: Vec<Listener>,
+    /// The address family whose table could not be read and the API's word for why, when one of the
+    /// two failed - the sockets above are the other family's alone.
+    pub unread: Option<String>,
+    /// Whether the IPv4 table is among the sockets - the one a web engine opens its debugging port on
+    /// (`127.0.0.1`), so a caller looking for engines cannot do without it (CodeRabbit on #110).
+    pub ipv4_read: bool,
+}
+
+/// Every listening TCP socket on the machine, IPv4 and IPv6, each with its owning pid. The two tables
+/// are read apart: one that fails leaves the other's sockets standing, and says which one is missing
+/// (R5-P24) - a failed IPv6 read used to take the IPv4 sockets with it. An error only when neither
+/// could be read, the API's own words for the caller to report - never a panic, never an empty list
+/// dressed as a quiet machine.
+pub fn listening_sockets() -> Result<ListenerTable, String> {
+    combine(read_v4(), read_v6())
+}
+
+/// The two tables as one: both, either with the other's failure named, or neither. Pure, so the
+/// three cases are tested without a failing system call.
+fn combine(v4: Result<Vec<Listener>, String>, v6: Result<Vec<Listener>, String>) -> Result<ListenerTable, String> {
+    match (v4, v6) {
+        (Ok(mut sockets), Ok(v6)) => {
+            sockets.extend(v6);
+            Ok(ListenerTable { sockets, unread: None, ipv4_read: true })
+        }
+        (Ok(sockets), Err(e)) => Ok(ListenerTable { sockets, unread: Some(format!("IPv6: {e}")), ipv4_read: true }),
+        (Err(e), Ok(sockets)) => Ok(ListenerTable { sockets, unread: Some(format!("IPv4: {e}")), ipv4_read: false }),
+        (Err(e4), Err(e6)) => Err(format!("IPv4: {e4}, IPv6: {e6}")),
+    }
 }
 
 fn read_v4() -> Result<Vec<Listener>, String> {
@@ -205,6 +230,25 @@ mod tests {
         let v6 = Listener { pid: 1, port: 1, loopback: true, v6: true, addr_v4: 0 };
         assert_eq!(v4.loopback_host(), "127.0.0.1");
         assert_eq!(v6.loopback_host(), "::1");
+    }
+
+    /// R5-P24: one table that cannot be read leaves the other's sockets standing and names itself,
+    /// and only both failing is an error.
+    #[test]
+    fn a_table_that_cannot_be_read_does_not_take_the_other_with_it() {
+        let v4 = Listener { pid: 1, port: 9222, loopback: true, v6: false, addr_v4: IPV4_LOOPBACK_ADDR };
+        let v6 = Listener { pid: 2, port: 9333, loopback: true, v6: true, addr_v4: 0 };
+        let both = combine(Ok(vec![v4]), Ok(vec![v6])).unwrap();
+        assert_eq!((both.sockets, both.unread, both.ipv4_read), (vec![v4, v6], None, true));
+        let no_v6 = combine(Ok(vec![v4]), Err("failed with 8".into())).unwrap();
+        assert_eq!(no_v6.sockets, vec![v4], "the IPv4 sockets stay");
+        assert_eq!(no_v6.unread.as_deref(), Some("IPv6: failed with 8"));
+        assert!(no_v6.ipv4_read);
+        let no_v4 = combine(Err("failed with 8".into()), Ok(vec![v6])).unwrap();
+        assert_eq!(no_v4.sockets, vec![v6]);
+        assert_eq!(no_v4.unread.as_deref(), Some("IPv4: failed with 8"));
+        assert!(!no_v4.ipv4_read, "said, for a caller that needs that table");
+        assert_eq!(combine(Err("a".into()), Err("b".into())), Err("IPv4: a, IPv6: b".to_string()));
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub use ending::FamilyEnd;
 pub use environment::{current_environment, environment_block};
 pub use family::FamilyMember;
 pub use host_zone::{host_zone_name, host_zone_sample, ZoneSample};
-pub use listeners::{listening_sockets, Listener, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
+pub use listeners::{listening_sockets, Listener, ListenerTable, IPV4_ANY_ADDR, IPV4_LOOPBACK_ADDR};
 pub use policy::webview2_arguments_policy_present;
 pub use policy_value::{
     recover_stale, set_for_session, stale_value_present, PolicyRemoval, PolicySet, PolicyValue, Recovery,
@@ -1110,6 +1110,20 @@ fn quitp_now() -> i64 {
     t
 }
 
+/// The clock a session with no hook of its own runs on (R5-F6, R5-D42): the same unbiased interrupt time
+/// the native anchors read ([`quitp_now`]), in 100 ns. It stands still while the machine sleeps and takes no
+/// correction of the system clock, so a Chromium session's fake clock stands still across a sleep as the
+/// native one does (ADR-5, docs/01 3.0a).
+pub fn unbiased_interrupt_time() -> i64 {
+    quitp_now()
+}
+
+/// How long the machine has slept since it started (100 ns) - what the native session announces as
+/// `host_slept`, for a session that reads it without a `Session` (R5-F6).
+pub fn slept_since_boot() -> i64 {
+    sleep_bias_now()
+}
+
 /// How long the machine has slept since it started (100 ns), read as `chrono_ctl::sleep_bias` describes.
 fn sleep_bias_now() -> i64 {
     chrono_ctl::sleep_bias(
@@ -1156,12 +1170,15 @@ pub fn host_tz_bias_min() -> i32 {
     }
 }
 
-/// Whether a process with this pid is still running. "Cannot open" and "already signalled" both mean
-/// gone. PID reuse is a hazard in the usual direction: a recycled pid reads as alive, so a caller
-/// deciding whether to clean something up errs toward leaving it - never toward destroying something
-/// that belongs to a live process. The mechanism layer owns this because it is the only layer that
-/// touches the OS (docs/07), so the CDP driver in `cli` borrows it rather than growing its own
-/// Win32 dependency.
+/// Whether a process with this pid is still running. "Already signalled" means gone, and so does a pid
+/// nothing answers to. A process that refuses the open is running: it exists and will not let this one
+/// wait on it - one that runs as administrator, or as another user (R5-P24). It used to read as gone,
+/// so the orphan sweep removed the profile of a live elevated session and a session took an elevated
+/// member of its family for ended. PID reuse is a hazard in the usual direction: a recycled pid reads
+/// as alive, so a caller deciding whether to clean something up errs toward leaving it - never toward
+/// destroying something that belongs to a live process. The mechanism layer owns this because it is
+/// the only layer that touches the OS (docs/07), so the CDP driver in `cli` borrows it rather than
+/// growing its own Win32 dependency.
 pub fn process_is_alive(pid: u32) -> bool {
     unsafe {
         match OpenProcess(PROCESS_SYNCHRONIZE, false, pid) {
@@ -1170,7 +1187,7 @@ pub fn process_is_alive(pid: u32) -> bool {
                 let _ = CloseHandle(h);
                 alive
             }
-            Err(_) => false,
+            Err(e) => policy_value::open_error_means_alive(e.code()),
         }
     }
 }
@@ -2206,6 +2223,115 @@ mod tests {
         let child = super::launch_plain(&target)
             .expect("cmd.exe launches");
         child.wait_exit(10_000).expect("cmd.exe exits within ten seconds")
+    }
+
+    /// This thread without the debug privilege, until dropped: an elevated shell enables it, and a
+    /// thread that holds it opens any process whatever its DACL. A copy of the process token on this
+    /// thread alone, so the tests running beside it keep theirs.
+    struct NoDebugPrivilege(HANDLE);
+
+    impl NoDebugPrivilege {
+        fn on_this_thread() -> NoDebugPrivilege {
+            use windows::Win32::Foundation::LUID;
+            use windows::Win32::Security::{
+                AdjustTokenPrivileges, ImpersonateSelf, LookupPrivilegeValueW, SecurityImpersonation, LUID_AND_ATTRIBUTES,
+                SE_DEBUG_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_PRIVILEGES_ATTRIBUTES, TOKEN_QUERY,
+            };
+            use windows::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
+            let mut luid = LUID::default();
+            // SAFETY: every out-parameter is a local of this frame or the guard's own handle. The guard
+            // exists from the moment the thread impersonates, so a call that fails after it - and
+            // panics the test - still sends the thread back to the process token and closes the handle
+            // (CodeRabbit on #110).
+            unsafe {
+                ImpersonateSelf(SecurityImpersonation).expect("a token of this thread's own");
+                let mut guard = NoDebugPrivilege(HANDLE::default());
+                OpenThreadToken(GetCurrentThread(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, true, &mut guard.0).expect("that token");
+                LookupPrivilegeValueW(None, SE_DEBUG_NAME, &mut luid).expect("the debug privilege's id");
+                let off = TOKEN_PRIVILEGES {
+                    PrivilegeCount: 1,
+                    Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: TOKEN_PRIVILEGES_ATTRIBUTES(0) }],
+                };
+                AdjustTokenPrivileges(guard.0, false, Some(&off), 0, None, None).expect("the privilege switched off");
+                guard
+            }
+        }
+    }
+
+    impl Drop for NoDebugPrivilege {
+        fn drop(&mut self) {
+            // SAFETY: the thread goes back to the process token, then the copy's handle, when there is
+            // one, is closed once.
+            unsafe {
+                let _ = windows::Win32::Security::RevertToSelf();
+                if !self.0.is_invalid() {
+                    let _ = CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    /// R5-P24: a process that refuses to be opened is running, not gone. The child here is started
+    /// with an empty DACL, so nobody without the debug privilege enabled may open it - the shape of an
+    /// elevated or another user's process seen from an ordinary one. The open was taken for "gone",
+    /// which removed the profile of a live elevated Chromium session and ended a session's watch on an
+    /// elevated member of its family. The handle `CreateProcessW` hands back keeps full access, so the
+    /// test ends its own child.
+    #[test]
+    fn a_process_that_refuses_to_be_opened_is_alive_until_it_ends() {
+        use windows::core::{PCWSTR, PWSTR};
+        use windows::Win32::Security::{
+            InitializeAcl, InitializeSecurityDescriptor, SetSecurityDescriptorDacl, ACL, ACL_REVISION, PSECURITY_DESCRIPTOR,
+            SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR,
+        };
+        use windows::Win32::System::SystemServices::SECURITY_DESCRIPTOR_REVISION;
+        use windows::Win32::System::Threading::{
+            CreateProcessW, TerminateProcess, CREATE_NO_WINDOW, PROCESS_INFORMATION, STARTUPINFOW,
+        };
+
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        let app: Vec<u16> = format!(r"{system_root}\System32\PING.EXE").encode_utf16().chain([0]).collect();
+        let mut line: Vec<u16> = "PING.EXE -n 30 127.0.0.1".encode_utf16().chain([0]).collect();
+        let mut acl = ACL::default();
+        let mut sd = SECURITY_DESCRIPTOR::default();
+        let mut pi = PROCESS_INFORMATION::default();
+        // SAFETY: the descriptor and the empty ACL live on this frame for the whole call, the ACL is
+        // given its own size, and the process handles are closed below on every path that has them.
+        unsafe {
+            InitializeAcl(&mut acl, std::mem::size_of::<ACL>() as u32, ACL_REVISION).expect("an empty ACL");
+            let psd = PSECURITY_DESCRIPTOR(std::ptr::from_mut(&mut sd).cast());
+            InitializeSecurityDescriptor(psd, SECURITY_DESCRIPTOR_REVISION).expect("a security descriptor");
+            SetSecurityDescriptorDacl(psd, true, Some(&acl), false).expect("the empty DACL set on it");
+            let sa = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: psd.0,
+                bInheritHandle: false.into(),
+            };
+            let si = STARTUPINFOW { cb: std::mem::size_of::<STARTUPINFOW>() as u32, ..Default::default() };
+            CreateProcessW(PCWSTR(app.as_ptr()), Some(PWSTR(line.as_mut_ptr())), Some(&sa), None, false, CREATE_NO_WINDOW, None, PCWSTR::null(), &si, &mut pi)
+                .expect("ping starts");
+            let _ordinary = NoDebugPrivilege::on_this_thread();
+            let opened = OpenProcess(PROCESS_SYNCHRONIZE, false, pi.dwProcessId);
+            let refused = match opened {
+                Ok(h) => {
+                    let _ = CloseHandle(h);
+                    false
+                }
+                Err(_) => true,
+            };
+            let alive_while_running = super::process_is_alive(pi.dwProcessId);
+            let _ = TerminateProcess(pi.hProcess, 1);
+            let _ = WaitForSingleObject(pi.hProcess, 5_000);
+            // The process object, and its empty DACL, lives as long as a handle to it does - the console
+            // host of a console program holds one for a moment after the end - and the pid is free once
+            // the last one closes. Until then the refusal reads as running, the safe side.
+            let _ = CloseHandle(pi.hThread);
+            let _ = CloseHandle(pi.hProcess);
+            let alive_after = !gone_soon(pi.dwProcessId);
+            assert!(refused, "the empty DACL must refuse the open, or this test proves nothing");
+            assert!(alive_while_running, "a process that refuses the open is running, not gone");
+            assert!(!alive_after, "and once it has ended it is gone");
+        }
     }
 
     /// Whether a process is gone within five seconds - ending a job is the kernel's to schedule.
