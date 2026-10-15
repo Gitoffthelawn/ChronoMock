@@ -106,7 +106,9 @@ public class RustTimeoutMirrorTests
     public void The_native_prepare_budget_is_shorter_than_the_client_watchdog()
     {
         var mech = ReadRustSource("crates", "mech", "src", "lib.rs");
-        var inject = CaptureSeconds(mech, @"const INJECT_TIMEOUT_MS: u32 = ([\d_]+);", "INJECT_TIMEOUT_MS", 1000);
+        // Shared with the hook since R5-A7, so it lives beside the control block's contract.
+        var shared = ReadRustSource("crates", "ctl", "src", "inject.rs");
+        var inject = CaptureSeconds(shared, @"const INJECT_TIMEOUT_MS: u32 = ([\d_]+);", "INJECT_TIMEOUT_MS", 1000);
         var guard = CaptureSeconds(mech, @"const GUARD_MS: u32 = ([\d_]+);", "GUARD_MS", 1000);
 
         Assert.True(

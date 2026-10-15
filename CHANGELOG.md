@@ -101,9 +101,16 @@ Notable changes to Chrono Mock, newest first. The format follows
   read the real one. The report used to list such a function as covered. It now lists it as not
   covered, so the session works partially (exit code 10). On the Windows builds measured so far,
   kernel32 leads into kernelbase for every one of these functions.
-- **The note about more than 256 processes says what happened to them.** It said that some of them
-  ran with no fake clock at all. They were put on the session clock, and only the audit could not
-  check them, which is what the note now says, on the command line and in the window.
+- **The audit follows 4096 processes in a session instead of 256.** A session counts every process it
+  ever ran, not the ones running at once, so an application that starts a short helper every ten
+  seconds went past 256 in about 43 minutes and the rest of the session's processes were left out of
+  the audit. 4096 takes that to about eleven hours. The processes past the limit are still put on the
+  session clock, and the note about them says the new number. Measured on both bitnesses, the larger
+  limit costs nothing visible: the session starts in the same time and the core uses the same CPU and
+  memory.
+- **The note about more processes than the audit can follow says what happened to them.** It said
+  that some of them ran with no fake clock at all. They were put on the session clock, and only the
+  audit could not check them, which is what the note now says, on the command line and in the window.
 - **A session waiting for a library that never loads wakes the application less often.** The hook
   looks for a window, sound or network library that the application loads after the start: often in
   the first two seconds, then every 250 ms for as long as the session lasts. It now backs off to once
@@ -143,6 +150,32 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A process of the session that cannot be watched is named.** The session lasts while a process on
+  its clock runs, and one that would not let Chrono Mock wait on it (access denied) used to count as
+  ended, so the session could end while it still ran, without a word. The report now says so
+  (`session.member_unwatchable`): from the end of the session such a process runs on the real clock.
+- **Start-up refusals say what happened.** A program that asks to run as administrator, a path or
+  command line that is too long, a program built for another processor, a file antivirus blocked or
+  removed and a program a system policy blocks are named instead of shown as a bare number. A session
+  block left by an application that another version of Chrono Mock started is told from one that does
+  not belong to Chrono Mock at all, and says to close that version's applications. When the hook library
+  will not load in the application, the report says whether Chrono Mock itself cannot open it or it is
+  built for another machine. The error numbers stay in every message, and none of them is the
+  system's own text, which came in the system's language.
+- **A program the application starts under its own debugger no longer stalls the start for ten
+  seconds or reads the real clock.** When the application under test started a program with
+  `DEBUG_PROCESS` or `DEBUG_ONLY_THIS_PROCESS` (a launcher that debugs what it starts, say), Chrono Mock
+  waited in the application's own thread for the hook to load in that program, while the program
+  waited for that very thread to answer its first debug events. The start stood ten seconds, the
+  program then began before the hook was in place and read the real clock, and the report named it
+  uncovered although the hook joined it a moment later. The wait now happens in a thread of its own,
+  the call returns at once, and the program starts once the hook is in place. A debugger that asks
+  for the program suspended and resumes it itself can still start it before the hook is in.
+- **A child process that Windows could not start is no longer reported as running on the real
+  clock.** When the application under test started a program that Windows ended while loading it,
+  before the program ran (a library it needs is missing, say), the report listed that program among the
+  processes the hook could not follow, said it ran on the real clock and gave the session a `partial`
+  verdict. It never ran, so it is left out now, the way Chrono Mock already read its own target.
 - **On 32-bit Windows with `--scale-qpc`, the precise system clocks no longer follow the scaled
   counter.** Windows computes them through the exported `QueryPerformanceCounter` there, so after the
   session the application's precise wall clock stayed ahead of the real one by everything the counter had

@@ -263,9 +263,18 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "crates/cli/tests/loader_failure.rs",
         "spawn",
-        "runs two sessions through the built binary: one on a copy of this test binary whose imported \
-         library was renamed, which ends while Windows loads it, and one on this test binary's own ignored \
-         probe, which writes the error mode it runs with to a scratch file. Nothing reaches past this machine",
+        "runs three sessions through the built binary: one on a copy of this test binary whose imported \
+         library was renamed, which ends while Windows loads it, one on this test binary's own ignored \
+         probe, which writes the error mode it runs with to a scratch file, and one on a probe that starts \
+         that broken copy as its child and writes how it ended. Nothing reaches past this machine",
+    ),
+    (
+        "crates/cli/tests/debugged_child.rs",
+        "spawn",
+        "runs one session through the built binary on this test binary's own ignored probe, which starts \
+         the same binary twice under its own debugger and answers the children's debug events until they \
+         exit. Each child only writes the clock it reads to a scratch file, and nothing reaches past this \
+         machine",
     ),
     (
         "crates/cli/tests/target_exit.rs",

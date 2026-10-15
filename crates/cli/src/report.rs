@@ -331,6 +331,34 @@ fn describe_chromium_warning(key: &str) -> &'static str {
     }
 }
 
+/// The words for a key about how the session ended and what it lasted for (`session.*`). Split from
+/// `describe_warning` for the reason `describe_chromium_warning` is: its length is the workspace's
+/// ceiling, and the third key here (R5-D3) would have pushed it over.
+fn describe_session_warning(key: &str) -> &'static str {
+    match key {
+        // The session does not stop the application (docs/01 section 8.4), so the tester is left with
+        // one that changed clocks under their hands. Says which way each clock went, because "back to
+        // real time" alone reads as "the counters went back too" - and it was exactly that, a 316 s
+        // step back at x60, that letting go used to do. A repeating timer is the exception, and it is
+        // named: its period was shortened once, when it was set, and the release changes only what is
+        // read or set from then on.
+        "session.left_running" => {
+            "the application was still running when the session ended, so it is back on the real date and time now - its tick counts and elapsed-time counters carry on at normal speed from where the session left them instead of jumping back, a repeating timer it set while its timers were sped up keeps the shorter interval it was given, and a restart gives it a clean run on the real clock"
+        }
+        // A session that outlives the program the tester named is a surprise unless it is explained -
+        // a launcher is the case it exists for, a helper that never ends is the case it warns about.
+        "session.followed_family" => {
+            "the target closed while programs it had started were still running on the session clock, so the session went on for them instead of ending with it - the programs listed under 'followed' are the ones it went on for, and one that keeps running after the application closes keeps the session open too"
+        }
+        // A member the core could not wait on used to count as ended, and the session could end under
+        // it without a word (R5-D3). Said, not fixed: nothing this side of the process can watch it.
+        "session.member_unwatchable" => {
+            "some processes of this session could not be watched (access denied), so the session may have ended while they still ran - from then on they ran on the real clock"
+        }
+        _ => "",
+    }
+}
+
 /// English gloss for a warning key, with the key appended for traceability. An unknown key is
 /// shown verbatim (honest fallback).
 pub(crate) fn describe_warning(key: &str) -> String {
@@ -430,7 +458,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
             "Chrono Mock set the WebView2 option for the program it started, but WebView2 was loaded by a different program, which the option does not apply to - start that program directly to reach its pages"
         }
         "coverage.pid_registry_full" => {
-            "this session ran more processes than the audit can follow (256) - the ones past that limit were still put on the session clock, but the audit could not check them, so they are missing from the process count and the channel lists below"
+            "this session ran more processes than the audit can follow (4096) - the ones past that limit were still put on the session clock, but the audit could not check them, so they are missing from the process count and the channel lists below"
         }
         // Says what the verdict above it does NOT say. The verdict answers "did the substitution take
         // effect", and it can be `works` over an application that read its time somewhere we cannot
@@ -465,20 +493,7 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "timer.absolute_due_converted" => {
             "this application set a timer or a wait for a given date and time, and the session then jumped or changed speed - such a deadline is turned into a delay when it is set, at the speed in force then, so one still pending when the clock moved fires where the old clock would have reached it, while Windows moves its own such timers along with the clock"
         }
-        // The session does not stop the application (docs/01 section 8.4), so the tester is left with
-        // one that changed clocks under their hands. Says which way each clock went, because "back to
-        // real time" alone reads as "the counters went back too" - and it was exactly that, a 316 s
-        // step back at x60, that letting go used to do. A repeating timer is the exception, and it is
-        // named: its period was shortened once, when it was set, and the release changes only what is
-        // read or set from then on.
-        "session.left_running" => {
-            "the application was still running when the session ended, so it is back on the real date and time now - its tick counts and elapsed-time counters carry on at normal speed from where the session left them instead of jumping back, a repeating timer it set while its timers were sped up keeps the shorter interval it was given, and a restart gives it a clean run on the real clock"
-        }
-        // A session that outlives the program the tester named is a surprise unless it is explained -
-        // a launcher is the case it exists for, a helper that never ends is the case it warns about.
-        "session.followed_family" => {
-            "the target closed while programs it had started were still running on the session clock, so the session went on for them instead of ending with it - the programs listed under 'followed' are the ones it went on for, and one that keeps running after the application closes keeps the session open too"
-        }
+        k if k.starts_with("session.") => describe_session_warning(k),
         "embedded.pages_not_released" => {
             "a page inside the application did not confirm it was handed back to the real clock when the session ended, so it may keep the session date until it is reloaded or closed"
         }

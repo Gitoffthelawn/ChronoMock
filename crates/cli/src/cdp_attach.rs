@@ -122,8 +122,8 @@ pub(crate) fn classify_clock_read(reply: Option<&str>, fake_now_ms: i64, real_no
 }
 
 /// How many contexts one attacher will shim over its lifetime. The pid registry has the same shape
-/// of ceiling (256 slots, `coverage.pid_registry_full`), for the same reason: a family that fans
-/// out without bound must not grow the audit without bound. A context past this is counted in
+/// of ceiling (`MAX_COV_PIDS` slots, `coverage.pid_registry_full`), for the same reason: a family that
+/// fans out without bound must not grow the audit without bound. A context past this is counted in
 /// `overflow` and not shimmed, and the caller says so (untouchable rule 4).
 pub(crate) const MAX_CONTEXTS: usize = 256;
 

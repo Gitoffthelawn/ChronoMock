@@ -68,6 +68,8 @@ public class LocalizationTests
         // The application outlived the session and was let go (docs/01 section 8.4), and the session
         // outlived the program it launched and went on for what that program started (ADR-16).
         "session.left_running", "session.followed_family",
+        // A process of the session the core could not wait on (R5-D3).
+        "session.member_unwatchable",
         "chromium.launched_with_debug_port", "chromium.app_closed_before_audit",
         "chromium.rate_change_affects_running_timers", "chromium.context_ceiling_reached",
         // A page that took a speed change or a jump late or not at all (R4-S17).

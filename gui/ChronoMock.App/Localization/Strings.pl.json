@@ -459,7 +459,7 @@
   "embedded.web_engine_processes_uncovered": "Są wśród nich procesy osadzonego silnika web (WebView2 albo Qt WebEngine), więc część tego silnika działała na prawdziwym zegarze. Czy jego strony też - nie da się ustalić: wśród nazwanych procesów nie było renderera.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
-  "coverage.pid_registry_full": "Ta sesja uruchomiła więcej procesów, niż audyt potrafi śledzić (256). Te ponad limit też dostały fałszywy zegar, ale audyt nie mógł ich sprawdzić, więc nie ma ich w liczbie procesów ani na listach powyżej.",
+  "coverage.pid_registry_full": "Ta sesja uruchomiła więcej procesów, niż audyt potrafi śledzić (4096). Te ponad limit też dostały fałszywy zegar, ale audyt nie mógł ich sprawdzić, więc nie ma ich w liczbie procesów ani na listach powyżej.",
   // Session-level for the same reason as the one above: the question is whether the FAMILY read the
   // clock, and a parent that reads nothing while its child reads the fake date is a session that
   // worked. Deliberately does not touch the verdict - what the session achieved and what the
@@ -475,6 +475,7 @@
   "time.duration_axis_clamped": "Liczniki monotoniczne (licznik tyknięć, czas przerwań oraz QPC, gdy skalowany) doszły do końca swojego zakresu i stanęły, więc czas, jaki upłynął wewnątrz aplikacji, przestał rosnąć, mimo że sesja trwała dalej. Mniejsza prędkość albo krótsza sesja tego unika.",
   "session.left_running": "Aplikacja nadal działała, gdy sesja się skończyła. Jest już z powrotem na prawdziwej dacie i godzinie, a jej liczniki czasu biegną dalej w normalnym tempie od miejsca, w którym zostawiła je sesja, zamiast się cofnąć. Timer cykliczny ustawiony, gdy jej timery były przyspieszone, zachowuje skrócony odstęp, który wtedy dostał. Żeby wystartowała od zera na prawdziwym zegarze, uruchom ją ponownie.",
   "session.followed_family": "Program wybrany do sesji zakończył się, gdy uruchomione przez niego programy nadal działały na fałszywym zegarze, więc sesja trwała dalej dla nich, zamiast skończyć się razem z nim. Program, który działa dalej po zamknięciu aplikacji, też trzyma sesję otwartą - zatrzymaj sesję, gdy skończysz.",
+  "session.member_unwatchable": "Części procesów sesji nie dało się obserwować (odmowa dostępu), więc sesja mogła się skończyć, gdy one jeszcze działały - od tej chwili działały na prawdziwym zegarze.",
   "target.single_instance_suspected": "zakończył się zaraz po uruchomieniu, zanim fałszywy zegar dało się potwierdzić - zwykle to aplikacja jednoinstancyjna, która przekazała pracę swojej działającej już kopii, więc zamknij tę kopię i uruchom ponownie",
   "target.handed_off_uncovered": "zakończył się zaraz po uruchomieniu innego programu, któremu nie udało się podać fałszywego zegara - zwykle programu o innej bitowości - więc ten program działa na prawdziwym",
 

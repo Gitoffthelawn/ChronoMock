@@ -8,9 +8,10 @@
 //! on the axis untouchable rule 3 says never rewinds.
 //!
 //! The target is this test binary itself, as in `duration_axis.rs`: the ignored probe below does its
-//! work only when the variable names a file. It samples the three axes for longer than the session lasts
-//! and writes the largest step back it saw on each, plus how fast the tick count moved at the start and
-//! at the end, against a reference the hook never touches.
+//! work only when the variable names a file. It samples the axes for longer than the session lasts
+//! and writes the largest step back it saw on each, plus how fast each moved at the start and the tick
+//! count at the end, against a reference the hook never touches. The three interrupt-time clocks joined
+//! the duration axis in R5-F4 and are let go the same way, so they are sampled beside the first three.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -33,6 +34,25 @@ unsafe extern "system" {
     fn QueryUnbiasedInterruptTime(time: *mut u64) -> i32;
 }
 
+// Exported by kernelbase alone (R5-F4).
+#[cfg_attr(target_arch = "x86", link(name = "kernelbase", kind = "raw-dylib", import_name_type = "undecorated"))]
+#[cfg_attr(not(target_arch = "x86"), link(name = "kernelbase", kind = "raw-dylib"))]
+unsafe extern "system" {
+    fn QueryInterruptTime(time: *mut u64);
+    fn QueryInterruptTimePrecise(time: *mut u64);
+    fn QueryUnbiasedInterruptTimePrecise(time: *mut u64);
+}
+
+/// The axes sampled, in the order the probe writes them.
+const AXES: [&str; 6] = [
+    "tick count",
+    "interrupt time",
+    "QPC",
+    "QueryInterruptTime",
+    "QueryInterruptTimePrecise",
+    "QueryUnbiasedInterruptTimePrecise",
+];
+
 #[cfg_attr(target_arch = "x86", link(name = "ntdll", kind = "raw-dylib", import_name_type = "undecorated"))]
 #[cfg_attr(not(target_arch = "x86"), link(name = "ntdll", kind = "raw-dylib"))]
 unsafe extern "system" {
@@ -48,24 +68,28 @@ fn real_ms() -> f64 {
     counter as f64 * 1000.0 / frequency as f64
 }
 
-/// One reading of the three axes, each in milliseconds: the tick count, the unbiased interrupt time and
-/// QPC, which `Instant` reads.
-fn axes(origin: Instant) -> [f64; 3] {
-    let mut quit = 0u64;
-    // SAFETY: the export's documented signature, no arguments and no state.
+/// One reading of every axis in `AXES`, each in milliseconds.
+fn axes(origin: Instant) -> [f64; 6] {
+    let (mut quit, mut qit, mut qitp, mut quitp) = (0u64, 0u64, 0u64, 0u64);
+    // SAFETY: the exports' documented signatures, each with a live out pointer or none.
     let tick = unsafe { GetTickCount64() };
-    // SAFETY: the export's documented signature, with a live out pointer.
-    unsafe { QueryUnbiasedInterruptTime(&mut quit) };
-    [tick as f64, quit as f64 / 10_000.0, origin.elapsed().as_secs_f64() * 1000.0]
+    unsafe {
+        QueryUnbiasedInterruptTime(&mut quit);
+        QueryInterruptTime(&mut qit);
+        QueryInterruptTimePrecise(&mut qitp);
+        QueryUnbiasedInterruptTimePrecise(&mut quitp);
+    }
+    let ms = |hundreds_of_ns: u64| hundreds_of_ns as f64 / 10_000.0;
+    [tick as f64, ms(quit), origin.elapsed().as_secs_f64() * 1000.0, ms(qit), ms(qitp), ms(quitp)]
 }
 
 /// Samples every few milliseconds for `SAMPLE_MS` of real time and writes, space separated: the rate of
-/// the tick count, the interrupt time and QPC over the first real second, the tick rate over the last
-/// real second, and the largest step back seen on each of the three axes (0 when it never went back).
+/// every axis over the first real second, the tick rate over the last real second, and the largest step
+/// back seen on every axis (0 when it never went back).
 ///
 /// A rate per axis at the start, not the tick count's alone: the step-back check on an axis the session
-/// never scaled cannot fail, so without it a session that stopped scaling QUIT or QPC would pass here
-/// with nothing measured on those two.
+/// never scaled cannot fail, so without it a session that stopped scaling one would pass here with
+/// nothing measured on it.
 #[test]
 #[ignore = "the target of `an_application_left_running_keeps_its_duration_axes_moving_forward`, not a test on its own"]
 fn probe_samples_the_duration_axes_past_the_session_end() {
@@ -75,7 +99,7 @@ fn probe_samples_the_duration_axes_past_the_session_end() {
     let origin = Instant::now();
     let start = real_ms();
     let mut last = axes(origin);
-    let mut worst = [0.0f64; 3];
+    let mut worst = [0.0f64; AXES.len()];
     let first = last;
     let mut head_rates = None;
     let mut tail_from = None;
@@ -90,7 +114,7 @@ fn probe_samples_the_duration_axes_past_the_session_end() {
         }
         last = reading;
         if head_rates.is_none() && now >= 1_000.0 {
-            head_rates = Some([0, 1, 2].map(|i| (reading[i] - first[i]) / now));
+            head_rates = Some(std::array::from_fn::<f64, 6, _>(|i| (reading[i] - first[i]) / now));
         }
         if tail_from.is_none() && now >= SAMPLE_MS - 1_000.0 {
             tail_from = Some((now, reading[0]));
@@ -98,19 +122,26 @@ fn probe_samples_the_duration_axes_past_the_session_end() {
         if now >= SAMPLE_MS {
             let (t0, tick0) = tail_from.unwrap_or((now, reading[0]));
             let tail_rate = (reading[0] - tick0) / (now - t0).max(1.0);
-            let [head_tick, head_quit, head_qpc] = head_rates.unwrap_or([0.0; 3]);
-            let line = format!(
-                "{head_tick:.2} {head_quit:.2} {head_qpc:.2} {:.2} {:.1} {:.1} {:.1}",
-                tail_rate,
-                -worst[0],
-                -worst[1],
-                -worst[2]
-            );
+            let heads = head_rates.unwrap_or([0.0; AXES.len()]).map(|r| format!("{r:.2}"));
+            let backs = worst.map(|w| format!("{:.1}", -w));
+            // The layout `measured` reads back, `NUMBERS` in all: the heads, the tail, the backs.
+            let line = format!("{} {tail_rate:.2} {}", heads.join(" "), backs.join(" "));
             std::fs::write(&out, line).expect("the probe writes its result");
             return;
         }
     }
 }
+
+/// What the probe wrote: the head rate of every axis, the tail rate of the tick count, and the step back
+/// on every axis.
+struct Measured {
+    heads: [f64; AXES.len()],
+    tail: f64,
+    backs: [f64; AXES.len()],
+}
+
+/// How many numbers the probe writes, in the order `Measured` holds them.
+const NUMBERS: usize = 2 * AXES.len() + 1;
 
 /// The injected library, which `cargo test` does not build (`dry_run.rs` has the whole story).
 fn injected_library() -> PathBuf {
@@ -120,12 +151,27 @@ fn injected_library() -> PathBuf {
         .join("chrono_hook.dll")
 }
 
-/// What the probe wrote: `[head rate of tick, of QUIT, of QPC, tail rate, step back on tick, on QUIT,
-/// on QPC]`.
-fn measured(file: &std::path::Path) -> Option<[f64; 7]> {
-    let text = std::fs::read_to_string(file).ok()?;
-    let values: Vec<f64> = text.split_whitespace().filter_map(|v| v.parse().ok()).collect();
-    values.try_into().ok()
+/// What the probe wrote, or why it cannot be read. The reason quotes the text, so a probe and a reader
+/// that disagree about the layout read as that, not as a probe that wrote nothing.
+fn measured(file: &std::path::Path) -> Result<Measured, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("no result file ({e})"))?;
+    let values = text
+        .split_whitespace()
+        .map(str::parse)
+        .collect::<Result<Vec<f64>, _>>()
+        .map_err(|e| format!("not every word is a number ({e}): {text:?}"))?;
+    let all: [f64; NUMBERS] =
+        values.try_into().map_err(|v: Vec<f64>| format!("{} numbers where {NUMBERS} belong: {text:?}", v.len()))?;
+    Ok(Measured {
+        heads: std::array::from_fn(|i| all[i]),
+        tail: all[AXES.len()],
+        backs: std::array::from_fn(|i| all[AXES.len() + 1 + i]),
+    })
+}
+
+/// Each axis by its name with a number, for a message.
+fn named(values: &[f64; 6]) -> String {
+    AXES.iter().zip(values).map(|(axis, v)| format!("{axis} {:.1}", v + 0.0)).collect::<Vec<_>>().join(", ")
 }
 
 /// An application still running when its session ends carries on at rate 1 from where its duration axes
@@ -154,12 +200,12 @@ fn an_application_left_running_keeps_its_duration_axes_moving_forward() {
         .output()
         .expect("the probe must run without a session");
     assert!(run.status.success(), "the probe failed without a session: {}", String::from_utf8_lossy(&run.stdout));
-    let [head_tick, head_quit, head_qpc, tail, ..] =
-        measured(&control).expect("the probe wrote nothing without a session");
+    let control = measured(&control).unwrap_or_else(|why| panic!("the probe's result without a session: {why}"));
     assert!(
-        head_tick < 2.0 && head_quit < 2.0 && head_qpc < 2.0 && tail < 2.0,
-        "without a session the axes moved x{head_tick} (tick), x{head_quit} (interrupt time), x{head_qpc} \
-         (QPC) then x{tail}, so this probe cannot tell"
+        control.heads.iter().all(|&r| r < 2.0) && control.tail < 2.0,
+        "without a session the axes moved at ({}) then x{}, so this probe cannot tell",
+        named(&control.heads),
+        control.tail
     );
 
     // The session ends after two heartbeats. The probe inherits the core's output, so `output()`
@@ -184,21 +230,25 @@ fn an_application_left_running_keeps_its_duration_axes_moving_forward() {
         .expect("the tool must run");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let context = || format!("stdout: {stdout} stderr: {}", String::from_utf8_lossy(&out.stderr));
-    let Some([head_tick, head_quit, head_qpc, tail, tick_back, quit_back, qpc_back]) = measured(&session) else {
-        panic!("the probe wrote nothing under the session. {}", context());
-    };
+    let session =
+        measured(&session).unwrap_or_else(|why| panic!("the probe's result under the session: {why}. {}", context()));
     // Every axis the step-back check reads has to have been scaled, or that check proves nothing on it.
     assert!(
-        head_tick > 10.0 && head_quit > 10.0 && head_qpc > 10.0,
-        "during the session the axes moved x{head_tick} (tick), x{head_quit} (interrupt time), x{head_qpc} \
-         (QPC), so the session did not scale all three. {}",
+        session.heads.iter().all(|&r| r > 10.0),
+        "during the session the axes moved at ({}), so the session did not scale every one. {}",
+        named(&session.heads),
         context()
     );
-    assert!(tail < 2.0, "the tick count still moved x{tail} after the session, so the probe did not outlive it. {}", context());
     assert!(
-        tick_back == 0.0 && quit_back == 0.0 && qpc_back == 0.0,
-        "letting the application go stepped its duration axes back (tick {tick_back} ms, interrupt time \
-         {quit_back} ms, QPC {qpc_back} ms) - untouchable rule 3. {}",
+        session.tail < 2.0,
+        "the tick count still moved x{} after the session, so the probe did not outlive it. {}",
+        session.tail,
+        context()
+    );
+    assert!(
+        session.backs.iter().all(|&b| b == 0.0),
+        "letting the application go stepped its duration axes back by ({}) ms - untouchable rule 3. {}",
+        named(&session.backs),
         context()
     );
     assert!(

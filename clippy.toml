@@ -84,7 +84,12 @@
 # wave 2. The holder is now `report::describe_warning` at 149 (two new keys, `time.host_slept` and
 # `timer.absolute_due_converted`), then `cdp_embedded_probe` at 147 and `parse_run_args` at 146 (measured
 # by `tools/margin.ps1 -Rust`).
-too-many-lines-threshold = 149
+#
+# Lowered 2026-10-14 (R5 wave 4): `describe_warning` gave its `session.*` keys to
+# `describe_session_warning` when a third one (`session.member_unwatchable`) would have taken it to 152,
+# and went to 144. The holder is now `cdp_embedded_probe` at 147, then `parse_run_args` at 146 and
+# `core_mode` at 145 (measured by `tools/margin.ps1 -Rust`).
+too-many-lines-threshold = 147
 
 # A tie at 25: `run::driver_run` and `report::render_report`. This happens to be clippy's own
 # default, which is worth saying out loud rather than leaving to look like a copied number - it

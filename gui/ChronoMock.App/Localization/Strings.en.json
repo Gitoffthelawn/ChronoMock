@@ -483,7 +483,7 @@
   "embedded.zone_kept": "The application outlived the session, and some of its pages may still be on the session's time zone - asked after the session, they did not show this computer's time zone. A local time they show can differ from the rest of the application by the zone offset until the application restarts.",
   // R2-S9. Session-level, not per-process: it is about processes that never got a coverage slot,
   // so it arrives on session_verdict rather than on any one coverage event.
-  "coverage.pid_registry_full": "This session ran more processes than the audit can follow (256). The ones past that limit were still put on the fake clock, but the audit could not check them, so they are missing from the process count and the lists above.",
+  "coverage.pid_registry_full": "This session ran more processes than the audit can follow (4096). The ones past that limit were still put on the fake clock, but the audit could not check them, so they are missing from the process count and the lists above.",
   // Session-level for the same reason as the one above: the question is whether the FAMILY read the
   // clock, and a parent that reads nothing while its child reads the fake date is a session that
   // worked. Deliberately does not touch the verdict - what the session achieved and what the
@@ -501,6 +501,7 @@
   "session.left_running": "The application was still running when the session ended. It is back on the real date and time now, and its tick counts and elapsed-time counters carry on at normal speed from where the session left them instead of jumping back. A repeating timer it set while its timers were sped up keeps the shorter interval it was given. Restart it for a clean run on the real clock.",
   // A launcher, a restart after an update, a script that runs "start app.exe": the program the tester chose ends on purpose and the session goes on for what it started (ADR-16). Says why the session outlived it, and the one way that can surprise.
   "session.followed_family": "The program you started closed while programs it had started were still running on the fake clock, so the session went on for them instead of ending with it. A program that keeps running after the application closes keeps the session open too - stop the session when you are done.",
+  "session.member_unwatchable": "Some processes of this session could not be watched (access denied), so the session may have ended while they still ran - from then on they ran on the real clock.",
   // The vanish reasons complete the sentence under "The application ran for N ms and then vanished", and each carries its own suspicion, because report.vanish_detail no longer names one for all of them.
   "target.single_instance_suspected": "exited right after it started, before the fake clock could be confirmed - usually a single-instance application handing over to a copy that is already running, so close that copy and start again",
   "target.handed_off_uncovered": "closed right after starting another program that could not be given the fake clock - usually one of a different bitness - so that program runs on the real one",

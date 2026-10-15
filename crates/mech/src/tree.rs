@@ -87,8 +87,10 @@ pub(crate) fn process_entries() -> Result<Vec<ProcessEntry>, String> {
     // own size as the API requires. The last error is read right after the failing call, before
     // anything else can overwrite it.
     unsafe {
+        // The code, not the system's sentence: `{e}` printed Windows's text in the system's language on
+        // an English-only command line (R5-D3, as `win32_detail` says for the rest).
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-            .map_err(|e| format!("CreateToolhelp32Snapshot failed: {e}"))?;
+            .map_err(|e| crate::win32_detail("CreateToolhelp32Snapshot", &e))?;
         let mut entry = PROCESSENTRY32W {
             dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
             ..Default::default()
@@ -101,7 +103,10 @@ pub(crate) fn process_entries() -> Result<Vec<ProcessEntry>, String> {
                 break if error == ERROR_NO_MORE_FILES {
                     Ok(())
                 } else {
-                    Err(format!("the process snapshot ended with error {}", error.0))
+                    Err(crate::win32_detail(
+                        "reading the process snapshot",
+                        &windows::core::Error::from_hresult(error.to_hresult()),
+                    ))
                 };
             }
             entries.push(ProcessEntry {

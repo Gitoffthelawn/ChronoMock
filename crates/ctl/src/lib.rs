@@ -38,6 +38,8 @@
 //! directly - `GetLocalTime` returns it shifted back into the session zone by `tz_bias`.
 
 use std::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
+
+pub mod inject;
 use std::sync::atomic::{fence, AtomicU32, AtomicUsize, Ordering};
 
 /// Named shared section for a session's control memory (per interactive session).
@@ -130,11 +132,16 @@ const _: () = {
 };
 
 /// Maximum number of processes (parent + children) whose coverage a session tracks.
-/// Installers can spawn dozens of helpers (docs/07 open item 2) - 256 leaves headroom.
-/// Beyond it, `reserve_cov_slot` returns None and that process runs uncovered in the
-/// audit - an honest partial, never a silent overwrite. It also sets the size of the
+/// Beyond it, `reserve_cov_slot` returns None and that process still runs on the session clock, but
+/// outside the audit - an honest partial, never a silent overwrite. It also sets the size of the
 /// control block, since every slot carries a `Cov`.
-pub const MAX_COV_PIDS: usize = 256;
+///
+/// Slots are never reused (S-9, R2-S9), so what fills the registry is a session's whole history, not
+/// how many processes run at once: an installer's dozens of helpers, or one helper an application
+/// starts every ten seconds, which filled the old 256 in about 43 minutes (R5-P26). 4096 takes that to
+/// about eleven hours. At 552 bytes a slot the block is about 2.3 MB, mapped by every process of the
+/// session and committed only where it is written, which is what was weighed against reusing slots.
+pub const MAX_COV_PIDS: usize = 4096;
 
 // --- Wall-clock channels -------------------------------------------------------
 //
@@ -698,12 +705,16 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 ///
 /// 11: `CHANNEL_COUNT` grew from 41 to 44 for the three interrupt-time clocks (R5-F4), which widens
 /// `calls`, and `Cov` gained `absolute_dues` (R5-D2) after every other field. Both widen every slot.
-pub const CTL_LAYOUT_VERSION: u32 = 11;
+///
+/// 12: `MAX_COV_PIDS` grew from 256 to 4096 (R5-P26). No offset inside the header or a slot moves, but
+/// `covs` starts later and the block is sixteen times the size, so an old hook would read a new block's
+/// slots at the wrong place and map too little of it.
+pub const CTL_LAYOUT_VERSION: u32 = 12;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
 /// process spawns in a session (a handful of renderer, GPU and utility processes, more under site
-/// isolation) at 4 bytes a pid - 128 bytes per slot, 32 KiB across the registry.
+/// isolation) at 4 bytes a pid - 128 bytes per slot, 512 KiB across the registry.
 pub const UNCOVERED_CHILDREN_MAX: usize = 32;
 
 /// Session-wide control block in `Local\ChronoCtl`. `#[repr(C)]` so both processes
@@ -902,8 +913,8 @@ pub struct Cov {
 }
 
 impl Cov {
-    /// An empty slot. A `const` rather than `Default` so `[Cov::ZEROED; MAX_COV_PIDS]` builds the
-    /// `Ctl` array without requiring `Copy` on a type that must never be copied around by accident.
+    /// An empty slot, the state a fresh section starts every slot in. A `const` rather than `Default`,
+    /// and no `Copy`: a slot is a type that must never be copied around by accident.
     pub const ZEROED: Cov = Cov {
         installed_channels: 0,
         uninjected_children: 0,
@@ -2331,34 +2342,21 @@ mod tests {
 
     use super::*;
 
-    /// Boxed, not returned by value: the block now carries a `Cov` per slot (tens of kilobytes), and
-    /// a by-value helper would push that through the test thread's stack on every call.
+    /// Zeroed like a section the OS just handed us, header included: a helper that stamped the magic
+    /// for free would hide the very state `header_is_ours` exists to reject.
+    ///
+    /// Allocated zeroed on the heap, never built on the stack: with a `Cov` for each of 4096 slots the
+    /// block is over 2 MB, more than a test thread's whole stack, and `Box::new` of a literal builds the
+    /// value on the stack first in a debug build (R5-P26, measured: the tests overflowed their stacks).
     fn zeroed_ctl() -> Box<Ctl> {
-        Box::new(Ctl {
-            // Zeroed like a section the OS just handed us, header included: a helper that stamped
-            // the magic for free would hide the very state `header_is_ours` exists to reject.
-            magic: 0,
-            layout: 0,
-            seq: 0,
-            tz_bias: 0,
-            a_fake: 0,
-            a_real: 0,
-            multiplier: 0,
-            dur_tick_offset: 0,
-            dur_quit_c0: 0,
-            dur_q0: 0,
-            dur_qpc_c0: 0,
-            dur_qpc_q0: 0,
-            core_created: 0,
-            scale_dur: 0,
-            scale_qpc: 0,
-            core_pid: 0,
-            pid_count: 0,
-            ended: 0,
-            _pad: 0,
-            pids: [0; MAX_COV_PIDS],
-            covs: [Cov::ZEROED; MAX_COV_PIDS],
-        })
+        let layout = std::alloc::Layout::new::<Ctl>();
+        // SAFETY: every field of `Ctl` is an integer or an array of integers, so all-zero bytes are a
+        // valid `Ctl`. The allocation has `Ctl`'s own layout, and the Box frees it with that layout.
+        unsafe {
+            let raw = std::alloc::alloc_zeroed(layout) as *mut Ctl;
+            assert!(!raw.is_null(), "no memory for a test control block");
+            Box::from_raw(raw)
+        }
     }
 
     /// The layout is shared by two binaries through a mapped section, so where each field lands is part
