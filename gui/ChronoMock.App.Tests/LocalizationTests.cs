@@ -72,6 +72,8 @@ public class LocalizationTests
         "session.member_unwatchable",
         "chromium.launched_with_debug_port", "chromium.app_closed_before_audit",
         "chromium.rate_change_affects_running_timers", "chromium.contexts_pooled", "chromium.context_reached_running",
+        // A timer the engine's 4 ms floor held back (R5-P6) and a frame the shim did not reach (R5-P5).
+        "chromium.timer_rate_capped", "chromium.frames_unreached",
         // A page that took a speed change or a jump late or not at all (R4-S17).
         "chromium.clock_move_missed",
         // The target handed the application over to another program and the session went on with it

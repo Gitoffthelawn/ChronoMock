@@ -115,6 +115,20 @@ pub(crate) const KEY_CONTEXTS_POOLED: &str = "chromium.contexts_pooled";
 /// auto-attach, and the pages of an engine inside an application usually load before its port is found.
 pub(crate) const KEY_CONTEXT_REACHED_RUNNING: &str = "chromium.context_reached_running";
 
+/// A timer would have had to run more often than every 4 ms at the session's speed, and the engine runs
+/// a nested timer no sooner than that, so it ran slower than the speed - the clock itself kept it (R5-P6,
+/// R5-D7). Both paths.
+pub(crate) const KEY_TIMER_RATE_CAPPED: &str = "chromium.timer_rate_capped";
+
+/// A page had a frame in its own process its shim could not reach - another origin of the same site, a
+/// sandboxed frame, or one that was there before the shim. Such a frame keeps the clock it started with,
+/// takes no jump or change of speed, and its calls are not counted (R5-P5, R5-D47, R5-D48). Both paths.
+pub(crate) const KEY_FRAMES_UNREACHED: &str = "chromium.frames_unreached";
+
+/// The speed changed while the session ran: a one-time timer already waiting finished its wait at the
+/// old speed (R5-P6 - a repeating one takes the new speed from its next tick). Both paths.
+pub(crate) const KEY_RATE_CHANGE_RUNNING_TIMERS: &str = "chromium.rate_change_affects_running_timers";
+
 /// What a finished CDP session observed about itself, each fact under its name. Named fields rather
 /// than a row of booleans, because a call site with seven `true`/`false` in a row cannot be read and
 /// two of them swapped still compiles.
@@ -132,6 +146,10 @@ pub(crate) struct SessionFacts {
     pub(crate) contexts_pooled: bool,
     /// A context was reached while it was already running (R5-P7).
     pub(crate) context_reached_running: bool,
+    /// A timer ran slower than the session's speed, held back by the engine's 4 ms floor (R5-P6).
+    pub(crate) timers_capped: bool,
+    /// A page had a frame in its process its shim could not reach (R5-P5).
+    pub(crate) frames_unreached: bool,
     /// The fake wall reached the end of its range and stood there.
     pub(crate) clock_clamped: bool,
     /// The machine slept during the session, and the session clock stood still for it (R5-F6).
@@ -169,9 +187,14 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
     }
     if facts.rate_changed_in_flight {
         // Honest caveat: a rate change reaches Date.now/new Date/performance.now and every NEW timer at
-        // once, but a setInterval already scheduled at the old rate keeps its old cadence - the JS engine
-        // had already queued it (rule 4). The native hook has no equivalent gap (it divides Ctl live).
-        warnings.push("chromium.rate_change_affects_running_timers".to_string());
+        // once, and a repeating timer from its next tick (R5-P6), but a one-time timer already waiting
+        // finishes its wait at the old rate - the JS engine holds it (rule 4). The native hook has no
+        // equivalent gap (it divides Ctl live).
+        warnings.push(KEY_RATE_CHANGE_RUNNING_TIMERS.to_string());
+    }
+    if facts.timers_capped {
+        // The clock kept the speed, a timer the engine would not run that often did not (R5-P6).
+        warnings.push(KEY_TIMER_RATE_CAPPED.to_string());
     }
     if facts.background_timers_slowed {
         warnings.push(KEY_BACKGROUND_TIMERS_SLOWED.to_string());
@@ -186,6 +209,11 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
         // Its scripts may have read the real clock before the shim: covered from then on, not from
         // its start (rule 4, R5-P7).
         warnings.push(KEY_CONTEXT_REACHED_RUNNING.to_string());
+    }
+    if facts.frames_unreached {
+        // The page's row speaks for the frames its shim reached, and this for the ones it did not
+        // (rule 4, R5-P5).
+        warnings.push(KEY_FRAMES_UNREACHED.to_string());
     }
     if facts.contexts_pooled {
         // The audit gives at most MAX_CONTEXTS contexts a row of their own. The ones past that ran on
@@ -426,8 +454,8 @@ mod tests {
     }
 
     /// The three caveats are conditional and the invasive-launch note is not. An app that closed before
-    /// anything could be audited says so, a rate changed in flight says so, because a running
-    /// setInterval keeps its old cadence, and a session with contexts past its ceiling of own rows
+    /// anything could be audited says so, a rate changed in flight says so, because a one-time timer
+    /// already waiting finishes its wait at the old rate (R5-P6), and a session with contexts past its ceiling of own rows
     /// says so, because the last row counts all of those together (rule 4, R5-P20). A page that took a
     /// clock move late or not at all says so too, because its clock stands apart from the panel's, and
     /// a session that outlived the program the tester named says why.
@@ -446,6 +474,11 @@ mod tests {
         assert_eq!(
             session_warnings(&SessionFacts { context_reached_running: true, ..audited }),
             vec!["chromium.launched_with_debug_port", "chromium.context_reached_running"]
+        );
+        // R5-P6 and R5-P5: a timer the engine's 4 ms floor held back, and a frame the shim did not reach.
+        assert_eq!(
+            session_warnings(&SessionFacts { timers_capped: true, frames_unreached: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", "chromium.timer_rate_capped", "chromium.frames_unreached"]
         );
         assert_eq!(
             session_warnings(&SessionFacts { app_closed: true, rate_changed_in_flight: true, ..audited }),

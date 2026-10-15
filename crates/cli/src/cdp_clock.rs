@@ -6,7 +6,6 @@
 
 use std::cell::Cell;
 
-use chrono_core::calc::{Base, EvalContext, MomentExpr};
 use chrono_core::TimeMode;
 use chrono_proto::{Clock, Event, MomentSpec, TimeSpec, PROTOCOL_VERSION};
 
@@ -421,31 +420,39 @@ pub(crate) fn cdp_release_expr() -> String {
 }
 
 /// Resolve a CDP jump target to a fake epoch-ms instant: an absolute moment in the zone it names (the
-/// session zone when it names none), or a relative delta applied to the CURRENT fake instant through
-/// the shared calc evaluator (the same grammar as `calc` and the native jump). Both go through the
-/// session gate, so a jump cannot land where a start could not (R4-S7). Returns a translation key on a
-/// bad moment (rule 6).
+/// session zone when it names none), or a relative delta applied to the CURRENT fake instant by the
+/// native jump's own step (`chrono_core::calc::step_target`, the grammar `calc` reads). Both go through
+/// the session range, so a jump cannot land where a start could not (R4-S7). Returns a translation key
+/// on a bad moment (rule 6).
 ///
 /// An absolute target that NAMED a zone used to be read in the session zone regardless, while the
 /// native session read it in the zone it named - one command, two instants depending on the
 /// mechanism. The built-in clients always name the session zone, so neither of them saw it.
+///
+/// A relative jump went through the civil text of the fake wall, which has whole seconds, and lost up
+/// to 999 ms of it at every jump (R5-P19). It now steps on FILETIME as the native session does. A kind
+/// of moment neither mechanism knows is refused alike (`moment.unsupported_kind`, R5-P18) - it was
+/// read here as absolute.
 pub(crate) fn cdp_resolve_jump(clock: &CdpClock, to: &MomentSpec, now: i64) -> Result<i64, &'static str> {
-    if to.kind == "relative" {
-        let delta = to.delta.as_deref().ok_or("moment.invalid")?;
-        let cur_wall = epoch_ms_to_wall(clock.fake_wall_ms(now), clock.bias);
-        let cur_civil = chrono_core::calc::parse_civil_datetime(&cur_wall).map_err(|_| "moment.invalid")?;
-        let step = parse_shift(delta).map_err(|_| "moment.invalid")?;
-        let expr = MomentExpr { base: Base::Now, steps: vec![step] };
-        let outcome = chrono_core::calc::eval(
-            &expr,
-            &EvalContext { now: cur_civil, zone_bias_min: 0, calendar: None },
-        )
-        .map_err(jump_error_key)?;
-        moment_epoch_ms(&outcome.result().to_iso(), clock.bias).map_err(|e| moment_error_key(&e))
-    } else {
-        let local = to.local.as_deref().ok_or("moment.invalid")?;
-        moment_epoch_ms(local, to.tz_bias_min.unwrap_or(clock.bias)).map_err(|e| moment_error_key(&e))
+    match to.kind.as_str() {
+        "relative" => {
+            let delta = to.delta.as_deref().ok_or("moment.invalid")?;
+            let step = parse_shift(delta).map_err(|_| "moment.invalid")?;
+            let fake_ft = epoch_ms_to_filetime(clock.fake_wall_ms(now));
+            let target = chrono_core::calc::step_target(fake_ft, clock.bias, &step).map_err(jump_error_key)?;
+            Ok(filetime_to_epoch_ms(target))
+        }
+        "absolute" => {
+            let local = to.local.as_deref().ok_or("moment.invalid")?;
+            moment_epoch_ms(local, to.tz_bias_min.unwrap_or(clock.bias)).map_err(|e| moment_error_key(&e))
+        }
+        _ => Err("moment.unsupported_kind"),
     }
+}
+
+/// Unix-epoch milliseconds as a UTC FILETIME, saturating rather than wrapping.
+fn epoch_ms_to_filetime(ms: i64) -> i64 {
+    ms.saturating_mul(10_000).saturating_add(FT_UNIX_EPOCH)
 }
 
 #[cfg(test)]
@@ -676,9 +683,10 @@ mod tests {
     }
 
     /// The expressions only call the shim's own methods, so the clock logic lives in one place
-    /// (ADR-9 R4/14b). The release puts the wall on the real clock at rate 1 with nothing scheduled, the
-    /// shim stops checking the zone, which is no longer the session's to judge, and its audit starts over
-    /// for whoever reaches the page next (CodeRabbit on #89).
+    /// (ADR-9 R4/14b). The release is the shim's own (R5-B8), and on a shim of an older build it puts
+    /// the wall on the real clock at rate 1 with nothing scheduled, the shim stops checking the zone,
+    /// which is no longer the session's to judge, and its audit starts over for whoever reaches the page
+    /// next (CodeRabbit on #89). What each does in a page is run in Node (`cdp::shim_exec`).
     #[test]
     fn the_expressions_call_the_shims_own_methods() {
         let next = ScheduledRate { at_ms: 9, mult: 0, dur: 0 };
@@ -686,7 +694,7 @@ mod tests {
         let o = ShimOrigin { fake0: 1, real0: 2, mult: 3, dur: 0, scheduled: Some(next) };
         assert!(cdp_set_expr(o).contains("return S.set(1,2,3,1,{ at: 9, M: 0, D: 1 });"), "{}", cdp_set_expr(o));
         assert!(cdp_release_expr().contains(
-            "if(!S)return 'no-shim';S.Z=null;S.zoneMissed=0;S.hiddenFast=0;for(var k in S.counts){S.counts[k]=0;}return S.set(0,0,1,1,null);"
+            "if(!S)return 'no-shim';if(typeof S.release==='function')return S.release();S.Z=null;S.zoneMissed=0;S.hiddenFast=0;for(var k in S.counts){S.counts[k]=0;}return S.set(0,0,1,1,null);"
         ));
     }
 
@@ -808,6 +816,25 @@ mod tests {
         );
         // The report's relative example: three hundred thousand days back from 1970.
         assert_eq!(cdp_resolve_jump(&session_east2, &jump_to(None, None, Some("-300000d")), 0), Err("moment.out_of_range"));
+    }
+
+    /// R5-P19: a relative jump keeps the milliseconds of the fake clock, as the native one does on ticks -
+    /// through the civil text it lost up to 999 ms at every jump. R5-P18: a kind of moment neither
+    /// mechanism knows is refused as it is natively, where it was read here as absolute.
+    #[test]
+    fn a_relative_chromium_jump_keeps_the_milliseconds_and_an_unknown_kind_is_refused() {
+        let start = moment_epoch_ms("2030-01-01T00:00:00", 0).unwrap() + 750;
+        let clock = CdpClock::new(start, 0, 1, 0);
+        assert_eq!(cdp_resolve_jump(&clock, &jump_to(None, None, Some("+1s")), 0), Ok(start + 1_000));
+        assert_eq!(cdp_resolve_jump(&clock, &jump_to(None, None, Some("-2h")), 0), Ok(start - 7_200_000));
+        assert_eq!(cdp_resolve_jump(&clock, &jump_to(None, None, Some("+5bd")), 0), Err("moment.needs_calendar"));
+        let odd = MomentSpec {
+            kind: "sideways".into(),
+            local: Some("2030-06-15T12:00:00".into()),
+            tz_bias_min: None,
+            delta: None,
+        };
+        assert_eq!(cdp_resolve_jump(&clock, &odd, 0), Err("moment.unsupported_kind"));
     }
 
     /// Untouchable rule 2: the same wall text under two session zones is two different instants, and

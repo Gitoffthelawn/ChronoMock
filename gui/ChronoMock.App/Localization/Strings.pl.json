@@ -503,7 +503,9 @@
   "chromium.main_process_uncovered": "Ta aplikacja jest zbudowana na Electronie. Jej okna idą za fałszywym zegarem, ale część działająca poza oknami czyta prawdziwą datę i godzinę - data liczona tam, zaplanowane przypomnienie albo sprawdzenie przy starcie korzystają z prawdziwego zegara.",
   "chromium.context_reached_running": "Część stron lub workerów już działała, gdy sesja do nich dotarła. Skrypty uruchomione wcześniej mogły odczytać prawdziwy zegar, a timer ustawiony wcześniej zachowuje prawdziwy odstęp.",
   "chromium.contexts_pooled":"Aplikacja otworzyła ponad 256 stron i workerów. Wszystkie działały na fałszywym zegarze, a te ponad 256. są policzone razem w ostatnim wierszu.",
-  "chromium.rate_change_affects_running_timers": "Prędkość zmieniła się w locie: nowe timery i zegar odzwierciedlają ją od razu, ale już działający setInterval zachowuje stare tempo.",
+  "chromium.rate_change_affects_running_timers": "Prędkość zmieniła się w locie. Zegar i nowe timery przyjęły ją od razu, timer powtarzalny od następnego tyknięcia, a jednorazowy, który już czekał, dokończył czekanie w starym tempie.",
+  "chromium.timer_rate_capped": "Część timerów przy tej prędkości musiałaby działać częściej niż co 4 ms. Przeglądarka na to nie pozwala, więc działały wolniej niż wybrana prędkość - sam zegar ją zachował.",
+  "chromium.frames_unreached": "Część ramek wewnątrz strony była poza zasięgiem sesji. Taka ramka zostaje przy zegarze, z którym wystartowała (prawdziwym, jeśli była przed sesją), nie idzie za skokiem ani zmianą prędkości, a jej wywołania nie są liczone.",
   "chromium.clock_move_missed": "Strona internetowa przyjęła zmianę prędkości albo skok z opóźnieniem albo wcale, zwykle dlatego, że była zajęta, więc jej zegar odbiega od zegara sesji do następnego skoku, a jej przeładowanie może przywrócić starszy.",
 
   // Cleanup residue the core reports in `ended.residue_keys` when a teardown could not finish (rules 4, 6). Today only a CDP session raises one (the temporary browser profile could not be removed); a native session always ends clean. Rendered verbatim in the panel and the summary.

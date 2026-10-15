@@ -404,12 +404,15 @@ impl Event {
     /// Serialize to a single NDJSON line (no trailing newline). Defensive fallback
     /// keeps the stream valid even if serialization somehow fails.
     pub fn to_ndjson(&self) -> String {
-        serde_json::to_string(self).unwrap_or_else(|_| {
-            String::from(
-                r#"{"type":"error","v":1,"code":3,"key":"proto.serialize_failed","origin":"proto"}"#,
-            )
-        })
+        serde_json::to_string(self).unwrap_or_else(|_| serialize_failed_line(PROTOCOL_VERSION))
     }
+}
+
+/// The line [`Event::to_ndjson`] falls back to, at protocol version `v`. The version is a parameter
+/// rather than a digit in the text: the fallback used to say `"v":1` whatever the protocol was, and a
+/// test of the text alone cannot tell the two apart while the protocol is 1 (R5-P18).
+fn serialize_failed_line(v: u32) -> String {
+    format!(r#"{{"type":"error","v":{v},"code":3,"key":"proto.serialize_failed","origin":"proto"}}"#)
 }
 
 /// Parse one NDJSON line into an event (used by the interface side).
@@ -857,6 +860,24 @@ mod tests {
                 assert!(fake_end_wall.is_none());
             }
             _ => panic!("wrong event variant"),
+        }
+    }
+
+    /// R5-P18: the fallback line is an error event a client reads like any other, at the version it is
+    /// given - checked at a version that is not 1, so a digit written into the text cannot pass for it.
+    #[test]
+    fn the_fallback_line_is_an_error_at_the_version_it_is_given() {
+        for v in [PROTOCOL_VERSION, 7] {
+            match parse_event(&serialize_failed_line(v)).expect("the fallback parses as an event") {
+                Event::Error { v: got, id, code, key, origin } => {
+                    assert_eq!(got, v);
+                    assert_eq!(id, None);
+                    assert_eq!(code, 3);
+                    assert_eq!(key, "proto.serialize_failed");
+                    assert_eq!(origin, "proto");
+                }
+                other => panic!("wrong event variant: {other:?}"),
+            }
         }
     }
 }

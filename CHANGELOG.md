@@ -58,6 +58,15 @@ Notable changes to Chrono Mock, newest first. The format follows
   (`embedded.variables_outlive_session`). With the web engine channel on, the application keeps the
   setting that makes its engine open a debugging port, so a web view it opens after the session opens
   one too, reachable by other programs on the computer, until the application is restarted.
+- **The report says when a web page's timers could not keep the session speed**
+  (`chromium.timer_rate_capped`). A browser runs a timer set from inside another timer no more often
+  than every 4 ms, so at a high speed a timer that would have to run more often than that runs slower
+  than the session - the clock itself keeps the speed. Measured on Chromium: from the seventh timer of
+  a chain, and from the seventh tick of a repeating one.
+- **The report says when a frame of a page was out of the session's reach** (`chromium.frames_unreached`):
+  a frame of another origin of the same site, a sandboxed frame, or one that was in the page before the
+  session reached it. Such a frame keeps the clock it started with (the real one, if it was there
+  before the session), does not follow a jump or a change of speed, and its calls are not counted.
 
 ### Changed
 
@@ -67,6 +76,33 @@ Notable changes to Chrono Mock, newest first. The format follows
   an application that starts a worker per task reached within minutes, and the verdict said `partial`.
   The warning `chromium.context_ceiling_reached` is replaced by `chromium.contexts_pooled`, and
   `context_count` counts every context.
+- **The frames of a web page follow a jump and a change of speed.** A frame of the page's own origin
+  started on the session clock but kept it as it was when the session jumped or changed speed, and its
+  calls were not counted. It now moves with the page, and its calls count in the page's row. A frame of
+  another site, which the browser runs as a page of its own, read the real clock: the time shim was
+  tried before the frame had a document, failed, and was taken back. The frame now gets the shim with
+  its first document and has a row of its own, counted as covered once its shim answers.
+- **A repeating timer in a web page takes a change of speed from its next tick, and keeps its
+  cadence.** It used to keep the cadence it was armed with, and a delay was cut down to whole
+  milliseconds the browser's way: at x60 a one-second timer ran 4% fast (960 ms of session time
+  between ticks, measured). A tick missed whole is not made up. The warning
+  `chromium.rate_change_affects_running_timers` now says what is left: a one-time timer already waiting
+  finishes its wait at the old speed. At speed 1 a one-time timer goes to the browser as the page set it.
+- **`performance.timeOrigin` follows the session clock in a web page,** so `performance.timeOrigin +
+  performance.now()` equals `Date.now()` as it does without a session. `performance.toJSON()` keeps the
+  browser's own value.
+- **The time shim keeps its clock to itself.** The `__chronomock` object in a page is no longer an
+  enumerable global with the clock in its fields: a page's own scripts do not see it among their globals,
+  cannot replace it, and reach only the methods the session uses. A page still holding the shim of an
+  older version is still moved, released and read.
+- **A relative jump in a Chromium session keeps the milliseconds of the clock,** as in a native
+  session - it used to step through the clock's text and lose up to 999 ms each time. A jump of a kind
+  neither mechanism knows is refused with `moment.unsupported_kind` in both, where a Chromium session
+  read it as absolute. A change of speed is no longer reported as a caveat about running timers when no
+  page or worker was there to have one.
+- **Every answer to `start` carries the `id` the client gave it,** the verdict and an error before the
+  session runs, where it used to say `1` whatever was sent. Both built-in clients send 1. The protocol's
+  last-resort error line carries the protocol version rather than a fixed `1`.
 - **A Chromium session's clock stands still while the computer sleeps, and a correction of the system
   clock no longer moves it,** as in a native session. It used to run on through a sleep at the session
   speed: one hour corrected on the system clock moved the session clock sixty hours at x60.

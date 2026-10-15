@@ -42,6 +42,15 @@ pub(crate) struct CdpContext {
     zone_read: Option<[i32; 2]>,
     /// One past the ceiling of own rows (R5-P20): its counts go to the pool's row, not a row of its own.
     pooled: bool,
+    /// A page whose shim is its new-document hook's to give, with no document to run in when it was
+    /// reached (R5-F11): not covered until an audit answers from the shim (R5-D46). Until then a move or
+    /// a release it cannot take is no miss - there is no document to take it.
+    awaiting: bool,
+    /// How many frames the page's own frame tree had in its process at the last audit, the page's own
+    /// document left out - read before the audit, which says how many of them the shim reached (R5-P5).
+    local_frames: Option<u64>,
+    /// How many audits in a row found fewer frames reached than the tree had (R5-D47).
+    frames_short: u8,
 }
 
 impl CdpContext {
@@ -57,14 +66,22 @@ impl CdpContext {
             release_answer: None,
             zone_read: None,
             pooled: false,
+            awaiting: false,
+            local_frames: None,
+            frames_short: 0,
         }
     }
 
-    /// The same context, counted in the pool's row (R5-P20).
-    pub(crate) fn pooled(self, pooled: bool) -> CdpContext {
-        CdpContext { pooled, ..self }
+    /// The same context, waiting for its first audit to show the shim (R5-F11).
+    pub(crate) fn awaiting(self, awaiting: bool) -> CdpContext {
+        CdpContext { awaiting, ..self }
     }
 }
+
+/// How many audits in a row have to find a frame of a page out of the shim's reach before the page is
+/// said to have one (R5-D47): the frame tree and the audit are two questions, and a frame that comes or
+/// goes between them is short for one audit, not for two.
+const FRAMES_SHORT_AUDITS: u8 = 2;
 
 /// Where a context let go of stands with its zone, judged from what it read after the session gave it
 /// this machine's zone back (ADR-21).
@@ -167,6 +184,8 @@ impl Outbox for cdp::CdpClient {
 #[derive(Debug)]
 enum Asked {
     Counts { session: String, index: u32, ty: String },
+    /// A page's frame tree, asked just before its counts (R5-P5).
+    Frames { session: String },
     /// A new hook for a move. The move's expression goes to the page when the hook comes back, so the
     /// page has the new hook before its live document moves (R4-W5) - however long it takes.
     Hook { session: String, expr: Arc<str> },
@@ -184,6 +203,7 @@ impl Asked {
     fn session(&self) -> &str {
         match self {
             Asked::Counts { session, .. }
+            | Asked::Frames { session }
             | Asked::Hook { session, .. }
             | Asked::Unhook { session, .. }
             | Asked::Move { session, .. }
@@ -198,6 +218,7 @@ const ADD_HOOK: &str = "Page.addScriptToEvaluateOnNewDocument";
 const REMOVE_HOOK: &str = "Page.removeScriptToEvaluateOnNewDocument";
 const EVALUATE: &str = "Runtime.evaluate";
 const SET_ZONE: &str = "Emulation.setTimezoneOverride";
+const FRAME_TREE: &str = "Page.getFrameTree";
 
 /// The live contexts of one attacher, the requests in flight to them, and what their answers said.
 #[derive(Default)]
@@ -221,6 +242,15 @@ pub(crate) struct Requests {
     zone_missed: BTreeSet<u32>,
     /// The pages, by index, that were hidden at some point while their timers ran faster (R4-N28).
     hidden_fast: BTreeSet<u32>,
+    /// The contexts, by index, where a timer had to run more often than the engine's 4 ms floor at the
+    /// session's speed (R5-P6).
+    capped: BTreeSet<u32>,
+    /// The pages, by index, that had a frame in their process the shim did not reach, audit after audit
+    /// (R5-P5, R5-D47).
+    frames_unreached: BTreeSet<u32>,
+    /// The contexts whose audit showed the shim the new-document hook gave them since the caller last
+    /// asked ([`Requests::take_confirmed`], R5-F11).
+    confirmed: Vec<u32>,
     /// The zone read of the release ([`cdp::zone_read_expr`]), from the moment the zone is given back
     /// until it is sent - when the last context answered the zone, or when the caller waits no longer.
     zone_read: Option<String>,
@@ -317,7 +347,8 @@ impl Requests {
     /// Where the live contexts stand with their zone after the release (see [`zone_back`]).
     pub(crate) fn zone_tally(&self, session: i32, machine: Option<[i32; 2]>) -> ZoneTally {
         let mut tally = ZoneTally::default();
-        for ctx in &self.contexts {
+        // A page still waiting for its first document has no zone to show (R5-F11).
+        for ctx in self.contexts.iter().filter(|c| !c.awaiting) {
             match zone_back(ctx.zone_read, session, machine) {
                 ZoneBack::Back => tally.back += 1,
                 ZoneBack::Kept => tally.kept += 1,
@@ -337,10 +368,39 @@ impl Requests {
         self.hidden_fast.len()
     }
 
+    /// How many contexts had a timer the engine's 4 ms floor held back at the session's speed.
+    pub(crate) fn timers_capped(&self) -> usize {
+        self.capped.len()
+    }
+
+    /// How many pages had a frame in their process the shim did not reach.
+    pub(crate) fn frames_unreached(&self) -> usize {
+        self.frames_unreached.len()
+    }
+
+    /// The indexes of the contexts that showed their shim since the last call (R5-F11).
+    pub(crate) fn take_confirmed(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.confirmed)
+    }
+
+    /// Count the context of `index` in the pool's row (R5-P20) - decided when it is covered, which for
+    /// a page waiting for its shim is after it was pushed.
+    pub(crate) fn pool_context(&mut self, index: u32) {
+        if let Some(ctx) = self.contexts.iter_mut().find(|c| c.index == index) {
+            ctx.pooled = true;
+        }
+    }
+
     /// Ask every context that is not still answering the last request for its call counts, without
-    /// waiting (R4-S10).
+    /// waiting (R4-S10). A page is asked for its frame tree first, in the same session, so its answer
+    /// comes first and the audit is judged against it (R5-P5). A worker has no frames.
     pub(crate) fn request_counts(&mut self, out: &mut impl Outbox) {
         for ctx in self.contexts.iter_mut().filter(|c| !c.counting) {
+            if !cdp::is_worker(&ctx.ty)
+                && let Some(id) = out.ask(FRAME_TREE, json!({}), &ctx.session_id)
+            {
+                self.asked.insert(id, Asked::Frames { session: ctx.session_id.clone() });
+            }
             let params = json!({ "expression": cdp::COUNTS_EXPR, "returnByValue": true });
             if let Some(id) = out.ask(EVALUATE, params, &ctx.session_id) {
                 ctx.counting = true;
@@ -480,6 +540,17 @@ impl Requests {
                     if read_fact(&reply, "hidden") {
                         self.hidden_fast.insert(index);
                     }
+                    if read_fact(&reply, "capped") {
+                        self.capped.insert(index);
+                    }
+                    if let Some(i) = at {
+                        self.audited(i, &reply);
+                    }
+                }
+            }
+            Asked::Frames { .. } => {
+                if let Some(i) = at {
+                    self.contexts[i].local_frames = reply.ok().as_ref().map(frames_below_root);
                 }
             }
             Asked::Hook { session, expr } => {
@@ -513,13 +584,17 @@ impl Requests {
                 }
             }
             Asked::Move { session } => {
-                if !confirmed(&reply) {
+                // A page waiting for its first document has none to move, and the hook the move gave it
+                // first carries the new clock to it (R5-F11).
+                let waiting = at.is_some_and(|i| self.contexts[i].awaiting);
+                if !confirmed(&reply) && !waiting {
                     self.missed.insert(session);
                 }
             }
             Asked::Release { .. } => {
                 if let Some(i) = at {
-                    self.contexts[i].release_answer = Some(confirmed(&reply));
+                    let ctx = &mut self.contexts[i];
+                    ctx.release_answer = Some(confirmed(&reply) || ctx.awaiting);
                 }
             }
             Asked::Zone { .. } => {
@@ -534,6 +609,47 @@ impl Requests {
             }
         }
     }
+
+    /// What an audit answered by the shim says beyond the counts: a page waiting for its shim has it
+    /// (R5-F11), and how many frames of the page the shim reached, against the frame tree asked just
+    /// before (R5-P5). A frame short in [`FRAMES_SHORT_AUDITS`] audits in a row is one the session could
+    /// not reach. An answer that is not an object - `null`, no shim there - says neither.
+    fn audited(&mut self, i: usize, reply: &Value) {
+        let Some(audit) = reply["result"]["value"].as_object() else {
+            return;
+        };
+        let ctx = &mut self.contexts[i];
+        if ctx.awaiting {
+            ctx.awaiting = false;
+            self.confirmed.push(ctx.index);
+        }
+        if let Some(local) = ctx.local_frames.take() {
+            let reached = audit.get("frames").and_then(Value::as_u64).unwrap_or(0);
+            if local > reached {
+                ctx.frames_short = ctx.frames_short.saturating_add(1);
+                if ctx.frames_short >= FRAMES_SHORT_AUDITS {
+                    self.frames_unreached.insert(ctx.index);
+                }
+            } else {
+                ctx.frames_short = 0;
+            }
+        }
+    }
+}
+
+/// How many frames a `Page.getFrameTree` answer holds below its root: the frames in the page's own
+/// process (measured on Electron 44 - a frame of another site is a target of its own, and not in it).
+/// Walked without recursion, so no page decides how deep the stack goes.
+fn frames_below_root(reply: &Value) -> u64 {
+    let mut below = 0u64;
+    let mut open = vec![&reply["frameTree"]];
+    while let Some(node) = open.pop() {
+        if let Some(children) = node["childFrames"].as_array() {
+            below = below.saturating_add(children.len() as u64);
+            open.extend(children);
+        }
+    }
+    below
 }
 
 /// Send a move's expression to one live document.
@@ -588,8 +704,9 @@ fn merge_counts(counts: &mut BTreeMap<(u32, String), u64>, index: u32, ty: &str,
 }
 
 /// Whether a counts reply carries one of the shim's audit facts, each 1 once it happened: `zone` - the
-/// context once read a zone other than the session's - and `hidden` - the page was hidden while its
-/// timers ran faster. A reply without it - a shim from an older build - says nothing.
+/// context once read a zone other than the session's - `hidden` - the page was hidden while its timers
+/// ran faster - and `capped` - a timer had to run more often than the engine's 4 ms floor (R5-P6). A
+/// reply without it - a shim from an older build - says nothing.
 fn read_fact(reply: &Value, fact: &str) -> bool {
     reply["result"]["value"][fact].as_u64().is_some_and(|n| n > 0)
 }
@@ -660,16 +777,139 @@ mod tests {
         r
     }
 
+    /// A frame tree answer with `children` below the page's own frame.
+    fn tree(children: Value) -> Result<Value, ()> {
+        Ok(json!({ "frameTree": { "frame": { "id": "root" }, "childFrames": children } }))
+    }
+
+    /// An audit answer from a shim that reached `frames` frames below its page.
+    fn audit(frames: u64) -> Result<Value, ()> {
+        Ok(json!({ "result": { "value": { "now": 1, "frames": frames } } }))
+    }
+
+    /// One audit of the page `P`: its frame tree answered with `frames_tree`, then its counts with
+    /// `counts` - in that order, as the page's session answers them.
+    fn audit_round(r: &mut Requests, wire: &mut Wire, frames_tree: Result<Value, ()>, counts: Result<Value, ()>) {
+        let from = wire.sent.len();
+        r.request_counts(wire);
+        assert_eq!(wire.lines(from), [format!("{FRAME_TREE} P"), format!("{EVALUATE} P")], "the tree first");
+        let ids: Vec<u64> = wire.sent[from..].iter().map(|(id, ..)| *id).collect();
+        r.on_reply(ids[0], frames_tree, wire);
+        r.on_reply(ids[1], counts, wire);
+    }
+
+    /// R5-P5: a page is asked for its frame tree just before its counts, in its own session, so the tree
+    /// is answered first. A worker has no frames and is asked for its counts alone.
+    #[test]
+    fn a_page_is_asked_for_its_frame_tree_before_its_counts_and_a_worker_is_not() {
+        let mut r = requests(vec![page("P", "h0"), worker("W")]);
+        let mut wire = Wire::default();
+        r.request_counts(&mut wire);
+        assert_eq!(wire.lines(0), [format!("{FRAME_TREE} P"), format!("{EVALUATE} P"), format!("{EVALUATE} W")]);
+    }
+
+    /// R5-P5, R5-D47: a page whose shim reached fewer frames than its process holds, two audits in a
+    /// row, has a frame the session could not reach. Short once is a frame that came or went between the
+    /// two questions, an audit that reached them all starts the count over, and an audit with no tree
+    /// before it - the tree could not be read - judges nothing. A shim of an older build says nothing of
+    /// frames, and reached none.
+    #[test]
+    fn a_page_short_of_frames_two_audits_in_a_row_has_one_the_session_could_not_reach() {
+        let two = json!([{ "frame": {}, "childFrames": [{ "frame": {} }] }]);
+        let mut r = requests(vec![page("P", "h0")]);
+        let mut wire = Wire::default();
+        audit_round(&mut r, &mut wire, tree(two.clone()), audit(1));
+        assert_eq!(r.frames_unreached(), 0, "short once is no proof");
+        audit_round(&mut r, &mut wire, tree(two.clone()), audit(2));
+        audit_round(&mut r, &mut wire, tree(two.clone()), audit(1));
+        assert_eq!(r.frames_unreached(), 0, "all reached in between starts the count over");
+        audit_round(&mut r, &mut wire, Err(()), audit(1));
+        audit_round(&mut r, &mut wire, Err(()), audit(1));
+        assert_eq!(r.frames_unreached(), 0, "no tree, no judgement");
+        audit_round(&mut r, &mut wire, tree(two.clone()), audit(1));
+        audit_round(&mut r, &mut wire, tree(two.clone()), audit(1));
+        assert_eq!(r.frames_unreached(), 1, "short twice in a row");
+
+        let mut old = requests(vec![page("P", "h0")]);
+        let mut wire = Wire::default();
+        let older = || Ok(json!({ "result": { "value": { "now": 1 } } }));
+        audit_round(&mut old, &mut wire, tree(two.clone()), older());
+        audit_round(&mut old, &mut wire, tree(two), older());
+        assert_eq!(old.frames_unreached(), 1, "an older shim reached no frame");
+    }
+
+    /// The frames a tree holds below its root, however they are nested.
+    #[test]
+    fn the_frames_below_the_root_are_every_frame_of_the_tree_but_the_page() {
+        assert_eq!(frames_below_root(&json!({ "frameTree": { "frame": {} } })), 0);
+        let branchy = json!({ "frameTree": { "frame": {}, "childFrames": [
+            { "frame": {}, "childFrames": [{ "frame": {} }, { "frame": {}, "childFrames": [{ "frame": {} }] }] },
+            { "frame": {} }
+        ] } });
+        assert_eq!(frames_below_root(&branchy), 5);
+        assert_eq!(frames_below_root(&json!({})), 0, "an answer with no tree holds no frame");
+    }
+
+    /// R5-P6: the audit says a timer was held back by the engine's 4 ms floor, once, for the context.
+    #[test]
+    fn a_timer_held_back_by_the_floor_is_read_from_the_audit() {
+        let mut r = requests(vec![worker("W")]);
+        let mut wire = Wire::default();
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[0], Ok(json!({ "result": { "value": { "now": 1, "capped": 0 } } })), &mut wire);
+        assert_eq!(r.timers_capped(), 0);
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[1], Ok(json!({ "result": { "value": { "now": 1, "capped": 1 } } })), &mut wire);
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "W")[2], Ok(json!({ "result": { "value": { "now": 1, "capped": 1 } } })), &mut wire);
+        assert_eq!(r.timers_capped(), 1, "one context, however many audits say it");
+    }
+
+    /// R5-F11, R5-D46: a page waiting for its first document is confirmed by the first audit that
+    /// answers from its shim, once - not by an error, and not by `null` (no shim there). Until then a
+    /// move or a release it cannot take, having no document, is no miss, and it has no zone to show.
+    #[test]
+    fn a_page_waiting_for_its_shim_is_confirmed_by_an_audit_from_it() {
+        let waiting = || CdpContext::new(3, "F".into(), "iframe".into(), "T-F".into(), Some("h0".into())).awaiting(true);
+        let mut r = requests(vec![waiting()]);
+        let mut wire = Wire::default();
+        r.start_move("MOVE", "SHIM", &mut wire);
+        r.on_reply(wire.ids(ADD_HOOK, "F")[0], hook("h1"), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "F")[0], Err(()), &mut wire);
+        assert_eq!(r.moves_missed(), 0, "no document to move, and the new hook carries the clock to the first");
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "F")[1], Err(()), &mut wire);
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "F")[2], Ok(json!({ "result": { "value": null } })), &mut wire);
+        assert!(r.take_confirmed().is_empty(), "an error and a null are not the shim");
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "F")[3], audit(0), &mut wire);
+        assert_eq!(r.take_confirmed(), [3], "the first audit from the shim");
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "F")[4], audit(0), &mut wire);
+        assert!(r.take_confirmed().is_empty(), "once");
+
+        let mut still = requests(vec![waiting()]);
+        let mut wire = Wire::default();
+        still.start_release("RELEASE", &mut wire);
+        still.on_reply(wire.ids(EVALUATE, "F")[0], Err(()), &mut wire);
+        for id in wire.ids(REMOVE_HOOK, "F") {
+            still.on_reply(id, Ok(json!({})), &mut wire);
+        }
+        assert_eq!(still.unreleased(), 0, "no document is nothing left on the session clock");
+        assert_eq!(still.zone_tally(-330, Some([-60, -120])), ZoneTally::default(), "and no zone to show");
+    }
+
     /// R5-P20: a pooled context's counts go to the pool's row, summed. One that went away leaves its
     /// peaks to the pool's sum and its entries leave the table, so the table is as large as the live
     /// list however many workers come and go. The live pooled ones are added at the end, and a context
     /// with a row of its own keeps it.
     #[test]
     fn a_pooled_context_leaves_its_counts_to_the_pool_and_its_place_in_the_table() {
-        let pooled = |session: &str, index: u32| {
-            CdpContext::new(index, session.into(), "worker".into(), format!("T-{session}"), None).pooled(true)
-        };
+        let pooled = |session: &str, index: u32| CdpContext::new(index, session.into(), "worker".into(), format!("T-{session}"), None);
         let mut r = requests(vec![page("P", "h0"), pooled("A", 7), pooled("B", 8)]);
+        r.pool_context(7);
+        r.pool_context(8);
         let mut wire = Wire::default();
         r.request_counts(&mut wire);
         let answer = |n: u64| Ok(json!({ "result": { "value": { "now": n } } }));

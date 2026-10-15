@@ -313,8 +313,17 @@ fn describe_chromium_warning(key: &str) -> &'static str {
         "chromium.followed_browser" => {
             "the target closed after handing the application over to another program, so the session went on with that program instead of ending with the target"
         }
+        // R5-P6, accepted with the wave (R5-D45): a repeating timer takes a new speed from its next tick.
         "chromium.rate_change_affects_running_timers" => {
-            "the speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence"
+            "the speed changed in flight - the clock and new timers took it at once, a repeating timer from its next tick, and a one-time timer that was already waiting finished its wait at the old speed"
+        }
+        // R5-P6, R5-D7, accepted with the wave (R5-D45).
+        "chromium.timer_rate_capped" => {
+            "some timers would have to run more often than once every 4 ms at this speed - the browser does not run timers that often, so they ran slower than the chosen speed (the clock itself kept it)"
+        }
+        // R5-P5, R5-D47, R5-D48, accepted after the frame probe (R5-D49).
+        "chromium.frames_unreached" => {
+            "some frames inside a page were out of the session's reach - such a frame keeps the clock it started with (the real one, if it was there before the session), does not follow a jump or a change of speed, and its calls are not counted"
         }
         // Accepted by the owner before the code (R4/16, 2026-10-05), with the flag named in it.
         "chromium.background_timers_slowed" => {

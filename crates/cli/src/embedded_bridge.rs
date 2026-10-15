@@ -27,7 +27,10 @@ use chrono_proto::{ReachedEngine, TargetSpec};
 use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, MachineZone, Pumped, ShimOrigin};
 use crate::cdp_requests::ZoneTally;
-use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED, KEY_CONTEXTS_POOLED, KEY_CONTEXT_REACHED_RUNNING};
+use crate::cdp_audit::{
+    KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED, KEY_CONTEXTS_POOLED, KEY_CONTEXT_REACHED_RUNNING, KEY_FRAMES_UNREACHED,
+    KEY_RATE_CHANGE_RUNNING_TIMERS, KEY_TIMER_RATE_CAPPED,
+};
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms, resync_due};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::{engine_env, qt_port_told};
@@ -318,6 +321,10 @@ pub(crate) struct Outcome {
     zone_missed: usize,
     /// How many pages were hidden at some point while their timers ran faster (R4-N28).
     hidden_fast: usize,
+    /// How many pages and workers had a timer the engine's 4 ms floor held back (R5-P6).
+    timers_capped: usize,
+    /// How many pages had a frame in their process the shim did not reach (R5-P5).
+    frames_unreached: usize,
     /// The engines were started with their slowdown of hidden windows switched off (`Launch`).
     timers_kept: bool,
 }
@@ -363,7 +370,14 @@ impl Outcome {
             out.push(KEY_CONTEXTS_POOLED.to_string());
         }
         if self.rate_changed && pages {
-            out.push("chromium.rate_change_affects_running_timers".to_string());
+            out.push(KEY_RATE_CHANGE_RUNNING_TIMERS.to_string());
+        }
+        // The same facts as in a Chromium session, under the same keys (R5-P6, R5-P5).
+        if pages && self.timers_capped > 0 {
+            out.push(KEY_TIMER_RATE_CAPPED.to_string());
+        }
+        if pages && self.frames_unreached > 0 {
+            out.push(KEY_FRAMES_UNREACHED.to_string());
         }
         if pages && self.zone_missed > 0 {
             out.push(KEY_ZONE_IS_HOST.to_string());
@@ -839,6 +853,8 @@ impl EmbeddedBridge {
             tree_found: self.tree.total(),
             zone_missed: 0,
             hidden_fast: 0,
+            timers_capped: 0,
+            frames_unreached: 0,
             timers_kept: self.timers_kept,
         };
         let engine_of_port = self.engine_of_port;
@@ -863,6 +879,8 @@ impl EmbeddedBridge {
             outcome.reached_running += part.reached_running;
             outcome.zone_missed += part.zone_missed;
             outcome.hidden_fast += part.hidden_fast;
+            outcome.timers_capped += part.timers_capped;
+            outcome.frames_unreached += part.frames_unreached;
         }
         outcome
     }
@@ -1021,6 +1039,8 @@ mod tests {
             tree_found: 0,
             zone_missed: 0,
             hidden_fast: 0,
+            timers_capped: 0,
+            frames_unreached: 0,
             timers_kept: false,
         }
     }
@@ -1061,6 +1081,16 @@ mod tests {
         };
         assert_eq!(hidden(false), vec![KEY_DEBUG_PORT_OPEN, KEY_BACKGROUND_TIMERS_SLOWED], "a hidden page's timers slowed (R4-N28)");
         assert_eq!(hidden(true), vec![KEY_DEBUG_PORT_OPEN], "not when the engine was started with that switched off");
+        // R5-P6 and R5-P5: a timer the 4 ms floor held back, and a frame the shim did not reach - said
+        // of an engine's pages as of a Chromium session's, and only with pages to have them.
+        let floored_and_framed = |seen: &[u32]| {
+            let mut o = outcome(true, seen, 0, false, &[]);
+            o.timers_capped = 1;
+            o.frames_unreached = 1;
+            o.session_warnings(false)
+        };
+        assert_eq!(floored_and_framed(&[1]), vec![KEY_DEBUG_PORT_OPEN, KEY_TIMER_RATE_CAPPED, KEY_FRAMES_UNREACHED]);
+        assert_eq!(floored_and_framed(&[]), vec![KEY_DEBUG_PORT_OPEN]);
     }
 
     /// R5-B7, R5-D5: an application that outlives the session keeps the channel's variables, so a web
@@ -1303,7 +1333,7 @@ mod tests {
                 "Target.attachToTarget" => serde_json::json!({ "sessionId": "S1" }),
                 "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({ "identifier": "h" }),
                 "Runtime.evaluate" if expr == cdp::release_expr() => serde_json::json!({ "result": { "value": "ok" } }),
-                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => serde_json::json!({ "result": { "value": shows } }),
+                "Runtime.evaluate" if expr.contains("S.zoneRead(") => serde_json::json!({ "result": { "value": shows } }),
                 _ => serde_json::json!({}),
             };
             vec![(id, reply)]
@@ -1329,7 +1359,7 @@ mod tests {
                 "Target.getTargets" => serde_json::json!({ "targetInfos": [] }),
                 "Target.attachToTarget" => serde_json::json!({ "sessionId": "S1" }),
                 "Page.addScriptToEvaluateOnNewDocument" => serde_json::json!({ "identifier": "h" }),
-                "Runtime.evaluate" if expr.contains("getTimezoneOffset()]") => serde_json::json!({ "result": { "value": [-330, -330] } }),
+                "Runtime.evaluate" if expr.contains("S.zoneRead(") => serde_json::json!({ "result": { "value": [-330, -330] } }),
                 _ => serde_json::json!({}),
             };
             vec![(id, reply)]
