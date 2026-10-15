@@ -28,7 +28,7 @@ use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, MachineZone, Pumped, ShimOrigin};
 use crate::cdp_requests::ZoneTally;
 use crate::cdp_audit::{KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED, KEY_CONTEXTS_POOLED, KEY_CONTEXT_REACHED_RUNNING};
-use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms, DRIFT_MS};
+use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms, resync_due};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
 use crate::embedded::{engine_env, qt_port_told};
 use crate::output::diag;
@@ -722,7 +722,7 @@ impl EmbeddedBridge {
             return;
         }
         if let Some(pushed) = self.pushed
-            && drift_ms(pushed, fresh).abs() > DRIFT_MS
+            && resync_due(drift_ms(pushed, fresh), pushed.mult)
         {
             self.move_clock(&cdp_set_expr(fresh), fresh);
             self.pushed = Some(fresh);

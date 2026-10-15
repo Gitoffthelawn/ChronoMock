@@ -22,9 +22,11 @@ fn a_bound_loopback_listener_is_in_the_table_under_this_pid_and_gone_once_droppe
     assert_eq!(ours[0].loopback_host(), "127.0.0.1");
 
     drop(listener);
-    let after = chrono_mech::listening_sockets().expect("the table is readable").sockets;
+    let after = chrono_mech::listening_sockets().expect("the table is readable");
+    // An absence proves nothing in a table that was not read (CodeRabbit on #110).
+    assert!(after.ipv4_read, "the IPv4 table must be read before the listener can be missing from it");
     assert!(
-        !after.iter().any(|l| l.pid == me && l.port == port),
+        !after.sockets.iter().any(|l| l.pid == me && l.port == port),
         "the listener is still in the table after it was closed"
     );
 }

@@ -13,7 +13,7 @@
 //! context index counter: several attachers in one session (slice C) must hand out disjoint
 //! indexes, because the index is the unit's identity on the wire.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -240,10 +240,13 @@ pub(crate) struct Attacher {
     /// What closed the connection, when it closed (R5-D6).
     closed_because: Option<String>,
     /// targetId -> context index, so a re-attached context keeps the identity it already had. Live
-    /// contexts always, the ones that went away while they are among the last [`DETACHED_KEPT`].
+    /// contexts always, the ones with an audit row of their own always, the others that went away while
+    /// they are among the last [`DETACHED_KEPT`].
     index_by_target: HashMap<String, u32>,
-    /// The target ids of the contexts that went away, oldest first (R5-Z2).
-    detached: VecDeque<String>,
+    /// The target ids of the contexts that went away, the last [`DETACHED_KEPT`] of them (R5-Z2).
+    detached: DetachedRing,
+    /// How many of them are kept - [`DETACHED_KEPT`], lowered only by a test that needs the ring full.
+    detached_kept: usize,
     /// The session is ending: a context that attaches now is let go without a shim. It would get a
     /// clock nobody moves or releases any more, and shimming it would hold the end for an attach.
     ending: bool,
@@ -296,7 +299,8 @@ impl Attacher {
             said: 0,
             closed_because: None,
             index_by_target: HashMap::new(),
-            detached: VecDeque::new(),
+            detached: DetachedRing::default(),
+            detached_kept: DETACHED_KEPT,
             ending: false,
             zone: None,
             zone_dirty: false,
@@ -638,12 +642,20 @@ impl Attacher {
     }
 
     /// Remember a target that went away for a while, so it keeps its index if it comes back, and forget
-    /// the oldest past [`DETACHED_KEPT`] unless it came back and is live (R5-Z2).
+    /// the oldest past [`DETACHED_KEPT`] unless it came back and is live, or holds an audit row of its
+    /// own (R5-Z2). Those are never forgotten: there are at most [`MAX_CONTEXTS`] of them, and one that
+    /// came back under a new index was counted twice (CodeRabbit on #110).
     fn remember_detached(&mut self, target: String) {
         let contexts = self.requests.contexts();
-        remember_detached_in(&mut self.detached, &mut self.index_by_target, target, DETACHED_KEPT, |t| {
-            contexts.iter().any(|c| c.target_id == t)
-        });
+        let seen = &self.seen;
+        let index_by_target = &self.index_by_target;
+        let keep = |t: &str| {
+            contexts.iter().any(|c| c.target_id == t) || index_by_target.get(t).is_some_and(|i| seen.contains(i))
+        };
+        let forgotten = remember_detached_in(&mut self.detached, target, self.detached_kept, keep);
+        if let Some(old) = forgotten {
+            self.index_by_target.remove(&old);
+        }
     }
 
     /// The clock moved - a rate change, a jump, a resync: give every page a new-document hook built on
@@ -810,27 +822,32 @@ fn before(deadline: Instant, stage: Duration) -> Instant {
     deadline.checked_sub(stage).unwrap_or(deadline)
 }
 
+/// The target ids of the contexts that went away, in a ring of at most `kept`: once it is full, the
+/// newest takes the place of the oldest. A `Vec` with its own cursor rather than a `VecDeque`, which
+/// would do the same - CodeQL's generated models take every growth of a `VecDeque` for a log sink, and
+/// an attacher holds a socket, so a queue of ids here read as log injection (alert #10 on #110, of the
+/// class of #1 and #5, false positives checked in the analysis).
+#[derive(Default)]
+struct DetachedRing {
+    ids: Vec<String>,
+    next: usize,
+}
+
 /// [`Attacher::remember_detached`] over its parts, with the capacity as a parameter so the bound is
-/// tested without thousands of targets: `target` joins the list of the ones that went away, and past
-/// `kept` the oldest is forgotten from the index map - unless `live` says it came back.
-fn remember_detached_in(
-    detached: &mut VecDeque<String>,
-    index_by_target: &mut HashMap<String, u32>,
-    target: String,
-    kept: usize,
-    live: impl Fn(&str) -> bool,
-) {
-    if target.is_empty() {
-        return;
+/// tested without thousands of targets: `target` joins the ring of the ones that went away, and the id
+/// it pushes out is returned to be forgotten from the index map - unless `keep` says it is still needed.
+fn remember_detached_in(ring: &mut DetachedRing, target: String, kept: usize, keep: impl Fn(&str) -> bool) -> Option<String> {
+    if target.is_empty() || kept == 0 {
+        return None;
     }
-    detached.push_back(target);
-    while detached.len() > kept {
-        if let Some(old) = detached.pop_front()
-            && !live(&old)
-        {
-            index_by_target.remove(&old);
-        }
+    if ring.ids.len() < kept {
+        ring.ids.push(target);
+        return None;
     }
+    let slot = ring.next % kept;
+    ring.next = (slot + 1) % kept;
+    let old = std::mem::replace(&mut ring.ids[slot], target);
+    (!keep(&old)).then_some(old)
 }
 
 /// Whether a context with this index is past the ceiling of own rows: the ceiling is on contexts ever
@@ -865,20 +882,57 @@ mod tests {
     use super::*;
 
     /// R5-Z2: the ids of contexts that went away are kept for a while, so one that comes back keeps
-    /// its index, and past the capacity the oldest is forgotten - unless it came back and is live.
+    /// its index, and past the capacity the oldest is handed back to be forgotten - unless it is still
+    /// needed. The ring stays at its bound.
     #[test]
     fn the_targets_that_went_away_are_remembered_up_to_a_bound() {
-        let mut detached = VecDeque::new();
-        let mut index: HashMap<String, u32> = (1..=4).map(|n| (format!("T{n}"), n)).collect();
-        for n in 1..=3 {
-            remember_detached_in(&mut detached, &mut index, format!("T{n}"), 2, |t| t == "T2");
+        let mut ring = DetachedRing::default();
+        let keep = |t: &str| t == "T2";
+        assert_eq!(remember_detached_in(&mut ring, "T1".into(), 2, keep), None);
+        assert_eq!(remember_detached_in(&mut ring, "T2".into(), 2, keep), None, "room for two");
+        assert_eq!(remember_detached_in(&mut ring, "T3".into(), 2, keep), Some("T1".into()), "the oldest goes");
+        assert_eq!(remember_detached_in(&mut ring, "T4".into(), 2, keep), None, "one still needed is kept");
+        assert_eq!(ring.ids.len(), 2, "the ring stays at its bound");
+        assert_eq!(remember_detached_in(&mut ring, String::new(), 2, keep), None);
+        assert_eq!(ring.ids.len(), 2, "a context with no id is nothing to remember");
+    }
+
+    /// CodeRabbit on #110: a context with an audit row of its own that went away keeps its index
+    /// however many others went away after it, so when it comes back it is the same context - pushed
+    /// out of the ring of ids, it came back under a new index and was counted twice.
+    #[test]
+    fn a_context_with_a_row_of_its_own_comes_back_as_itself_after_the_ring_turned() {
+        let attached = |sid: &str, tid: &str| {
+            let params = json!({ "sessionId": sid, "targetInfo": { "targetId": tid, "type": "worker" }, "waitingForDebugger": true });
+            (serde_json::Value::Null, json!({ "method": "Target.attachedToTarget", "params": params }))
+        };
+        let gone = |sid: &str| (serde_json::Value::Null, json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": sid } }));
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let session = request["sessionId"].as_str().unwrap_or("").to_string();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [] })), attached("S1", "W1")],
+                "Runtime.evaluate" => vec![(id, json!({ "result": { "value": "installed" } }))],
+                // Each worker goes away once released, and the next one arrives: W1, W2, then W1 again.
+                "Runtime.runIfWaitingForDebugger" if session == "S1" => vec![(id, json!({})), gone("S1"), attached("S2", "W2")],
+                "Runtime.runIfWaitingForDebugger" if session == "S2" => vec![(id, json!({})), gone("S2"), attached("S3", "W1")],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        attacher.detached_kept = 1;
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap();
+        for _ in 0..30 {
+            attacher.pump(origin, &mut next);
         }
-        assert!(!index.contains_key("T1"), "the oldest past the bound is forgotten");
-        assert!(index.contains_key("T2"), "one that came back and is live is not");
-        assert!(index.contains_key("T3") && index.contains_key("T4"));
-        assert_eq!(detached.len(), 2, "the list stays at its bound");
-        remember_detached_in(&mut detached, &mut index, String::new(), 2, |_| false);
-        assert_eq!(detached.len(), 2, "a context with no id is nothing to remember");
+        assert_eq!(attacher.seen().len(), 2, "W1 and W2, one row each");
+        assert_eq!(attacher.contexts_covered(), 2, "W1 came back as itself");
+        drop(attacher);
+        drop(browser);
     }
 
     /// R5-Z3: a target the session will not drive - one with no JS of ours to cover, and a second

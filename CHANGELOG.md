@@ -186,8 +186,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   running, and the session says `session.left_running` for it.
 - **Looking for web engines inside an application goes on after a failed read.** One table of
   listening sockets that could not be read ended the search for the whole session, and took the other
-  table with it. The two are read apart now, a failed read is tried again, and the search gives up only
-  after several in a row.
+  table with it. The two are read apart now and a failed read is tried again. The search gives up, and
+  says so (`embedded.discovery_unavailable`), only when the IPv4 table, the one web engines open their
+  debugging port on, could not be read several times in a row.
 - **A Chromium session reaches the first window sooner.** It looks for the browser's debugging port
   every 10 ms instead of every 150 ms and connects by the address the browser writes beside the port,
   so the first window of an application is paused for the time shim more often.

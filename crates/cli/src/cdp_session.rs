@@ -25,7 +25,7 @@ use crate::events::{
 };
 use crate::wire::spawn_command_reader;
 use crate::cdp_attach::{Attacher, Pumped, END_WAIT};
-use crate::cdp_clock::{cdp_resolve_jump, cdp_schedule_expr, cdp_set_expr, CdpClock, HostAxis, DRIFT_MS};
+use crate::cdp_clock::{cdp_resolve_jump, cdp_schedule_expr, cdp_set_expr, resync_due, CdpClock, HostAxis};
 use crate::cdp_audit::{
     covered_channels, coverage_events, cdp_verdict, session_warnings,
     verdict_keys, SessionFacts,
@@ -315,7 +315,7 @@ impl WallWatch {
     fn turn(&mut self, clock: &mut CdpClock, attacher: &mut Attacher, next_index: &mut u32) {
         let now = self.axis.now();
         clock.set_wall_offset(now_epoch_ms().saturating_sub(now));
-        if clock.pages_drift_ms(self.pushed_offset).abs() > DRIFT_MS {
+        if resync_due(clock.pages_drift_ms(now, self.pushed_offset), clock.mult_at(now)) {
             attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin(), next_index);
             self.pushed(clock);
         }

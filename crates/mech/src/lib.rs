@@ -2238,30 +2238,35 @@ mod tests {
                 SE_DEBUG_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_PRIVILEGES_ATTRIBUTES, TOKEN_QUERY,
             };
             use windows::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
-            let mut token = HANDLE::default();
             let mut luid = LUID::default();
-            // SAFETY: every out-parameter is a local of this frame, and the token handle is closed by
-            // the drop, after the thread has gone back to the process token.
+            // SAFETY: every out-parameter is a local of this frame or the guard's own handle. The guard
+            // exists from the moment the thread impersonates, so a call that fails after it - and
+            // panics the test - still sends the thread back to the process token and closes the handle
+            // (CodeRabbit on #110).
             unsafe {
                 ImpersonateSelf(SecurityImpersonation).expect("a token of this thread's own");
-                OpenThreadToken(GetCurrentThread(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, true, &mut token).expect("that token");
+                let mut guard = NoDebugPrivilege(HANDLE::default());
+                OpenThreadToken(GetCurrentThread(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, true, &mut guard.0).expect("that token");
                 LookupPrivilegeValueW(None, SE_DEBUG_NAME, &mut luid).expect("the debug privilege's id");
                 let off = TOKEN_PRIVILEGES {
                     PrivilegeCount: 1,
                     Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: TOKEN_PRIVILEGES_ATTRIBUTES(0) }],
                 };
-                AdjustTokenPrivileges(token, false, Some(&off), 0, None, None).expect("the privilege switched off");
+                AdjustTokenPrivileges(guard.0, false, Some(&off), 0, None, None).expect("the privilege switched off");
+                guard
             }
-            NoDebugPrivilege(token)
         }
     }
 
     impl Drop for NoDebugPrivilege {
         fn drop(&mut self) {
-            // SAFETY: the thread goes back to the process token, then the copy's handle is closed once.
+            // SAFETY: the thread goes back to the process token, then the copy's handle, when there is
+            // one, is closed once.
             unsafe {
                 let _ = windows::Win32::Security::RevertToSelf();
-                let _ = CloseHandle(self.0);
+                if !self.0.is_invalid() {
+                    let _ = CloseHandle(self.0);
+                }
             }
         }
     }

@@ -195,18 +195,23 @@ struct Failures {
 }
 
 impl Failures {
-    /// Take one read: a table resets the count, a failure counts until [`UNREADABLE_SWEEPS`].
+    /// Take one read: a table with IPv4 in it resets the count, and a read without it counts until
+    /// [`UNREADABLE_SWEEPS`]. The IPv4 table is the one an engine opens its debugging port on
+    /// (`127.0.0.1`), so the session cannot look for engines without it, and that loss reaches the report
+    /// as before (`embedded.discovery_unavailable`) - looking on with IPv6 alone and saying it on stderr
+    /// only took it out (CodeRabbit on #110). One without IPv6 is a table: what it misses is an engine
+    /// someone opened on `::1`, which is said on stderr.
     fn note(&mut self, read: Result<ListenerTable, String>) -> Read {
-        match read {
-            Ok(table) => {
+        let failed = match read {
+            Ok(table) if table.ipv4_read => {
                 self.in_a_row = 0;
-                Read::Table(table.sockets)
+                return Read::Table(table.sockets);
             }
-            Err(e) => {
-                self.in_a_row += 1;
-                if self.in_a_row >= UNREADABLE_SWEEPS { Read::GiveUp(e) } else { Read::Again }
-            }
-        }
+            Ok(table) => table.unread.unwrap_or_else(|| "IPv4: the table was not read".to_string()),
+            Err(e) => e,
+        };
+        self.in_a_row += 1;
+        if self.in_a_row >= UNREADABLE_SWEEPS { Read::GiveUp(failed) } else { Read::Again }
     }
 }
 
@@ -548,12 +553,28 @@ mod tests {
             assert_eq!(failures.note(Err("busy".into())), Read::Again);
         }
         let one = listener(1, 9222, true);
-        let partial = ListenerTable { sockets: vec![one], unread: Some("IPv6: failed".into()) };
+        let partial = ListenerTable { sockets: vec![one], unread: Some("IPv6: failed".into()), ipv4_read: true };
         assert_eq!(failures.note(Ok(partial)), Read::Table(vec![one]), "the table that was read counts");
         for _ in 1..UNREADABLE_SWEEPS {
             assert_eq!(failures.note(Err("busy".into())), Read::Again, "the count started over");
         }
         assert_eq!(failures.note(Err("still busy".into())), Read::GiveUp("still busy".into()));
+    }
+
+    /// CodeRabbit on #110: a read without the IPv4 table - the one engines open their port on - is a
+    /// failed read for the discovery, so its loss ends in `embedded.discovery_unavailable` as before
+    /// instead of a line on stderr while the session looks on with IPv6 alone.
+    #[test]
+    fn a_read_without_the_ipv4_table_counts_as_a_failed_read() {
+        let mut failures = Failures::default();
+        let v6_only = || {
+            let only = Listener { pid: 1, port: 9222, loopback: true, v6: true, addr_v4: 0 };
+            Ok(ListenerTable { sockets: vec![only], unread: Some("IPv4: failed with 8".into()), ipv4_read: false })
+        };
+        for _ in 1..UNREADABLE_SWEEPS {
+            assert_eq!(failures.note(v6_only()), Read::Again);
+        }
+        assert_eq!(failures.note(v6_only()), Read::GiveUp("IPv4: failed with 8".into()));
     }
 
     fn listener(pid: u32, port: u16, loopback: bool) -> Listener {

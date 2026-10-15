@@ -123,11 +123,17 @@ impl CdpClock {
         self.wall_offset
     }
 
-    /// How far, in fake ms, the pages stand from this clock when they were last given it at
+    /// How far, in fake ms, the pages stand from this clock at `now` when they were last given it at
     /// `pushed_offset`: the system clock they read moved by the difference since, and their wall with
-    /// it, times the rate. Positive means the pages run ahead - after a sleep, say.
-    pub(crate) fn pages_drift_ms(&self, pushed_offset: i64) -> i64 {
-        self.wall_offset.saturating_sub(pushed_offset).saturating_mul(self.segment.mult)
+    /// it, times the rate they run at now - a change scheduled for an instant already past included
+    /// (CodeRabbit on #110). Positive means the pages run ahead - after a sleep, say.
+    pub(crate) fn pages_drift_ms(&self, now: i64, pushed_offset: i64) -> i64 {
+        self.wall_offset.saturating_sub(pushed_offset).saturating_mul(self.segment_at(now).mult)
+    }
+
+    /// The rate the clock runs at `now`, a scheduled change already past included.
+    pub(crate) fn mult_at(&self, now: i64) -> i64 {
+        self.segment_at(now).mult
     }
 
     /// A rate change as the pages take it: its instant on the system clock they read.
@@ -354,6 +360,21 @@ pub(crate) fn shim_origin_from_state(state: &chrono_mech::SessionState, scale_du
 /// by in ordinary running, so a re-anchor happens across a sleep or a clock correction and not otherwise.
 pub(crate) const DRIFT_MS: i64 = 1_000;
 
+/// The least real time the pages stand from the session clock before they are given it again, however
+/// fast the clock runs (CodeRabbit on #110). The two clocks are read in whole milliseconds, so they
+/// disagree by one now and then in ordinary running, and at x10 000 one millisecond is ten seconds of
+/// session time - past [`DRIFT_MS`] on every turn, a clock move to every page each time.
+pub(crate) const RESYNC_FLOOR_MS: i64 = 50;
+
+/// Whether pages that stand `drift_fake_ms` of session time from the clock running at `mult` are to
+/// be given it again: past [`DRIFT_MS`] of session time and [`RESYNC_FLOOR_MS`] of real time both. A
+/// frozen clock never drifts.
+pub(crate) fn resync_due(drift_fake_ms: i64, mult: i64) -> bool {
+    let drift = drift_fake_ms.unsigned_abs();
+    let real = drift.checked_div(mult.unsigned_abs()).unwrap_or(0);
+    drift > DRIFT_MS.unsigned_abs() && real >= RESYNC_FLOOR_MS.unsigned_abs()
+}
+
 /// How far, in fake milliseconds, the clock the pages were last given has walked away from the
 /// session clock: what a page would read now from the origin it holds, minus what the host reads
 /// now (`fresh` is the host's fake and real wall at one instant). The two clocks stand on different
@@ -459,17 +480,35 @@ mod tests {
         let origin = clock.shim_origin();
         let page_reads = origin.fake0 + (wall_now - origin.real0) * origin.mult;
         assert_eq!(page_reads, clock.fake_wall_ms(session_now), "a page given the clock now reads the panel's");
-        assert_eq!(clock.pages_drift_ms(0), 300_000, "the pages of before the sleep run five seconds times 60 ahead");
-        assert!(clock.pages_drift_ms(0) > DRIFT_MS);
-        assert_eq!(clock.pages_drift_ms(5_000), 0, "pages given it after the sleep do not");
+        assert_eq!(clock.pages_drift_ms(session_now, 0), 300_000, "the pages of before the sleep run five seconds times 60 ahead");
+        assert!(resync_due(clock.pages_drift_ms(session_now, 0), 60));
+        assert_eq!(clock.pages_drift_ms(session_now, 5_000), 0, "pages given it after the sleep do not");
         let next = clock.set_multiplier_at(1, session_now);
         assert_eq!(clock.for_pages(next).at_ms, next.at_ms + 5_000, "the change at the same instant on their clock");
         assert_eq!(clock.shim_origin().scheduled.map(|s| s.at_ms), Some(next.at_ms + 5_000));
+        // CodeRabbit on #110: once the change's instant is past, the drift is at the rate the pages run
+        // at then - x1 here, where the segment still says x60.
+        assert_eq!(clock.pages_drift_ms(next.at_ms + 1, 0), 5_000, "five seconds at x1");
         // The panel's real wall is the system clock's.
         match clock.state_event_at(session_now) {
             Event::State { real, .. } => assert_eq!(real.wall, epoch_ms_to_wall(wall_now, 0)),
             other => panic!("expected state, got {other:?}"),
         }
+    }
+
+    /// CodeRabbit on #110: the pages are given the clock again past a second of session time AND 50 ms
+    /// of real time. The two clocks are read in whole milliseconds and disagree by one now and then, which
+    /// at x10 000 is ten seconds of session time - every turn would have moved every page.
+    #[test]
+    fn a_resync_needs_session_time_and_real_time_both() {
+        assert!(!resync_due(10_000, 10_000), "1 ms of real time at x10 000 is not a sleep");
+        assert!(!resync_due(-20_000, 10_000), "nor 2 ms the other way");
+        assert!(resync_due(500_000, 10_000), "50 ms at x10 000 is");
+        assert!(!resync_due(999, 1), "under a second at x1 is not");
+        assert!(resync_due(1_001, 1), "over a second at x1 is");
+        assert!(!resync_due(2_400, 60), "40 ms at x60 is not");
+        assert!(resync_due(3_000, 60), "50 ms at x60 is");
+        assert!(!resync_due(0, 0), "a frozen clock never drifts");
     }
 
     /// A FILETIME to epoch milliseconds, and the end of the range does not come out as a date before
