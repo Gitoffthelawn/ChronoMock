@@ -54,7 +54,7 @@ public class LocalizationTests
         "inheritance.children_uncovered", "embedded.web_engine_uncovered",
         "embedded.web_engine_processes_uncovered",
         // The embedded-engine channel (docs/09 section 12): the pages inside the application.
-        "embedded.web_engine_reached", "embedded.debug_port_open", "embedded.engine_unreachable",
+        "embedded.web_engine_reached", "embedded.debug_port_open", "embedded.variables_outlive_session", "embedded.engine_unreachable",
         "embedded.discovery_unavailable", "embedded.qt_port_taken", "embedded.zone_is_host",
         "embedded.registry_arguments_hidden", "embedded.pages_not_released", "embedded.zone_kept",
         "embedded.webview2_not_reached", "embedded.elevated_host",
@@ -71,7 +71,7 @@ public class LocalizationTests
         // A process of the session the core could not wait on (R5-D3).
         "session.member_unwatchable",
         "chromium.launched_with_debug_port", "chromium.app_closed_before_audit",
-        "chromium.rate_change_affects_running_timers", "chromium.context_ceiling_reached",
+        "chromium.rate_change_affects_running_timers", "chromium.contexts_pooled", "chromium.context_reached_running",
         // A page that took a speed change or a jump late or not at all (R4-S17).
         "chromium.clock_move_missed",
         // The target handed the application over to another program and the session went on with it

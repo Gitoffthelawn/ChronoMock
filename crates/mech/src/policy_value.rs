@@ -285,8 +285,9 @@ fn readings_say_alive(read: Option<u64>, expected: u64, waited: WAIT_EVENT) -> b
 
 /// What a process that cannot be opened is taken for. "Access denied" means it exists and will not
 /// answer, so it is alive: the question decides whether to delete something, and a guess must never
-/// destroy what a live session owns. Any other failure is a pid nothing answers to.
-fn open_error_means_alive(code: windows::core::HRESULT) -> bool {
+/// destroy what a live session owns. Any other failure is a pid nothing answers to. The one rule for
+/// every such question in this crate - `process_is_alive` asks it too (R5-P24).
+pub(crate) fn open_error_means_alive(code: windows::core::HRESULT) -> bool {
     code == ERROR_ACCESS_DENIED.to_hresult()
 }
 

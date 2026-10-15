@@ -216,7 +216,11 @@ const SHIM_TEMPLATE: &str = r#"(function(){
   };
   checkZone();
   checkHidden();
-  return 'installed';
+  /* Whether the page's own scripts were here before the shim (R5-P7): a script element already in the
+     document has run, or is about to, and may have read the real clock first. A new document's hook
+     runs before any of them, so it finds none. A worker cannot tell - the session knows that from
+     whether the worker was paused on start. */
+  return (typeof document !== 'undefined' && document.scripts && document.scripts.length > 0) ? 'running' : 'installed';
 })()"#;
 
 /// Read a context's per-API call counts and its audit facts (or `null` if the shim is not installed
@@ -382,6 +386,10 @@ pub struct Injected {
     pub script: Option<String>,
     /// Whether the context took auto-attach (see [`auto_attach_children`]).
     pub children: bool,
+    /// Whether the shim found the page's own scripts already in its document (R5-P7) - they may have
+    /// read the real clock before it. Always `false` for a worker, which the caller judges by whether
+    /// it was paused on start.
+    pub running: bool,
 }
 
 /// Install the shim into a page (or frame) session: as an add-script hook so every future document
@@ -418,13 +426,16 @@ pub fn inject_page(client: &mut CdpClient, session_id: &str, shim: &str, zone: O
             return Err(e);
         }
     };
-    if let Err(e) = shim_reply(client, shimmed, deadline) {
-        take_back(client, session_id, script.as_deref());
-        return Err(e);
-    }
+    let running = match shim_reply(client, shimmed, deadline) {
+        Ok(answer) => answer == "running",
+        Err(e) => {
+            take_back(client, session_id, script.as_deref());
+            return Err(e);
+        }
+    };
     let children = auto_attach_children(client, session_id, deadline);
     let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
-    Ok(Injected { script, children })
+    Ok(Injected { script, children, running })
 }
 
 /// Take back an injection that failed after its first steps went in (CodeRabbit on #85). The caller
@@ -460,7 +471,7 @@ pub fn inject_worker(client: &mut CdpClient, session_id: &str, shim: &str, zone:
     // the worker is released, so one it starts in its first script is paused for the shim too.
     let children = auto_attach_children(client, session_id, deadline);
     let _ = client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(session_id));
-    Ok(Injected { script: None, children })
+    Ok(Injected { script: None, children, running: false })
 }
 
 /// Put a context on the session's zone, without waiting: `zone` is a [`zone_id`], `None` for a session
@@ -500,7 +511,7 @@ pub fn script_identifier(reply: &Value) -> Option<String> {
 /// shim must never fail silently - an uncovered context is an honest non-effect, not a hidden one).
 fn evaluate_shim(client: &mut CdpClient, session_id: &str, shim: &str, deadline: Instant) -> io::Result<()> {
     let shimmed = send_shim(client, session_id, shim)?;
-    shim_reply(client, shimmed, deadline)
+    shim_reply(client, shimmed, deadline).map(|_| ())
 }
 
 /// Send the shim to the context's current document, without waiting.
@@ -508,13 +519,14 @@ fn send_shim(client: &mut CdpClient, session_id: &str, shim: &str) -> io::Result
     client.send("Runtime.evaluate", json!({ "expression": shim, "returnByValue": true }), Some(session_id))
 }
 
-/// Wait by `deadline` for the shim's reply, an error when it threw.
-fn shim_reply(client: &mut CdpClient, shimmed: u64, deadline: Instant) -> io::Result<()> {
+/// Wait by `deadline` for the shim's reply, an error when it threw - its answer otherwise
+/// (`installed`, `running`, `already`, empty when it gave none).
+fn shim_reply(client: &mut CdpClient, shimmed: u64, deadline: Instant) -> io::Result<String> {
     let r = client.reply_until(shimmed, "Runtime.evaluate", deadline)?;
     if let Some(exc) = r.get("exceptionDetails") {
         return Err(shim_error(exc));
     }
-    Ok(())
+    Ok(r["result"]["value"].as_str().unwrap_or("").to_string())
 }
 
 /// The exception a target's JS engine reported for the shim, as an `io::Error`. Split out for the
@@ -862,7 +874,19 @@ mod tests {
         assert!(s.contains("document.addEventListener('visibilitychange', checkHidden);"));
         assert!(s.contains("    checkHidden();\n    var o = {};"), "every audit looks");
         assert!(s.contains("    o.hidden = S.hiddenFast;"));
-        assert!(s.contains("  checkHidden();\n  return 'installed';"), "the install looks");
+        assert!(s.contains("  checkHidden();\n  /* Whether the page's own scripts"), "the install looks");
+    }
+
+    /// R5-P7: the shim says whether the page's own scripts were in its document before it - they may
+    /// have read the real clock first - and the session counts that page as reached while running. A
+    /// new document's hook runs before them and finds none.
+    #[test]
+    fn the_shim_says_when_it_found_the_pages_scripts_before_it() {
+        let s = build_shim(0, 0, 1, 1, None, 0, None);
+        assert!(
+            s.contains("return (typeof document !== 'undefined' && document.scripts && document.scripts.length > 0) ? 'running' : 'installed';"),
+            "{s}"
+        );
     }
 
     /// The zone the override names is the session's fixed offset, from a bias in Windows' sense.
@@ -888,7 +912,7 @@ mod tests {
         assert!(s.contains("O.Z = -330;"), "a second install carries the zone too");
         assert!(s.contains("getTimezoneOffset() !== S.Z) { S.zoneMissed = 1; }"));
         assert!(s.contains("S.audit = function(){\n    checkZone();"));
-        assert!(s.contains("  checkZone();\n  checkHidden();\n  return 'installed';"));
+        assert!(s.contains("  checkZone();\n  checkHidden();\n  /* Whether the page's own scripts"));
         assert!(build_shim(0, 0, 1, 1, None, 0, None).contains("Z: null,"));
         assert!(COUNTS_EXPR.contains("__chronomock.audit()"));
     }

@@ -31,8 +31,9 @@ use crate::cli::{this_bitness, CORE_VERSION};
 use crate::embedded::{is_renderer_role, is_web_engine_subprocess, role_from_command_line};
 use crate::embedded_bridge::{reconcile_engine_warnings, EmbeddedBridge, Launch, KEY_REGISTRY_ARGUMENTS_HIDDEN};
 use crate::events::{
-    command_id, emit, emit_coverage, ended_clean, jump_error_key, moment_error_key, start_time_mode,
-    state_event, state_event_from, unsupported_command,
+    command_id, emit, emit_coverage, ended_clean, jump_error_key, moment_error_key, reported_sleep_ms,
+    sleep_to_announce, start_time_mode, state_event, state_event_from, unsupported_command, KEY_HOST_SLEPT,
+    SLEPT_REPORTED_MS,
 };
 use crate::grammar::parse_shift;
 use crate::output::diag;
@@ -732,28 +733,8 @@ pub(crate) fn native_session_warnings(
     warnings
 }
 
-/// The shortest sleep of the machine the session tells about (R5-P1). The sleep bias moves only when the
-/// machine wakes, so any growth is a real sleep, and the threshold only keeps a resume of a fraction of a
-/// second out of the log - it is three orders of magnitude above the scatter that a difference of two clocks
-/// would have had (plan R5, 4.5).
-const SLEPT_REPORTED_MS: i64 = 1_000;
-
-/// The machine slept during the session, and the session clock stood still for it (ADR-5, docs/01 3.0a).
-const KEY_HOST_SLEPT: &str = "time.host_slept";
-
 /// An absolute deadline was converted to a delay before the session jumped or changed speed (R5-D2, R5-D35).
 const KEY_ABSOLUTE_DUE: &str = "timer.absolute_due_converted";
-
-/// How much sleep the log owes: everything since the last announcement, once it reaches the threshold.
-fn sleep_to_announce(announced_ms: i64, total_ms: i64) -> Option<i64> {
-    let new = total_ms.saturating_sub(announced_ms);
-    (new >= SLEPT_REPORTED_MS).then_some(new)
-}
-
-/// The total sleep as `session_verdict` carries it: 0, which the wire leaves out, below the threshold.
-fn reported_sleep_ms(total_ms: i64) -> u64 {
-    if total_ms >= SLEPT_REPORTED_MS { total_ms as u64 } else { 0 }
-}
 
 /// The warnings about what the session's own clock meant for the application, each said only when it
 /// happened: the machine slept while the session clock stood still (R5-P1, R5-D34), and an absolute
@@ -909,7 +890,9 @@ pub(crate) fn close_session(
     // the verdict, so the verdict can say how that went.
     let policy_keys = policy.finish();
     let page_rows = covered_channels(pages.counts.clone());
-    family = family.combine(embedded_verdict(pages.reached, pages.seen.len(), !page_rows.is_empty(), pages.failed + pages.overflow));
+    // Pooled pages ran on the session clock (R5-P20), so only the ones the shim did not reach count
+    // against the verdict.
+    family = family.combine(embedded_verdict(pages.reached, pages.contexts, !page_rows.is_empty(), pages.failed));
     // An application that loaded WebView2 while no engine of it was reached: its pages may have run on
     // the real clock, and nothing the hook saw says otherwise - for an elevated host the engine is
     // started by a system service, so the hook never sees it at all. The family cannot be `works`.
@@ -984,7 +967,7 @@ pub(crate) fn close_session(
     let mut children_warnings = uncovered_children_warnings(&uncovered_children, uncovered_children_total);
     reconcile_engine_warnings(&mut children_warnings, every_renderer_reached(&uncovered_children, &pages.engines));
     session_warnings.extend(children_warnings);
-    session_warnings.extend(pages.session_warnings());
+    session_warnings.extend(pages.session_warnings(left_running));
     place_policy_keys(&mut session_warnings, policy_keys);
     if !followed.is_empty() {
         session_warnings.push(KEY_FOLLOWED_FAMILY.to_string());
@@ -1016,7 +999,7 @@ pub(crate) fn close_session(
         warning_keys: session_warnings,
         uncovered_children: named,
         uncovered_children_total,
-        context_count: pages.seen.len() as u32,
+        context_count: u32::try_from(pages.contexts).unwrap_or(u32::MAX),
         engines: pages.engines,
         // The image name comes from the process list, text from the target's world like the
         // uncovered children's, and passes the same sieve.
@@ -1025,6 +1008,8 @@ pub(crate) fn close_session(
             .map(|m| FollowedProcess { pid: m.pid, image: m.image.as_deref().map(crate::cdp::sanitise_target_text) })
             .collect(),
         host_slept_ms: reported_sleep_ms(final_state.host_slept_ms),
+        // A native session drives no browser of its own - the engines it reached say what they are.
+        browser: None,
     });
     emit(&Event::Ended {
         v: PROTOCOL_VERSION,

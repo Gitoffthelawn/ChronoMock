@@ -462,6 +462,7 @@
   // through its own web engine's debugging port and put on the session clock from there.
   "embedded.web_engine_reached": "One of them is a web engine's renderer - the process web pages run in. Those pages were reached through the engine's debugging port and ran on the session clock (the page rows in the table). The renderer's own native reads and the engine's helper processes ran on the real clock.",
   "embedded.debug_port_open": "A local debugging port was opened in this application's web engine for the session - that is how its pages were put on the session clock. It stays open to other programs on this computer for as long as the engine runs.",
+  "embedded.variables_outlive_session": "The application is still running with the setting that makes its web engine open a debugging port. A web view it opens from now on opens that port too, reachable by other programs on this computer. Restart the application to close it.",
   "embedded.engine_unreachable": "A web engine inside this application opened a debugging port, but the session could not attach to it. Its pages ran on the real clock.",
   "embedded.discovery_unavailable": "The session could not look for web engines inside this application, so any pages inside it ran on the real clock.",
   "embedded.qt_port_taken": "The port reserved for the application's Qt web engine was taken by something else before the engine could use it. Its pages could not be reached and ran on the real clock.",
@@ -527,7 +528,8 @@
   "chromium.followed_browser": "The program you started closed after handing the application over to another program, so the session went on with that program instead of ending with it.",
   "chromium.background_timers_slowed": "A window of this application was hidden or minimized while time ran faster. Its web engine slows timers in a hidden window to about once a second, so they may have run slower than the chosen speed while it was hidden. The option \"Keep timers at speed in hidden windows\" switches that off.",
   "chromium.main_process_uncovered": "This application is built on Electron. Its windows follow the fake clock, but the part of it that runs outside the windows reads the real date and time - a date it works out there, a reminder it schedules or a check it makes at start uses the real clock.",
-  "chromium.context_ceiling_reached": "The application opened more web pages and workers than one session can put under the fake clock (256). The ones past that read the real clock and are missing from the audit.",
+  "chromium.context_reached_running": "Some pages or workers were already running when the session reached them. Scripts that ran before that may have read the real clock, and a timer they set before keeps its real interval.",
+  "chromium.contexts_pooled":"The application opened more than 256 web pages and workers. All of them ran on the fake clock, and the ones past the 256th are counted together in the last row.",
   "chromium.rate_change_affects_running_timers": "The speed changed in flight: new timers and the clock reflect it at once, but a setInterval already running keeps its old cadence.",
   "chromium.clock_move_missed": "A web page took a speed change or a jump late or not at all, usually because it was busy, so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one.",
 

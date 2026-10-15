@@ -14,7 +14,7 @@ fn a_bound_loopback_listener_is_in_the_table_under_this_pid_and_gone_once_droppe
     let port = listener.local_addr().expect("the bound address is readable").port();
     let me = std::process::id();
 
-    let while_bound = chrono_mech::listening_sockets().expect("the table is readable");
+    let while_bound = chrono_mech::listening_sockets().expect("the table is readable").sockets;
     let ours: Vec<_> = while_bound.iter().filter(|l| l.pid == me && l.port == port).collect();
     assert_eq!(ours.len(), 1, "the table lists this process's listener once: {ours:?}");
     assert!(ours[0].loopback, "a 127.0.0.1 listener is a loopback listener");
@@ -22,7 +22,7 @@ fn a_bound_loopback_listener_is_in_the_table_under_this_pid_and_gone_once_droppe
     assert_eq!(ours[0].loopback_host(), "127.0.0.1");
 
     drop(listener);
-    let after = chrono_mech::listening_sockets().expect("the table is readable");
+    let after = chrono_mech::listening_sockets().expect("the table is readable").sockets;
     assert!(
         !after.iter().any(|l| l.pid == me && l.port == port),
         "the listener is still in the table after it was closed"
@@ -37,7 +37,7 @@ fn an_ipv6_loopback_listener_is_found_on_its_own_family_with_its_own_host() {
     let port = listener.local_addr().expect("the bound address is readable").port();
     let me = std::process::id();
 
-    let table = chrono_mech::listening_sockets().expect("the table is readable");
+    let table = chrono_mech::listening_sockets().expect("the table is readable").sockets;
     let ours = table
         .iter()
         .find(|l| l.pid == me && l.port == port && l.v6)
@@ -54,7 +54,7 @@ fn a_listener_on_every_address_is_not_a_loopback_listener() {
     let port = listener.local_addr().expect("the bound address is readable").port();
     let me = std::process::id();
 
-    let table = chrono_mech::listening_sockets().expect("the table is readable");
+    let table = chrono_mech::listening_sockets().expect("the table is readable").sockets;
     let ours = table
         .iter()
         .find(|l| l.pid == me && l.port == port)

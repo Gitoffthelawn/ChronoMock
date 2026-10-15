@@ -108,6 +108,9 @@ pub(crate) struct SessionReport {
     /// How long the machine slept during the session, from `session_verdict.host_slept_ms` - 0 when it
     /// did not, or the core did not say (R5-P1).
     pub(crate) host_slept_ms: u64,
+    /// What the browser of a Chromium session calls itself, from `session_verdict.browser` - which
+    /// engine the evidence is about (R5-D44). `None` for a native session.
+    pub(crate) browser: Option<String>,
     /// JS contexts the session covered beside its processes, from `session_verdict.context_count`.
     /// Zero for a native session that reached no embedded engine, and for a Chromium session, whose
     /// contexts already ride `process_count` (docs/08 9b).
@@ -324,8 +327,13 @@ fn describe_chromium_warning(key: &str) -> &'static str {
         "chromium.clock_move_missed" => {
             "a web page took a speed change or a jump late or not at all - usually because it was busy - so its clock stands apart from the session clock until the next jump, and reloading it may bring back an older one"
         }
-        "chromium.context_ceiling_reached" => {
-            "the app opened more web pages and workers than one session can put under the fake clock (256) - the ones past that read the real clock and are missing from the audit"
+        // R5-P7: covered from the moment the shim arrived, not from the context's start.
+        "chromium.context_reached_running" => {
+            "some pages or workers were already running when the session reached them - scripts they ran before that may have read the real clock, and a timer they set before keeps its real-time interval"
+        }
+        // R5-P20, R5-D8: the ceiling is the audit's, not the coverage's - the row this names is many.
+        "chromium.contexts_pooled" => {
+            "the application opened more than 256 web pages and workers - every one of them ran on the session clock, and the ones past the 256th are counted together in the last context row above"
         }
         _ => "",
     }
@@ -412,6 +420,10 @@ pub(crate) fn describe_warning(key: &str) -> String {
         }
         "embedded.debug_port_open" => {
             "a local debugging port was opened in this application's web engine for the session, which is how its pages were put on the session clock - it stays open to other programs on this computer for as long as the engine runs (the port is listed under the engines reached)"
+        }
+        // R5-B7, R5-D5: the environment of a process cannot be taken back, so a restart is the remedy.
+        "embedded.variables_outlive_session" => {
+            "the application is still running with the setting that makes its web engine open a debugging port - a web view it opens from now on opens that port too, reachable by other programs on this computer, until the application is restarted"
         }
         "embedded.engine_unreachable" => {
             "a web engine inside this application opened a debugging port and answered as one, but the session could not attach to it - its pages ran on the real clock"
@@ -979,9 +991,16 @@ pub(crate) fn sleep_label(ms: u64) -> String {
     }
 }
 
+/// The line under the target that names the browser a Chromium session drove (R5-D44), empty for a
+/// session that drove none. The version is part of the evidence: a page behaves by its engine.
+fn render_browser(browser: Option<&str>) -> String {
+    browser.map(|b| format!("  browser:  {b}\n")).unwrap_or_default()
+}
+
 pub(crate) fn render_report(r: &SessionReport) -> String {
     let mut out = String::from("Chrono Mock - session report\n");
     out.push_str(&format!("  target:   {}\n", r.target));
+    out.push_str(&render_browser(r.browser.as_deref()));
     // A Chromium session's coverage unit is a JS context, not an OS process (rule 4 - never sum
     // across units either way). Each row names its own unit - a native session can hold both kinds.
     let units = if r.cdp { "contexts" } else { "processes" };
@@ -1264,6 +1283,7 @@ mod tests {
             observed: vec![],
             capped: vec![],
             host_slept_ms: 0,
+            browser: None,
             timing: None,
             target_exit: None,
             residue: vec![],
@@ -1272,6 +1292,16 @@ mod tests {
             cdp: false,
             stopped_early: None,
         }
+    }
+
+    /// R5-D44: the browser a Chromium session drove is named under the target, and a session that
+    /// drove none has no such line.
+    #[test]
+    fn the_browser_a_chromium_session_drove_is_named_under_the_target() {
+        let r = SessionReport { cdp: true, browser: Some("Chrome/152.0.7977.149".into()), ..empty_report() };
+        let text = render_report(&r);
+        assert!(text.contains("  target:   app.exe\n  browser:  Chrome/152.0.7977.149\n"), "{text}");
+        assert!(!render_report(&empty_report()).contains("browser:"));
     }
 
     /// The processes the hook never got into have their own heading, each named with its role when

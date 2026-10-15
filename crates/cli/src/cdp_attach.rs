@@ -13,7 +13,7 @@
 //! context index counter: several attachers in one session (slice C) must hand out disjoint
 //! indexes, because the index is the unit's identity on the wire.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -22,6 +22,7 @@ use serde_json::json;
 use crate::cdp;
 use crate::cdp_audit::context_index_for;
 use crate::cdp_requests::{CdpContext, Requests, ZoneTally};
+use crate::output::diag;
 use crate::zone::{now_epoch_ms, WALL_MAX_MS};
 
 /// How long a clock move waits for the pages' new hooks before the command is acknowledged (R4-S10,
@@ -121,11 +122,22 @@ pub(crate) fn classify_clock_read(reply: Option<&str>, fake_now_ms: i64, real_no
     }
 }
 
-/// How many contexts one attacher will shim over its lifetime. The pid registry has the same shape
-/// of ceiling (`MAX_COV_PIDS` slots, `coverage.pid_registry_full`), for the same reason: a family that
-/// fans out without bound must not grow the audit without bound. A context past this is counted in
-/// `overflow` and not shimmed, and the caller says so (untouchable rule 4).
+/// How many contexts of one attacher get an audit row of their own. A family that fans out without
+/// bound must not grow the audit without bound, but the ceiling is the audit's, not the coverage's
+/// (R5-P20, R5-D8): a context past it is shimmed like any other and counted in one row together with
+/// the rest past it - the pool, which the caller names (`chromium.contexts_pooled`). It used to be
+/// refused the shim and ran on the real clock, and an application that starts a worker per task
+/// passed the ceiling in minutes (measured on Electron 44: every `new Worker()` is a target of its own).
 pub(crate) const MAX_CONTEXTS: usize = 256;
+
+/// How many target ids of contexts that went away are remembered, so one that comes back keeps its
+/// index (R3-7) while the memory stays bounded however many workers come and go (R5-Z2). Past this
+/// the oldest is forgotten, and a context that comes back after it gets a new index.
+const DETACHED_KEPT: usize = 4096;
+
+/// How many contexts the session could not cover are named on the diagnostic stream, one line each,
+/// before the rest are only counted - a page that fails over and over must not flood it.
+const SAID_MAX: u32 = 3;
 
 /// What one turn of the pump found.
 #[derive(Debug, PartialEq, Eq)]
@@ -183,10 +195,16 @@ fn drain_turn(first: Pumped, mut in_budget: impl FnMut() -> bool, mut next_ready
 /// because the session ended. The counts and the seen list are the audit's evidence, and an attacher
 /// dropped without this hand-over takes them with it (docs/09 section 12.17).
 pub(crate) struct AttacherOutcome {
+    /// The audit's rows: every context with a row of its own, then the pool's row when there is one.
     pub(crate) seen: Vec<u32>,
     pub(crate) counts: BTreeMap<(u32, String), u64>,
     pub(crate) failed: usize,
-    pub(crate) overflow: usize,
+    /// How many contexts were counted in the pool's row (R5-P20).
+    pub(crate) pooled: usize,
+    /// How many contexts were shimmed: the own rows and the pooled ones.
+    pub(crate) contexts: usize,
+    /// How many of them were reached while already running (R5-P7).
+    pub(crate) reached_running: usize,
     /// How many pages missed a clock move (`chromium.clock_move_missed`).
     pub(crate) moves_missed: usize,
     /// How many contexts read a zone other than the session's at some point.
@@ -203,19 +221,29 @@ pub(crate) struct Attacher {
     probe_clock: bool,
     /// Contexts found already on the session clock and left alone, for the diagnostic line.
     native: usize,
-    /// The context indexes refused past the ceiling, each once: a refused target that detaches and
-    /// re-attaches keeps its index and must not be counted again.
-    refused: HashSet<u32>,
     /// Who we still TALK to, and every request in flight to them (ADR-20).
     requests: Requests,
-    /// Who this attacher ever COVERED, in attach order, append-only: the audit is a record of what
-    /// happened, not of what is still open, so a context that reloaded or closed keeps its evidence
-    /// (R2-W1). Once per CONTEXT rather than once per attach.
+    /// Who this attacher ever COVERED with a row of its own, in attach order, append-only: the audit
+    /// is a record of what happened, not of what is still open, so a context that reloaded or closed
+    /// keeps its evidence (R2-W1). Once per CONTEXT rather than once per attach, at most
+    /// [`MAX_CONTEXTS`].
     seen: Vec<u32>,
     failed: usize,
-    overflow: usize,
-    /// targetId -> context index, so a re-attached context keeps the identity it already had.
+    /// The row the contexts past [`MAX_CONTEXTS`] are counted in: the index of the first of them.
+    pool: Option<u32>,
+    /// How many contexts were counted in the pool's row, each once.
+    pooled: usize,
+    /// How many contexts were reached while already running, each once (R5-P7).
+    reached_running: usize,
+    /// How many contexts the session could not cover were said on the diagnostic stream (R5-D6).
+    said: u32,
+    /// What closed the connection, when it closed (R5-D6).
+    closed_because: Option<String>,
+    /// targetId -> context index, so a re-attached context keeps the identity it already had. Live
+    /// contexts always, the ones that went away while they are among the last [`DETACHED_KEPT`].
     index_by_target: HashMap<String, u32>,
+    /// The target ids of the contexts that went away, oldest first (R5-Z2).
+    detached: VecDeque<String>,
     /// The session is ending: a context that attaches now is let go without a shim. It would get a
     /// clock nobody moves or releases any more, and shimming it would hold the end for an attach.
     ending: bool,
@@ -235,7 +263,13 @@ impl Attacher {
     /// caller's next call. The host is `127.0.0.1` or `::1` - whichever family the listener was
     /// found on.
     pub(crate) fn connect(host: &str, port: u16, deadline: Instant) -> io::Result<Attacher> {
-        let mut client = cdp::CdpClient::connect_to_port(host, port, deadline)?;
+        Attacher::connect_by_path(host, port, None, deadline)
+    }
+
+    /// [`Attacher::connect`] by the browser endpoint's path when the caller has it - the one a browser
+    /// this session launched wrote beside its port (R5-WY9) - and over `/json/version` when not.
+    pub(crate) fn connect_by_path(host: &str, port: u16, path: Option<&str>, deadline: Instant) -> io::Result<Attacher> {
+        let mut client = cdp::CdpClient::connect_to_browser(host, port, path, deadline)?;
         client.call_until(
             "Target.setAutoAttach",
             json!({ "autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true }),
@@ -256,9 +290,13 @@ impl Attacher {
             requests: Requests::default(),
             seen: Vec::new(),
             failed: 0,
-            overflow: 0,
-            refused: HashSet::new(),
+            pool: None,
+            pooled: 0,
+            reached_running: 0,
+            said: 0,
+            closed_because: None,
             index_by_target: HashMap::new(),
+            detached: VecDeque::new(),
             ending: false,
             zone: None,
             zone_dirty: false,
@@ -267,6 +305,15 @@ impl Attacher {
 
     pub(crate) fn port(&self) -> u16 {
         self.port
+    }
+
+    /// What the browser calls itself (`Browser.getVersion`'s `product`), cleaned for the report, or
+    /// `None` when it did not say by `deadline` (R5-D6). Asked once the pages that already exist are
+    /// attached, so it costs the first page nothing - a context that attaches meanwhile waits in the
+    /// client's queue for the next turn.
+    pub(crate) fn browser_version(&mut self, deadline: Instant) -> Option<String> {
+        let reply = self.client.call_until("Browser.getVersion", json!({}), None, deadline).ok()?;
+        reply["product"].as_str().map(cdp::sanitise_target_text).filter(|p| !p.is_empty())
     }
 
     /// Put every context this attacher shims from now on in the session's zone, `bias_min` minutes
@@ -309,11 +356,15 @@ impl Attacher {
         let moves_missed = self.requests.moves_missed();
         let zone_missed = self.requests.zone_missed();
         let hidden_fast = self.requests.hidden_fast();
+        let seen = self.seen();
+        let contexts = self.contexts_covered();
         AttacherOutcome {
-            seen: self.seen,
-            counts: self.requests.into_counts(),
+            seen,
+            counts: self.requests.into_counts(self.pool),
             failed: self.failed,
-            overflow: self.overflow,
+            pooled: self.pooled,
+            contexts,
+            reached_running: self.reached_running,
             moves_missed,
             zone_missed,
             hidden_fast,
@@ -333,14 +384,24 @@ impl Attacher {
                 break;
             }
             let params = json!({ "targetId": tid, "flatten": true });
-            let Ok(reply) = self.client.call_until("Target.attachToTarget", params, None, deadline) else {
-                continue;
+            // A target the session could not attach to ran unreached, like one whose shim failed, and
+            // is counted the same way (R5-D6) - it used to be skipped without a word.
+            let reply = match self.client.call_until("Target.attachToTarget", params, None, deadline) {
+                Ok(reply) => reply,
+                Err(e) => {
+                    self.failed += 1;
+                    self.say("a page or worker could not be attached to", &e);
+                    continue;
+                }
             };
             let sid = reply["sessionId"].as_str().unwrap_or("").to_string();
             if sid.is_empty() {
+                self.failed += 1;
+                self.say("a page or worker could not be attached to", &"the browser named no session");
                 continue;
             }
-            self.shim(sid, ty, tid, origin, next_index, Some(deadline));
+            // Attached by name, so not paused on start: a target that was there before the session.
+            self.shim(Arrival { sid, ty, tid, waiting: false }, origin, next_index, Some(deadline));
             attached += 1;
         }
         Ok(attached)
@@ -395,10 +456,11 @@ impl Attacher {
                     // Auto-attach paused it on start, like everything it delivers. A target with no
                     // timer of ours to cover - or one that arrives as the session ends - is let go at
                     // once: left as it arrived, it would stay paused.
-                    self.resume(&sid);
+                    self.let_go(&sid);
                     return Pumped::Idle;
                 }
-                self.shim(sid, ty, tid, origin, next_index, None);
+                let waiting = params["waitingForDebugger"].as_bool().unwrap_or(false);
+                self.shim(Arrival { sid, ty, tid, waiting }, origin, next_index, None);
                 Pumped::Attached
             }
             // A context that went away - a closed window, a recycled worker. Dropped from the live
@@ -407,18 +469,46 @@ impl Attacher {
                 if method == "Target.detachedFromTarget" || method == "Target.targetDestroyed" =>
             {
                 let sid = params["sessionId"].as_str().unwrap_or("");
-                let tid = params["targetId"].as_str().unwrap_or("");
-                if self.requests.forget(sid, tid) {
-                    // It may have held its process's zone override for the others (see `zone_dirty`).
-                    self.zone_dirty = self.zone.is_some();
-                    Pumped::Detached
-                } else {
-                    Pumped::Idle
+                // A session that went away is that session alone: its target can have another session,
+                // the one this attacher drives - a second session on a target is let go (R5-Z3), and its
+                // going names the target too. Only a destroyed target, which names no session, takes
+                // every context of the target with it.
+                let tid = if method == "Target.detachedFromTarget" && !sid.is_empty() { "" } else { params["targetId"].as_str().unwrap_or("") };
+                let gone = self.requests.forget(sid, tid);
+                if gone.is_empty() {
+                    return Pumped::Idle;
                 }
+                for target in gone {
+                    self.remember_detached(target);
+                }
+                // It may have held its process's zone override for the others (see `zone_dirty`).
+                self.zone_dirty = self.zone.is_some();
+                Pumped::Detached
             }
             Ok(_) => Pumped::Idle,
-            Err(_) => Pumped::Closed,
+            Err(e) => {
+                // Kept for the caller, who knows whether the application closed with it (R5-D6).
+                self.closed_because.get_or_insert_with(|| e.to_string());
+                Pumped::Closed
+            }
         }
+    }
+
+    /// One line on the diagnostic stream for a context the session could not cover, at most
+    /// [`SAID_MAX`] a session, then one more that says the rest are only counted (R5-D6). The count is
+    /// the verdict's and the report's - this is the why, for the one reading the stream.
+    fn say(&mut self, what: &str, why: &dyn std::fmt::Display) {
+        self.said += 1;
+        if self.said <= SAID_MAX {
+            diag!("chrono core: {what}: {why}");
+        } else if self.said == SAID_MAX + 1 {
+            diag!("chrono core: more pages or workers could not be covered - they are counted, not listed");
+        }
+    }
+
+    /// Why the connection closed, when it did.
+    pub(crate) fn closed_because(&self) -> Option<&str> {
+        self.closed_because.as_deref()
     }
 
     /// Handle what comes until `done` says so or `deadline` passes - the one place an attacher waits
@@ -440,34 +530,35 @@ impl Attacher {
     /// Give a newly attached context its index and its shim. The index is keyed by the CDP targetId,
     /// which Chromium keeps across re-attaches (R3-7). The shim is built from the clock's CURRENT
     /// origin, never the session's initial one.
-    fn shim(&mut self, sid: String, ty: String, tid: String, origin: ShimOrigin, next_index: &mut u32, cap: Option<Instant>) {
+    fn shim(&mut self, arrival: Arrival, origin: ShimOrigin, next_index: &mut u32, cap: Option<Instant>) {
+        let Arrival { sid, ty, tid, waiting } = arrival;
+        // The session this attacher drives already, announced again: a by-name attach is also announced
+        // as an attach event (measured on Electron 44 in flatten mode), and it is the same session, not
+        // a second one to let go - letting it go would detach the context the session covers.
+        if self.requests.contexts().iter().any(|c| c.session_id == sid) {
+            return;
+        }
         // A target reached twice while it is live - auto-attach and the by-name attach can both
         // deliver the same page - stays one context: the shim itself is idempotent, but a second
         // session on the list would be polled and broadcast to twice. The second session is let go
         // so it does not sit paused.
         if !tid.is_empty() && self.requests.contexts().iter().any(|c| c.target_id == tid) {
-            self.resume(&sid);
+            self.let_go(&sid);
             return;
         }
         // One deadline for everything this attach asks the context (R4-S10): each call used to have
         // its own, so one context in a busy renderer could hold the session for several of them.
         let deadline = attach_deadline(Instant::now(), self.client.call_budget(), cap);
+        let known = !tid.is_empty() && self.index_by_target.contains_key(&tid);
         let index = context_index_for(&tid, &mut self.index_by_target, next_index);
-        if past_ceiling(&self.seen, index) {
-            // Counted once per context, said by the caller (rule 4), and released: a context refused
-            // the shim runs on the real clock, it does not stand paused for the rest of the session -
-            // and when it re-attaches under the same index it is the same refused context, not another.
-            if self.refused.insert(index) {
-                self.overflow += 1;
-            }
-            self.resume(&sid);
-            return;
-        }
+        // Past the ceiling of own rows the context is shimmed all the same and counted in the pool's
+        // row (R5-P20): a ceiling on the audit must not take the coverage away (rule 27).
+        let pooled = past_ceiling(&self.seen, index);
         if self.probe_clock && self.reads_session_clock_natively(&sid, origin, deadline) {
             // Covered by the native mechanism already: it has a row of its own under its pid, and a
             // shim here would scale the fake wall twice. Released, and not counted as a context.
             self.native += 1;
-            self.resume(&sid);
+            self.let_go(&sid);
             return;
         }
         let shim = origin.shim(self.zone);
@@ -478,24 +569,39 @@ impl Attacher {
             cdp::inject_page(&mut self.client, &sid, &shim, zone.as_deref(), deadline)
         };
         match injected {
-            Ok(cdp::Injected { script, children }) => {
+            Ok(cdp::Injected { script, children, running }) => {
                 if !children && cdp::starts_workers(&ty) {
                     // The context is on the session clock, but it refused auto-attach, so a worker it
                     // starts runs on the real clock unseen. Counted as one that could not be reached,
                     // so the verdict says some were not rather than that all were (rule 4).
                     self.failed += 1;
                 }
-                if !self.seen.contains(&index) {
+                // Reached while it was already running (R5-P7): a page whose own scripts the shim found
+                // before it, a worker that was not paused on start. Its scripts may have read the real
+                // clock first - said, once per context. A page paused on start finds no scripts.
+                let late = if cdp::is_worker(&ty) { !waiting } else { running };
+                if late && !known {
+                    self.reached_running += 1;
+                }
+                if pooled {
+                    // Once per context: a pooled one that comes back under its old index is not another.
+                    if !known {
+                        self.pooled += 1;
+                    }
+                    self.pool.get_or_insert(index);
+                } else if !self.seen.contains(&index) {
                     self.seen.push(index);
                 }
                 // The target named its own context type, and that name becomes a coverage key in the
                 // report and on the wire. Cleaned here, at the one place a context is built.
-                self.requests.push(CdpContext::new(index, sid, cdp::sanitise_target_text(&ty), tid, script));
+                self.requests.push(CdpContext::new(index, sid, cdp::sanitise_target_text(&ty), tid, script).pooled(pooled));
             }
-            Err(_) => {
+            Err(e) => {
                 // The shim did not take, and the injection stopped before its own resume call: let
-                // the context run unshimmed rather than paused, and count it as uncovered.
+                // the context run unshimmed rather than paused, and count it as uncovered - and say
+                // why, the text the target's engine gave being cleaned at its source (R5-D6).
                 self.failed += 1;
+                self.say("a page or worker could not take the time shim", &e);
                 self.resume(&sid);
             }
         }
@@ -517,6 +623,27 @@ impl Attacher {
     /// a target that is not paused answers the same, and one that is already gone errors harmlessly.
     fn resume(&mut self, sid: &str) {
         let _ = self.client.send("Runtime.runIfWaitingForDebugger", json!({}), Some(sid));
+    }
+
+    /// Release a target this session will not drive and detach from it (R5-Z3): a second session on a
+    /// target that has one, a context the native mechanism covers, a target with no JS of ours to cover,
+    /// one that arrives as the session ends. Left attached, the session stays open in the browser for
+    /// as long as the connection lives. Measured on Electron 44: a worker detached right after its
+    /// release runs on - a chain of a hundred workers, each started by the one before, ran through. NOT
+    /// for a context whose shim failed: its release is queued in its own session behind the shim
+    /// (`take_back`), and a detach could drop it.
+    fn let_go(&mut self, sid: &str) {
+        self.resume(sid);
+        let _ = self.client.send("Target.detachFromTarget", json!({ "sessionId": sid }), None);
+    }
+
+    /// Remember a target that went away for a while, so it keeps its index if it comes back, and forget
+    /// the oldest past [`DETACHED_KEPT`] unless it came back and is live (R5-Z2).
+    fn remember_detached(&mut self, target: String) {
+        let contexts = self.requests.contexts();
+        remember_detached_in(&mut self.detached, &mut self.index_by_target, target, DETACHED_KEPT, |t| {
+            contexts.iter().any(|c| c.target_id == t)
+        });
     }
 
     /// The clock moved - a rate change, a jump, a resync: give every page a new-document hook built on
@@ -626,14 +753,30 @@ impl Attacher {
         self.requests.contexts()
     }
 
-    /// Every context index this attacher ever shimmed, in attach order.
-    pub(crate) fn seen(&self) -> &[u32] {
-        &self.seen
+    /// The audit's rows: every context index shimmed with a row of its own, in attach order, then the
+    /// pool's row when contexts went past [`MAX_CONTEXTS`] (R5-P20).
+    pub(crate) fn seen(&self) -> Vec<u32> {
+        self.seen.iter().copied().chain(self.pool).collect()
     }
 
-    /// The counts, handed over for the end-of-session fold.
+    /// How many contexts this attacher shimmed: the ones with a row of their own and the pooled ones.
+    pub(crate) fn contexts_covered(&self) -> usize {
+        self.seen.len() + self.pooled
+    }
+
+    /// How many contexts were counted in the pool's row.
+    pub(crate) fn pooled(&self) -> usize {
+        self.pooled
+    }
+
+    /// How many contexts were reached while already running (R5-P7).
+    pub(crate) fn reached_running(&self) -> usize {
+        self.reached_running
+    }
+
+    /// The counts, handed over for the end-of-session fold, the pooled contexts' in the pool's row.
     pub(crate) fn into_counts(self) -> BTreeMap<(u32, String), u64> {
-        self.requests.into_counts()
+        self.requests.into_counts(self.pool)
     }
 
     /// How many contexts attached and could not be shimmed, plus the ones shimmed that refused to
@@ -642,10 +785,15 @@ impl Attacher {
         self.failed
     }
 
-    /// How many contexts were refused past [`MAX_CONTEXTS`].
-    pub(crate) fn overflow(&self) -> usize {
-        self.overflow
-    }
+}
+
+/// A target as it arrived: its session, its type and id as the browser named them, and whether it was
+/// paused on start (`waitingForDebugger`) - a target attached by name was not.
+struct Arrival {
+    sid: String,
+    ty: String,
+    tid: String,
+    waiting: bool,
 }
 
 /// The deadline of one attach: its own budget from `now`, or the caller's deadline when that comes
@@ -662,9 +810,32 @@ fn before(deadline: Instant, stage: Duration) -> Instant {
     deadline.checked_sub(stage).unwrap_or(deadline)
 }
 
-/// Whether a context with this index is one too many: the ceiling is on contexts ever seen, so a
-/// re-attach of a known context (same index) always gets back in, and only a NEW one past the
-/// ceiling is refused.
+/// [`Attacher::remember_detached`] over its parts, with the capacity as a parameter so the bound is
+/// tested without thousands of targets: `target` joins the list of the ones that went away, and past
+/// `kept` the oldest is forgotten from the index map - unless `live` says it came back.
+fn remember_detached_in(
+    detached: &mut VecDeque<String>,
+    index_by_target: &mut HashMap<String, u32>,
+    target: String,
+    kept: usize,
+    live: impl Fn(&str) -> bool,
+) {
+    if target.is_empty() {
+        return;
+    }
+    detached.push_back(target);
+    while detached.len() > kept {
+        if let Some(old) = detached.pop_front()
+            && !live(&old)
+        {
+            index_by_target.remove(&old);
+        }
+    }
+}
+
+/// Whether a context with this index is past the ceiling of own rows: the ceiling is on contexts ever
+/// seen, so a re-attach of a known context (same index) always gets its row back, and only a NEW one
+/// past the ceiling goes to the pool.
 fn past_ceiling(seen: &[u32], index: u32) -> bool {
     !seen.contains(&index) && seen.len() >= MAX_CONTEXTS
 }
@@ -692,6 +863,231 @@ fn new_targets(reply: &serde_json::Value, known: &HashMap<String, u32>) -> Vec<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R5-Z2: the ids of contexts that went away are kept for a while, so one that comes back keeps
+    /// its index, and past the capacity the oldest is forgotten - unless it came back and is live.
+    #[test]
+    fn the_targets_that_went_away_are_remembered_up_to_a_bound() {
+        let mut detached = VecDeque::new();
+        let mut index: HashMap<String, u32> = (1..=4).map(|n| (format!("T{n}"), n)).collect();
+        for n in 1..=3 {
+            remember_detached_in(&mut detached, &mut index, format!("T{n}"), 2, |t| t == "T2");
+        }
+        assert!(!index.contains_key("T1"), "the oldest past the bound is forgotten");
+        assert!(index.contains_key("T2"), "one that came back and is live is not");
+        assert!(index.contains_key("T3") && index.contains_key("T4"));
+        assert_eq!(detached.len(), 2, "the list stays at its bound");
+        remember_detached_in(&mut detached, &mut index, String::new(), 2, |_| false);
+        assert_eq!(detached.len(), 2, "a context with no id is nothing to remember");
+    }
+
+    /// R5-Z3: a target the session will not drive - one with no JS of ours to cover, and a second
+    /// session on a target that has one - is released and detached from, not left attached for the
+    /// rest of the session.
+    #[test]
+    fn a_target_the_session_will_not_drive_is_released_and_detached_from() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => {
+                    let attached = |sid: &str, tid: &str, ty: &str| {
+                        let params = json!({ "sessionId": sid, "targetInfo": { "targetId": tid, "type": ty }, "waitingForDebugger": true });
+                        (serde_json::Value::Null, json!({ "method": "Target.attachedToTarget", "params": params }))
+                    };
+                    vec![
+                        (id, json!({ "targetInfos": [] })),
+                        attached("S-GPU", "T-GPU", "other"),
+                        attached("S-W1", "T-W", "worker"),
+                        attached("S-W2", "T-W", "worker"),
+                    ]
+                }
+                "Runtime.evaluate" => vec![(id, json!({ "result": { "value": "installed" } }))],
+                // As Chromium answers it: the session that went names its target, which the context
+                // the session drives shares.
+                "Target.detachFromTarget" => {
+                    let sid = request["params"]["sessionId"].as_str().unwrap_or("").to_string();
+                    let tid = if sid == "S-W2" { "T-W" } else { "T-GPU" };
+                    let gone = json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": sid, "targetId": tid } });
+                    vec![(id, json!({})), (serde_json::Value::Null, gone)]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap();
+        for _ in 0..20 {
+            attacher.pump(origin, &mut next);
+        }
+        // Measured live before this was right: the second session's going names the target, and the
+        // context the first session drives was dropped with it - a page under the session lost its
+        // counts and the verdict said no JS time API was called.
+        let live: Vec<&str> = attacher.contexts().iter().map(|c| c.session_id.as_str()).collect();
+        assert_eq!(live, vec!["S-W1"], "the duplicate going does not take the context with it");
+        drop(attacher);
+        let log = browser.join().unwrap();
+        let detached: Vec<&str> = log
+            .iter()
+            .filter(|r| r["method"] == "Target.detachFromTarget")
+            .filter_map(|r| r["params"]["sessionId"].as_str())
+            .collect();
+        assert_eq!(detached, vec!["S-GPU", "S-W2"], "the target with no JS and the second session, not the shimmed one");
+        let resumed = |sid: &str| log.iter().any(|r| r["method"] == "Runtime.runIfWaitingForDebugger" && r["sessionId"] == sid);
+        assert!(resumed("S-GPU") && resumed("S-W2"), "each released before it is let go");
+    }
+
+    /// R5-D6: a target the by-name pass could not attach to ran unreached, and counts as such - it used
+    /// to be skipped without a word, and the verdict could say every context ran on the session clock.
+    #[test]
+    fn a_target_that_could_not_be_attached_to_counts_as_unreached() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "T1", "type": "page" }, { "targetId": "T2", "type": "page" }] }))],
+                "Target.attachToTarget" if request["params"]["targetId"] == "T2" => vec![(id, json!({}))],
+                "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
+                "Runtime.evaluate" => vec![(id, json!({ "result": { "value": "installed" } }))],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        assert_eq!(attacher.failed(), 1, "the one it could not attach to");
+        drop(attacher);
+        drop(browser);
+    }
+
+    /// R5-P7: a context reached while it was already running is counted, once - a page whose shim
+    /// found the page's own scripts before it, and a worker that was not paused on start. A worker
+    /// paused on start, and a page whose shim found no scripts, are not.
+    #[test]
+    fn a_context_reached_while_running_is_counted_once() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            let session = request["sessionId"].as_str().unwrap_or("").to_string();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => {
+                    let attached = |sid: &str, tid: &str, ty: &str, waiting: bool| {
+                        let params = json!({ "sessionId": sid, "targetInfo": { "targetId": tid, "type": ty }, "waitingForDebugger": waiting });
+                        (serde_json::Value::Null, json!({ "method": "Target.attachedToTarget", "params": params }))
+                    };
+                    vec![
+                        (id, json!({ "targetInfos": [] })),
+                        attached("S-LOADED", "T-LOADED", "page", false),
+                        attached("S-BLANK", "T-BLANK", "page", false),
+                        attached("S-RUN", "T-RUN", "worker", false),
+                        attached("S-NEW", "T-NEW", "worker", true),
+                    ]
+                }
+                "Runtime.evaluate" => {
+                    let answer = if session == "S-LOADED" { "running" } else { "installed" };
+                    vec![(id, json!({ "result": { "value": answer } }))]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap();
+        for _ in 0..20 {
+            attacher.pump(origin, &mut next);
+        }
+        assert_eq!(attacher.contexts().len(), 4, "all four were shimmed");
+        assert_eq!(attacher.reached_running(), 2, "the loaded page and the worker that was not paused");
+        drop(attacher);
+        drop(browser);
+    }
+
+    /// A by-name attach is announced again as an attach event in flatten mode (measured on Electron 44),
+    /// and that is the session the attacher drives, not a second one: it is neither let go nor
+    /// detached. Letting it go was harmless while it meant a resume, and took the page off the session
+    /// once it meant a detach (R5-Z3) - measured live, the page's counts never came and the verdict
+    /// said no JS time API was called.
+    #[test]
+    fn a_by_name_attach_announced_again_is_the_session_it_drives() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "T-P", "type": "page" }] }))],
+                "Target.attachToTarget" => {
+                    let echo = json!({ "method": "Target.attachedToTarget", "params": {
+                        "sessionId": "S-P", "targetInfo": { "targetId": "T-P", "type": "page" }, "waitingForDebugger": false } });
+                    vec![(id, json!({ "sessionId": "S-P" })), (serde_json::Value::Null, echo)]
+                }
+                "Runtime.evaluate" => vec![(id, json!({ "result": { "value": "installed" } }))],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap();
+        for _ in 0..20 {
+            attacher.pump(origin, &mut next);
+        }
+        let live: Vec<&str> = attacher.contexts().iter().map(|c| c.session_id.as_str()).collect();
+        assert_eq!(live, vec!["S-P"]);
+        drop(attacher);
+        let log = browser.join().unwrap();
+        assert!(!log.iter().any(|r| r["method"] == "Target.detachFromTarget"), "the session it drives is not detached");
+    }
+
+    /// R5-P20: a context past the ceiling of own rows is shimmed like any other and counted in one row
+    /// together with the rest past it. It used to be refused the shim and run on the real clock.
+    /// Measured on Electron 44 before the change: 300 workers, one after another, gave "contexts: 256",
+    /// `partial` and exit code 10.
+    #[test]
+    fn contexts_past_the_ceiling_are_shimmed_and_counted_together_in_the_last_row() {
+        const EXTRA: usize = 4;
+        let total = MAX_CONTEXTS + EXTRA;
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => {
+                    let targets: Vec<_> = (0..total).map(|n| json!({ "targetId": format!("W{n}"), "type": "worker" })).collect();
+                    vec![(id, json!({ "targetInfos": targets }))]
+                }
+                "Target.attachToTarget" => {
+                    let target = request["params"]["targetId"].as_str().unwrap_or("");
+                    vec![(id, json!({ "sessionId": format!("S-{target}") }))]
+                }
+                // The shim answers as installed, and every count request finds one call of Date.now.
+                "Runtime.evaluate" if request["params"]["expression"].as_str().unwrap_or("").contains("audit") => {
+                    vec![(id, json!({ "result": { "value": { "now": 1 } } }))]
+                }
+                "Runtime.evaluate" => vec![(id, json!({ "result": { "value": "installed" } }))],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(30)).unwrap(), total);
+        attacher.settle(origin, &mut next, Instant::now() + Duration::from_secs(5));
+        let outcome = attacher.into_outcome();
+        drop(browser);
+        assert_eq!(outcome.failed, 0, "no context was refused");
+        assert_eq!(outcome.contexts, total, "every context counts");
+        assert_eq!(outcome.pooled, EXTRA);
+        assert_eq!(outcome.seen.len(), MAX_CONTEXTS + 1, "the own rows, then the pool's");
+        let pool = *outcome.seen.last().unwrap();
+        assert_eq!(outcome.counts.get(&(pool, "worker Date.now".to_string())), Some(&(EXTRA as u64)), "the pool's calls, summed");
+        assert_eq!(outcome.counts.get(&(outcome.seen[0], "worker Date.now".to_string())), Some(&1), "an own row is its own");
+    }
 
     /// Measured on Chromium: a second page in a renderer process reads the zone override the first
     /// one holds, and goes back to the host's zone when the holder closes. So when a context goes away,

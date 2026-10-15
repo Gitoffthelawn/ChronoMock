@@ -20,11 +20,12 @@ use crate::cdp;
 use crate::output::diag;
 use crate::zone::{epoch_ms_to_wall, now_epoch_ms};
 use crate::events::{
-    command_id, emit, ended_after_launch, ended_clean, unsupported_command,
+    command_id, emit, ended_after_launch, ended_clean, reported_sleep_ms, sleep_to_announce, unsupported_command,
+    SLEPT_REPORTED_MS,
 };
 use crate::wire::spawn_command_reader;
 use crate::cdp_attach::{Attacher, Pumped, END_WAIT};
-use crate::cdp_clock::{cdp_resolve_jump, cdp_schedule_expr, cdp_set_expr, CdpClock};
+use crate::cdp_clock::{cdp_resolve_jump, cdp_schedule_expr, cdp_set_expr, CdpClock, HostAxis, DRIFT_MS};
 use crate::cdp_audit::{
     covered_channels, coverage_events, cdp_verdict, session_warnings,
     verdict_keys, SessionFacts,
@@ -45,8 +46,10 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     // `state` event, so the panel's fake clock matches what the app's own `Date.now()` reads (no skew
     // from the launch+attach duration). The moment is absolute here (the driver resolved a relative
     // --at before spawning) - an out-of-range moment is an honest error, never a silent fall-back to
-    // real time (untouchable rule 4).
-    let real_start_ms = now_epoch_ms();
+    // real time (untouchable rule 4). The clock runs on interrupt time, which a sleep does not move, and
+    // the pages are kept to it (R5-F6, `WallWatch`).
+    let mut watch = WallWatch::start();
+    let real_start_ms = watch.now();
     let bias = time.moment.tz_bias_min.unwrap_or(0);
     // The live session clock, computed Rust-side and kept in step with the shim: set_multiplier and
     // jump re-anchor it here and push the new origin to every context. The shim is built PER ATTACH from
@@ -82,7 +85,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     let mut launched = match cdp::launch_chromium(&target.path, &browser_args, target.cwd.as_deref(), || {
         if last_beat.elapsed() >= std::time::Duration::from_secs(1) {
             last_beat = std::time::Instant::now();
-            emit(&clock.state_event_at(now_epoch_ms()));
+            emit(&clock.state_event_at(watch.now()));
         }
     }) {
         Ok(l) => l,
@@ -95,7 +98,9 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
                 origin: "mechanism".into(),
             });
             diag!("chrono core: {e}");
-            emit(&ended_clean());
+            // A browser that never opened its port was ended and its profile removed before this - what
+            // could not be removed is said, not covered by a `clean: true` (R5-Z1).
+            emit(&ended_after_launch(e.residue));
             return 2;
         }
     };
@@ -110,7 +115,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     let start_by = Instant::now() + cdp::CONNECT_DEADLINE;
     // Every context goes on the session's zone, set before the first attach. The bias was checked when
     // the clock was built, so it is the zone the panel's fake wall is in.
-    let mut attacher = match Attacher::connect("127.0.0.1", launched.port, start_by).and_then(|mut a| {
+    let mut attacher = match Attacher::connect_by_path("127.0.0.1", launched.port, launched.ws_path.as_deref(), start_by).and_then(|mut a| {
         a.set_zone(bias);
         a.attach_existing(clock.shim_origin(), &mut next_index, start_by).map(|_| a)
     }) {
@@ -129,6 +134,8 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
             return 2;
         }
     };
+    // Which browser the evidence is about (R5-D44), asked now that the pages that existed are in.
+    let browser = attacher.browser_version(Instant::now() + BROWSER_VERSION_WAIT);
     // No start verdict for CDP: unlike the native guard window, at start there is nothing to judge yet
     // (contexts attach asynchronously and have made no time calls). The authoritative verdict is the
     // family `session_verdict` at end - emitting "undetermined" now would read as "not working" when it
@@ -152,6 +159,8 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
         // process that holds the debugging port from then on.
         let alive = launched.is_running();
         handoff.observe(alive, Instant::now(), || port_holder(port, launched_pid));
+        // Where the system clock stands against the session's, the pages kept to it, a sleep said.
+        watch.turn(&mut clock, &mut attacher, &mut next_index);
         // Drain protocol commands without blocking. A clock move waits for the pages up to
         // `MOVE_WAIT_MS`, so the heartbeat is looked at after every command rather than once the
         // queue is empty - commands back to back cannot add their waits into one silence (R4-S10).
@@ -159,9 +168,9 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
             match rx.try_recv() {
                 Ok(Command::End { .. }) => break 'session,
                 Ok(command) => {
-                    let moved = apply_command(command, &mut clock, &mut attacher, &mut next_index);
+                    let moved = apply_command(command, &mut clock, &mut attacher, &mut next_index, &mut watch);
                     rate_changed_in_flight |= moved;
-                    beat(&clock, &mut deadline, heartbeat);
+                    beat(&clock, &mut deadline, heartbeat, watch.now());
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => break 'session, // stdin closed (EOF)
@@ -176,7 +185,7 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
             break;
         }
         // ~1 s heartbeat (also when frozen) and ~1 s coverage sampling, asked for without waiting.
-        beat(&clock, &mut deadline, heartbeat);
+        beat(&clock, &mut deadline, heartbeat, watch.now());
         if last_audit.elapsed() >= Duration::from_secs(1) {
             attacher.request_counts();
             last_audit = Instant::now();
@@ -185,24 +194,28 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
     // Taken as the loop ends, before the settle below spends its wait: a launched process that ended
     // a few milliseconds before the connection closed is a browser that closed, not a handover.
     let followed = handoff.followed(Instant::now());
+    say_why_closed(app_closed && launched.is_running(), &attacher);
     // The last counts, and every clock move a page has not answered taken as missed.
     attacher.settle(clock.shim_origin(), &mut next_index, Instant::now() + END_WAIT);
     // Pages that took a clock move late or not at all (`chromium.clock_move_missed`, rule 6).
     let moves_missed = attacher.moves_missed();
-    let seen = attacher.seen().to_vec();
-    // A context the shim did not take in and a context refused past the ceiling are the same fact
-    // to the verdict: a context that ran on the real clock (untouchable rule 4). The ceiling gets
-    // its own warning so the reader learns WHY, not just that some were missed.
+    // The audit's rows, and every context the session shimmed - past the ceiling of own rows they
+    // are counted together in the last row, shimmed all the same (R5-P20).
+    let seen = attacher.seen();
+    let contexts = attacher.contexts_covered();
+    let pooled = attacher.pooled();
+    let reached_running = attacher.reached_running();
     let failed = attacher.failed();
-    let past_ceiling = attacher.overflow();
     let zone_missed = attacher.zone_missed();
     let hidden_fast = attacher.hidden_fast();
     let counts = attacher.into_counts();
     let audited = !counts.is_empty();
+    // The sleep the log still owes, and the whole of it for the verdict - as the native session says it.
+    let slept_ms = watch.finish();
 
     let covered = covered_channels(counts);
 
-    let verdict = cdp_verdict(seen.len(), !covered.is_empty(), failed + past_ceiling);
+    let verdict = cdp_verdict(contexts, !covered.is_empty(), failed);
     let (token, reason) = verdict_keys(&verdict);
 
     let facts = SessionFacts {
@@ -210,8 +223,10 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
         audited,
         rate_changed_in_flight,
         clock_moves_missed: moves_missed > 0,
-        context_ceiling_reached: past_ceiling > 0,
-        clock_clamped: clock.reached_range_end(now_epoch_ms()),
+        contexts_pooled: pooled > 0,
+        context_reached_running: reached_running > 0,
+        clock_clamped: clock.reached_range_end(watch.now()),
+        host_slept: slept_ms >= SLEPT_REPORTED_MS,
         followed_browser: followed.is_some(),
         zone_missed: zone_missed > 0,
         // Not said when the browser was started with the slowdown switched off - its timers kept the
@@ -223,13 +238,14 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
         emit(&event);
     }
 
-    emit_cdp_session_verdict(token, reason, seen.len() as u32, followed.unwrap_or_default());
+    let verdict_facts = VerdictFacts { followed: followed.unwrap_or_default(), browser, host_slept_ms: reported_sleep_ms(slept_ms) };
+    emit_cdp_session_verdict(token, reason, u32::try_from(contexts).unwrap_or(u32::MAX), verdict_facts);
 
     // Session timing from the live clock (correct across any in-flight rate changes and jumps): real is
     // the whole session, fake is the elapsed duration, and the end wall is where the fake clock landed.
     // Then tear down our instance (kill + remove the temp profile), reporting any cleanup residue
     // honestly via `ended.residue_keys` (rules 4, 6).
-    let end_now = now_epoch_ms();
+    let end_now = watch.now();
     let real_ms = clock.elapsed_real_ms(end_now);
     let fake_ms = clock.elapsed_fake_ms(end_now);
     let fake_end_wall = epoch_ms_to_wall(clock.fake_wall_ms(end_now), bias);
@@ -249,20 +265,89 @@ pub(crate) fn cdp_session(target: TargetSpec, time: TimeSpec, reader: BufReader<
 
 
 
-/// Emit `state` when the heartbeat is due - between commands as well as at the end of a turn.
-fn beat(clock: &CdpClock, deadline: &mut Instant, every: Duration) {
+/// Say why the debugging connection closed when the browser is still running - not the application
+/// closing, which is the ordinary end and says nothing, but a connection that dropped under a live
+/// browser (R5-D6). The session ended there all the same, and the reader of the diagnostic stream
+/// learns why instead of guessing.
+fn say_why_closed(closed_under_a_live_browser: bool, attacher: &Attacher) {
+    if closed_under_a_live_browser && let Some(why) = attacher.closed_because() {
+        diag!("chrono core: the debugging connection closed while the browser still runs: {why}");
+    }
+}
+
+/// Emit `state` when the heartbeat is due - between commands as well as at the end of a turn. `now`
+/// is on the session clock's axis ([`WallWatch::now`]).
+fn beat(clock: &CdpClock, deadline: &mut Instant, every: Duration, now: i64) {
     if Instant::now() >= *deadline {
-        emit(&clock.state_event_at(now_epoch_ms()));
+        emit(&clock.state_event_at(now));
         *deadline = Instant::now() + every;
+    }
+}
+
+/// The pages' clock kept to the session's across a sleep and a correction of the system clock (R5-F6,
+/// R5-D42). The session clock runs on [`HostAxis`], interrupt time, and the pages on their own
+/// `Date.now`, the system clock: a sleep or a correction moves the second and not the first, and the
+/// pages would read the session clock moved by it times the speed. When they stand more than
+/// [`DRIFT_MS`] from it, they are given the clock again - the wall alone moves, as in a jump - the way
+/// the pages of an engine inside an application are kept to the host (docs/09 section 12.5). A page
+/// that runs a script between the wake-up and that move reads the moved clock for that moment. The
+/// sleep itself is announced as the native session announces it.
+struct WallWatch {
+    axis: HostAxis,
+    /// Where the system clock stood against the axis when the pages were last given the clock.
+    pushed_offset: i64,
+    /// The sleep, in ms, the log has been told about so far.
+    slept_announced_ms: i64,
+}
+
+impl WallWatch {
+    fn start() -> WallWatch {
+        WallWatch { axis: HostAxis::start(), pushed_offset: 0, slept_announced_ms: 0 }
+    }
+
+    /// Now, on the session clock's axis.
+    fn now(&self) -> i64 {
+        self.axis.now()
+    }
+
+    /// One turn: put the clock on where the system clock stands, give the pages the clock again when
+    /// they stand too far from it, and announce the sleep the log owes.
+    fn turn(&mut self, clock: &mut CdpClock, attacher: &mut Attacher, next_index: &mut u32) {
+        let now = self.axis.now();
+        clock.set_wall_offset(now_epoch_ms().saturating_sub(now));
+        if clock.pages_drift_ms(self.pushed_offset).abs() > DRIFT_MS {
+            attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin(), next_index);
+            self.pushed(clock);
+        }
+        self.announce_sleep();
+    }
+
+    /// The pages were just given the clock - a jump, a rate change, a resync.
+    fn pushed(&mut self, clock: &CdpClock) {
+        self.pushed_offset = clock.wall_offset();
+    }
+
+    fn announce_sleep(&mut self) {
+        let total = self.axis.slept_ms();
+        if let Some(slept) = sleep_to_announce(self.slept_announced_ms, total) {
+            self.slept_announced_ms = total;
+            emit(&Event::HostSlept { v: PROTOCOL_VERSION, slept_ms: slept as u64, total_slept_ms: total as u64 });
+        }
+    }
+
+    /// The end: the sleep the log still owes, and the whole sleep of the session, in ms.
+    fn finish(&mut self) -> i64 {
+        self.announce_sleep();
+        self.axis.slept_ms()
     }
 }
 
 /// Answer one command that arrived mid-session (`end` is the loop's own business). Returns whether
 /// it changed the rate, for the end report's note about timers that were already running.
-fn apply_command(command: Command, clock: &mut CdpClock, attacher: &mut Attacher, next_index: &mut u32) -> bool {
+fn apply_command(command: Command, clock: &mut CdpClock, attacher: &mut Attacher, next_index: &mut u32, watch: &mut WallWatch) -> bool {
     match command {
         Command::Query { id, .. } => {
-            emit(&clock.state_event_at(now_epoch_ms()));
+            emit(&clock.state_event_at(watch.now()));
             emit(&Event::Ack { v: PROTOCOL_VERSION, id });
             false
         }
@@ -276,23 +361,26 @@ fn apply_command(command: Command, clock: &mut CdpClock, attacher: &mut Attacher
                 emit(&command_error(id, "time.bad_multiplier"));
                 return false;
             }
-            let next = clock.set_multiplier_at(multiplier, now_epoch_ms());
-            attacher.move_clock(&cdp_schedule_expr(next), clock.shim_origin(), next_index);
+            let next = clock.set_multiplier_at(multiplier, watch.now());
+            // The instant on the system clock the pages read (R5-F6).
+            attacher.move_clock(&cdp_schedule_expr(clock.for_pages(next)), clock.shim_origin(), next_index);
+            watch.pushed(clock);
             emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-            emit(&clock.state_event_at(now_epoch_ms()));
+            emit(&clock.state_event_at(watch.now()));
             true
         }
         Command::Jump { id, to, .. } => {
             // Move the wall to a new fake instant (absolute, or a relative delta on the current fake
             // time), leaving the duration axis untouched (rule 3). A bad moment is an honest error,
             // never a silent no-op (rule 6).
-            let now = now_epoch_ms();
+            let now = watch.now();
             match cdp_resolve_jump(clock, &to, now) {
                 Ok(new_fake) => {
                     clock.jump_to_at(new_fake, now);
                     attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin(), next_index);
+                    watch.pushed(clock);
                     emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-                    emit(&clock.state_event_at(now_epoch_ms()));
+                    emit(&clock.state_event_at(watch.now()));
                 }
                 Err(key) => emit(&command_error(id, key)),
             }
@@ -320,7 +408,7 @@ fn command_error(id: u64, key: &str) -> Event {
 /// `followed` names the browser a launcher handed the application to, when the session went on with
 /// it after the launcher ended (R4-S18) - the same field the native session fills for the processes it
 /// went on for (ADR-16), so the report and the window show it without knowing which path ran.
-fn emit_cdp_session_verdict(token: &str, reason: &str, contexts: u32, followed: Vec<FollowedProcess>) {
+fn emit_cdp_session_verdict(token: &str, reason: &str, contexts: u32, facts: VerdictFacts) {
     emit(&Event::SessionVerdict {
         v: PROTOCOL_VERSION,
         verdict: token.to_string(),
@@ -331,12 +419,23 @@ fn emit_cdp_session_verdict(token: &str, reason: &str, contexts: u32, followed: 
         uncovered_children_total: 0,
         context_count: contexts,
         engines: Vec::new(),
-        followed,
-        // A Chromium session runs on the wall clock, which counts sleep, and does not watch for it yet
-        // (R5-F6, wave 5).
-        host_slept_ms: 0,
+        followed: facts.followed,
+        host_slept_ms: facts.host_slept_ms,
+        browser: facts.browser,
     });
 }
+
+/// What the verdict of a Chromium session carries beside its judgement: the browser a launcher handed
+/// the application to (R4-S18), what the browser calls itself (R5-D44), and how long the machine
+/// slept while the session clock stood still (R5-F6, 0 below the threshold).
+struct VerdictFacts {
+    followed: Vec<FollowedProcess>,
+    browser: Option<String>,
+    host_slept_ms: u64,
+}
+
+/// How long the session waits for the browser to name itself before it goes on without the name.
+const BROWSER_VERSION_WAIT: Duration = Duration::from_secs(1);
 
 /// How long the debugging connection has to outlive the launched process before the session counts
 /// the launch as handed over (R4-S18). A browser launched directly closes its socket while its process
@@ -394,7 +493,7 @@ impl Handoff {
 /// gives the report.
 fn port_holder(port: u16, launched: u32) -> Option<FollowedProcess> {
     let table = chrono_mech::listening_sockets().ok()?;
-    let pid = holder_pid(&table, port, launched)?;
+    let pid = holder_pid(&table.sockets, port, launched)?;
     let image = chrono_mech::process_image_name(pid);
     Some(FollowedProcess { pid, image: image.as_deref().map(cdp::sanitise_target_text) })
 }

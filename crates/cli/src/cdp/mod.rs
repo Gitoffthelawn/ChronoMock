@@ -307,20 +307,22 @@ impl CdpClient {
             ));
         }
         let ws = WsClient::connect(&ws_host, ws_port, &ws_path, deadline)?;
-        Ok(CdpClient {
-            ws,
-            next_id: 1,
-            queued: std::collections::VecDeque::new(),
-            queue_overflow_warned: false,
-            target_drop_warned: false,
-            bad_json_warned: false,
-            call_deadline: Duration::from_secs(CALL_DEADLINE_SECS),
-        })
+        Ok(CdpClient::over_ws(ws))
     }
 
-    /// A client over a socket a test opened itself, without the HTTP discovery.
-    #[cfg(test)]
-    pub(crate) fn from_ws(ws: WsClient) -> CdpClient {
+    /// Connect to the browser endpoint by the path the browser wrote beside its port in
+    /// `DevToolsActivePort`, without asking `/json/version` first (R5-WY9) - a browser this session
+    /// launched writes both lines. The path is text the target wrote and goes into the request line, so
+    /// only the shape a browser writes is taken ([`is_browser_ws_path`]), and anything else asks over
+    /// HTTP as before.
+    pub fn connect_to_browser(host: &str, port: u16, path: Option<&str>, deadline: Instant) -> io::Result<CdpClient> {
+        match path.filter(|p| is_browser_ws_path(p)) {
+            Some(path) => Ok(CdpClient::over_ws(WsClient::connect(host, port, path, deadline)?)),
+            None => CdpClient::connect_to_port(host, port, deadline),
+        }
+    }
+
+    fn over_ws(ws: WsClient) -> CdpClient {
         CdpClient {
             ws,
             next_id: 1,
@@ -330,6 +332,12 @@ impl CdpClient {
             bad_json_warned: false,
             call_deadline: Duration::from_secs(CALL_DEADLINE_SECS),
         }
+    }
+
+    /// A client over a socket a test opened itself, without the HTTP discovery.
+    #[cfg(test)]
+    pub(crate) fn from_ws(ws: WsClient) -> CdpClient {
+        CdpClient::over_ws(ws)
     }
 
     /// Shorten how long a quiet socket blocks a poll and how long a call waits for its reply. The
@@ -549,6 +557,15 @@ fn parse_ws_url(url: &str) -> io::Result<(String, u16, String)> {
 /// parse: every form here is this machine, and anything else is somewhere we did not choose to go.
 const LOOPBACK_HOSTS: [&str; 4] = ["127.0.0.1", "localhost", "::1", "[::1]"];
 
+/// Whether a path read from `DevToolsActivePort` has the shape a browser writes there,
+/// `/devtools/browser/<id>` with an id of letters, digits and hyphens (a UUID on every engine measured,
+/// Electron 44 among them). The path goes into the request line of the upgrade, so a space, a line
+/// break or anything else the shape does not have is refused before it gets there.
+fn is_browser_ws_path(path: &str) -> bool {
+    path.strip_prefix("/devtools/browser/")
+        .is_some_and(|id| !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+}
+
 /// Whether the ws endpoint the target advertised is the one we already chose to talk to.
 ///
 /// `webSocketDebuggerUrl` is text the TARGET wrote, and the code that reads it then connects there -
@@ -647,6 +664,24 @@ fn content_length(head: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R5-WY9: the path a browser wrote beside its port goes into the request line of the upgrade, so
+    /// only the shape a browser writes is taken - anything else asks `/json/version` as before.
+    #[test]
+    fn only_a_browser_endpoint_path_is_taken_from_the_port_file() {
+        assert!(is_browser_ws_path("/devtools/browser/1d5720f5-2425-4888-afd2-8e372ab3e408"));
+        for bad in [
+            "/devtools/browser/",
+            "/devtools/page/1d5720f5",
+            "/devtools/browser/abc HTTP/1.1\r\nX-Evil: 1",
+            "/devtools/browser/../json",
+            "devtools/browser/abc",
+            "",
+        ] {
+            assert!(!is_browser_ws_path(bad), "{bad:?}");
+        }
+        assert!(!is_browser_ws_path(&format!("/devtools/browser/{}", "a".repeat(65))), "too long");
+    }
 
     #[test]
     fn target_text_cannot_add_a_line() {
