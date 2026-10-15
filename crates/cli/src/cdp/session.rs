@@ -144,6 +144,20 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     return S.perfBase + (p - S.perfAnchorReal) * rate;
   }
 
+  /* window.length is [Replaceable]: a page's script can assign it, and a number the page chose must not
+     decide which frames are looked at, or how many times a second (CodeRabbit on #111). The engine's own
+     getter is taken now, before the page's scripts, and the count is held under a ceiling - a frame past
+     it is one the session counts as not reached, from the frame tree. */
+  var _frameCount = (function(){
+    for (var o = globalThis, k = 0; o && k < 4; o = Object.getPrototypeOf(o), k++) {
+      try {
+        var d = Object.getOwnPropertyDescriptor(o, 'length');
+        if (d) { return typeof d.get === 'function' ? d.get : null; }
+      } catch (e) { return null; }
+    }
+    return null;
+  })();
+  var FRAMES_MAX = 1024;
   /* The frames of this document the page's JS reaches - its own origin, with a shim of this build - get
      what this document gets (R5-P5). The session's commands reach the page's own document only. A frame
      of another origin throws on the first look and is left to the session, which counts it against the
@@ -151,7 +165,8 @@ const SHIM_TEMPLATE: &str = r#"(function(){
   function eachFrame(fn){
     var w = (typeof window !== 'undefined' && window === globalThis) ? window : null, n = 0, reached = 0;
     if (!w) { return 0; }
-    try { n = w.length; } catch (e) { return 0; }
+    try { n = _frameCount ? _frameCount.call(w) : w.length; } catch (e) { return 0; }
+    n = Math.min(Number(n) >>> 0, FRAMES_MAX);
     for (var i = 0; i < n; i++) {
       var o = null;
       try { o = w[i].__chronomock; } catch (e) { o = null; }

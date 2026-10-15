@@ -1252,6 +1252,42 @@ mod tests {
         drop(browser.join());
     }
 
+    /// R5-D46, CodeRabbit on #111: a frame that went away before any audit showed its shim stays one the
+    /// session could not cover - its going does not take it off the count, at the end too.
+    #[test]
+    fn a_frame_that_goes_before_its_shim_showed_stays_uncovered() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "F1", "type": "iframe" }] }))],
+                "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
+                "Page.addScriptToEvaluateOnNewDocument" => vec![(id, json!({ "identifier": "h" }))],
+                // Resumed, and gone before its first document - the frame was removed from its page.
+                "Runtime.runIfWaitingForDebugger" => vec![
+                    (id, json!({})),
+                    (serde_json::Value::Null, json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "S1", "targetId": "F1" } })),
+                ],
+                "Runtime.evaluate" => {
+                    vec![(serde_json::Value::Null, json!({ "id": id, "error": { "code": -32000, "message": "Cannot find default execution context" } }))]
+                }
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        let detached = (0..50).any(|_| attacher.pump(origin, &mut next) == Pumped::Detached);
+        assert!(detached, "the fake browser said the frame went away");
+        assert!(attacher.contexts().is_empty(), "it is no longer driven");
+        let outcome = attacher.into_outcome();
+        assert_eq!((outcome.contexts, outcome.failed), (0, 1), "and it is still one the session could not cover");
+        assert!(outcome.seen.is_empty());
+        drop(browser.join());
+    }
+
     /// CodeRabbit on #89: two pages share one renderer and its zone override, and the protocol does not
     /// order commands across sessions. Here the second page's renderer is busy and runs its last count
     /// only when its release arrives, reading another zone if the session's was replaced before. The

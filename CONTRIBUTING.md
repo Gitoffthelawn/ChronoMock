@@ -187,9 +187,12 @@ work here substitutes for it.
 
 ## Building and checking
 
-You need the Rust toolchain with both Windows targets, and the .NET SDK. The
-workspace is on Rust edition 2024, so a recent stable toolchain is required, and
-the .NET side targets `net10.0-windows`. There is no `rust-toolchain` file pinning
+You need the Rust toolchain with both Windows targets, the .NET SDK, and Node.js
+on `PATH`. The workspace is on Rust edition 2024, so a recent stable toolchain is
+required, and the .NET side targets `net10.0-windows`. `cargo test` runs the
+Chromium time shim in Node (`crates/cli/src/cdp/shim_exec.rs`), and a machine
+without `node` fails those tests rather than skipping them. They are run with
+Node 22, the version on the CI image, and Node 26. There is no `rust-toolchain` file pinning
 an exact Rust version - if a clippy release ever moves a measurement, that is
 handled by adjusting the ceiling in a commit that says so rather than by pinning.
 

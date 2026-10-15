@@ -6,12 +6,18 @@
 //! Node is required. A machine without it fails these tests with a message rather than skipping them
 //! - a test that is not run says nothing, and the CI image (`windows-latest`) carries Node.
 
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use super::{build_shim, release_expr, set_expr, zone_read_expr, ScheduledRate, COUNTS_EXPR};
 use crate::cdp_clock::cdp_schedule_expr;
 
 const HARNESS: &str = include_str!("shim_harness.js");
+
+/// How long one scenario may run. A scenario finishes in well under a second, so one that runs this
+/// long is a shim caught in a loop - it fails the test rather than hold the gate.
+const SCENARIO_TIME: Duration = Duration::from_secs(30);
 
 /// The harness's wall clock at the start, in Unix-epoch ms (`env.wall`).
 const WALL0: i64 = 1_700_000_000_000;
@@ -41,13 +47,38 @@ fn run_scenario(name: &str, vars: &[(&str, String)], scenario: &str) {
     std::fs::create_dir_all(&dir).expect("a scratch folder for the scenario");
     let file = dir.join(format!("{name}.js"));
     std::fs::write(&file, js).expect("the scenario written");
-    let ran = Command::new("node").arg(&file).output();
-    let _ = std::fs::remove_file(&file);
-    let out = ran.unwrap_or_else(|e| {
+    let spawned = Command::new("node").arg(&file).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn();
+    let mut child = spawned.unwrap_or_else(|e| {
         panic!("node is needed for the shim's execution tests (R5-A10) and could not be started: {e} - install Node.js or put it on PATH")
     });
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    assert!(out.status.success(), "{name}:\n{text}");
+    // Both streams read while the scenario runs, so a full pipe cannot stall it.
+    let drain = |stream: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut stream) = stream {
+                let _ = stream.read_to_string(&mut text);
+            }
+            text
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>));
+    let stderr = drain(child.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>));
+    let deadline = Instant::now() + SCENARIO_TIME;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let _ = std::fs::remove_file(&file);
+    let text = format!("{}{}", stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
+    let status = status.unwrap_or_else(|| panic!("{name} ran past {SCENARIO_TIME:?} and was stopped:\n{text}"));
+    assert!(status.success(), "{name}:\n{text}");
     assert!(text.contains("checks ") && !text.contains("checks 0,"), "{name} ran no check:\n{text}");
 }
 
@@ -544,6 +575,15 @@ fn the_moves_the_audit_and_the_release_reach_the_frames_of_the_page() {
         const audit = run(COUNTS);
         check('the frames count in the page row', audit.now === 3, audit);
         check('and the audit says how many it reached', audit.frames === 2, audit);
+        // window.length is the page's to replace, and its number decides nothing (CodeRabbit on #111).
+        globalThis.length = 0;
+        check('a page that sets length to 0 does not hide its frames', run(COUNTS).frames === 2);
+        globalThis.length = 1e9;
+        check('nor does one that sets it past every frame there can be', run(COUNTS).frames === 2);
+        // Where the engine's getter could not be taken - a plain field, as in this frame - the count is
+        // still held under the ceiling, so the audit does not loop a billion times.
+        same.run('globalThis.length = 1e9');
+        check('a frame with a page-chosen length is looked at in time', run(COUNTS).frames === 2);
         check('a jump answers ok', run(JUMP) === 'ok');
         advance(1000);
         const expected = FAKE1 + (env.wall - WALL0) * 60;

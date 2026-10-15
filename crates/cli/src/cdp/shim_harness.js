@@ -85,11 +85,29 @@ function waiting(pick) { return env.timers.filter(pick || (() => true)).sort((a,
 /** Run a JS expression in the global scope, as `Runtime.evaluate` does. */
 function run(expr) { return (0, eval)(expr); }
 
-/** Make the page's scope a window with no frames yet. */
-function asWindow(g) { g.window = g; g.length = 0; return g; }
+/** Make the page's scope a window with no frames yet. Its `length` is the engine's getter, which a page's
+ *  own assignment replaces with a number of its choosing, as a browser's [Replaceable] attribute is. */
+function asWindow(g) {
+  const held = [];
+  Object.defineProperty(g, '__held', { value: held });
+  Object.defineProperty(g, 'length', {
+    configurable: true,
+    enumerable: true,
+    get() { return held.length; },
+    set(v) { Object.defineProperty(g, 'length', { value: v, writable: true, configurable: true, enumerable: true }); },
+  });
+  g.window = g;
+  return g;
+}
 
-/** Hold `child` as the next frame of the window `parent`. */
-function hold(parent, child) { const i = parent.length; parent[i] = child; parent.length = i + 1; return child; }
+/** Hold `child` as the next frame of the window `parent`. A frame's own window counts in a plain field. */
+function hold(parent, child) {
+  if (parent.__held) { parent[parent.__held.length] = child; parent.__held.push(child); return child; }
+  const i = parent.length;
+  parent[i] = child;
+  parent.length = i + 1;
+  return child;
+}
 
 /** A frame: a realm of its own on the harness's clocks and timers. `run` evaluates in it, `g` is its window. */
 function frame() {
