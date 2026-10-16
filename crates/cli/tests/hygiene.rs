@@ -31,6 +31,7 @@ const TRACKED_TREES: &[&str] = &[
     "packaging",
     "assets",
     ".github",
+    "tests",
 ];
 
 /// Committed files in the root.
@@ -124,6 +125,13 @@ fn code_only(line: &str) -> &str {
 // ---------------------------------------------------------------------------------------------
 // H1. The system clock is never set
 // ---------------------------------------------------------------------------------------------
+
+/// The mutation registry, `tests/mutation/entries.json`. Every entry quotes the code it breaks, so a
+/// name in it is a quotation and never a use - read as a consumer, it would keep alive any definition
+/// an entry happens to quote, and the dead-code scan would go blind exactly where a guard was proven.
+fn is_mutation_registry(path: &Path) -> bool {
+    rel(path) == "tests/mutation/entries.json"
+}
 
 /// This test file, which several scans must skip: it names what it forbids.
 fn is_this_file(path: &Path) -> bool {
@@ -638,7 +646,7 @@ fn collect_rust() -> (Vec<Definition>, BTreeMap<String, Vec<Site>>, usize) {
     // Non-Rust consumers: the GUI mirrors two Rust constants by name, the workflows name binaries,
     // the packaging script names files.
     for path in tracked_files(&["cs", "ps1", "yml", "xaml", "toml", "json"]) {
-        if is_this_file(&path) {
+        if is_this_file(&path) || is_mutation_registry(&path) {
             continue;
         }
         if let Ok(text) = std::fs::read_to_string(&path) {
@@ -1364,6 +1372,38 @@ fn every_comment_in_the_repository_is_english() {
         offenders.is_empty(),
         "a comment in the repository is not English (untouchable rules 9 and 14 - the criterion is \
          the PLACE, not the reader): {offenders:?}"
+    );
+}
+
+/// The mutation registry is prose as well as data, and public: its runs are read in the logs of a
+/// public CI. So what it SAYS is English - every entry's name and every reason an entry gives for
+/// not being judged on a runner. The texts an entry writes into a file are left alone, because some
+/// carry Polish on purpose: they are the probes of the guard above, and the file keeps them as
+/// escapes. JSON has no comments, which is why the comment scan cannot be the one to ask.
+#[test]
+fn every_mutation_entry_is_described_in_english() {
+    let text = std::fs::read_to_string(repo_root().join("tests/mutation/entries.json"))
+        .expect("the mutation registry is committed");
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_str(&text).expect("the mutation registry is a JSON list");
+    let mut offenders = Vec::new();
+    for entry in &entries {
+        for field in ["name", "notHere"] {
+            let said = entry[field].as_str().unwrap_or_default();
+            let lowered = said.to_lowercase();
+            let by_letter = said.chars().any(|c| POLISH_LETTERS.contains(&c));
+            let by_word = POLISH_WORDS_WITHOUT_DIACRITICS
+                .iter()
+                .any(|w| contains_word(&lowered, w));
+            if by_letter || by_word {
+                offenders.push(format!("{field} '{said}'"));
+            }
+        }
+    }
+    assert!(entries.len() >= 100, "the registry scan read only {} entries", entries.len());
+    assert!(
+        offenders.is_empty(),
+        "an entry of tests/mutation/entries.json is not described in English: {offenders:?}"
     );
 }
 
