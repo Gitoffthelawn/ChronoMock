@@ -216,10 +216,12 @@ $canaries = @(
 # Not the call operator, for three reasons. A time limit, so a mutation that makes a test hang costs one
 # entry and not the whole part - on a timeout the whole process tree goes, the test binary under cargo
 # included. An argument list passed as a list, so a test name is never split or quoted by a shell. And
-# a BOUNDED wait for the end of the output: a process the command leaves behind - a build node kept for
-# reuse, a target a mutated test failed to stop - inherits the pipe and holds it open after the command
-# itself has ended, and a reader waiting for the pipe to close would wait as long as that process
-# lives. Here the wait for the last line is thirty seconds after the exit, and what came before is kept.
+# a BOUNDED wait for the end of the output: any process that inherited the pipe and outlives the
+# command keeps it open after the command itself has ended, and a reader waiting for the pipe to close
+# would wait as long as that process lives. The case in view is a target program that a mutated test
+# started and failed to stop, because a program under test inherits the core's standard output.
+# Whether a build server ever does the same was not measured. Here the wait for the last line is thirty
+# seconds after the exit, and what came before is kept.
 #
 # In C# because the output arrives on threads that have no PowerShell runspace, where a script block
 # handling it would take the whole process down.
@@ -271,11 +273,21 @@ namespace ChronoMockMutation
 '@
 }
 
+# What a tool said, without the escape sequences of a coloured terminal. Measured on the first run on
+# GitHub (2026-10-16): there the test platform colours its output even into a pipe, so a summary line
+# reads ESC[31m  failed: 1 and every pattern anchored at the start of a line missed it. 197 C# entries
+# came out ERROR although each had a named failure and the exit code of one, and the baseline could not
+# have named a red C# test at all. Locally the same output had no colour, so no local run showed it.
+function ConvertTo-PlainText([string] $Text) {
+    $Text = [regex]::Replace($Text, '\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)', '')
+    return [regex]::Replace($Text, '\x1B\[[0-?]*[ -/]*[@-~]', '')
+}
+
 function Invoke-Native([string] $Command, [string[]] $Arguments, [int] $Minutes) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $limit = [int] [Math]::Min([int]::MaxValue, [long] $Minutes * 60000)
     $said = [ChronoMockMutation.NativeRun]::Run($Command, [string[]] @($Arguments), $Root, $limit)
-    $output = [string] $said[1]
+    $output = ConvertTo-PlainText ([string] $said[1])
     if (-not $said[3]) { $output += "`n(the output did not end within 30 s of the exit - a process the command left behind holds it open)" }
     return [pscustomobject]@{
         Code = [int] $said[0]
@@ -791,6 +803,16 @@ function Select-Part($Entries, [int] $Part, [int] $Of) {
 # group of entries runs its named tests once, forty names to a command, and an entry whose test is red
 # here is BASELINE RED and never mutated. A command that failed without naming a red test cannot say
 # which of its tests is red, so every entry in it is taken as red - a guess in the safe direction.
+# Whether a baseline command failed without saying which test is red. Any exit but success is that,
+# once no red test could be read - for C# the code of a failed test (2) included, because a failure line
+# this runner cannot read would otherwise leave a red test green here and turn every mutant of it into a
+# false caught. Only the platform's "zero tests ran" (8) is not a failure of the tree.
+function Test-BaselineUnclear([string] $Runner, [int] $Code, [int] $RedCount) {
+    if ($RedCount -gt 0 -or $Code -eq 0) { return $false }
+    if ($Runner -eq 'cs' -and $Code -eq 8) { return $false }
+    return $true
+}
+
 function Invoke-Baseline($Entries) {
     $red = @{}
     $said = [Collections.Generic.List[string]]::new()
@@ -821,12 +843,11 @@ function Invoke-Baseline($Entries) {
             if ($first.runner -eq 'rust') {
                 $run = Invoke-Native 'cargo' (Get-RustTestArguments $first.package ([string[]] @($first.target)) $first.match $batch -NoFailFast) $TestMinutes
                 $redNames = @(Get-RustRed $run.Output)
-                $unclear = $run.Code -ne 0 -and $redNames.Count -eq 0
             } else {
                 $run = Invoke-Native 'dotnet' (Get-CsTestArguments $first.package $first.match $batch) $TestMinutes
                 $redNames = @(Get-CsRed $run.Output)
-                $unclear = $run.Code -notin 0, 2, 8 -and $redNames.Count -eq 0
             }
+            $unclear = Test-BaselineUnclear $first.runner $run.Code $redNames.Count
 
             $inBatch = @($members | Where-Object { ($batch.Count -eq 0 -and -not $_.test) -or $batch -ccontains [string] $_.test })
             foreach ($entry in $inBatch) {
@@ -915,6 +936,35 @@ if ($SelfTest) {
         $said = Get-CsVerdict ([pscustomobject] $case.Run)
         if ($said -ne $case.Expect) { $problems.Add("a planted C# run came out $said, expected $($case.Expect)") }
     }
+
+    # The same failure as a GitHub runner prints it, in colour - copied from the first run there, where
+    # the colour codes made 197 caught entries read as ERROR. Every output passes ConvertTo-PlainText on
+    # its way in, so the planted text does too.
+    $csColoured = @(
+        "`e[31mfailed`e[m ChronoMock.App.Tests.LiteralGuardTests.Views_have_no_design_literals `e[90m(165ms)`e[m"
+        "Exit code: 2"
+        "`e[31mTest run summary: Failed!"
+        "`e[m  total: 1"
+        "`e[31m  failed: 1"
+        "`e[m  succeeded: 0"
+        "  skipped: 0"
+    ) -join "`n"
+    $plain = ConvertTo-PlainText $csColoured
+    if ($plain.Contains([char] 27)) { $problems.Add('a colour code was left in a tool''s output') }
+    if ((Get-CsVerdict ([pscustomobject]@{ Code = 2; Output = $plain; TimedOut = $false })) -ne 'caught') { $problems.Add('a coloured C# failure did not come out caught') }
+    if ((@(Get-CsRed $plain) -join ',') -ne 'ChronoMock.App.Tests.LiteralGuardTests.Views_have_no_design_literals') { $problems.Add('the red test of a coloured C# run was not read') }
+
+    # And through the real door: a child process writes colour on both channels and exits with 3, and
+    # what Invoke-Native hands back has the words, the exit code, and no colour.
+    $child = Invoke-Native 'pwsh' @('-NoProfile', '-Command', '[Console]::Out.WriteLine([char] 27 + ''[31m  failed: 1''); [Console]::Error.WriteLine([char] 27 + ''[90mon the error channel''); exit 3') 1
+    if ($child.Code -ne 3 -or $child.TimedOut -or $child.Output.Contains([char] 27) -or $child.Output -notmatch '(?m)^\s*failed: 1\s*$' -or -not $child.Output.Contains('on the error channel')) {
+        $problems.Add("a child process came back with code $($child.Code) and '$($child.Output.Trim())' - expected 3, both channels and no colour")
+    }
+
+    # A baseline that failed without a red test the runner could read takes its whole batch as red - a
+    # failed C# test's own exit code included - and only the platform's "zero tests ran" does not.
+    $unclear = @((Test-BaselineUnclear 'cs' 2 0), (Test-BaselineUnclear 'cs' 8 0), (Test-BaselineUnclear 'cs' 0 0), (Test-BaselineUnclear 'cs' 2 1), (Test-BaselineUnclear 'rust' 101 0), (Test-BaselineUnclear 'rust' 101 1)) -join ','
+    if ($unclear -ne 'True,False,False,False,True,False') { $problems.Add("the baseline took these as unclear: $unclear, expected True,False,False,False,True,False") }
 
     # Which red test an entry's filter stands for.
     $named = @(
