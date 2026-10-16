@@ -20,6 +20,7 @@
 //! it for the first time after the end. Its hook starts watching the core from the first detour, not
 //! when it joins, so that first read used to come back on the session's clock.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -37,9 +38,9 @@ const PROBE_CHILD_AFTER: &str = "CHRONO_SESSION_IDENTITY_PROBE_CHILD_AFTER_MS";
 /// Set, the probe only writes one line and waits this many milliseconds - the second session's target.
 const PROBE_IDLE: &str = "CHRONO_SESSION_IDENTITY_PROBE_IDLE_MS";
 
-/// Set, the probe reads no clock until this many milliseconds have passed, then reads it once - the
-/// target of the third test.
-const PROBE_LATE_READ: &str = "CHRONO_SESSION_IDENTITY_PROBE_LATE_READ_MS";
+/// Set, the probe reaches no detour until it can take the named mutex this names, which the test holds
+/// until the core has gone, then reads the clock once - the target of the third test.
+const PROBE_LATE_GATE: &str = "CHRONO_SESSION_IDENTITY_PROBE_LATE_GATE";
 
 /// The probe's own name, which is how the binary is asked to run it and nothing else.
 const PROBE: &str = "probe_starts_a_child_after_its_session_ends";
@@ -67,7 +68,17 @@ static ONE_SESSION: Mutex<()> = Mutex::new(());
 #[cfg_attr(not(target_arch = "x86"), link(name = "kernel32", kind = "raw-dylib"))]
 unsafe extern "system" {
     fn GetModuleHandleA(name: *const core::ffi::c_char) -> *mut core::ffi::c_void;
+    fn CreateMutexA(attributes: *const core::ffi::c_void, owned: i32, name: *const core::ffi::c_char) -> *mut core::ffi::c_void;
+    fn OpenMutexA(access: u32, inherit: i32, name: *const core::ffi::c_char) -> *mut core::ffi::c_void;
+    fn ReleaseMutex(mutex: *mut core::ffi::c_void) -> i32;
+    fn WaitForSingleObject(handle: *mut core::ffi::c_void, ms: u32) -> u32;
+    fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
 }
+
+/// The right to wait on an object, and the wait with no end and its failure, as Windows numbers them.
+const SYNCHRONIZE: u32 = 0x0010_0000;
+const INFINITE: u32 = u32::MAX;
+const WAIT_FAILED: u32 = u32::MAX;
 
 /// The wall clock as this process reads it, in whole seconds since the Unix epoch.
 fn wall_seconds() -> u64 {
@@ -99,8 +110,8 @@ fn millis(name: &str) -> Option<u64> {
 
 /// Writes `parent-start`, waits past the session, starts itself as the child, which writes `child`,
 /// then writes `parent-after`. Each line holds the wall seconds read, 1 when the hook is loaded, and the
-/// pid. With `PROBE_IDLE` set it writes `idle` and only waits. With `PROBE_LATE_READ` set it writes
-/// `late-start` without reading the clock, waits, and writes `late-read` with the clock read once.
+/// pid. With `PROBE_IDLE` set it writes `idle` and only waits. With `PROBE_LATE_GATE` set it waits for
+/// the gate, reads the clock once, and only then writes `late-start` and `late-read`.
 #[test]
 #[ignore = "the target of the two session tests in this file, not a test on its own"]
 fn probe_starts_a_child_after_its_session_ends() {
@@ -108,12 +119,26 @@ fn probe_starts_a_child_after_its_session_ends() {
         return;
     };
     let out = PathBuf::from(out);
-    if let Some(late) = millis(PROBE_LATE_READ) {
-        // Nothing here reads a clock the hook watches until the wait is over: the line carries 0 for
-        // its seconds, and a plain sleep is not hooked in a session that does not scale durations.
+    if let Ok(gate) = std::env::var(PROBE_LATE_GATE) {
+        // Nothing here reaches a detour that starts the hook's watcher until the clock is read: a wait on
+        // an object is only counted. Measured: opening a file arms a thread-pool timer inside Windows,
+        // through the timer detour, so the probe that wrote a line and slept had its watcher running while
+        // the session ran, and with the first look taken out of the hook it still read the real clock -
+        // the test proved nothing about a first read after the end. So the clock is read first, and the
+        // lines are written after it.
+        let name = std::ffi::CString::new(gate).expect("a gate name without NUL");
+        // SAFETY: a lookup and a wait on a handle this block opened and closes, with a NUL-terminated name.
+        let opened = unsafe {
+            let mutex = OpenMutexA(SYNCHRONIZE, 0, name.as_ptr());
+            let waited = !mutex.is_null() && WaitForSingleObject(mutex, INFINITE) != WAIT_FAILED;
+            if !mutex.is_null() {
+                CloseHandle(mutex);
+            }
+            waited
+        };
+        let seconds = wall_seconds();
         append_seconds(&out, "late-start", 0);
-        std::thread::sleep(Duration::from_millis(late));
-        append(&out, "late-read");
+        append_seconds(&out, if opened { "late-read" } else { "late-gate-failed" }, seconds);
         return;
     }
     if let Some(idle) = millis(PROBE_IDLE) {
@@ -154,6 +179,18 @@ struct Reading {
 fn line(text: &str, role: &str) -> Option<Reading> {
     let mut parts = text.lines().find(|l| l.split_whitespace().next() == Some(role))?.split_whitespace().skip(1);
     Some(Reading { seconds: parts.next()?.parse().ok()?, hooked: parts.next()? == "1", pid: parts.next()?.parse().ok()? })
+}
+
+/// A child's stream read to its end on a thread of its own, so that neither stream fills while the test
+/// waits on the process.
+fn drain(stream: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(mut stream) = stream {
+            let _ = stream.read_to_end(&mut bytes);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    })
 }
 
 /// The library is built and the scratch directory `name` is empty, before a session starts.
@@ -327,16 +364,36 @@ fn a_process_that_read_no_clock_in_its_session_reads_the_real_clock_after_it() {
     let dir = prepare("session-late-read");
     let file = dir.join("probe.txt");
 
-    // As in the first test, `output()` returns once the probe is done, which is what the file needs.
-    let out = session(SESSION_AT, "2")
+    // The probe waits on this mutex until the core has gone, so its one read comes after the end however
+    // slow the machine is. Should this test stop before it lets go, the mutex is abandoned with it, and
+    // the probe's wait ends all the same.
+    let gate_name = format!("Local\\chrono-session-identity-gate-{}", std::process::id());
+    let gate_c = std::ffi::CString::new(gate_name.as_str()).expect("a gate name without NUL");
+    // SAFETY: a named object created with a NUL-terminated name, owned by this thread from the start.
+    let gate = unsafe { CreateMutexA(std::ptr::null(), 1, gate_c.as_ptr()) };
+    assert!(!gate.is_null(), "the gate could not be made");
+    let mut run = session(SESSION_AT, "2")
         .env(PROBE_OUT, &file)
-        .env(PROBE_LATE_READ, CHILD_AFTER_MS.to_string())
-        .output()
+        .env(PROBE_LATE_GATE, &gate_name)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .expect("the tool must run");
+    let stdout = drain(run.stdout.take());
+    let stderr = drain(run.stderr.take());
+    // The core's own exit, not the end of its streams: the probe holds the error stream until it is done,
+    // and it is not done until the gate opens.
+    let _ = run.wait();
+    // SAFETY: the mutex this thread created and owns.
+    unsafe {
+        ReleaseMutex(gate);
+        CloseHandle(gate);
+    }
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
     let real_now = wall_seconds();
-    let stdout = String::from_utf8_lossy(&out.stdout);
     let text = std::fs::read_to_string(&file).unwrap_or_default();
-    let context = || format!("probe: {text:?} stdout: {stdout} stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let context = || format!("probe: {text:?} stdout: {stdout} stderr: {stderr}");
 
     // The application joined the session, or the read below says nothing about a session.
     let Some(start) = line(&text, "late-start") else {

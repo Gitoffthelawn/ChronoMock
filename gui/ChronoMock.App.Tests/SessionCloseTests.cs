@@ -49,6 +49,11 @@ public class SessionCloseTests
     {
         var target = SessionPlan.DefaultTargetPath();
         Assert.True(target is not null, "the sample target is not built - build the solution first");
+        // Without its core the start fails on its own and launches nothing, and this test would pass for
+        // that reason whatever the close did - measured, with the core taken away.
+        Assert.True(
+            File.Exists(AppPaths.SubstitutionCores.CoreForTarget(target)),
+            "the core for the sample target is not built - build the release cores first");
         var store = new InMemorySessionHistoryStore();
         var vm = new SessionViewModel(store);
         vm.SetTarget(target);

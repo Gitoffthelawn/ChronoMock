@@ -543,9 +543,20 @@ pub(crate) mod tests {
     pub(crate) fn fake_browser_holding(
         mut answer: impl FnMut(&serde_json::Value) -> Vec<(serde_json::Value, serde_json::Value)> + Send + 'static,
     ) -> (u16, std::thread::JoinHandle<Vec<serde_json::Value>>) {
+        fake_browser_paced(None, move |request| request.map(&mut answer).unwrap_or_default())
+    }
+
+    /// The same, and once the client has sent nothing for `quiet`, `answer` is asked again with no
+    /// request: a renderer busy with its own work comes free when it does, not when the next command
+    /// arrives, so a reply held back can come after the client went on without it.
+    pub(crate) fn fake_browser_paced(
+        quiet: Option<Duration>,
+        mut answer: impl FnMut(Option<&serde_json::Value>) -> Vec<(serde_json::Value, serde_json::Value)> + Send + 'static,
+    ) -> (u16, std::thread::JoinHandle<Vec<serde_json::Value>>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let (port, server) = server(move |mut s| {
             s.write_all(UPGRADED).unwrap();
+            s.set_read_timeout(quiet).unwrap();
             let mut log = Vec::new();
             let mut buf = Vec::new();
             let mut b = [0u8; 8192];
@@ -557,14 +568,20 @@ pub(crate) mod tests {
                     let Ok(request) = serde_json::from_slice::<serde_json::Value>(&payload) else {
                         continue;
                     };
-                    for (id, result) in answer(&request) {
+                    for (id, result) in answer(Some(&request)) {
                         s.write_all(&server_frame(scripted_message(id, result).as_bytes(), true)).unwrap();
                     }
                     log.push(request);
                 }
                 match s.read(&mut b) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break,
                     Ok(n) => buf.extend_from_slice(&b[..n]),
+                    Err(e) if quiet.is_some() && matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {
+                        for (id, result) in answer(None) {
+                            s.write_all(&server_frame(scripted_message(id, result).as_bytes(), true)).unwrap();
+                        }
+                    }
+                    Err(_) => break,
                 }
             }
             let _ = tx.send(log);

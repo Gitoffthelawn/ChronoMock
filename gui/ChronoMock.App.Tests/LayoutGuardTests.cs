@@ -202,7 +202,8 @@ public class LayoutGuardTests
     {
         // The exact shape measured while the truncation probe refused to fire: a Grid declared 60 wide
         // came back holding a TextBlock 285 wide. WPF let it overflow rather than squeezing it, which
-        // is how text ends up painted over its neighbour.
+        // is how text ends up painted over its neighbour. The complaint names the words the block shows:
+        // an unnamed TextBlock is found by them, not by where it sits.
         var complaints = WpfTestHost.InvokeSettled(() =>
         {
             var narrow = new Grid { Width = 60 };
@@ -217,7 +218,9 @@ public class LayoutGuardTests
             return LayoutRules.SpillsOutOfItsParent(LayoutProbe.Walk(host));
         });
 
-        Assert.NotEmpty(complaints);
+        Assert.Contains(
+            complaints,
+            c => c.StartsWith("TextBlock \"a sentence far longer than sixty pixels of room\" at [", StringComparison.Ordinal));
     }
 
     [Fact]

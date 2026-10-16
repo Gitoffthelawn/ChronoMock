@@ -93,10 +93,11 @@ fn numbers() -> Vec<(&'static str, String)> {
 }
 
 /// The clocks a page reads after the shim: the wall at the session rate from the session's start,
-/// `Date`, `new Date()`, `Date()` and a subclass of `Date` alike, a date given as one value or several
-/// left alone (R5-WY3 builds the one-value date directly), "now" formatted by `Intl` the session's,
-/// `performance.now` at the duration rate from where it stood (R4-S16), and a timer's delay divided by
-/// it.
+/// `Date`, `new Date()`, `Date()` and a subclass of `Date` alike, a date built from a date's own
+/// constructor too (R4-W6), a date given as one value or several left alone (R5-WY3 builds the one-value
+/// date directly), `Date()` in the engine's own words even when the page replaced the prototype's
+/// `toString`, "now" formatted by `Intl` the session's, whole or in parts, `performance.now` at the
+/// duration rate from where it stood (R4-S16), and a timer's delay divided by it.
 #[test]
 fn the_page_reads_the_session_clock_through_every_form_of_date() {
     let mut vars = numbers();
@@ -114,6 +115,14 @@ fn the_page_reads_the_session_clock_through_every_form_of_date() {
         check('a real second is a minute at x60', Date.now() === FAKE0 + 60000, Date.now() - FAKE0);
         check('new Date() reads it', new Date().getTime() === Date.now());
         check('Date() reads it', Date() === new EngineDate(Date.now()).toString());
+        check('a date names the session Date as its constructor', new Date().constructor === Date);
+        check('and a date built from that constructor reads it', new (new Date().constructor)().getTime() === Date.now());
+        // A native Date() never calls the prototype's toString, so a page's own does not reach it.
+        const engineText = Date.prototype.toString;
+        Date.prototype.toString = function() { return 'the page own text'; };
+        const said = Date();
+        Date.prototype.toString = engineText;
+        check('Date() is the engine text, not one the page put on the prototype', said === new EngineDate(Date.now()).toString(), said);
         class Sub extends Date {}
         check('a subclass of Date stays itself', new Sub() instanceof Sub && new Sub().getTime() === Date.now());
         check('a subclass given a value stays itself', new Sub(5) instanceof Sub && new Sub(5).getTime() === 5);
@@ -124,6 +133,8 @@ fn the_page_reads_the_session_clock_through_every_form_of_date() {
         check('Date.name and Date.length are the native ones', Date.name === 'Date' && Date.length === 7);
         const year = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', year: 'numeric' }).format();
         check('Intl formats the session clock for now', year === '2038', year);
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', year: 'numeric' }).formatToParts();
+        check('and in parts', parts.some((p) => p.type === 'year' && p.value === '2038'), parts);
         check('performance.now runs at the duration rate', near(performance.now() - p0, 60000, 0.001), performance.now() - p0);
         const id = setTimeout(() => {}, 6000);
         check('a timer waits its delay divided by the rate', env.timers.find((t) => t.id === id).delay === 100);
@@ -175,7 +186,8 @@ fn a_timer_keeps_its_delay_when_only_the_wall_runs_fast() {
 
 /// What the session sends moves the clock as the session means it: a jump moves the wall and leaves
 /// `performance.now` continuous, a release puts the wall back on the real clock and starts the audit
-/// over, the counts come back as numbers, and the zone read answers two offsets.
+/// over, the counts come back as numbers - `Date()` counted with `new Date()` (R4-S19) - and the zone
+/// read answers two offsets through the engine's own `Date`, whatever the page put in its place (ADR-21).
 #[test]
 fn the_session_moves_counts_and_lets_go_of_the_page() {
     let fake1 = FAKE0 + 86_400_000;
@@ -191,9 +203,9 @@ fn the_session_moves_counts_and_lets_go_of_the_page() {
         &vars,
         r"
         run(SHIM);
-        Date.now(); Date.now(); new Date(); performance.now();
+        Date.now(); Date.now(); new Date(); Date(); performance.now();
         const counts = run(COUNTS);
-        check('the counts come back', counts.now === 2 && counts.date === 1 && counts.perf === 1, counts);
+        check('the counts come back', counts.now === 2 && counts.date === 2 && counts.perf === 1, counts);
         check('a page with no frames reached none', counts.frames === 0 && counts.capped === 0, counts);
         const p0 = performance.now();
         check('a jump answers ok', run(JUMP) === 'ok');
@@ -213,6 +225,11 @@ fn the_session_moves_counts_and_lets_go_of_the_page() {
         const zone = run(ZONE_READ);
         check('the zone read answers two offsets', Array.isArray(zone) && zone.length === 2 && zone.every(Number.isFinite), zone);
         check('through the engine own Date', zone[0] === new EngineDate(WALL0).getTimezoneOffset(), zone);
+        const sessionDate = globalThis.Date;
+        globalThis.Date = function PageDate() { return { getTimezoneOffset() { return 7777; } }; };
+        const replaced = run(ZONE_READ);
+        globalThis.Date = sessionDate;
+        check('a page that replaced Date does not answer for the engine', replaced[0] === zone[0] && replaced[1] === zone[1], replaced);
         ",
     );
 }
@@ -220,7 +237,9 @@ fn the_session_moves_counts_and_lets_go_of_the_page() {
 /// A rate change scheduled for an instant takes effect at that instant, with the wall continuous across
 /// it (R4-S17), the duration axis re-anchored at the rate it ran at and never back below a reading
 /// already handed out (untouchable rule 3), and one received after its instant takes effect at once and
-/// says `late`.
+/// says `late`. It takes effect whichever clock is read first past the instant - `performance.now` and a
+/// timer's delay as much as the wall - and the duration axis does not step back when a correction of the
+/// system clock carries the wall past the instant while `performance.now` has not got there.
 #[test]
 fn a_scheduled_rate_change_takes_effect_at_its_instant() {
     let on_time = cdp_schedule_expr(ScheduledRate { at_ms: WALL0 + 500, mult: 1, dur: 1 });
@@ -249,12 +268,59 @@ fn a_scheduled_rate_change_takes_effect_at_its_instant() {
         check('and never steps the duration axis back', performance.now() >= p700, performance.now() - p700);
         ",
     );
+    let mut first_perf = numbers();
+    first_perf.push(("SHIM", shim(60, 60)));
+    first_perf.push(("ON_TIME", js_text(&on_time)));
+    run_scenario(
+        "schedulefirstperf",
+        &first_perf,
+        r"
+        run(SHIM);
+        const p0 = performance.now();
+        run(ON_TIME);
+        // Nothing reads the wall: performance.now is the first clock read past the instant.
+        advance(700);
+        const p = performance.now() - p0;
+        check('performance.now read first is at the new rate from the instant', near(p, 500 * 60 + 200, 0.001), p);
+        ",
+    );
+    let mut first_timer = numbers();
+    first_timer.push(("SHIM", shim(60, 60)));
+    first_timer.push(("ON_TIME", js_text(&on_time)));
+    run_scenario(
+        "schedulefirsttimer",
+        &first_timer,
+        r"
+        run(SHIM);
+        run(ON_TIME);
+        advance(700);
+        const id = setTimeout(() => {}, 6000);
+        check('a timer armed first past the instant waits at the new rate', env.timers.find((t) => t.id === id).delay === 6000);
+        ",
+    );
+    let mut drifting = numbers();
+    drifting.push(("SHIM", shim(60, 60)));
+    drifting.push(("ON_TIME", js_text(&on_time)));
+    run_scenario(
+        "scheduledrift",
+        &drifting,
+        r"
+        run(SHIM);
+        run(ON_TIME);
+        advance(499);
+        const before = performance.now();
+        // The wall is corrected 20 ms on, past the instant, while performance.now moves 5.
+        drift(20, 5);
+        const after = performance.now();
+        check('performance.now does not step back when the wall runs ahead of it', after >= before, after - before);
+        ",
+    );
 }
 
-/// A second install in the same document only sets the clock it carries, the last instant and the zone
-/// included (R4-W5), a `__chronomock` that is not this shim makes the install fail rather than report a
-/// covered context (rule 4), and a page whose own scripts are in it before the shim answers `running`
-/// (R5-P7).
+/// A second install in the same document only sets the clock it carries, the last instant, the zone and
+/// a change still to come included (R4-W5), a `__chronomock` that is not this shim makes the install
+/// fail rather than report a covered context (rule 4) and is left as the page made it, and a page whose
+/// own scripts are in it before the shim answers `running` (R5-P7).
 #[test]
 fn a_second_install_a_foreign_marker_and_a_running_page_are_told_apart() {
     let wall_max2 = FAKE0 + 5_000;
@@ -276,6 +342,20 @@ fn a_second_install_a_foreign_marker_and_a_running_page_are_told_apart() {
         check('and the zone it carried is the one judged', run(COUNTS).zone === (offset === -60 ? 0 : 1), offset);
         ",
     );
+    let carried = build_shim(FAKE0, WALL0, 60, 60, Some(ScheduledRate { at_ms: WALL0 + 2_000, mult: 1, dur: 1 }), WALL_MAX, None);
+    let mut change = numbers();
+    change.push(("SHIM", shim(60, 60)));
+    change.push(("CARRIED", js_text(&carried)));
+    run_scenario(
+        "secondchange",
+        &change,
+        r"
+        run(SHIM);
+        check('a second install answers already', run(CARRIED) === 'already');
+        advance(3000);
+        check('and the change it carried takes effect at its instant', Date.now() === FAKE0 + 2000 * 60 + 1000, Date.now() - FAKE0);
+        ",
+    );
     let mut foreign = numbers();
     foreign.push(("SHIM", shim(60, 60)));
     run_scenario(
@@ -287,6 +367,8 @@ fn a_second_install_a_foreign_marker_and_a_running_page_are_told_apart() {
         try { run(SHIM); } catch (e) { threw = true; }
         check('a foreign marker makes the install fail', threw);
         check('and nothing is replaced', Date === EngineDate);
+        const left = Object.keys(globalThis.__chronomock);
+        check('and the object under the name is left as the page made it', left.join() === 'counts', left);
         ",
     );
     let mut page = numbers();
@@ -604,7 +686,8 @@ fn the_moves_the_audit_and_the_release_reach_the_frames_of_the_page() {
 
 /// A page hidden while its timers run faster is noted - on install, when its visibility changes, and on
 /// every audit - and not at the rate 1 (R4-N28). The zone a context reads is judged against the session's
-/// at install and at every audit, and a session with no zone judges none.
+/// at install and at every audit, a session with no zone judges none, and a page let go is judged no
+/// more: what it reads after the release is no evidence about the session's zone (CodeRabbit on #89).
 #[test]
 fn the_audit_notes_a_hidden_page_and_a_zone_it_did_not_read() {
     let mut vars = numbers();
@@ -640,6 +723,7 @@ fn the_audit_notes_a_hidden_page_and_a_zone_it_did_not_read() {
     let mut zones = numbers();
     zones.push(("FLOW", js_text(&build_shim(FAKE0, WALL0, 1, 1, None, WALL_MAX, None))));
     zones.push(("COUNTS", js_text(COUNTS_EXPR)));
+    zones.push(("RELEASE", js_text(&release_expr())));
     run_scenario(
         "zones",
         &zones,
@@ -651,6 +735,10 @@ fn the_audit_notes_a_hidden_page_and_a_zone_it_did_not_read() {
         check('a context that reads the session zone is not noted', run(COUNTS).zone === 0, here);
         globalThis.__chronomock.set(FAKE0, WALL0, 1, 1, null, undefined, here + 60);
         check('one that reads another zone is', run(COUNTS).zone === 1, here);
+        // An offset no engine shows, so the page on the real clock can never read it by chance.
+        globalThis.__chronomock.set(FAKE0, WALL0, 1, 1, null, undefined, 9999);
+        run(RELEASE);
+        check('a page let go is judged against no zone', run(COUNTS).zone === 0);
         ",
     );
 }

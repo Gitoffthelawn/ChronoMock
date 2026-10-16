@@ -1289,19 +1289,32 @@ mod tests {
     }
 
     /// CodeRabbit on #89: two pages share one renderer and its zone override, and the protocol does not
-    /// order commands across sessions. Here the second page's renderer is busy and runs its last count
-    /// only when its release arrives, reading another zone if the session's was replaced before. The
-    /// release replaces the zone after the answers, so the count reads the session's zone, and both
-    /// pages are then put on the machine's zone by its name (ADR-21).
+    /// order commands across sessions. Here the second page's renderer is busy: its last count and its
+    /// release wait until it comes free, which is once the attacher has gone quiet after sending the
+    /// release, and the count reads another zone if the session's was replaced before then. The release
+    /// replaces the zone only after the answers, so the count reads the session's zone, and both pages
+    /// are then put on the machine's zone by its name (ADR-21). A renderer that answered the count the
+    /// moment the release arrived let an attacher through that replaced the zone right after sending the
+    /// release, without waiting for the answers (the registry's entry went through).
     #[test]
     fn the_release_takes_the_zone_away_only_after_the_last_counts() {
         let mut reset = false;
         let mut held: Option<serde_json::Value> = None;
-        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+        let mut release: Option<serde_json::Value> = None;
+        let count = |reset: bool| json!({ "result": { "value": { "now": 1, "zone": u8::from(reset) } } });
+        let (port, browser) = crate::cdp::fake_browser_paced(Some(Duration::from_millis(200)), move |request| {
+            let Some(request) = request else {
+                // Free again: the count it was busy with, then the release behind it.
+                let Some(release_id) = release.take() else {
+                    return Vec::new();
+                };
+                let mut out: Vec<_> = held.take().map(|count_id| (count_id, count(reset))).into_iter().collect();
+                out.push((release_id, json!({ "result": { "value": "ok" } })));
+                return out;
+            };
             let id = request["id"].clone();
             let session = request["sessionId"].as_str().unwrap_or("");
             let expr = request["params"]["expression"].as_str().unwrap_or("");
-            let count = |reset: bool| json!({ "result": { "value": { "now": 1, "zone": u8::from(reset) } } });
             match request["method"].as_str().unwrap_or("") {
                 "Target.getTargets" => vec![(
                     id,
@@ -1326,16 +1339,11 @@ mod tests {
                     let shown = if reset { json!([-60, -120]) } else { json!([-330, -330]) };
                     vec![(id, json!({ "result": { "value": shown } }))]
                 }
-                "Runtime.evaluate" if expr == cdp::release_expr() => {
-                    let mut out = Vec::new();
-                    if session == "S2"
-                        && let Some(count_id) = held.take()
-                    {
-                        out.push((count_id, count(reset)));
-                    }
-                    out.push((id, json!({ "result": { "value": "ok" } })));
-                    out
+                "Runtime.evaluate" if expr == cdp::release_expr() && session == "S2" => {
+                    release = Some(id);
+                    Vec::new()
                 }
+                "Runtime.evaluate" if expr == cdp::release_expr() => vec![(id, json!({ "result": { "value": "ok" } }))],
                 "Runtime.evaluate" => vec![(id, json!({ "result": {} }))],
                 _ => vec![(id, json!({}))],
             }
