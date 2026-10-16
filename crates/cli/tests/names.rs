@@ -40,7 +40,7 @@
 use std::path::{Path, PathBuf};
 
 /// Committed trees, mirroring `hygiene.rs`. A file outside them is not in anyone's checkout.
-const TRACKED_TREES: &[&str] = &["crates", "gui", "site", "calendars", "presets", "packaging", ".github"];
+const TRACKED_TREES: &[&str] = &["crates", "gui", "site", "calendars", "presets", "packaging", ".github", "tests"];
 
 const SKIP_DIRS: &[&str] = &["target", "obj", "bin", "node_modules", ".vs", ".git"];
 

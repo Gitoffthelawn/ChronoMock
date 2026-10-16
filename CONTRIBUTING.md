@@ -234,6 +234,28 @@ before anyone reviews it:
 - **The crate dependency direction is fixed** and checked, so a new dependency
   edge fails the suite until it is declared.
 
+### Mutation testing
+
+A green suite says the code does what the tests check, not that the tests check
+anything. So every guard here has been broken on purpose to see that it notices,
+and those breaks are kept in `tests/mutation/entries.json`: one entry per break,
+with the text it changes, the file it changes it in and the test that must go red.
+
+A pull request runs the entries its change reaches - a file an entry mutates, the
+file declaring an entry's test, or a new or changed entry - and the `mutation`
+workflow reports the result in its summary. That report never fails a pull request.
+Once a week every entry runs, in sixteen parts side by side, and that run is the
+one that goes red.
+
+If you add a guard, add the entry that proves it can fail. A local run names its
+entries or compares with a base - a run of every entry takes hours and is refused
+unless asked for with `-All`:
+
+```bash
+pwsh -File tests/mutation/mutate.ps1 -Only "r4-18 sign reversed"
+pwsh -File tests/mutation/mutate.ps1 -Base origin/main
+```
+
 ## Licence and conduct
 
 Contributions are licensed under **GPL-3.0**, the same as the project. By opening a

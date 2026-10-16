@@ -1,0 +1,171 @@
+# Mutation testing: every guard broken on purpose, to see that it notices.
+#
+# A green suite says the code does what the tests check. It does not say the tests check anything -
+# that needs each guard broken on purpose and watched going red, and tests/mutation/entries.json holds
+# one entry per break. Until 2026-10-16 those breaks lived in throwaway scripts outside the repository
+# and ran on one machine, a slice at a time, and a full pass was never run at all.
+#
+# Two kinds of run, one path through the same jobs:
+#
+#   - weekly, and by hand from the Actions tab: every entry, cut into sixteen parts that run side by
+#     side. Red when an entry is not caught or a part does not finish. This is what catches a guard
+#     that stopped reaching its code through a change in a third file, which no selection by file can
+#     see.
+#   - on a pull request: only the entries the change reaches - a file an entry mutates, the file
+#     declaring its test, or the entry itself. Reported and never red, a decision of 2026-10-16,
+#     until the runner has earned trust on these machines. It is not a required check.
+#
+# The plan job decides how many entries and parts there are, each part judges its own share with
+# -CiScope - an entry that needs a machine a runner is not (a live browser, the environment harness, an
+# elevated session, a virtual machine) or a C# test carrying the Integration trait is NOT HERE rather
+# than judged - and the report job puts the parts together. A part that never reports is a failure
+# there, never a smaller run.
+#
+# Every `uses:` is pinned to a full commit SHA, with its release in the comment beside it, as in ci.yml.
+name: mutation
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Friday 02:07 UTC. Two other projects of the same account run theirs on Saturday and Sunday night,
+    # and all three share the twenty jobs a free plan runs at once - this run takes sixteen.
+    - cron: "7 2 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request makes the older run worthless, so it is cancelled rather than
+# left holding machines. A weekly or hand-started run is never cancelled by another one.
+concurrency:
+  group: mutation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: which entries
+    runs-on: windows-latest
+    timeout-minutes: 15
+    outputs:
+      entries: ${{ steps.plan.outputs.entries }}
+      parts: ${{ steps.plan.outputs.parts }}
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      # The whole history, because a pull request is compared with its base and the base has to be
+      # here to be compared with. Nothing here pushes, so no token stays in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # Builds nothing. Proves the parsing of both test runners, the selection, the cut into parts and
+      # the recovery on planted cases whose answer is known, before the plan below trusts them.
+      - name: the runner's own canaries
+        shell: pwsh
+        run: ./tests/mutation/mutate.ps1 -SelfTest
+
+      - name: the plan
+        id: plan
+        shell: pwsh
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        # A HASHTABLE TO SPLAT, NEVER AN ARRAY. An array splatted into a script binds by position, and
+        # the sister project measured '-Base' landing in -Root and the commit in -Only.
+        run: |
+          $reached = if ($env:BASE) { @{ Base = $env:BASE } } else { @{} }
+          ./tests/mutation/mutate.ps1 @reached -PlanTo $env:GITHUB_OUTPUT
+          if (Select-String -LiteralPath $env:GITHUB_OUTPUT -Pattern '^entries=0$' -Quiet) {
+            'No mutation entry is reached by this change, so none was run.' >> $env:GITHUB_STEP_SUMMARY
+          }
+
+  run:
+    name: part ${{ matrix.shard }}
+    needs: plan
+    if: needs.plan.outputs.entries != '0'
+    runs-on: windows-latest
+    # The first weekly run is the measurement - a guess of 40 to 80 minutes a part is written down
+    # before it, in the project's notes. This ceiling is far above that so that a hang ends as a part
+    # that did not report rather than as six hours of a held machine.
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      # Only an entry whose test reads both release cores builds the 32-bit one, and that entry can
+      # land in any part.
+      - name: Add the 32-bit target
+        run: rustup target add i686-pc-windows-msvc
+
+      # One cache for all the parts, written only by the weekly run on main, read by every run. The
+      # parts leave the workspace crates built from mutations, which the action leaves out of what it
+      # saves - only the dependencies are kept.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: mutation
+          save-if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+
+      # Never red on its own. The verdicts go to the JSON file after every entry and the report job
+      # decides - a step that crashed or ran out of time is found there as a part that did not finish.
+      # The tree is thrown away with the machine, so the closing rebuild is skipped.
+      - name: the entries of this part
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          SHARD: ${{ matrix.shard }}
+          PARTS: ${{ needs.plan.outputs.parts }}
+        run: |
+          $reached = if ($env:BASE) { @{ Base = $env:BASE } } else { @{} }
+          ./tests/mutation/mutate.ps1 @reached -Shard "$($env:SHARD)/$($env:PARTS)" -CiScope -NoClosingBuild -Json "result-$($env:SHARD).json"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation-result-${{ matrix.shard }}
+          path: result-*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  report:
+    name: what the run found
+    needs: [plan, run]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.entries != '0'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A run in which no part reported has nothing to download, and that is for the report to say
+      # rather than for this step to fail on.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: mutation-result-*
+          path: results
+          merge-multiple: true
+
+      - name: the report's own canaries
+        shell: pwsh
+        run: ./tests/mutation/report.ps1 -SelfTest
+
+      # Red on the weekly run and on a run by hand. On a pull request the same findings are warnings.
+      - name: the verdict
+        shell: pwsh
+        env:
+          ENTRIES: ${{ needs.plan.outputs.entries }}
+          PARTS: ${{ needs.plan.outputs.parts }}
+          GATE: ${{ github.event_name != 'pull_request' }}
+        run: ./tests/mutation/report.ps1 -Folder results -Entries $env:ENTRIES -Parts $env:PARTS -Gate:($env:GATE -eq 'true')
