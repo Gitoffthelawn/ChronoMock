@@ -239,7 +239,8 @@ fn the_session_moves_counts_and_lets_go_of_the_page() {
 /// already handed out (untouchable rule 3), and one received after its instant takes effect at once and
 /// says `late`. It takes effect whichever clock is read first past the instant - `performance.now` and a
 /// timer's delay as much as the wall - and the duration axis does not step back when a correction of the
-/// system clock carries the wall past the instant while `performance.now` has not got there.
+/// system clock carries the wall past the instant while `performance.now` has not got there, and runs at
+/// the new rate from there.
 #[test]
 fn a_scheduled_rate_change_takes_effect_at_its_instant() {
     let on_time = cdp_schedule_expr(ScheduledRate { at_ms: WALL0 + 500, mult: 1, dur: 1 });
@@ -313,6 +314,9 @@ fn a_scheduled_rate_change_takes_effect_at_its_instant() {
         drift(20, 5);
         const after = performance.now();
         check('performance.now does not step back when the wall runs ahead of it', after >= before, after - before);
+        advance(1000);
+        const step = performance.now() - after;
+        check('and runs at the new rate from there', near(step, 1000, 0.001), step);
         ",
     );
 }

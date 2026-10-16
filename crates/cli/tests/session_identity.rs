@@ -50,6 +50,10 @@ const PROBE: &str = "probe_starts_a_child_after_its_session_ends";
 /// session does not scale durations, so it is not shortened.
 const CHILD_AFTER_MS: u64 = 5_000;
 
+/// How long a session of two heartbeats may take to end in the third test, far past the few seconds it
+/// takes on a slow runner, before the test calls it stuck rather than waiting on it for good.
+const CORE_ENDS_WITHIN: Duration = Duration::from_secs(60);
+
 /// The session's moment, far enough ahead that no real clock reading can be mistaken for it.
 const SESSION_AT: &str = "2077-01-01T00:00:00";
 
@@ -382,15 +386,32 @@ fn a_process_that_read_no_clock_in_its_session_reads_the_real_clock_after_it() {
     let stdout = drain(run.stdout.take());
     let stderr = drain(run.stderr.take());
     // The core's own exit, not the end of its streams: the probe holds the error stream until it is done,
-    // and it is not done until the gate opens.
-    let _ = run.wait();
+    // and it is not done until the gate opens. Bounded, because a core that came to wait for its target
+    // would wait on the probe, the probe on the gate and this test on the core.
+    let deadline = Instant::now() + CORE_ENDS_WITHIN;
+    let ended = loop {
+        match run.try_wait().expect("the core can be waited on") {
+            Some(_) => break true,
+            None if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            None => break false,
+        }
+    };
     // SAFETY: the mutex this thread created and owns.
     unsafe {
         ReleaseMutex(gate);
         CloseHandle(gate);
     }
+    if !ended {
+        let _ = run.kill();
+        let _ = run.wait();
+    }
     let stdout = stdout.join().unwrap_or_default();
     let stderr = stderr.join().unwrap_or_default();
+    assert!(
+        ended,
+        "the core did not end within {CORE_ENDS_WITHIN:?} of a session of two heartbeats - it waited for its \
+         target, which waited for this test. stdout: {stdout} stderr: {stderr}"
+    );
     let real_now = wall_seconds();
     let text = std::fs::read_to_string(&file).unwrap_or_default();
     let context = || format!("probe: {text:?} stdout: {stdout} stderr: {stderr}");

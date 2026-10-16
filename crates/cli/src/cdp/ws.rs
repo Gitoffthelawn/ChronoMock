@@ -549,6 +549,10 @@ pub(crate) mod tests {
     /// The same, and once the client has sent nothing for `quiet`, `answer` is asked again with no
     /// request: a renderer busy with its own work comes free when it does, not when the next command
     /// arrives, so a reply held back can come after the client went on without it.
+    ///
+    /// The socket is read by a thread of its own with plain blocking reads, and the quiet is the wait on
+    /// what that thread hands over: a receive that timed out leaves a Windows socket in an indeterminate
+    /// state that should not be read again (Winsock, `SO_RCVTIMEO`), so no read here ever times out.
     pub(crate) fn fake_browser_paced(
         quiet: Option<Duration>,
         mut answer: impl FnMut(Option<&serde_json::Value>) -> Vec<(serde_json::Value, serde_json::Value)> + Send + 'static,
@@ -556,10 +560,18 @@ pub(crate) mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let (port, server) = server(move |mut s| {
             s.write_all(UPGRADED).unwrap();
-            s.set_read_timeout(quiet).unwrap();
+            let (bytes_tx, bytes_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+            let mut reader = s.try_clone().unwrap();
+            let reading = std::thread::spawn(move || {
+                let mut b = [0u8; 8192];
+                while let Ok(n) = reader.read(&mut b) {
+                    if n == 0 || bytes_tx.send(b[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            });
             let mut log = Vec::new();
             let mut buf = Vec::new();
-            let mut b = [0u8; 8192];
             'read: loop {
                 while let Ok(Some((_, opcode, payload))) = take_frame(&mut buf) {
                     if opcode == 0x8 {
@@ -573,17 +585,24 @@ pub(crate) mod tests {
                     }
                     log.push(request);
                 }
-                match s.read(&mut b) {
-                    Ok(0) => break,
-                    Ok(n) => buf.extend_from_slice(&b[..n]),
-                    Err(e) if quiet.is_some() && matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {
+                let next = match quiet {
+                    Some(quiet) => bytes_rx.recv_timeout(quiet),
+                    None => bytes_rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                };
+                match next {
+                    Ok(bytes) => buf.extend_from_slice(&bytes),
+                    Err(RecvTimeoutError::Timeout) => {
                         for (id, result) in answer(None) {
                             s.write_all(&server_frame(scripted_message(id, result).as_bytes(), true)).unwrap();
                         }
                     }
-                    Err(_) => break,
+                    Err(RecvTimeoutError::Disconnected) => break,
                 }
             }
+            // A client that sent its close frame and kept the connection open would hold the reading
+            // thread in its read for good.
+            let _ = s.shutdown(Shutdown::Both);
+            let _ = reading.join();
             let _ = tx.send(log);
         });
         let log = std::thread::spawn(move || {
