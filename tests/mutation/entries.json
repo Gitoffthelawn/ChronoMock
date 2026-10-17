@@ -13940,5 +13940,24 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-a6 no new view is ever put in a dropped view's place",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "            let in_its_place = page_view(Some(address));\n",
+        "to": "            let in_its_place: Option<ControlView> = None;\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_view_is_unmapped_unless_the_session_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

@@ -219,18 +219,25 @@ mod tests {
         (view, address)
     }
 
+    /// How many views the test drops, at most, before one of them gets a new view in its place.
+    const PLACE_TRIES: usize = 16;
+
     /// A view dropped on a way out is unmapped, and one handed to the session stays. Before the question
     /// about the dropped one, a new view is made at its address, the way a test running beside this one
-    /// can make one, so the question meets that case in every run and not only when CI happens on it.
+    /// can make one, so the question meets that case in every run and not only when CI happens on it. A
+    /// test beside this one can take the address first, and then the try is repeated with a new view.
     #[test]
     fn a_view_is_unmapped_unless_the_session_takes_it() {
         let marker = marker();
-        let (dropped, address) = marked_view(marker);
-        assert!(holds(address, marker), "the question does not see a view that is there");
-        drop(dropped);
-        let in_its_place = page_view(Some(address));
-        assert!(!holds(address, marker), "the view outlived its guard");
-        drop(in_its_place);
+        let replaced = (0..PLACE_TRIES).any(|_| {
+            let (dropped, address) = marked_view(marker);
+            assert!(holds(address, marker), "the question does not see a view that is there");
+            drop(dropped);
+            let in_its_place = page_view(Some(address));
+            assert!(!holds(address, marker), "the view outlived its guard");
+            in_its_place.is_some()
+        });
+        assert!(replaced, "no try in {PLACE_TRIES} put a new view in a dropped one's place");
 
         let (kept, _) = marked_view(marker);
         let (address, hmap) = kept.into_session();
