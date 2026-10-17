@@ -13826,5 +13826,119 @@
     "match": "method",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-a6 a dropped view is never unmapped",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "            let _ = UnmapViewOfFile(self.view);\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_view_is_unmapped_unless_the_session_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-a6 the view handed to the session is unmapped anyway",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "        let held = ManuallyDrop::new(self);\n        (held.view.Value as usize, held.hmap)",
+        "to": "        let held = self;\n        (held.view.Value as usize, held.hmap)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_view_is_unmapped_unless_the_session_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-a6 a target dropped before it runs is left suspended",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "            let _ = TerminateProcess(self.pi.hProcess, 1);\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_target_dropped_before_it_runs_is_ended",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-a6 the hand-over leaves the guard armed",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "        let held = ManuallyDrop::new(self);\n        // SAFETY: `held` is never dropped",
+        "to": "        let held = ManuallyDrop::new(self);\n        let _armed = SuspendedTarget { pi: held.pi, job: Err(String::new()) };\n        // SAFETY: `held` is never dropped"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_target_handed_over_is_left_running",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-a6 any view at a dropped view's address is taken for it",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "        read.is_ok() && found == marker",
+        "to": "        read.is_ok() || found == marker"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_view_is_unmapped_unless_the_session_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-a6 the question about a view sees nothing",
+    "edits": [
+      {
+        "file": "crates/mech/src/held.rs",
+        "from": "        read.is_ok() && found == marker",
+        "to": "        read.is_ok() && found != marker"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "held::tests::a_view_is_unmapped_unless_the_session_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]
