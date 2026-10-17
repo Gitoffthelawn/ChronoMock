@@ -16314,5 +16314,39 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-w2 the zone line of a date with an offset has no Polish text",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Localization/Strings.pl.json",
+        "from": "  \"calc.analyze_zone_offset\": \"Ta data ma w\u0142asne przesuni\u0119cie wzgl\u0119dem UTC, wi\u0119c jest chwil\u0105 - pokazana w strefie {0}, wybranej powy\u017cej.\",",
+        "to": "  \"calc.analyze_zone_offset\": \"\","
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ReverseAnalysisTests.A_date_with_an_offset_gets_its_own_zone_line",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the reading of a date with an offset has no English text",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Localization/Strings.en.json",
+        "from": "  \"calc.reading.iso_offset\": \"ISO 8601 with a UTC offset\",",
+        "to": "  \"calc.reading.iso_offset\": \"\","
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ReverseAnalysisTests.A_date_with_an_offset_gets_its_own_zone_line",
+    "match": "method",
+    "build": "",
+    "notHere": ""
   }
 ]

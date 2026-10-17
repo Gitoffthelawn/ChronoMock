@@ -65,12 +65,25 @@ public class ReverseAnalysisTests
 
         Assert.Equal("calc.analyze_zone_offset", CalculatorViewModel.AnalysisZoneKey([Reading("iso_offset")]));
         Assert.Equal("calc.analyze_zone", CalculatorViewModel.AnalysisZoneKey([Reading("epoch_seconds"), Reading("epoch_millis")]));
-        // Through the shared host, which loads the strings itself: a resource lookup with no application
-        // answers with the key, so this passed only when some other test had started the host first.
-        foreach (var key in new[] { "calc.analyze_zone_offset", "calc.reading.iso_offset" })
+        // Each language's strings read on the shared host, the way the guard of the core's keys reads them.
+        // A lookup through the running application answered with the key when no other test had started
+        // it first, and saw only the default language, and an empty text passed as one.
+        var missing = WpfTestHost.Invoke(() =>
         {
-            Assert.NotEqual(key, WpfTestHost.Invoke(() => TranslationKeyConverter.Resolve(key)));
-        }
+            var gaps = new List<string>();
+            foreach (var language in new[] { "en", "pl" })
+            {
+                var strings = LocalizationService.Load(language);
+                foreach (var key in new[] { "calc.analyze_zone_offset", "calc.reading.iso_offset" })
+                {
+                    if (strings[key] is not string text || text.Length == 0) { gaps.Add($"{key} ({language})"); }
+                }
+            }
+
+            return gaps;
+        });
+
+        Assert.True(missing.Count == 0, "keys with no text: " + string.Join(", ", missing));
     }
 
     /// <summary>R4-S23, D4: picking a zone moves the readings of a pasted number with it. Without the second
