@@ -96,6 +96,10 @@ pub(crate) fn calendar() -> impl Strategy<Value = Calendar> {
 /// build, and a case that never ends would hang the whole test binary with nothing said - the
 /// business-day walk did exactly that on a calendar without working days (S-1). A panic inside
 /// `run` reaches the caller as itself, so proptest still shrinks it.
+///
+/// 🔴 A `run` that does not finish is LEFT RUNNING - a thread cannot be stopped from outside - and
+/// every shrink step that still hangs leaves one more and waits `limit` again. So a property that
+/// uses this caps its shrink in time (`max_shrink_time`), as the calendar and the calculator do.
 pub(crate) fn within<T: Send + 'static>(
     limit: Duration,
     what: &str,

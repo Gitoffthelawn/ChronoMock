@@ -163,6 +163,9 @@ jobs:
           Write-Host "$ran properties held for $env:PROPTEST_CASES cases each, in $minutes minutes."
           exit 0
 
+      # Where proptest writes a failing case: beside `src` for the tests in `src`, and BESIDE THE
+      # FILE for a test in `tests/` - it looks upward for a `lib.rs` or `main.rs`, finds none above
+      # `tests/calc_cli.rs`, and falls back to `calc_cli.proptest-regressions` next to it.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -170,5 +173,6 @@ jobs:
           path: |
             search.log
             crates/*/proptest-regressions/
+            crates/*/tests/*.proptest-regressions
           if-no-files-found: ignore
           retention-days: 30

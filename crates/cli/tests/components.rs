@@ -20,14 +20,15 @@
 //! checkout, so it cannot be checked here, and a test that silently skipped would be worse than one
 //! that does not claim the ground at all.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 /// Crates in the lockfile that are NOT in the shipped binaries, each with the reason.
 ///
 /// This list only ever shrinks. A crate added here is a claim that it never reaches a user's disk,
-/// and the claim is checked the only way it can be - by reading `cargo tree -e normal,no-proc-macro`
-/// for `chrono-cli` and `chrono-hook`, which is how the register itself was derived.
+/// and `no_excused_crate_is_in_what_ships` checks the claim against what `cargo tree -e
+/// normal,no-proc-macro` prints for `chrono-cli` and `chrono-hook`, which is how the register itself
+/// was derived. Until 2026-10-18 a person checked it, and the list excused by name alone.
 const BUILD_ONLY: &[(&str, &str)] = &[
     ("cc", "compiles the vendored MinHook C source at build time"),
     ("equivalent", "a trait crate under indexmap, which is under toml"),
@@ -57,17 +58,21 @@ const BUILD_ONLY: &[(&str, &str)] = &[
 /// cases, and what it pulls in. A list of its own beside `BUILD_ONLY` because it is a different
 /// claim - these are not even compiled when the product is built. The root of the claim is checked
 /// below (`the_random_properties_runner_is_a_dev_dependency_and_nothing_else`), and the rest the way
-/// `BUILD_ONLY` is: none of them is in `cargo tree -e normal,no-proc-macro` for `chrono-cli` or
-/// `chrono-hook`.
+/// `BUILD_ONLY` is (`no_excused_crate_is_in_what_ships`). Each reason names the crate that pulls it
+/// in, read from `cargo tree -i <name> --target all`, not guessed.
 const TEST_ONLY: &[(&str, &str)] = &[
     ("autocfg", "a build script helper of num-traits, under proptest"),
-    ("bitflags", "flag sets inside proptest's runner configuration"),
+    ("bitflags", "the float classes proptest's float strategies draw from"),
     ("cfg-if", "a compile-time switch inside getrandom and chacha20, under proptest"),
     ("chacha20", "the random generator proptest draws cases from by default"),
-    ("core_detect", "CPU feature detection for rand_core, under proptest"),
+    (
+        "core_detect",
+        "x86 feature detection for proptest's hardware seed, called only without std, which this \
+         workspace never builds",
+    ),
     ("cpufeatures", "CPU feature detection for chacha20, under proptest"),
     ("getrandom", "the operating system's random seed, read by rand under proptest"),
-    ("libc", "a dependency of getrandom on targets this project does not build"),
+    ("libc", "a dependency of getrandom and cpufeatures on targets this project does not build"),
     ("num-traits", "numeric traits behind proptest's number strategies"),
     ("proptest", "draws and shrinks the cases of the random properties - a dev-dependency only"),
     ("r-efi", "UEFI bindings getrandom asks for on UEFI targets only (dependency_gate.py says why)"),
@@ -136,6 +141,86 @@ fn the_test_only_list_names_no_crate_that_is_gone() {
     assert!(
         TEST_ONLY.iter().all(|(_, why)| why.len() > 15),
         "every excuse has to say why, or it is not an excuse"
+    );
+}
+
+/// What the shipped binaries are built from: every package `chrono-cli` and `chrono-hook` reach over
+/// NORMAL edges on the two Windows targets, with proc-macro crates left out (they run inside the
+/// compiler and ship nothing) - the set `cargo tree -e normal,no-proc-macro` prints for the two.
+/// Read from `cargo metadata`, because only it says which kind each edge is. `Cargo.lock` lists a
+/// dev-dependency exactly as it lists a linked one.
+fn shipped_packages() -> BTreeSet<String> {
+    let out = std::process::Command::new(env!("CARGO"))
+        .current_dir(repo_root())
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .args(["--filter-platform", "x86_64-pc-windows-msvc"])
+        .args(["--filter-platform", "i686-pc-windows-msvc"])
+        .output()
+        .expect("cargo runs");
+    assert!(
+        out.status.success(),
+        "cargo metadata failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("cargo metadata prints JSON");
+    let none = Vec::new();
+    let items = |value: &serde_json::Value| value.as_array().unwrap_or(&none).clone();
+    let packages: BTreeMap<String, serde_json::Value> = items(&doc["packages"])
+        .into_iter()
+        .filter_map(|p| Some((p["id"].as_str()?.to_string(), p)))
+        .collect();
+    let nodes: BTreeMap<String, serde_json::Value> = items(&doc["resolve"]["nodes"])
+        .into_iter()
+        .filter_map(|n| Some((n["id"].as_str()?.to_string(), n)))
+        .collect();
+    let proc_macro = |id: &str| {
+        packages.get(id).is_some_and(|p| {
+            items(&p["targets"]).iter().any(|t| items(&t["kind"]).iter().any(|k| k == "proc-macro"))
+        })
+    };
+    let mut stack: Vec<String> = packages
+        .iter()
+        .filter(|(_, p)| p["name"] == "chrono-cli" || p["name"] == "chrono-hook")
+        .map(|(id, _)| id.clone())
+        .collect();
+    assert_eq!(stack.len(), 2, "cargo metadata does not name both shipped crates");
+    let mut seen: BTreeSet<String> = stack.iter().cloned().collect();
+    while let Some(id) = stack.pop() {
+        for dep in nodes.get(&id).map(|n| items(&n["deps"])).unwrap_or_default() {
+            let Some(next) = dep["pkg"].as_str() else { continue };
+            let normal = items(&dep["dep_kinds"]).iter().any(|k| k["kind"].is_null());
+            if normal && !proc_macro(next) && seen.insert(next.to_string()) {
+                stack.push(next.to_string());
+            }
+        }
+    }
+    seen.iter()
+        .filter_map(|id| packages.get(id)?["name"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// The claim `BUILD_ONLY` and `TEST_ONLY` make, checked rather than trusted: nothing on either list
+/// is in what ships. Excused by name alone, a crate that later became a real dependency of the
+/// product passed the register check without an entry - and `cfg-if`, `getrandom` and `bitflags`
+/// are common enough for that to happen with one line in a manifest.
+#[test]
+fn no_excused_crate_is_in_what_ships() {
+    let shipped = shipped_packages();
+    // The canary: a walk that never left the roots finds nothing excused, exactly like one that works.
+    assert!(
+        shipped.contains("serde_json") && shipped.contains("minhook") && shipped.len() >= 20,
+        "the walk over what ships found only {shipped:?} - it is not following the edges"
+    );
+    let wrong: Vec<&str> = BUILD_ONLY
+        .iter()
+        .chain(TEST_ONLY)
+        .map(|(name, _)| *name)
+        .filter(|name| shipped.contains(*name))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "excused as build-time or test-only, but chrono-cli or chrono-hook ships them - declare them \
+         in packaging/components.json and THIRD-PARTY-NOTICES.md, and take them off the list: {wrong:?}"
     );
 }
 

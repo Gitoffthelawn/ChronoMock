@@ -16815,5 +16815,85 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "prop-k1 a crate only the tests build ships with the product",
+    "edits": [
+      {
+        "file": "crates/core/Cargo.toml",
+        "from": "[dev-dependencies]\nproptest = { workspace = true }",
+        "to": "[target.'cfg(windows)'.dependencies]\nproptest = { workspace = true }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "components"
+    ],
+    "test": "no_excused_crate_is_in_what_ships",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k1 a crate only the build uses ships with the product",
+    "edits": [
+      {
+        "file": "crates/cli/Cargo.toml",
+        "from": "windows = { workspace = true }\n",
+        "to": "windows = { workspace = true }\ntoml = \"1.1\"\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "components"
+    ],
+    "test": "no_excused_crate_is_in_what_ships",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k1 the walk over what ships stays at its roots",
+    "edits": [
+      {
+        "file": "crates/cli/tests/components.rs",
+        "from": "                stack.push(next.to_string());",
+        "to": "                let _ = next;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "components"
+    ],
+    "test": "no_excused_crate_is_in_what_ships",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k1 a test-only child of a mod.rs is looked for in a directory of its own",
+    "edits": [
+      {
+        "file": "crates/cli/tests/hygiene.rs",
+        "from": "        \"lib.rs\" | \"main.rs\" | \"mod.rs\" => dir.to_string(),",
+        "to": "        \"lib.rs\" | \"main.rs\" => dir.to_string(),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "hygiene"
+    ],
+    "test": "no_public_definition_in_the_workspace_is_unreferenced",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

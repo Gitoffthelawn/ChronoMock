@@ -3119,7 +3119,13 @@ mod tests {
         }
 
         proptest! {
-            #![proptest_config(ProptestConfig { max_shrink_iters: 256, ..ProptestConfig::default() })]
+            // The shrink is capped in time as well as in steps: a case that hangs costs `within`'s
+            // whole limit at every step and leaves its thread spinning (see `within`).
+            #![proptest_config(ProptestConfig {
+                max_shrink_iters: 256,
+                max_shrink_time: 20_000,
+                ..ProptestConfig::default()
+            })]
 
             /// R3-1 and P2. Any chain of steps from any base ends in a real moment inside the year
             /// band, one per step, or says why not - and everything the calculator then shows for

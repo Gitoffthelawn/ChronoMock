@@ -569,9 +569,12 @@ mod properties {
     }
 
     proptest! {
+        // A process that hangs is killed at its limit, so nothing leaks - but every shrink step that
+        // still hangs waits the whole limit again, and 128 of them would be an hour. Capped in time.
         #![proptest_config(ProptestConfig {
             cases: quarter_of_the_cases(),
             max_shrink_iters: 128,
+            max_shrink_time: 120_000,
             ..ProptestConfig::default()
         })]
 
