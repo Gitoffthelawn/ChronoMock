@@ -2616,6 +2616,11 @@ mod tests {
         header[0x40..0x44].copy_from_slice(b"PE\0\0");
         header[0x44..0x46].copy_from_slice(&0x14Cu16.to_le_bytes());
         assert_eq!(pe_machine(&header), Some(0x14C));
+        // An offset that leads to anything but the PE signature is no header either: a 16-bit program
+        // starts with MZ too, and its machine field would be two bytes of something else.
+        header[0x40..0x44].copy_from_slice(b"NE\0\0");
+        assert_eq!(pe_machine(&header), None, "a header without the PE signature was read");
+        header[0x40..0x44].copy_from_slice(b"PE\0\0");
         header[0x3C] = 0xFF;
         assert_eq!(pe_machine(&header), None, "an offset past the bytes is no header");
     }

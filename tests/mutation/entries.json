@@ -13959,5 +13959,2360 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-w1 a busy session is the internal error again",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "        P::SessionActive(pid) => (\n            SESSION_BUSY_EXIT,",
+        "to": "        P::SessionActive(pid) => (\n            3,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::another_running_session_is_the_busy_code_not_an_internal_error",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a renderer counts as reached through any engine",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "        .all(|c| engines.iter().any(|e| e.pid == c.parent_pid && e.context_count > 0))",
+        "to": "        .all(|c| engines.iter().any(|e| e.pid == c.parent_pid))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::a_renderer_counts_as_reached_only_through_an_engine_that_had_pages",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 no page is counted to its engine",
+    "edits": [
+      {
+        "file": "crates/cli/src/embedded_bridge.rs",
+        "from": "                reached.context_count = reached.context_count.saturating_add(pages);\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "embedded_bridge::tests::the_pages_are_counted_to_the_engine_they_came_through",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the engines heading claims pages always",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "    let mut out = String::from(if context_count > 0 {",
+        "to": "    let mut out = String::from(if true {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::the_engines_heading_claims_pages_only_when_some_were_put_on_the_clock",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a refusal without the way past it",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "    out.push_str(\"            to run it anyway, start it again with --force - the report then marks the session unreliable\\n\");\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::a_refusal_names_force_as_the_way_to_run_anyway",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a works session that proves nothing is reliable evidence",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "    if r.warnings.iter().any(|w| WARNINGS_THAT_UNDO_EVIDENCE.contains(&w.as_str())) {",
+        "to": "    if false && r.warnings.iter().any(|w| WARNINGS_THAT_UNDO_EVIDENCE.contains(&w.as_str())) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::a_works_session_that_proves_nothing_about_time_is_flagged_as_unreliable_evidence",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the evidence file writes the arguments unasked",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "        (n, false) => format!(\"{n}, left out (--report-args writes them word for word)\"),",
+        "to": "        (n, false) => format!(\"{n} - {args:?}\"),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::the_evidence_file_names_the_run_and_keeps_the_arguments_out_unless_asked",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 report-args taken without a report",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/args.rs",
+        "from": "    if report_args_without_report {",
+        "to": "    if false && report_args_without_report {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::report_args_needs_a_report_to_write_into",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 force sets the dry-run field",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/args.rs",
+        "from": "            \"--force\" => &mut self.force,",
+        "to": "            \"--force\" => &mut self.dry_run,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::every_switch_sets_its_own_field_and_no_other",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the evidence flags carry the target arguments",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/mod.rs",
+        "from": "    if out.is_empty() { \"none\".to_string() } else { out.join(\" \") }",
+        "to": "    out.extend(ra.args.iter().cloned());\n    if out.is_empty() { \"none\".to_string() } else { out.join(\" \") }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::tests::the_evidence_flags_name_the_switches_and_never_the_target_arguments",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a timer under the minimum without a session counts as floored",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "    elapse_ms >= USER_TIMER_MINIMUM_MS && scale_timer_elapse(elapse_ms, m) < USER_TIMER_MINIMUM_MS",
+        "to": "    scale_timer_elapse(elapse_ms, m) < USER_TIMER_MINIMUM_MS"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_timer_counts_as_floored_only_when_the_scaling_could_not_reach_the_session_rate",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the late scan backs off past one look a second",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    LATE_POLL_SLOW_MS.saturating_mul(1 << slow.min(4)).min(LATE_POLL_CEILING_MS)",
+        "to": "    LATE_POLL_SLOW_MS.saturating_mul(1 << slow.min(4))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_late_scan_backs_off_to_one_look_a_second",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a detour that fell back to the stub claims its channel",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    site.every_caller && placed == site.at",
+        "to": "    site.every_caller"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_channel_is_claimed_only_by_a_detour_every_caller_passes",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a timer held at a floor says nothing",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "        keys.push(\"timer.interval_floored\".to_string());\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_timer_held_at_a_floor_is_reported_apart_from_the_waits",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the engines claim pages whatever the count",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                EnginePagesReached = sv.ContextCount > 0;",
+        "to": "                EnginePagesReached = true;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ReachedEngineTests.The_engines_claim_pages_only_when_the_session_put_some_on_its_clock",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a works result carries no caveat",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];",
+        "to": "        => ResultIsVerdict && _verdictKind == VerdictKind.Fails ? [.. EvidenceUndoingWarnings] : [];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ResultPhaseModelTests.A_works_session_that_proves_nothing_about_time_says_so_under_its_reason",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the caveats stand under any headline",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];",
+        "to": "        => ResultIsVerdict ? [.. EvidenceUndoingWarnings] : [];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ResultPhaseModelTests.The_caveats_stand_only_under_a_works_headline_and_only_for_the_warnings_that_undo_evidence",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the cli flags a warning the window does not",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "pub(crate) const WARNINGS_THAT_UNDO_EVIDENCE: [&str; 2] =\n    [\"runtime.go_wall_clock_unreachable\", \"coverage.session_clock_never_read\"];",
+        "to": "pub(crate) const WARNINGS_THAT_UNDO_EVIDENCE: [&str; 3] =\n    [\"runtime.go_wall_clock_unreachable\", \"coverage.session_clock_never_read\", \"wait.timeout_collapsed\"];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.RustConstantMirrorTests.The_warnings_that_undo_evidence_match_the_ones_the_cli_names",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a works session that proves nothing is reliable in the window",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                              && !IsCutShort\n                              && !EvidenceUndoingWarnings.Any();",
+        "to": "                              && !IsCutShort;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionEndHonestyTests.A_works_session_that_proves_nothing_about_time_keeps_its_verdict_but_is_not_evidence",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a renderer reads as reached through any engine",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/UncoveredProcessRowsConverter.cs",
+        "from": "            if (engine.ContextCount > 0)",
+        "to": "            if (engine.Pid > 0)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.UncoveredProcessRowsTests.A_renderer_reads_as_reached_only_through_an_engine_that_put_a_page_on_the_clock",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 a renderer without pages gets the reached ink",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Themes/Parts.xaml",
+        "from": "<DataTrigger Binding=\"{Binding PagesReached}\" Value=\"True\">",
+        "to": "<DataTrigger Binding=\"{Binding PagesReached}\" Value=\"False\">"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.LayoutGuardTests.A_renderer_under_an_engine_whose_pages_were_not_put_on_the_clock_stays_a_failure",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w1 the caveats are hidden under the reason",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "Visibility=\"{Binding ResultHasEvidenceCaveats, Converter={StaticResource BoolToVis}}\" />",
+        "to": "Visibility=\"Collapsed\" />"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.LayoutGuardTests.A_works_that_proves_nothing_about_time_shows_both_caveats_under_its_reason",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a date with an offset reads as a number's instant",
+    "edits": [
+      {
+        "file": "crates/cli/src/calc.rs",
+        "from": "        let what = if offset {",
+        "to": "        let what = if false {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calc::tests::a_date_with_an_offset_is_analysed_as_an_instant",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a bad parameter value ends in the bad file key",
+    "edits": [
+      {
+        "file": "crates/cli/src/calc.rs",
+        "from": "        (PresetError::BadFile(_), PresetStage::Parameters) => format!(\"chrono calc: {m} (calc.preset_parameter)\"),",
+        "to": "        (PresetError::BadFile(_), PresetStage::Parameters) => format!(\"chrono calc: {m} (calc.preset_invalid)\"),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calc::tests::calendar_and_preset_failures_end_in_their_own_key",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a calendar takes hidden characters",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "    refuse_hidden_characters(\"calendar\", text)?;\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar::tests::a_calendar_text_or_key_with_a_hidden_character_is_refused_by_its_place",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a catalogue file that grew while read is taken",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "    if bytes.len() as u64 > MAX_CATALOGUE_BYTES {",
+        "to": "    if false && bytes.len() as u64 > MAX_CATALOGUE_BYTES {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar::tests::a_catalogue_file_that_grows_past_the_limit_while_read_is_refused",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the package catalogue is rescued from the current folder",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "        return candidate.is_file().then_some(candidate);",
+        "to": "        if candidate.is_file() {\n            return Some(candidate);\n        }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar::tests::a_core_in_the_window_package_reads_the_package_catalogue_and_nothing_else",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 not found names a placeholder folder",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "        ids => format!(\"looked in {}, which holds {}\", dir.display(), ids.join(\", \")),",
+        "to": "        ids => format!(\"looked in <exe>\\\\{kind}, which holds {}\", ids.join(\", \")),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar::tests::not_found_names_the_real_folders_and_the_ids_on_offer",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a long catalogue lists its largest ids",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "        if kept.len() > LISTED_IDS {\n            kept.pop_last();",
+        "to": "        if kept.len() > LISTED_IDS {\n            kept.pop_first();"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar::tests::a_long_catalogue_lists_its_smallest_ids_and_counts_the_rest",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a refused upgrade quotes the status line raw",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/ws.rs",
+        "from": "                format!(\"websocket upgrade refused: {}\", super::sanitise_target_text(&status)),",
+        "to": "                format!(\"websocket upgrade refused: {status}\"),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::ws::tests::a_refused_upgrade_quotes_the_status_line_escaped_and_short",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the browser product is quoted raw",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_probe.rs",
+        "from": "    cdp::sanitise_target_text(version.get(\"product\").and_then(serde_json::Value::as_str).unwrap_or(\"?\"))",
+        "to": "    version.get(\"product\").and_then(serde_json::Value::as_str).unwrap_or(\"?\").to_string()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_probe::tests::the_browser_product_is_quoted_escaped_and_a_missing_one_is_a_question_mark",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a step is named by its index from zero",
+    "edits": [
+      {
+        "file": "crates/cli/src/preset.rs",
+        "from": "        let place = |m: String| format!(\"step {}: {m}\", index + 1);",
+        "to": "        let place = |m: String| format!(\"step {}: {m}\", index);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "preset::tests::a_step_that_will_not_resolve_is_named_by_its_number",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a preset one step past the limit is taken",
+    "edits": [
+      {
+        "file": "crates/cli/src/preset.rs",
+        "from": "    if steps > MAX_PRESET_STEPS {",
+        "to": "    if steps > MAX_PRESET_STEPS + 1 {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "preset::tests::a_preset_past_the_step_or_parameter_limit_is_refused",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a preset takes hidden characters",
+    "edits": [
+      {
+        "file": "crates/cli/src/preset.rs",
+        "from": "    crate::calendar::refuse_hidden_characters(\"preset\", text).map_err(PresetError::BadFile)?;\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "preset::tests::a_preset_text_with_a_hidden_character_is_refused_by_its_place",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a refusal quotes a bad file raw",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "    format!(\"bad {kind} JSON{place}: {}\", chrono_core::text::escape_hidden(&said))",
+        "to": "    format!(\"bad {kind} JSON{place}: {said}\")"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "preset::tests::a_refusal_quoting_the_file_writes_a_hidden_character_as_its_code",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a value flag takes the next flag as its value",
+    "edits": [
+      {
+        "file": "crates/cli/src/cli.rs",
+        "from": "        Some(word) if word.starts_with(\"--\") => {",
+        "to": "        Some(word) if word.starts_with(\"---\") => {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::a_value_flag_refuses_the_next_flag_as_its_value",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the target arguments are read as a flag value",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/args.rs",
+        "from": "                let raw = argv.get(i).ok_or(\"--args needs a value\")?;",
+        "to": "                let raw = flag_value(argv, i, \"--args\", \"a value\")?;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::the_target_arguments_and_a_dotted_path_still_pass",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a one-value flag given twice wins in silence",
+    "edits": [
+      {
+        "file": "crates/cli/src/cli.rs",
+        "from": "    if given.contains(&word) {",
+        "to": "    if false && given.contains(&word) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::a_one_value_flag_or_a_parameter_given_twice_is_refused",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 any existing file is a program",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/evidence_file.rs",
+        "from": "    std::fs::File::open(file).and_then(|mut f| f.read_exact(&mut head)).is_ok() && head == *b\"MZ\"",
+        "to": "    std::fs::File::open(file).is_ok()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::evidence_file::tests::a_new_file_and_an_old_text_file_are_fine",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the target is refused only as a program",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/evidence_file.rs",
+        "from": "    if same_file(file, Path::new(target)) {",
+        "to": "    if false && same_file(file, Path::new(target)) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::evidence_file::tests::a_folder_a_missing_folder_the_target_and_a_program_are_refused",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the scratch file is copied, not renamed",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/evidence_file.rs",
+        "from": "    std::fs::rename(&scratch, file)\n",
+        "to": "    std::fs::copy(&scratch, file)\n        .map(|_| ())\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::evidence_file::tests::the_write_replaces_the_old_file_and_leaves_no_scratch_file",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 evidence that cannot replace the old file is thrown away",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/evidence_file.rs",
+        "from": "        .map_err(|e| format!(\"cannot replace {path} ({e}) - the evidence is in {}\", scratch.display()))",
+        "to": "        .map_err(|e| {\n            let _ = std::fs::remove_file(&scratch);\n            format!(\"cannot replace {path} ({e}) - the evidence is in {}\", scratch.display())\n        })"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::evidence_file::tests::evidence_that_cannot_replace_the_old_file_stays_in_the_scratch_file",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 an earlier scratch file is overwritten",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/evidence_file.rs",
+        "from": "        match std::fs::OpenOptions::new().write(true).create_new(true).open(&scratch) {",
+        "to": "        match std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&scratch) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::evidence_file::tests::an_earlier_scratch_file_under_the_same_name_is_never_overwritten",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the no verdict line names the internal error code",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/mod.rs",
+        "from": "        Some(3) => format!(\"{base} - {tail}\"),\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::tests::the_no_verdict_line_names_the_core_code_it_replaced",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a verdict of 12 keeps its code without its evidence file",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/mod.rs",
+        "from": "        0 | 4 | 10 | 11 | 12 if !evidence_written => EVIDENCE_NOT_WRITTEN_EXIT,",
+        "to": "        0 | 4 | 10 | 11 if !evidence_written => EVIDENCE_NOT_WRITTEN_EXIT,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::tests::a_verdict_without_its_evidence_file_becomes_exit_code_8",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the calendar ids of the usage are written by hand",
+    "edits": [
+      {
+        "file": "crates/cli/src/cli.rs",
+        "from": "        ids => format!(\"--calendar ids: {} (from {})\", ids.join(\", \"), dir.display()),",
+        "to": "        _ids => format!(\"--calendar ids: pl, us-banking (from {})\", dir.display()),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "calc_cli"
+    ],
+    "test": "the_calendar_ids_come_from_the_folder",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a run whose evidence was not written keeps the verdict's code",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/mod.rs",
+        "from": "            written.is_ok()\n",
+        "to": "            true\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "evidence_file"
+    ],
+    "test": "a_session_whose_evidence_cannot_replace_the_old_file_ends_with_exit_code_8",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 an offset east of UTC is taken as west",
+    "edits": [
+      {
+        "file": "crates/core/src/calc.rs",
+        "from": "    let bias = if offset.starts_with('+') { -span } else { span };",
+        "to": "    let bias = if offset.starts_with('+') { span } else { -span };"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::analyze_reads_its_own_rfc3339_output",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 every business-day step gets a budget of its own",
+    "edits": [
+      {
+        "file": "crates/core/src/calc.rs",
+        "from": "            self.spent = self.spent.saturating_add(amount.unsigned_abs());",
+        "to": "            self.spent = amount.unsigned_abs();"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::business_day_steps_share_one_limit_for_the_evaluation",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a control character shows",
+    "edits": [
+      {
+        "file": "crates/core/src/text.rs",
+        "from": "    c.is_control() || HIDDEN_RANGES.iter()",
+        "to": "    HIDDEN_RANGES.iter()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "text::tests::controls_formats_and_separators_are_hidden",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the neighbours of each range are hidden too",
+    "edits": [
+      {
+        "file": "crates/core/src/text.rs",
+        "from": ".any(|&(first, last)| (first..=last).contains(&code))",
+        "to": ".any(|&(first, last)| (first - 1..=last + 1).contains(&code))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "text::tests::ordinary_text_shows",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 the position of a hidden character counts from zero",
+    "edits": [
+      {
+        "file": "crates/core/src/text.rs",
+        "from": ".map(|(i, c)| (i + 1, c))",
+        "to": ".map(|(i, c)| (i, c))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "text::tests::the_first_hidden_character_is_found_with_its_position",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a hidden character is kept as itself",
+    "edits": [
+      {
+        "file": "crates/core/src/text.rs",
+        "from": "        if is_hidden_char(c) {",
+        "to": "        if false && is_hidden_char(c) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "text::tests::hidden_characters_are_escaped_and_the_rest_is_kept",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w2 a date with an offset gets the number's zone line",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        => readings.Any(r => string.Equals(r.Reading, \"iso_offset\", StringComparison.Ordinal))",
+        "to": "        => readings.Any(r => string.Equals(r.Reading, \"epoch_seconds\", StringComparison.Ordinal))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ReverseAnalysisTests.A_date_with_an_offset_gets_its_own_zone_line",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a sleep already announced is announced again",
+    "edits": [
+      {
+        "file": "crates/cli/src/events.rs",
+        "from": "    let new = total_ms.saturating_sub(announced_ms);",
+        "to": "    let new = total_ms;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::a_sleep_of_the_machine_is_announced_once_and_only_from_a_second_up",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a resume under a second is a sleep warning",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "    if host_slept_ms >= SLEPT_REPORTED_MS {\n        warnings.push(KEY_HOST_SLEPT.to_string());",
+        "to": "    if host_slept_ms > 0 {\n        warnings.push(KEY_HOST_SLEPT.to_string());"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::the_session_clock_warnings_say_only_what_happened",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a later move takes a converted deadline back",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "        self.absolute_due_before_move |= absolute_dues > 0;",
+        "to": "        self.absolute_due_before_move = absolute_dues > 0;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::a_converted_deadline_counts_only_when_the_clock_moved_after_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a count at the ceiling reads exact",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "        if r.capped.iter().any(|(u, c)| u == unit && c == ch) {",
+        "to": "        if false && r.capped.iter().any(|(u, c)| u == unit && c == ch) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::a_count_at_the_ceiling_reads_at_least_on_its_row_and_in_the_total",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 the sleep warning leaves out how long",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "    if key == \"time.host_slept\" && host_slept_ms > 0 {",
+        "to": "    if false && key == \"time.host_slept\" && host_slept_ms > 0 {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::the_sleep_warning_says_how_long_the_machine_slept",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a call counter runs past its ceiling",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "    if cur < CALLS_CAP {\n        write_volatile(slot, cur + 1);",
+        "to": "    if cur <= CALLS_CAP {\n        write_volatile(slot, cur + 1);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_call_counter_stops_at_its_ceiling",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 every reader waits a stopped write out again",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        } else if write_known_stuck(p, s1) {",
+        "to": "        } else if false && write_known_stuck(p, s1) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_write_that_stays_open_is_waited_for_once",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 the sleep bias takes the first pair of readings",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        if before == after {\n            return interrupt.saturating_sub(before).max(0);",
+        "to": "        if true {\n            return interrupt.saturating_sub(before).max(0);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_sleep_bias_is_read_between_two_agreeing_quit_readings",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a duration axis on its banked base goes unreported",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "    dq.checked_mul(dm).and_then(|elapsed| dur_quit_c0.checked_add(elapsed)).is_none()",
+        "to": "    dq.checked_mul(dm).is_none()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_duration_axis_standing_on_its_banked_base_is_detected_too",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 the delay floor lengthens a short delay",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        let floor = interval.max(-MIN_SCALED_DELAY_TICKS);",
+        "to": "        let floor = -MIN_SCALED_DELAY_TICKS;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_delay_floor_never_lengthens_what_was_asked",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a relative due follows the wall",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        due / dur_m.max(1)",
+        "to": "        due / wall_m.max(1)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::an_absolute_due_follows_the_wall_and_a_relative_one_the_duration_axis",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a reading behind the anchor steps the wall back",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "    let advanced = now_real.saturating_sub(anchor_real).max(0).saturating_mul(multiplier);",
+        "to": "    let advanced = now_real.saturating_sub(anchor_real).saturating_mul(multiplier);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_clock_reading_behind_the_anchor_holds_at_the_anchor",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a deadline channel that did not stand is no gap",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    out.uncovered.extend(deadline_gaps(installed, scale_duration));\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_deadline_channels_are_expected_in_every_session_and_listed_only_when_they_scale",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a covered count at the ceiling is marked exact",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "            out.covered.push(ChannelCoverage { channel: ch.name.to_string(), calls, capped: calls_capped(calls) });",
+        "to": "            out.covered.push(ChannelCoverage { channel: ch.name.to_string(), calls, capped: false });"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_count_at_the_ceiling_is_marked_as_a_floor",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a clock behind the segment start takes fake time away",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    let segment = now_real.saturating_sub(segment_real0).max(0).saturating_mul(m.max(0));",
+        "to": "    let segment = now_real.saturating_sub(segment_real0).saturating_mul(m.max(0));"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_fake_elapsed_time_saturates_and_never_goes_negative",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 an exact count carries the ceiling flag on the wire",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "    #[serde(default, skip_serializing_if = \"std::ops::Not::not\")]\n    pub capped: bool,",
+        "to": "    #[serde(default)]\n    pub capped: bool,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_sleep_and_the_ceiling_travel_and_older_messages_read_as_none",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 a substituted row at the ceiling reads exact in the window",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/AuditRowsConverter.cs",
+        "from": "            .Select(c => new AuditRow(c.Channel, \"audit.status_fake\", AuditStatus.Fake, c.Calls, c.Capped)));",
+        "to": "            .Select(c => new AuditRow(c.Channel, \"audit.status_fake\", AuditStatus.Fake, c.Calls)));"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AuditRowsTests.A_count_at_the_ceiling_reads_as_at_least",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w3 the hook imports the precise interrupt time",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "        None => real_quit(),",
+        "to": "        None => (unsafe { windows::Win32::System::WindowsProgramming::QueryUnbiasedInterruptTimePrecise() }) as i64,"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.BinaryImportsTests.The_interrupt_time_api_set_is_imported_for_exactly_the_calls_the_register_allows",
+    "match": "method",
+    "build": "release",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a debugged child is waited for in its debugger's thread",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    if flags & DEBUG_FLAGS != 0 && inherit_into_debugged_child(&info, resume) {",
+        "to": "    if false && flags & DEBUG_FLAGS != 0 && inherit_into_debugged_child(&info, resume) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "debugged_child"
+    ],
+    "test": "a_child_started_under_the_applications_debugger_starts_at_once_and_on_the_session_clock",
+    "match": "exact",
+    "build": "debug",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a child its loader ended is counted on the real clock",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    if matches!(outcome, remote_load::Outcome::TargetEnded(_) | remote_load::Outcome::TargetEndedUnread) {\n        return;\n    }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "loader_failure"
+    ],
+    "test": "a_child_windows_ends_while_loading_it_is_not_reported_as_running_on_the_real_clock",
+    "match": "exact",
+    "build": "debug",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a failed second duplicate leaves the first open",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    let Some(thread) = own_handle(thread) else {\n        let _ = CloseHandle(process);\n        return None;",
+        "to": "    let Some(thread) = own_handle(thread) else {\n        return None;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_failed_second_duplicate_leaves_no_handle_open",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 any refused open is a member still running",
+    "edits": [
+      {
+        "file": "crates/mech/src/family.rs",
+        "from": "    if code == ERROR_ACCESS_DENIED.to_hresult() { Unopened::Denied } else { Unopened::Gone }",
+        "to": "    if code.is_err() { Unopened::Denied } else { Unopened::Gone }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "family::tests::only_a_refused_open_is_a_member_still_running",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a program that asks for administrator is a bare code",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "        0x8007_02E4 => \" - the program asks to run as administrator, so start Chrono Mock as administrator to test it\",\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_common_refusals_are_named",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a block too small for this layout is ours",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    } else if layout != CTL_LAYOUT_VERSION || mapped < ctl_size() {",
+        "to": "    } else if layout != CTL_LAYOUT_VERSION {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_block_of_another_version_is_told_from_a_foreign_one",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 the machine is read past its field",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    let at = pe.checked_add(4)?;",
+        "to": "    let at = pe.checked_add(6)?;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_machine_is_read_from_a_pe_header",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a header without the PE signature is read anyway",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    if bytes.get(pe..pe.checked_add(4)?)? != b\"PE\\0\\0\" {",
+        "to": "    if bytes.get(pe..pe.checked_add(4)?).is_none() {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_machine_is_read_from_a_pe_header",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 a hook library of another machine passes",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    (library != core).then(|| {",
+        "to": "    (library != core && false).then(|| {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_hook_library_that_would_not_load_is_examined",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w4 the registry grows and the notes keep the old size",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "pub const MAX_COV_PIDS: usize = 4096;",
+        "to": "pub const MAX_COV_PIDS: usize = 8192;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.RustConstantMirrorTests.The_registry_size_the_notes_state_is_the_one_the_block_has",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a launch that gave up does not name the profile left",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/launch.rs",
+        "from": "    LaunchFailed { error, residue }",
+        "to": "    LaunchFailed { error, residue: { let _ = residue; Vec::new() } }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::launch::tests::a_launch_that_gives_up_ends_the_browser_and_names_the_profile_it_could_not_remove",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a any path under the browser prefix is taken from the port file",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "        .is_some_and(|id| !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))",
+        "to": "        .is_some_and(|id| !id.is_empty())"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::only_a_browser_endpoint_path_is_taken_from_the_port_file",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a the shim never says it found the page running",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "  return (typeof document !== 'undefined' && document.scripts && document.scripts.length > 0) ? 'running' : 'installed';",
+        "to": "  return 'installed';"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::session::tests::the_shim_says_when_it_found_the_pages_scripts_before_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a target still needed is forgotten",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "    (!keep(&old)).then_some(old)",
+        "to": "    Some(old)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::the_targets_that_went_away_are_remembered_up_to_a_bound",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a target with a row of its own is forgotten",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "            contexts.iter().any(|c| c.target_id == t) || index_by_target.get(t).is_some_and(|i| seen.contains(i))",
+        "to": "            contexts.iter().any(|c| c.target_id == t)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_context_with_a_row_of_its_own_comes_back_as_itself_after_the_ring_turned",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a session that went takes its target's context with it",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "                let tid = if method == \"Target.detachedFromTarget\" && !sid.is_empty() { \"\" } else { params[\"targetId\"].as_str().unwrap_or(\"\") };",
+        "to": "                let tid = params[\"targetId\"].as_str().unwrap_or(\"\");"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_target_the_session_will_not_drive_is_released_and_detached_from",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a an attach that named no session is skipped without a count",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "            if sid.is_empty() {\n                self.failed += 1;\n                self.say(\"a page or worker could not be attached to\", &\"the browser named no session\");",
+        "to": "            if sid.is_empty() {\n                self.say(\"a page or worker could not be attached to\", &\"the browser named no session\");"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_target_that_could_not_be_attached_to_counts_as_unreached",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a page is reached running whenever it was not paused",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "                let late = if cdp::is_worker(&ty) { !waiting } else { running };",
+        "to": "                let late = !waiting;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_context_reached_while_running_is_counted_once",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a by-name attach announced again is let go",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "        if self.requests.contexts().iter().any(|c| c.session_id == sid) {\n            return;\n        }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_by_name_attach_announced_again_is_the_session_it_drives",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a the ceiling of own rows lets one more in",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "    !seen.contains(&index) && seen.len() >= MAX_CONTEXTS",
+        "to": "    !seen.contains(&index) && seen.len() > MAX_CONTEXTS"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::contexts_past_the_ceiling_are_shimmed_and_counted_together_in_the_last_row",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a the session axis wraps at the top",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_clock.rs",
+        "from": "    wall0.saturating_add(quit_now.saturating_sub(quit0) / 10_000)",
+        "to": "    wall0.wrapping_add(quit_now.saturating_sub(quit0) / 10_000)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_clock::tests::the_session_axis_goes_on_with_interrupt_time_from_the_start",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a the pages are given the clock on the session axis",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_clock.rs",
+        "from": "            real0: self.segment.wall_real0.saturating_add(self.wall_offset),",
+        "to": "            real0: self.segment.wall_real0,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_clock::tests::the_pages_are_given_the_clock_on_the_system_clock_they_read",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a resync is due on session time alone",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_clock.rs",
+        "from": "    drift > DRIFT_MS.unsigned_abs() && real >= RESYNC_FLOOR_MS.unsigned_abs()",
+        "to": "    drift > DRIFT_MS.unsigned_abs()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_clock::tests::a_resync_needs_session_time_and_real_time_both",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a table read in part keeps the count of failed reads",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_discover.rs",
+        "from": "                self.in_a_row = 0;\n                return Read::Table(table.sockets);",
+        "to": "                return Read::Table(table.sockets);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_discover::tests::a_table_that_cannot_be_read_is_tried_again_before_the_discovery_gives_up",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a read without the IPv4 table counts as read",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_discover.rs",
+        "from": "            Ok(table) if table.ipv4_read => {",
+        "to": "            Ok(table) => {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_discover::tests::a_read_without_the_ipv4_table_counts_as_a_failed_read",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a pooled context that went away takes its counts along",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "            if *pooled {\n                fold_into(&mut self.pool_sum, &mut self.counts, *index);\n            }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_pooled_context_leaves_its_counts_to_the_pool_and_its_place_in_the_table",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a the variables outlive a session that ended with its application",
+    "edits": [
+      {
+        "file": "crates/cli/src/embedded_bridge.rs",
+        "from": "        if left_running && self.channel_on {",
+        "to": "        if self.channel_on {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "embedded_bridge::tests::an_application_left_running_with_the_channel_on_is_told_its_engines_will_open_a_port",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a the browser a session drove is not named",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "    browser.map(|b| format!(\"  browser:  {b}\\n\")).unwrap_or_default()",
+        "to": "    let _ = browser;\n    String::new()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::the_browser_a_chromium_session_drove_is_named_under_the_target",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a process that refuses to be opened is gone",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "            Err(e) => policy_value::open_error_means_alive(e.code()),",
+        "to": "            Err(_) => false,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_process_that_refuses_to_be_opened_is_alive_until_it_ends",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a an unread IPv6 table takes the IPv4 sockets with it",
+    "edits": [
+      {
+        "file": "crates/mech/src/listeners.rs",
+        "from": "        (Ok(sockets), Err(e)) => Ok(ListenerTable { sockets, unread: Some(format!(\"IPv6: {e}\")), ipv4_read: true }),",
+        "to": "        (Ok(_), Err(e)) => Err(format!(\"IPv6: {e}\")),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "listeners::tests::a_table_that_cannot_be_read_does_not_take_the_other_with_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5a a verdict without a browser carries the key",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "        #[serde(default, skip_serializing_if = \"Option::is_none\")]\n        browser: Option<String>,",
+        "to": "        #[serde(default)]\n        browser: Option<String>,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_browser_of_a_chromium_session_round_trips_and_is_absent_otherwise",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a frame with no document yet is taken back as a failure",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "        Err(e) if script.is_some() && found_no_document(&e) => (false, true),\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::session::tests::a_frame_with_no_document_yet_waits_for_its_shim_from_the_hook",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b new Date(undefined) reads the session clock",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "    if (n === 0) {",
+        "to": "    if (n === 0 || value === undefined) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_page_reads_the_session_clock_through_every_form_of_date",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a frozen wall runs at real speed",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "    return Math.round(Math.min(S.fakeStart + (_now() - S.realStart) * S.M, S.wallMax));",
+        "to": "    return Math.round(Math.min(S.fakeStart + (_now() - S.realStart) * (S.M || 1), S.wallMax));"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::a_frozen_wall_stands_while_the_duration_axis_runs",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b the timers follow the wall rate",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "  function durationRate(){ if (S.scheduled) { settle(); } return S.D || 1; }",
+        "to": "  function durationRate(){ if (S.scheduled) { settle(); } return S.M || 1; }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::a_timer_keeps_its_delay_when_only_the_wall_runs_fast",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b the release keeps the page on the session clock",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "      setHere(0, 0, 1, 1, null);",
+        "to": "      setHere(S.fakeStart, S.realStart, S.M, S.D, null);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_session_moves_counts_and_lets_go_of_the_page",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a second install leaves out the last instant and the zone",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "    O.set(__FAKE_START__, __REAL_START__, __MULT__, __DUR__, __SCHEDULED__, __WALL_MAX__, __ZONE__);",
+        "to": "    O.set(__FAKE_START__, __REAL_START__, __MULT__, __DUR__, __SCHEDULED__);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::a_second_install_a_foreign_marker_and_a_running_page_are_told_apart",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b the marker's methods can be replaced",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "  Object.freeze(api);\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_clock_is_closed_over_and_its_marker_cannot_be_moved",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a one-time delay is cut, not rounded",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "      var n = fakeDelay(d), ms = Math.round(n / rate);",
+        "to": "      var n = fakeDelay(d), ms = Math.floor(n / rate);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::a_repeating_timer_keeps_its_cadence_and_takes_a_new_rate_from_its_next_tick",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a timer under the four ms floor is not noted",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "  function floored(n, ms, rate, deep){ if (deep && rate > 1 && n > 0 && ms < 4) { S.capped = 1; } }",
+        "to": "  function floored(n, ms, rate, deep){ if (false && deep && rate > 1 && n > 0 && ms < 4) { S.capped = 1; } }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::a_timer_the_four_ms_floor_holds_back_is_noted",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b the time origin is the engine's",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "      Object.defineProperty(performance, 'timeOrigin', { configurable: true, enumerable: true, get: function(){ return fakeNow() - perfNow(); } });\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::time_origin_plus_now_is_the_session_clock",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a move does not reach the frames",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "      eachFrame(function(f){ f.set(fakeStart, realStart, m, d, scheduled, wallMax, zone); });\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_moves_the_audit_and_the_release_reach_the_frames_of_the_page",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a frame waiting for its shim is covered at once",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "                    self.awaiting.insert(index, known);\n                    return;\n",
+        "to": "                    self.awaiting.insert(index, known);\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_frame_waiting_for_its_shim_is_covered_only_once_its_audit_shows_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a frame that never showed its shim is not counted",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "        self.failed + self.awaiting.len()",
+        "to": "        self.failed"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_frame_that_goes_before_its_shim_showed_stays_uncovered",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a relative Chromium jump drops the milliseconds",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_clock.rs",
+        "from": "            Ok(filetime_to_epoch_ms(target))",
+        "to": "            Ok(filetime_to_epoch_ms(target) / 1_000 * 1_000)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_clock::tests::a_relative_chromium_jump_keeps_the_milliseconds_and_an_unknown_kind_is_refused",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a worker is asked for a frame tree",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "            if !cdp::is_worker(&ctx.ty)\n                && let Some(id) = out.ask(FRAME_TREE, json!({}), &ctx.session_id)",
+        "to": "            if true\n                && let Some(id) = out.ask(FRAME_TREE, json!({}), &ctx.session_id)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_page_is_asked_for_its_frame_tree_before_its_counts_and_a_worker_is_not",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a page short of frames once has one unreached",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "const FRAMES_SHORT_AUDITS: u8 = 2;",
+        "to": "const FRAMES_SHORT_AUDITS: u8 = 1;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_page_short_of_frames_two_audits_in_a_row_has_one_the_session_could_not_reach",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b only the frames right under the page are counted",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "            open.extend(children);\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::the_frames_below_the_root_are_every_frame_of_the_tree_but_the_page",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a timer held back by the floor is not read",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "                    if read_fact(&reply, \"capped\") {\n                        self.capped.insert(index);\n                    }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_timer_held_back_by_the_floor_is_read_from_the_audit",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a waiting page is confirmed by every audit",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "        if ctx.awaiting {\n            ctx.awaiting = false;\n            self.confirmed.push(ctx.index);",
+        "to": "        if ctx.awaiting {\n            self.confirmed.push(ctx.index);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_page_waiting_for_its_shim_is_confirmed_by_an_audit_from_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a rate change with no context is a caveat",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_session.rs",
+        "from": "            let felt = !attacher.contexts().is_empty();",
+        "to": "            let felt = true;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_session::tests::a_rate_change_is_a_caveat_only_with_a_context_to_feel_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b a refused start answers with a fixed id",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "                    key: \"target.cwd_missing\",\n                    id: Some(id),",
+        "to": "                    key: \"target.cwd_missing\",\n                    id: Some(1),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::an_answer_to_start_carries_the_id_the_client_gave_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-w5b the fallback line is at version 1 whatever it is given",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "    format!(r#\"{{\"type\":\"error\",\"v\":{v},\"code\":3,\"key\":\"proto.serialize_failed\",\"origin\":\"proto\"}}\"#)",
+        "to": "    format!(r#\"{{\"type\":\"error\",\"v\":1,\"code\":3,\"key\":\"proto.serialize_failed\",\"origin\":\"proto\"}}\"#)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_fallback_line_is_an_error_at_the_version_it_is_given",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

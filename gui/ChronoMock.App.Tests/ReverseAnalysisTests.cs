@@ -65,9 +65,11 @@ public class ReverseAnalysisTests
 
         Assert.Equal("calc.analyze_zone_offset", CalculatorViewModel.AnalysisZoneKey([Reading("iso_offset")]));
         Assert.Equal("calc.analyze_zone", CalculatorViewModel.AnalysisZoneKey([Reading("epoch_seconds"), Reading("epoch_millis")]));
+        // Through the shared host, which loads the strings itself: a resource lookup with no application
+        // answers with the key, so this passed only when some other test had started the host first.
         foreach (var key in new[] { "calc.analyze_zone_offset", "calc.reading.iso_offset" })
         {
-            Assert.NotEqual(key, TranslationKeyConverter.Resolve(key));
+            Assert.NotEqual(key, WpfTestHost.Invoke(() => TranslationKeyConverter.Resolve(key)));
         }
     }
 
