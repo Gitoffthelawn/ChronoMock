@@ -53,6 +53,92 @@ const BUILD_ONLY: &[(&str, &str)] = &[
     ("winresource", "stamps the version resource onto the exe at build time"),
 ];
 
+/// Crates in the lockfile that only the TESTS build: proptest, which draws the random properties'
+/// cases, and what it pulls in. A list of its own beside `BUILD_ONLY` because it is a different
+/// claim - these are not even compiled when the product is built. The root of the claim is checked
+/// below (`the_random_properties_runner_is_a_dev_dependency_and_nothing_else`), and the rest the way
+/// `BUILD_ONLY` is: none of them is in `cargo tree -e normal,no-proc-macro` for `chrono-cli` or
+/// `chrono-hook`.
+const TEST_ONLY: &[(&str, &str)] = &[
+    ("autocfg", "a build script helper of num-traits, under proptest"),
+    ("bitflags", "flag sets inside proptest's runner configuration"),
+    ("cfg-if", "a compile-time switch inside getrandom and chacha20, under proptest"),
+    ("chacha20", "the random generator proptest draws cases from by default"),
+    ("core_detect", "CPU feature detection for rand_core, under proptest"),
+    ("cpufeatures", "CPU feature detection for chacha20, under proptest"),
+    ("getrandom", "the operating system's random seed, read by rand under proptest"),
+    ("libc", "a dependency of getrandom on targets this project does not build"),
+    ("num-traits", "numeric traits behind proptest's number strategies"),
+    ("proptest", "draws and shrinks the cases of the random properties - a dev-dependency only"),
+    ("r-efi", "UEFI bindings getrandom asks for on UEFI targets only (dependency_gate.py says why)"),
+    ("rand", "the random number interface proptest is built on"),
+    ("rand_core", "the core traits of rand, under proptest"),
+    ("rand_xorshift", "the second random generator proptest offers, under proptest"),
+    ("regex-syntax", "reads the patterns proptest draws text from"),
+    ("unarray", "array building inside proptest's array strategies"),
+];
+
+/// The root of `TEST_ONLY`: proptest appears in a crate manifest as a dev-dependency and in no other
+/// table, so nothing under it can reach a build of the product. A crate that took it as a normal
+/// dependency would ship a test runner, and the list above would then be a false statement. The
+/// per-target tables count too: `[target.'cfg(windows)'.dependencies]` ships exactly as
+/// `[dependencies]` does on the one platform this project builds for.
+#[test]
+fn the_random_properties_runner_is_a_dev_dependency_and_nothing_else() {
+    let crates = repo_root().join("crates");
+    let mut dev = 0;
+    let mut wrong = Vec::new();
+    for entry in std::fs::read_dir(&crates).expect("the crates folder is readable") {
+        let manifest = entry.expect("a directory entry").path().join("Cargo.toml");
+        let Ok(text) = std::fs::read_to_string(&manifest) else { continue };
+        let doc: toml::Table = toml::from_str(&text).expect("a crate manifest is valid TOML");
+        let per_target = doc
+            .get("target")
+            .and_then(toml::Value::as_table)
+            .into_iter()
+            .flat_map(|targets| targets.values().filter_map(toml::Value::as_table));
+        for tables in std::iter::once(&doc).chain(per_target) {
+            for (table, deps) in tables.iter().filter_map(|(k, v)| v.as_table().map(|t| (k, t))) {
+                if !table.ends_with("dependencies") || !deps.contains_key("proptest") {
+                    continue;
+                }
+                if table == "dev-dependencies" {
+                    dev += 1;
+                } else {
+                    wrong.push(format!("{} [{table}]", manifest.display()));
+                }
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "proptest is a test runner and belongs in [dev-dependencies] only: {wrong:?}"
+    );
+    assert!(
+        dev > 0,
+        "no crate takes proptest at all, so TEST_ONLY names crates nothing builds - remove them"
+    );
+}
+
+/// The test-only list has to name crates that exist, for the reason `BUILD_ONLY` has to.
+#[test]
+fn the_test_only_list_names_no_crate_that_is_gone() {
+    let present: BTreeSet<String> = lockfile_packages().into_iter().map(|(n, _)| n).collect();
+    let stale: Vec<&str> = TEST_ONLY
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| !present.contains(*name))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "TEST_ONLY excuses crates that are no longer in the lockfile: {stale:?}"
+    );
+    assert!(
+        TEST_ONLY.iter().all(|(_, why)| why.len() > 15),
+        "every excuse has to say why, or it is not an excuse"
+    );
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
@@ -154,7 +240,7 @@ fn every_third_party_crate_in_the_lockfile_is_declared_or_excused() {
         .filter(|(_, _, kind)| kind == "rust-crate")
         .map(|(name, _, _)| name)
         .collect();
-    let excused: BTreeSet<&str> = BUILD_ONLY.iter().map(|(name, _)| *name).collect();
+    let excused: BTreeSet<&str> = BUILD_ONLY.iter().chain(TEST_ONLY).map(|(name, _)| *name).collect();
     let ours = workspace_crates();
 
     let mut undeclared: Vec<String> = Vec::new();
@@ -169,8 +255,8 @@ fn every_third_party_crate_in_the_lockfile_is_declared_or_excused() {
         undeclared.is_empty(),
         "a crate is in the build and in neither list. If it reaches a user's disk, declare it in \
          packaging/components.json AND in THIRD-PARTY-NOTICES.md. If it only runs at build time, add \
-         it to BUILD_ONLY with the reason - checked with `cargo tree -e normal,no-proc-macro -p \
-         chrono-cli` and `-p chrono-hook`: {undeclared:?}"
+         it to BUILD_ONLY with the reason, and if only the tests build it, to TEST_ONLY - checked with \
+         `cargo tree -e normal,no-proc-macro -p chrono-cli` and `-p chrono-hook`: {undeclared:?}"
     );
 }
 
