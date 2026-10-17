@@ -106,9 +106,10 @@ mod tests {
     use windows::Win32::Foundation::{
         DuplicateHandle, DUPLICATE_SAME_ACCESS, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
     };
+    use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
     use windows::Win32::System::Memory::{
-        CreateFileMappingW, MapViewOfFile, VirtualQuery, FILE_MAP_ALL_ACCESS, MEMORY_BASIC_INFORMATION, MEM_FREE,
-        PAGE_READWRITE,
+        CreateFileMappingW, MapViewOfFileEx, VirtualQuery, FILE_MAP_ALL_ACCESS, MEMORY_BASIC_INFORMATION, MEM_COMMIT,
+        MEM_MAPPED, PAGE_READWRITE,
     };
     use windows::Win32::System::Threading::{
         GetCurrentProcess, GetExitCodeProcess, WaitForSingleObject, CREATE_SUSPENDED,
@@ -133,14 +134,19 @@ mod tests {
         }
     }
 
-    /// A target dropped before it ran is ended, with the code the start-up refusals have always used.
+    /// A target dropped before it ran is ended, with the code the start-up refusals have always used. When
+    /// the guard fails, the test ends the target itself, so a red run leaves no suspended process behind.
     #[test]
     fn a_target_dropped_before_it_runs_is_ended() {
         let (suspended, watch) = suspended_ping();
         drop(suspended);
         // SAFETY: `watch` is this test's own handle, closed at the end.
         unsafe {
-            assert_eq!(WaitForSingleObject(watch, 5_000), WAIT_OBJECT_0, "the target outlived its guard");
+            let ended = WaitForSingleObject(watch, 5_000);
+            if ended != WAIT_OBJECT_0 {
+                let _ = TerminateProcess(watch, 0);
+            }
+            assert_eq!(ended, WAIT_OBJECT_0, "the target outlived its guard");
             let mut code = 0u32;
             GetExitCodeProcess(watch, &mut code).expect("an exit code");
             assert_eq!(code, 1);
@@ -163,36 +169,79 @@ mod tests {
         }
     }
 
-    /// Whether `address` is mapped in this process.
-    fn mapped(address: *const std::ffi::c_void) -> bool {
+    /// A value no fresh view holds, different in every run. A fresh view reads as zeros, so it is never zero.
+    fn marker() -> u64 {
+        use std::hash::{BuildHasher, RandomState};
+        RandomState::new().hash_one(0u8) | 1
+    }
+
+    /// Whether this process still maps, at `address`, the view `marker` was written into. The question is
+    /// put to the view, not to the address: the tests of this binary map memory in parallel, and memory one
+    /// of them took there after ours was gone made an address query answer "mapped" in CI.
+    fn holds(address: *const std::ffi::c_void, marker: u64) -> bool {
         let mut info = MEMORY_BASIC_INFORMATION::default();
         // SAFETY: a query about an address, which reads nothing at it.
         let n = unsafe { VirtualQuery(Some(address), &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) };
-        n != 0 && info.State != MEM_FREE
+        // Only a committed mapped view, which is what ours was, is read, so the test never touches a
+        // stack or a heap another test is using.
+        if n == 0 || info.State != MEM_COMMIT || info.Type != MEM_MAPPED {
+            return false;
+        }
+        let mut found = 0u64;
+        // SAFETY: the read goes through the kernel, which reports a page gone since the query as an error
+        // instead of faulting, into a local of the size asked for.
+        let read = unsafe {
+            ReadProcessMemory(GetCurrentProcess(), address, (&raw mut found).cast(), size_of::<u64>(), None)
+        };
+        read.is_ok() && found == marker
     }
 
-    fn page_view() -> ControlView {
+    /// A view of a fresh one-page section, where the system places it, or at `at`. `None` when `at` is taken.
+    fn page_view(at: Option<*const std::ffi::c_void>) -> Option<ControlView> {
         // SAFETY: an anonymous section of one page, owned by the guard from here.
         unsafe {
             let hmap = CreateFileMappingW(INVALID_HANDLE_VALUE, None, PAGE_READWRITE, 0, 4096, None).expect("a section");
-            let view = MapViewOfFile(hmap, FILE_MAP_ALL_ACCESS, 0, 0, 4096);
-            assert!(!view.Value.is_null());
-            ControlView::new(hmap, view)
+            let view = MapViewOfFileEx(hmap, FILE_MAP_ALL_ACCESS, 0, 0, 4096, at);
+            if view.Value.is_null() {
+                let _ = CloseHandle(hmap);
+                return None;
+            }
+            Some(ControlView::new(hmap, view))
         }
     }
 
-    /// A view dropped on a way out is unmapped, and one handed to the session stays.
+    /// A view with `marker` written at its start, and its address.
+    fn marked_view(marker: u64) -> (ControlView, *const std::ffi::c_void) {
+        let view = page_view(None).expect("a view");
+        let address = view.ctl() as *const std::ffi::c_void;
+        // SAFETY: the view is mapped, writable and a page long.
+        unsafe { address.cast_mut().cast::<u64>().write(marker) };
+        (view, address)
+    }
+
+    /// How many views the test drops, at most, before one of them gets a new view in its place.
+    const PLACE_TRIES: usize = 16;
+
+    /// A view dropped on a way out is unmapped, and one handed to the session stays. Before the question
+    /// about the dropped one, a new view is made at its address, the way a test running beside this one
+    /// can make one, so the question meets that case in every run and not only when CI happens on it. A
+    /// test beside this one can take the address first, and then the try is repeated with a new view.
     #[test]
     fn a_view_is_unmapped_unless_the_session_takes_it() {
-        let dropped = page_view();
-        let address = dropped.ctl() as *const std::ffi::c_void;
-        assert!(mapped(address));
-        drop(dropped);
-        assert!(!mapped(address), "the view outlived its guard");
+        let marker = marker();
+        let replaced = (0..PLACE_TRIES).any(|_| {
+            let (dropped, address) = marked_view(marker);
+            assert!(holds(address, marker), "the question does not see a view that is there");
+            drop(dropped);
+            let in_its_place = page_view(Some(address));
+            assert!(!holds(address, marker), "the view outlived its guard");
+            in_its_place.is_some()
+        });
+        assert!(replaced, "no try in {PLACE_TRIES} put a new view in a dropped one's place");
 
-        let kept = page_view();
+        let (kept, _) = marked_view(marker);
         let (address, hmap) = kept.into_session();
-        assert!(mapped(address as *const std::ffi::c_void), "the guard unmapped a view it handed over");
+        assert!(holds(address as *const std::ffi::c_void, marker), "the guard unmapped a view it handed over");
         // SAFETY: the test owns both now, as the session would.
         unsafe {
             let _ = UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS { Value: address as *mut std::ffi::c_void });
