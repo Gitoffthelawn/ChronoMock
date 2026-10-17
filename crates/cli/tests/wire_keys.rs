@@ -768,10 +768,37 @@ fn every_translation_is_reached_by_the_window_or_the_core() {
          from a word, name that rule in BUILT."
     );
 
-    for (key, reason) in UNREACHED {
-        assert!(en.contains(key), "UNREACHED names `{key}`, which is no longer in the files - take it out ({reason})");
-        assert!(!reached.contains(key), "UNREACHED names `{key}`, which is reached again - take it out ({reason})");
+    let problems = unreached_problems(&UNREACHED, &en, &reached);
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// What is wrong with the texts `UNREACHED` excuses, read from both ends: one no longer in the files and
+/// one reached again each have to come out. A function of its own so that the check is tested on a list
+/// of its own - the list is empty today, and a check over an empty list passes whatever it does.
+fn unreached_problems(excused: &[(&str, &str)], in_files: &BTreeSet<String>, reached: &BTreeSet<String>) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (key, reason) in excused {
+        if !in_files.contains(*key) {
+            problems.push(format!("UNREACHED names `{key}`, which is no longer in the files - take it out ({reason})"));
+        }
+        if reached.contains(*key) {
+            problems.push(format!("UNREACHED names `{key}`, which is reached again - take it out ({reason})"));
+        }
     }
+    problems
+}
+
+/// The list of unreached texts is checked from both ends: an entry whose text left the files and one whose
+/// text is reached again are each named, and an entry that is neither passes.
+#[test]
+fn the_unreached_list_is_checked_from_both_ends() {
+    let in_files: BTreeSet<String> = ["kept.text", "back.text"].map(String::from).into();
+    let reached: BTreeSet<String> = ["back.text"].map(String::from).into();
+    let excused = [("kept.text", "a reason"), ("gone.text", "a reason"), ("back.text", "a reason")];
+    let problems = unreached_problems(&excused, &in_files, &reached);
+    assert_eq!(problems.len(), 2, "{problems:?}");
+    assert!(problems[0].contains("`gone.text`") && problems[0].contains("no longer in the files"), "{problems:?}");
+    assert!(problems[1].contains("`back.text`") && problems[1].contains("reached again"), "{problems:?}");
 }
 
 /// The markup scan takes a key from either resource extension and nothing that is not a key.

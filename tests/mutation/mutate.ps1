@@ -123,6 +123,9 @@ $env:CARGO_TERM_COLOR = 'never'
 # the judge is a change to every judgement.
 $runnerFiles = @('tests/mutation/mutate.ps1', 'tests/mutation/json.ps1', 'tests/mutation/report.ps1', '.github/workflows/mutation.yml')
 
+# The C# side as one build, the solution CI builds before its C# tests.
+$csSolution = 'gui/ChronoMock.slnx'
+
 # ---------------------------------------------------------------------------------------------------
 # The registry
 # ---------------------------------------------------------------------------------------------------
@@ -1275,8 +1278,11 @@ $csProjects = @($judged | Where-Object { $_.runner -eq 'cs' } | ForEach-Object {
 $hasRelease = @($judged | Where-Object { $_.build -eq 'release' }).Count -gt 0
 
 # The clean tree first: the debug workspace for the tests that drive a session (cargo test never builds
-# chrono_hook.dll), both release cores when an entry's test reads them, and every C# test project of the
-# part. A tree that does not build here cannot make a test red because of a mutation.
+# chrono_hook.dll), both release cores when an entry's test reads them, and the whole C# solution when the
+# part has a C# entry - as CI builds it before its C# tests, not each test project alone, because a test
+# reads what another project of the solution builds (the sample target a session test launches). A part
+# that built the test projects alone found that test red before any mutation, on its first run in CI. A
+# tree that does not build here cannot make a test red because of a mutation.
 $cleanBuilds = @()
 if ($hasRust) { $cleanBuilds += 'debug' }
 if ($hasRelease) { $cleanBuilds += 'release' }
@@ -1287,11 +1293,11 @@ foreach ($kind in $cleanBuilds) {
         Stop-Part @("THE UNMUTATED TREE DOES NOT BUILD ($kind), so no test here can be red because of a mutation. Stopping.") $artifacts.Run
     }
 }
-foreach ($project in $csProjects) {
-    $build = Invoke-CsBuild $project
+if ($csProjects.Count -gt 0) {
+    $build = Invoke-CsBuild $csSolution
     if ($build.Code -ne 0) {
         $partState.built = $false
-        Stop-Part @("THE UNMUTATED TREE DOES NOT BUILD ($project), so no test here can be red because of a mutation. Stopping.") $build
+        Stop-Part @("THE UNMUTATED TREE DOES NOT BUILD ($csSolution), so no test here can be red because of a mutation. Stopping.") $build
     }
 }
 

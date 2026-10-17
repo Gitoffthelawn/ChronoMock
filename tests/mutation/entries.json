@@ -453,9 +453,9 @@
     "name": "pr-a exception no longer in the files",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Localization/Strings.en.json",
-        "from": "  \"target.missing\": \"(missing)\",\n",
-        "to": ""
+        "file": "crates/cli/tests/wire_keys.rs",
+        "from": "        if !in_files.contains(*key) {\n",
+        "to": "        if false {\n"
       }
     ],
     "runner": "rust",
@@ -464,7 +464,7 @@
       "--test",
       "wire_keys"
     ],
-    "test": "every_translation_is_reached_by_the_window_or_the_core",
+    "test": "the_unreached_list_is_checked_from_both_ends",
     "match": "exact",
     "build": "",
     "notHere": ""
@@ -473,9 +473,9 @@
     "name": "pr-a exception reached again",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Views/SetupPhaseView.xaml",
-        "from": "ToolTip=\"{DynamicResource setup.tip_recent}\"",
-        "to": "ToolTip=\"{DynamicResource setup.tip_recent}\" Tag=\"{DynamicResource target.missing}\""
+        "file": "crates/cli/tests/wire_keys.rs",
+        "from": "        if reached.contains(*key) {\n",
+        "to": "        if false {\n"
       }
     ],
     "runner": "rust",
@@ -484,7 +484,7 @@
       "--test",
       "wire_keys"
     ],
-    "test": "every_translation_is_reached_by_the_window_or_the_core",
+    "test": "the_unreached_list_is_checked_from_both_ends",
     "match": "exact",
     "build": "",
     "notHere": ""
@@ -879,7 +879,7 @@
     "runner": "cs",
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
-    "test": "ChronoMock.App.Tests.ParameterRowLayoutTests.The_general_layout_rules_find_nothing_in_any_scenarios_parameters_at_the_calculators_narrowest",
+    "test": "ChronoMock.App.Tests.LayoutGuardTests.The_spill_rule_fires_on_text_wider_than_the_box_it_was_put_in",
     "match": "method",
     "build": "",
     "notHere": ""
@@ -1834,7 +1834,7 @@
     "target": [],
     "test": "ChronoMock.App.Tests.SessionCloseTests.A_close_while_the_start_is_still_preparing_launches_nothing",
     "match": "method",
-    "build": "",
+    "build": "release",
     "notHere": ""
   },
   {
@@ -8930,8 +8930,8 @@
     "edits": [
       {
         "file": "crates/cli/src/calc.rs",
-        "from": "chrono_core::calc::DateReading::Iso => time_written,",
-        "to": "chrono_core::calc::DateReading::Iso => (civil.hour, civil.minute, civil.second) != (0, 0, 0),"
+        "from": "    if reading_shows_time(reading, time_written) {\n",
+        "to": "    if reading_shows_time(reading, time_written && (civil.hour, civil.minute, civil.second) != (0, 0, 0)) {\n"
       }
     ],
     "runner": "rust",

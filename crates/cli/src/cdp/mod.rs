@@ -27,7 +27,7 @@ pub use session::{
 pub use ws::WsClient;
 /// The scripted browser the transport's own tests talk to, for the attacher's tests outside this module.
 #[cfg(test)]
-pub(crate) use ws::tests::fake_browser_holding;
+pub(crate) use ws::tests::{fake_browser_holding, fake_browser_paced};
 
 /// One decoded CDP message: either a reply to a command we sent, or an event the browser pushed.
 pub enum Msg {

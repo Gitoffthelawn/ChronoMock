@@ -48,6 +48,10 @@ globalThis.clearInterval = clearTimer;
 /** Move both clocks by `ms` without running anything, as a page busy with its own work. */
 function stall(ms) { env.wall += ms; env.perf += ms; }
 
+/** Move the wall by `wall` and performance by `perf` without running anything: a correction of the
+ *  system clock moves the wall alone, and the two clocks run apart. */
+function drift(wall, perf) { env.wall += wall; env.perf += perf; }
+
 /** Move both clocks by `ms` and run every timer that comes due, earliest first. A timer already
  *  overdue runs now, late, as an engine runs it once its thread is free, and an engine's own repeating
  *  timer is armed again from then. */

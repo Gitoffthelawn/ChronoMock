@@ -45,9 +45,8 @@ public class BackgroundGuardTests
         // 🔴 OUR GROUNDS, not the dependency's default. The trap this guards paints the wpfui #202020 on
         // every pixel, because a ui:FluentWindow ignores its own Background - our palette never contains that
         // colour. Which of our grounds dominates is the design's affair - the setup phase covers most of the
-        // window in cards (BrushBgSurface) over the base (BrushBgBase) - so the measure is how much of the
-        // surface OUR grounds cover together. That stays above half whether the base or a card wins, and
-        // collapses the moment #202020 comes back, which is the failure this exists to catch.
+        // window in cards (BrushBgSurface) over the base (BrushBgBase) - so the first measure is how much of
+        // the surface OUR grounds cover together, which stays above half whether the base or a card wins.
         var grounds = WpfTestHost.InvokeSettled(() =>
             new[] { "BrushBgBase", "BrushBgSurface", "BrushBgSurfaceAlt" }
                 .Select(key => Application.Current.TryFindResource(key) as SolidColorBrush)
@@ -64,7 +63,24 @@ public class BackgroundGuardTests
             covered > 0.5,
             $"our palette grounds cover only {covered:P1} of the window - something else is painting it, or "
                 + "the content root lost its Background to the FluentWindow trap");
+
+        // That share alone does not catch the trap. Measured 2026-10-16: the cards cover 46.8% and the base
+        // 45.5%, so with the base gone the cards and the alternate ground still come to 50.8% (the registry's
+        // entry painting the base another colour went through). The trap shows as ONE colour that is not ours
+        // over the base's whole area, while the text, icons and accents spread over many colours of a few
+        // tenths of a percent each (the largest 0.5%).
+        var (foreign, share) = counts.Where(pair => !groundKeys.Contains(pair.Key))
+            .Select(pair => (pair.Key, Share: pair.Value / (double)sampled))
+            .MaxBy(pair => pair.Share);
+        Assert.True(
+            share < ForeignCeiling,
+            $"one colour that is not our ground, #{foreign:X8}, covers {share:P1} of the window - something "
+                + "else paints a whole area of it, or the content root lost its Background to the FluentWindow trap");
     }
+
+    // No single colour outside our grounds may cover this share of the window: twenty times the largest one
+    // measured, and well under the base's area that the trap takes.
+    private const double ForeignCeiling = 0.10;
 
     [Fact]
     public void No_view_writes_a_background_onto_a_FluentWindow()
