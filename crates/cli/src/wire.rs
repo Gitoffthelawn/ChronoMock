@@ -31,18 +31,26 @@ pub(crate) const MAX_PROTOCOL_LINE: usize = 1024 * 1024;
 /// A line at the cap with no newline in it is an error and NOT a truncated line handed onwards: the
 /// reader is then parked mid-line, so the remainder would arrive as the next "line" and parse as
 /// junk - or worse, as a different event than the writer sent.
+///
+/// The length is judged before the text. The cap cuts a line at a byte, and a line of text cut inside
+/// a character is no longer text: read as one string, such a line was refused as "not UTF-8" and sent
+/// the client looking at its encoding, when what it did wrong was the length (measured by the random
+/// property below, 2026-10-19).
 pub(crate) fn read_protocol_line<R: BufRead>(reader: &mut R, line: &mut String) -> std::io::Result<usize> {
-    line.clear();
+    let mut bytes = std::mem::take(line).into_bytes();
+    bytes.clear();
     // UFCS on purpose: method syntax auto-derefs to `R`, and `Read::take` consumes its receiver, so
     // `reader.take(..)` tries to move the reader out of the borrow. Naming `&mut R` as the receiver
     // borrows it for the length of the read instead.
-    let n = std::io::Read::take(&mut *reader, MAX_PROTOCOL_LINE as u64).read_line(line)?;
-    if n == MAX_PROTOCOL_LINE && !line.ends_with('\n') {
+    let n = std::io::Read::take(&mut *reader, MAX_PROTOCOL_LINE as u64).read_until(b'\n', &mut bytes)?;
+    if n == MAX_PROTOCOL_LINE && bytes.last() != Some(&b'\n') {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("protocol line exceeds {MAX_PROTOCOL_LINE} bytes with no newline"),
         ));
     }
+    *line = String::from_utf8(bytes)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "stream did not contain valid UTF-8"))?;
     Ok(n)
 }
 
@@ -351,5 +359,322 @@ mod tests {
             matches!(rx.recv(), Ok(Command::End { id: 9, .. })),
             "the command after an unreadable line still arrives"
         );
+    }
+
+    mod properties {
+        use super::*;
+        use crate::search::edge_u64;
+        use chrono_proto::{MomentSpec, TargetConsole, TargetSpec, TimeSpec};
+        use proptest::collection::vec;
+        use proptest::option;
+        use proptest::prelude::*;
+        use std::io::{BufReader, Cursor};
+
+        /// The bytes of one line, printed by their length and their two ends: a line drawn at the cap
+        /// is a megabyte, and a failing case is printed in full.
+        #[derive(Clone)]
+        struct Body(Vec<u8>);
+
+        impl std::fmt::Debug for Body {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let b = &self.0;
+                if b.len() <= 48 {
+                    return write!(f, "{:?}", String::from_utf8_lossy(b));
+                }
+                let (head, tail) = (&b[..24], &b[b.len() - 24..]);
+                write!(f, "{} bytes {:?}..{:?}", b.len(), String::from_utf8_lossy(head), String::from_utf8_lossy(tail))
+            }
+        }
+
+        /// A stream of lines, the last with or without its newline, read through a buffer of a size
+        /// that puts the reader's chunk edges anywhere - the skip of an over-long line works chunk by
+        /// chunk.
+        #[derive(Debug, Clone)]
+        struct Stream {
+            lines: Vec<Body>,
+            last_ends: bool,
+            buffer: usize,
+        }
+
+        impl Stream {
+            fn bytes(&self) -> Vec<u8> {
+                let mut out = Vec::new();
+                for (i, line) in self.lines.iter().enumerate() {
+                    out.extend_from_slice(&line.0);
+                    if i + 1 < self.lines.len() || self.last_ends {
+                        out.push(b'\n');
+                    }
+                }
+                out
+            }
+
+            fn reader(&self) -> BufReader<Cursor<Vec<u8>>> {
+                BufReader::with_capacity(self.buffer, Cursor::new(self.bytes()))
+            }
+
+            /// Each line as a reader meets it: its body and whether a newline ended it. An empty last
+            /// line without a newline is no line at all - the stream simply ended.
+            fn met(&self) -> impl Iterator<Item = (&[u8], bool)> {
+                let count = self.lines.len();
+                self.lines.iter().enumerate().filter_map(move |(i, line)| {
+                    let newline = i + 1 < count || self.last_ends;
+                    (newline || !line.0.is_empty()).then_some((line.0.as_slice(), newline))
+                })
+            }
+        }
+
+        /// Text across the cap: a character of two, three or four bytes placed so the cap falls
+        /// inside it, or just before or after it.
+        fn across_the_cap() -> impl Strategy<Value = Vec<u8>> {
+            (prop_oneof![Just('ł'), Just('€'), Just('\u{1f600}')], 0usize..=4).prop_map(|(c, back)| {
+                let mut body = vec![b'x'; MAX_PROTOCOL_LINE - back];
+                body.extend_from_slice(c.to_string().as_bytes());
+                body.extend_from_slice(b"tail");
+                body
+            })
+        }
+
+        /// A line's bytes, a newline never among them: short, of any bytes or of text, at the cap and
+        /// either side of it - by name, since a uniform length is never there - and well past it.
+        fn body() -> impl Strategy<Value = Body> {
+            let byte = any::<u8>().prop_map(|b| if b == b'\n' { b'\r' } else { b });
+            let at_the_cap = ((MAX_PROTOCOL_LINE - 2)..=(MAX_PROTOCOL_LINE + 2), prop_oneof![Just(b'x'), Just(0xC3u8)])
+                .prop_map(|(len, fill)| vec![fill; len]);
+            prop_oneof![
+                6 => vec(byte, 0..40),
+                3 => "[^\n]{0,30}".prop_map(String::into_bytes),
+                1 => at_the_cap,
+                1 => across_the_cap(),
+                1 => (MAX_PROTOCOL_LINE + 3..MAX_PROTOCOL_LINE + 5000).prop_map(|len| vec![b'y'; len]),
+            ]
+            .prop_map(Body)
+        }
+
+        fn stream() -> impl Strategy<Value = Stream> {
+            (vec(body(), 0..5), any::<bool>(), prop_oneof![1usize..=64, Just(8192usize)])
+                .prop_map(|(lines, last_ends, buffer)| Stream { lines, last_ends, buffer })
+        }
+
+        /// Each read as kind and length, the form a failure is printed in.
+        fn shape(reads: &[(LineRead, Vec<u8>)]) -> Vec<(&LineRead, usize)> {
+            reads.iter().map(|(kind, bytes)| (kind, bytes.len())).collect()
+        }
+
+        /// A command as the GUI or the driver writes one, with the text and numbers a session may put
+        /// in it.
+        fn command() -> impl Strategy<Value = Command> {
+            let text = || "[^\u{0}]{0,12}";
+            let moment = (text(), option::of(text()), option::of(any::<i32>()), option::of(text()))
+                .prop_map(|(kind, local, tz_bias_min, delta)| MomentSpec { kind, local, tz_bias_min, delta });
+            let target = (text(), vec(text(), 0..3), option::of(text()), any::<[bool; 3]>(), any::<bool>()).prop_map(
+                |(path, args, cwd, [embedded, elevated_embedded, keep_background_timers], new)| TargetSpec {
+                    path,
+                    args,
+                    cwd,
+                    embedded,
+                    elevated_embedded,
+                    keep_background_timers,
+                    console: if new { TargetConsole::New } else { TargetConsole::Shared },
+                },
+            );
+            let time = (moment.clone(), text(), option::of(any::<i64>()), any::<[bool; 2]>()).prop_map(
+                |(moment, mode, multiplier, [scale_duration, scale_qpc])| TimeSpec { moment, mode, multiplier, scale_duration, scale_qpc },
+            );
+            let id = edge_u64;
+            prop_oneof![
+                (id(), target, time, any::<bool>())
+                    .prop_map(|(id, target, time, force)| Command::Start { v: PROTOCOL_VERSION, id, target, time, force }),
+                (id(), text()).prop_map(|(id, what)| Command::Query { v: PROTOCOL_VERSION, id, what }),
+                (id(), any::<i64>()).prop_map(|(id, multiplier)| Command::SetMultiplier { v: PROTOCOL_VERSION, id, multiplier }),
+                (id(), moment).prop_map(|(id, to)| Command::Jump { v: PROTOCOL_VERSION, id, to }),
+                id().prop_map(|id| Command::End { v: PROTOCOL_VERSION, id }),
+            ]
+        }
+
+        /// A line no reading of the protocol can take for a command, from the families a client gets
+        /// wrong: nothing, blanks, a command cut short, a command of a type that does not exist, a
+        /// command without its id, and words that are not an object at all.
+        fn junk() -> impl Strategy<Value = String> {
+            let cut = command().prop_flat_map(|c| {
+                let line = serde_json::to_string(&c).expect("a command is JSON");
+                let ends: Vec<usize> = line.char_indices().map(|(i, _)| i).collect();
+                (Just(line), proptest::sample::select(ends))
+            });
+            let unknown = ("[a-z_]{1,12}", edge_u64()).prop_map(|(kind, id)| {
+                let kind = if ["start", "query", "set_multiplier", "jump", "end"].contains(&kind.as_str()) { kind + "_" } else { kind };
+                format!(r#"{{"type":"{kind}","v":1,"id":{id}}}"#)
+            });
+            let without_id = command().prop_map(|c| {
+                let mut value = serde_json::to_value(&c).expect("a command is JSON");
+                value.as_object_mut().expect("a command is an object").remove("id");
+                value.to_string()
+            });
+            prop_oneof![
+                1 => Just(String::new()),
+                1 => "[ \t]{1,4}",
+                3 => cut.prop_map(|(line, end)| line[..end].to_string()),
+                2 => unknown,
+                2 => without_id,
+                2 => "[^{ \t\r\n][^\r\n]{0,30}",
+            ]
+        }
+
+        /// One line a client sends, and what the reader must make of it: a command - as JSON, the
+        /// form it is compared in, beside the line it was written as - or a line that is none.
+        #[derive(Debug, Clone)]
+        enum Sent {
+            Command(serde_json::Value, String),
+            Junk(String),
+        }
+
+        fn sent() -> impl Strategy<Value = Sent> {
+            let written = (command(), "[ \t]{0,2}", prop_oneof![Just(""), Just("\r"), Just(" ")])
+                .prop_map(|(c, before, after)| {
+                    let line = format!("{before}{}{after}", serde_json::to_string(&c).expect("a command is JSON"));
+                    Sent::Command(serde_json::to_value(&c).expect("a command is JSON"), line)
+                });
+            prop_oneof![3 => written, 2 => junk().prop_map(Sent::Junk)]
+        }
+
+        /// What ends a stream before its end: a line past the cap, or bytes that are not text.
+        #[derive(Debug, Clone)]
+        enum Broken {
+            TooLong(Body),
+            NotText(Body),
+        }
+
+        fn broken() -> impl Strategy<Value = Broken> {
+            let too_long = prop_oneof![
+                (MAX_PROTOCOL_LINE..=MAX_PROTOCOL_LINE + 2).prop_map(|len| vec![b'x'; len]),
+                across_the_cap(),
+            ];
+            let not_text = prop_oneof![
+                Just(vec![0xFFu8]),
+                Just(b"{\"type\":\"end\",\"v\":1,\"id\":\xC3}".to_vec()),
+                Just("ł".as_bytes()[..1].to_vec()),
+            ];
+            prop_oneof![too_long.prop_map(|b| Broken::TooLong(Body(b))), not_text.prop_map(|b| Broken::NotText(Body(b)))]
+        }
+
+        proptest! {
+            /// R4-W1. The driver reads the core past whatever arrives: any bytes come back as they are,
+            /// a line past the cap is dropped whole and only that line, and the next one is read intact -
+            /// wherever the reader's buffer happens to cut the stream. A reader that stopped at the first
+            /// line that was not text ended a session over one program writing in a console code page.
+            #[test]
+            fn any_stream_reads_back_line_by_line_and_a_line_past_the_cap_goes_whole(stream in stream()) {
+                let want: Vec<(LineRead, Vec<u8>)> = stream
+                    .met()
+                    .map(|(body, newline)| {
+                        if body.len() >= MAX_PROTOCOL_LINE {
+                            (LineRead::TooLong, Vec::new())
+                        } else {
+                            let mut bytes = body.to_vec();
+                            if newline {
+                                bytes.push(b'\n');
+                            }
+                            (LineRead::Line, bytes)
+                        }
+                    })
+                    .chain([(LineRead::Eof, Vec::new())])
+                    .collect();
+                let mut reader = stream.reader();
+                let mut got = Vec::new();
+                let mut line = Vec::new();
+                while got.len() <= want.len() {
+                    let read = read_line_bytes(&mut reader, &mut line).expect("an in-memory stream reads");
+                    let end = read == LineRead::Eof;
+                    got.push((read, line.clone()));
+                    if end {
+                        break;
+                    }
+                }
+                prop_assert!(got == want, "read {:?}, wanted {:?}", shape(&got), shape(&want));
+            }
+
+            /// A line of the protocol is text under the cap, or a refusal that names which of the two it
+            /// is not. A line past the cap is called too long whatever its bytes, because the length is
+            /// judged first - text cut by the cap inside a character is still text that was too long, not
+            /// text that was never text - so the client is sent to look at what it actually did wrong
+            /// (rule 6).
+            #[test]
+            fn a_protocol_line_is_text_under_the_cap_or_names_what_it_is_not(stream in stream()) {
+                let mut reader = stream.reader();
+                let mut line = String::new();
+                for (body, newline) in stream.met() {
+                    let read = read_protocol_line(&mut reader, &mut line);
+                    if body.len() >= MAX_PROTOCOL_LINE {
+                        let key = read.as_ref().err().map(stream_error_key);
+                        prop_assert_eq!(key, Some("protocol.line_too_long"), "for {:?}", Body(body.to_vec()));
+                        return Ok(());
+                    }
+                    let Ok(text) = std::str::from_utf8(body) else {
+                        let key = read.as_ref().err().map(stream_error_key);
+                        prop_assert_eq!(key, Some("protocol.stream_unreadable"), "for {:?}", Body(body.to_vec()));
+                        return Ok(());
+                    };
+                    prop_assert!(read.is_ok(), "{:?} was refused: {:?}", Body(body.to_vec()), read.err());
+                    let want = if newline { format!("{text}\n") } else { text.to_string() };
+                    prop_assert_eq!(read.ok(), Some(want.len()));
+                    prop_assert!(line == want, "read {:?}, wanted {:?}", Body(line.clone().into_bytes()), Body(want.into_bytes()));
+                }
+                prop_assert_eq!(read_protocol_line(&mut reader, &mut line).ok(), Some(0), "the stream did not end");
+            }
+
+            /// The command stream: every command a client writes arrives, in order and as written, and
+            /// every line that is not one is answered once and passed over. A stream that cannot be read
+            /// on ends with one answer that says why, and nothing after it arrives. Each part of this was
+            /// once missing: the answers after the first command, the answer to an over-long line, and
+            /// the cap itself on the stdin of a Chromium session.
+            #[test]
+            fn every_command_arrives_in_order_and_every_other_line_is_answered_once(
+                lines in vec(sent(), 0..8),
+                broken in option::of(broken()),
+                after in vec(command(), 0..2),
+            ) {
+                let mut bytes = Vec::new();
+                let mut want_commands = Vec::new();
+                let mut want_keys = Vec::new();
+                for line in &lines {
+                    match line {
+                        Sent::Command(value, written) => {
+                            bytes.extend_from_slice(written.as_bytes());
+                            want_commands.push(value.clone());
+                        }
+                        Sent::Junk(text) => {
+                            bytes.extend_from_slice(text.as_bytes());
+                            want_keys.push("protocol.bad_command_ignored");
+                        }
+                    }
+                    bytes.push(b'\n');
+                }
+                if let Some(broken) = &broken {
+                    let (body, key) = match broken {
+                        Broken::TooLong(b) => (b, "protocol.line_too_long"),
+                        Broken::NotText(b) => (b, "protocol.stream_unreadable"),
+                    };
+                    bytes.extend_from_slice(&body.0);
+                    bytes.push(b'\n');
+                    want_keys.push(key);
+                    for c in &after {
+                        bytes.extend_from_slice(serde_json::to_string(c).expect("a command is JSON").as_bytes());
+                        bytes.push(b'\n');
+                    }
+                }
+                let (keys_tx, keys_rx) = mpsc::channel::<String>();
+                let commands = spawn_command_reader_with(BufReader::new(Cursor::new(bytes)), move |e: &Event| {
+                    let key = match e {
+                        Event::Error { key, .. } => key.clone(),
+                        other => format!("not an error: {other:?}"),
+                    };
+                    let _ = keys_tx.send(key);
+                });
+                let got_commands: Vec<serde_json::Value> =
+                    commands.into_iter().map(|c| serde_json::to_value(&c).expect("a command is JSON")).collect();
+                let got_keys: Vec<String> = keys_rx.into_iter().collect();
+                prop_assert_eq!(got_commands, want_commands);
+                prop_assert_eq!(got_keys, want_keys);
+            }
+        }
     }
 }

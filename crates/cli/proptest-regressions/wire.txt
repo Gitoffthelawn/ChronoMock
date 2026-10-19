@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3c107b058777586f407d009996a0d757257a8d3171fc9eca2680882c4f5874bc # shrinks to lines = [], broken = Some(TooLong(1048582 bytes "xxxxxxxxxxxxxxxxxxxxxxxx".."xxxxxxxxxxxxxxxxx€tail")), after = []
+cc 9737cbd3966ee88a3f80358f31e32adef93efa7f0bf20732e19d9d03890169ab # shrinks to stream = Stream { lines: [1048582 bytes "xxxxxxxxxxxxxxxxxxxxxxxx".."xxxxxxxxxxxxxxxxx€tail"], last_ends: false, buffer: 1 }

@@ -211,6 +211,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A protocol line past the size limit is called too long, whatever character the limit cuts.** The
+  core reads a command line of at most 1 MiB. A longer line whose limit fell inside a character of two
+  or more bytes was refused as `protocol.stream_unreadable` ("not UTF-8 text"), which sent a client
+  looking at its encoding when the length was what it got wrong. It is now `protocol.line_too_long`, as
+  for any other line past the limit.
 - **A Chromium session that could not start says what it left behind.** When the browser never opened
   its debugging port, the session ended only the process it had started, tried once to remove the
   profile and reported `clean` whatever happened. It now ends everything the browser started and removes

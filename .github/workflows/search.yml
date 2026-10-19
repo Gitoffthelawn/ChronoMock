@@ -48,6 +48,7 @@ on:
       - .github/workflows/search.yml
       - crates/core/src/search.rs
       - crates/cli/src/search.rs
+      - crates/proto/src/search.rs
 
 permissions:
   contents: read
@@ -61,9 +62,11 @@ jobs:
     name: ${{ matrix.part }}
     runs-on: windows-latest
     # The first Sunday is the measurement: the cases below were set from one machine's numbers
-    # (about 1.5 ms a case in the core, 2 ms in the command line's unit properties, 60 ms a run of the
-    # built calculator), aiming at ten to fifteen minutes a part. The ceiling is far above that, so a
-    # hang ends as a part without its summary rather than as six hours of a held machine.
+    # (about 1.5 ms a case in the core, 2 ms in the command line's unit properties - 3 ms for the
+    # protocol line readers, which draw lines of a megabyte - 60 ms a run of the built calculator,
+    # 0.4 ms an event of the protocol), aiming at ten to fifteen minutes a part. The ceiling is far
+    # above that, so a hang ends as a part without its summary rather than as six hours of a held
+    # machine.
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -79,6 +82,11 @@ jobs:
             target: --bins
             canary: --bins
             cases: 50000
+          - part: protocol
+            package: chrono-proto
+            target: --lib
+            canary: --lib
+            cases: 1000000
           # The integration test runs the built binary once a case, so it takes a quarter of the cases
           # (calc_cli.rs says how). It has no canary of its own - the crate's canary proves the same
           # steps of this file see a failure.

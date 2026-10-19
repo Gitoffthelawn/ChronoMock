@@ -817,14 +817,14 @@ fn no_public_definition_in_the_workspace_is_unreferenced() {
          place, which is worse than not reading at all",
         definitions.len()
     );
-    // Four files in `src/` are compiled for tests only today (two `search.rs`, `testutil.rs`,
-    // `shim_exec.rs`), declared from a `lib.rs`, a `main.rs` and a `mod.rs`. Pinned to that count, so
+    // Five files in `src/` are compiled for tests only today (three `search.rs`, `testutil.rs`,
+    // `shim_exec.rs`), declared from two `lib.rs`, a `main.rs` and a `mod.rs`. Pinned to that count, so
     // a reader that breaks for ONE of those layouts is red too - with a floor of one it would still
     // find the others, and the file it lost would be judged as production again.
     assert!(
-        test_only >= 4,
-        "the dead-code scan found {test_only} files compiled for tests only, where there were four on \
-         2026-10-18 - either it no longer reads `#[cfg(test)] mod name;` in some layout, or one was \
+        test_only >= 5,
+        "the dead-code scan found {test_only} files compiled for tests only, where there were five on \
+         2026-10-19 - either it no longer reads `#[cfg(test)] mod name;` in some layout, or one was \
          removed and this number has to come down with it"
     );
 

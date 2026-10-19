@@ -16895,5 +16895,483 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "prop-k2 a verdict that left nothing running reads back without its list",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "        #[serde(default, skip_serializing_if = \"Vec::is_empty\")]\n        left_running: Vec<FollowedProcess>,",
+        "to": "        #[serde(skip_serializing_if = \"Vec::is_empty\")]\n        left_running: Vec<FollowedProcess>,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_event_reads_back_as_itself_from_one_line",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R5-P1 a sleep of zero left off the wire reads back as zero",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "        #[serde(default, skip_serializing_if = \"is_zero\")]\n        host_slept_ms: u64,",
+        "to": "        #[serde(skip_serializing_if = \"is_zero\")]\n        host_slept_ms: u64,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_event_reads_back_as_itself_from_one_line",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R5-WY11 an exact count left off the wire reads back as exact",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "    #[serde(default, skip_serializing_if = \"std::ops::Not::not\")]\n    pub capped: bool,",
+        "to": "    #[serde(skip_serializing_if = \"std::ops::Not::not\")]\n    pub capped: bool,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_event_reads_back_as_itself_from_one_line",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 an event is one line on the wire",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "serde_json::to_string(self).unwrap_or_else",
+        "to": "serde_json::to_string_pretty(self).unwrap_or_else"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_event_reads_back_as_itself_from_one_line",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-W1 the rest of a line past the cap is skipped to its newline",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "            reader.consume(at + 1);",
+        "to": "            reader.consume(at);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "wire::tests::properties::any_stream_reads_back_line_by_line_and_a_line_past_the_cap_goes_whole",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-W1 a line of exactly the cap with its newline is a line",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "    if n < MAX_PROTOCOL_LINE || line.last() == Some(&b'\\n') {",
+        "to": "    if n < MAX_PROTOCOL_LINE {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "wire::tests::properties::any_stream_reads_back_line_by_line_and_a_line_past_the_cap_goes_whole",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a protocol line past the cap is refused",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "take(&mut *reader, MAX_PROTOCOL_LINE as u64).read_until(b'\\n', &mut bytes)?;",
+        "to": "take(&mut *reader, u64::MAX).read_until(b'\\n', &mut bytes)?;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "wire::tests::properties::a_protocol_line_is_text_under_the_cap_or_names_what_it_is_not",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 the length of a protocol line is judged before its text",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "    if n == MAX_PROTOCOL_LINE && bytes.last() != Some(&b'\\n') {",
+        "to": "    if std::str::from_utf8(&bytes).is_err() {\n        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, \"stream did not contain valid UTF-8\"));\n    }\n    if n == MAX_PROTOCOL_LINE && bytes.last() != Some(&b'\\n') {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "wire::tests::properties::a_protocol_line_is_text_under_the_cap_or_names_what_it_is_not",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a line that is not a command is answered",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "                    Err(_) => sink(&Event::Error {",
+        "to": "                    Err(_) => std::mem::drop(Event::Error {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "wire::tests::properties::every_command_arrives_in_order_and_every_other_line_is_answered_once",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 the command stream ends at the first line it cannot read",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "                    break;\n                }\n                Ok(_) => match parse_command(line.trim_end()) {",
+        "to": "                }\n                Ok(_) => match parse_command(line.trim_end()) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "wire::tests::properties::every_command_arrives_in_order_and_every_other_line_is_answered_once",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-S15 a lone low surrogate is repaired too",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "            Some(0xD800..=0xDFFF) => {",
+        "to": "            Some(0xD800..=0xDBFF) => {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::any_string_the_browser_escapes_reads_as_a_utf16_decoder_reads_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-S15 a proper pair is passed over whole",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "                i += 12; // a proper pair stays as it is",
+        "to": "                i += 6; // a proper pair stays as it is"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::any_string_the_browser_escapes_reads_as_a_utf16_decoder_reads_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-S15 an escaped backslash is two bytes",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "            None => i += 2, // any other escape",
+        "to": "            None => i += 1, // any other escape"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::any_string_the_browser_escapes_reads_as_a_utf16_decoder_reads_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-S15 a message with nothing to repair is not rewritten",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "    if !changed {\n        return None;\n    }\n    out.push_str(&text[copied..]);",
+        "to": "    out.push_str(&text[copied..]);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::any_string_the_browser_escapes_reads_as_a_utf16_decoder_reads_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 the endpoint is on the port the session opened",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "    ws_port == our_port && LOOPBACK_HOSTS.iter().any(|h| h.eq_ignore_ascii_case(ws_host))",
+        "to": "    LOOPBACK_HOSTS.iter().any(|h| h.eq_ignore_ascii_case(ws_host))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::whatever_endpoint_the_target_names_the_client_goes_only_to_this_machine_at_its_own_port",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 the endpoint is on this machine",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "    ws_port == our_port && LOOPBACK_HOSTS.iter().any(|h| h.eq_ignore_ascii_case(ws_host))",
+        "to": "    ws_port == our_port"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::whatever_endpoint_the_target_names_the_client_goes_only_to_this_machine_at_its_own_port",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-N24 an IPv6 loopback in brackets is connected to bare",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "    host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host)",
+        "to": "    host"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::whatever_endpoint_the_target_names_the_client_goes_only_to_this_machine_at_its_own_port",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R5-B1 a mark that reorders text is quoted, not passed on",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "            c if chrono_core::text::is_hidden_char(c) => {",
+        "to": "            c if c.is_control() => {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::what_a_target_says_is_quoted_on_one_line_and_hides_nothing",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a quote is cut at two hundred characters",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "        if seen == MAX_CHARS {",
+        "to": "        if seen == MAX_CHARS + 1 {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::tests::properties::what_a_target_says_is_quoted_on_one_line_and_hides_nothing",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a port of zero is not chosen yet",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/launch.rs",
+        "from": "    (port != 0).then_some((port, path))",
+        "to": "    Some((port, path))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::launch::tests::properties::a_port_file_gives_its_port_and_only_a_browser_path_reaches_the_request",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 the blanks around a browser path are not part of it",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/launch.rs",
+        "from": "    let path = lines.next().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);",
+        "to": "    let path = lines.next().filter(|p| !p.is_empty()).map(str::to_string);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::launch::tests::properties::a_port_file_gives_its_port_and_only_a_browser_path_reaches_the_request",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 only a browser path reaches the request line",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/mod.rs",
+        "from": "id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))",
+        "to": "id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b' '))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::launch::tests::properties::a_port_file_gives_its_port_and_only_a_browser_path_reaches_the_request",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a crate with properties and no weekly part is red",
+    "edits": [
+      {
+        "file": ".github/workflows/search.yml",
+        "from": "            package: chrono-proto",
+        "to": "            package: chrono-protocol"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "weekly_search"
+    ],
+    "test": "every_crate_with_random_properties_is_a_part_of_the_weekly_search",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a search file outside the pull request paths is red",
+    "edits": [
+      {
+        "file": ".github/workflows/search.yml",
+        "from": "      - crates/proto/src/search.rs",
+        "to": "      - crates/proto/src/lib.rs"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "weekly_search"
+    ],
+    "test": "every_crate_with_random_properties_is_a_part_of_the_weekly_search",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 a crate with properties needs a canary for its part",
+    "edits": [
+      {
+        "file": "crates/proto/src/search.rs",
+        "from": "        fn the_canary_fails_only_when_asked_to(drawn in any::<u64>()) {",
+        "to": "        fn the_canary_fails_when_asked_to(drawn in any::<u64>()) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "weekly_search"
+    ],
+    "test": "every_crate_with_random_properties_is_a_part_of_the_weekly_search",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

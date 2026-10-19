@@ -500,32 +500,37 @@ impl CdpClient {
     /// than ending the connection (R4-S15): the WebSocket framing around it is intact, so the next
     /// message reads as well as ever, and the one skipped is the only one lost.
     fn decode(&mut self, text: &str) -> Option<Msg> {
-        let parsed = serde_json::from_str::<Value>(text)
-            .ok()
-            .or_else(|| repair_lone_surrogates(text).and_then(|t| serde_json::from_str::<Value>(&t).ok()));
-        let Some(v) = parsed else {
-            if !self.bad_json_warned {
-                self.bad_json_warned = true;
-                // By hand rather than `eprintln!`, which panics on a closed standard error (R4-S11).
-                let _ = writeln!(io::stderr(), "chrono core: skipped a CDP message that was not JSON");
-            }
-            return None;
-        };
-        let msg = if let Some(id) = v.get("id").and_then(Value::as_u64) {
-            Msg::Response {
-                id,
-                result: v.get("result").cloned().unwrap_or(Value::Null),
-                error: v.get("error").cloned(),
-            }
-        } else {
-            Msg::Event {
-                method: v.get("method").and_then(Value::as_str).unwrap_or("").to_string(),
-                params: v.get("params").cloned().unwrap_or(Value::Null),
-                session_id: v.get("sessionId").and_then(Value::as_str).map(str::to_string),
-            }
-        };
-        Some(msg)
+        let msg = message_from_text(text);
+        if msg.is_none() && !self.bad_json_warned {
+            self.bad_json_warned = true;
+            // By hand rather than `eprintln!`, which panics on a closed standard error (R4-S11).
+            let _ = writeln!(io::stderr(), "chrono core: skipped a CDP message that was not JSON");
+        }
+        msg
     }
+}
+
+/// One CDP message from its text, `None` for text that is not JSON even once its lone surrogates are
+/// repaired. The reading half of [`CdpClient::decode`], apart from the client so it can be searched
+/// without a socket.
+fn message_from_text(text: &str) -> Option<Msg> {
+    let v = serde_json::from_str::<Value>(text)
+        .ok()
+        .or_else(|| repair_lone_surrogates(text).and_then(|t| serde_json::from_str::<Value>(&t).ok()))?;
+    let msg = if let Some(id) = v.get("id").and_then(Value::as_u64) {
+        Msg::Response {
+            id,
+            result: v.get("result").cloned().unwrap_or(Value::Null),
+            error: v.get("error").cloned(),
+        }
+    } else {
+        Msg::Event {
+            method: v.get("method").and_then(Value::as_str).unwrap_or("").to_string(),
+            params: v.get("params").cloned().unwrap_or(Value::Null),
+            session_id: v.get("sessionId").and_then(Value::as_str).map(str::to_string),
+        }
+    };
+    Some(msg)
 }
 
 // A scanner rule for insecure WebSocket endpoints matches the unencrypted scheme wherever it is
@@ -716,6 +721,20 @@ mod tests {
         let out = sanitise_target_text(&long);
         assert!(out.ends_with(" (truncated)"), "{out}");
         assert_eq!(out.chars().filter(|c| *c == '\u{105}').count(), 200);
+    }
+
+    /// The cap counts what the target said, not what the quote prints: a hidden character just under
+    /// it is one of the two hundred however long its escape, and one just past it goes with the rest.
+    #[test]
+    fn a_hidden_character_at_the_cap_counts_once() {
+        let mut said = "a".repeat(198);
+        said.push(char::from_u32(0x202E).unwrap());
+        said.push_str("bcdef");
+        assert_eq!(sanitise_target_text(&said), format!("{}\\u{{202e}}b (truncated)", "a".repeat(198)));
+
+        let mut past = "a".repeat(200);
+        past.push('\n');
+        assert_eq!(sanitise_target_text(&past), format!("{} (truncated)", "a".repeat(200)));
     }
 
     #[test]
@@ -995,5 +1014,228 @@ mod tests {
         assert_eq!(q.len(), MAX_QUEUED_EVENTS, "the queue does not grow past the cap");
         assert_eq!(method_of(q.front().unwrap()), "E1", "the oldest went, not the newest");
         assert_eq!(method_of(q.back().unwrap()), "E9999999");
+    }
+
+    mod properties {
+        use super::*;
+        use chrono_core::text::is_hidden_char;
+        use proptest::collection::vec;
+        use proptest::prelude::*;
+
+        /// One piece of a JSON string as a browser writes it.
+        #[derive(Debug, Clone)]
+        enum Piece {
+            /// The escape of one UTF-16 unit, its hex digits in upper case or in lower.
+            Unit(u16, bool),
+            /// A character written as itself.
+            Char(char),
+            /// A short escape: a backslash, a quote, a slash, a line feed or a tab.
+            Short(char),
+            /// An escaped backslash, then the letter and four hex digits of a unit escape - text that
+            /// looks like an escape and is not one.
+            NotAnEscape(u16),
+        }
+
+        impl Piece {
+            fn written(&self) -> String {
+                match self {
+                    Piece::Unit(u, true) => format!("\\u{u:04X}"),
+                    Piece::Unit(u, false) => format!("\\u{u:04x}"),
+                    Piece::Char(c) => c.to_string(),
+                    Piece::Short('\n') => "\\n".to_string(),
+                    Piece::Short('\t') => "\\t".to_string(),
+                    Piece::Short(c) => format!("\\{c}"),
+                    Piece::NotAnEscape(u) => format!("\\\\u{u:04X}"),
+                }
+            }
+
+            /// The UTF-16 units the piece stands for.
+            fn units(&self, out: &mut Vec<u16>) {
+                match self {
+                    Piece::Unit(u, _) => out.push(*u),
+                    Piece::Char(c) | Piece::Short(c) => out.extend(c.encode_utf16(&mut [0; 2]).iter()),
+                    Piece::NotAnEscape(u) => out.extend(format!("\\u{u:04X}").encode_utf16()),
+                }
+            }
+        }
+
+        /// The pieces of one string, with lone surrogates of both halves, proper pairs, and the
+        /// escaped backslash before a `u` drawn often - a uniform unit is a surrogate one time in
+        /// thirty-two, and the shapes a scan of escapes gets wrong sit side by side.
+        fn pieces() -> impl Strategy<Value = Vec<Piece>> {
+            let upper = any::<bool>;
+            let plain = any::<char>().prop_map(|c| if c == '"' || c == '\\' || c < ' ' { 'x' } else { c });
+            let piece = prop_oneof![
+                3 => (0xD800u16..=0xDBFF, upper()).prop_map(|(u, up)| vec![Piece::Unit(u, up)]),
+                3 => (0xDC00u16..=0xDFFF, upper()).prop_map(|(u, up)| vec![Piece::Unit(u, up)]),
+                3 => (0xD800u16..=0xDBFF, 0xDC00u16..=0xDFFF, upper())
+                    .prop_map(|(high, low, up)| vec![Piece::Unit(high, up), Piece::Unit(low, up)]),
+                2 => (any::<u16>(), upper()).prop_map(|(u, up)| vec![Piece::Unit(u, up)]),
+                4 => plain.prop_map(|c| vec![Piece::Char(c)]),
+                2 => prop_oneof![Just('\\'), Just('"'), Just('/'), Just('\n'), Just('\t')].prop_map(|c| vec![Piece::Short(c)]),
+                2 => prop_oneof![0xD800u16..=0xDFFF, any::<u16>()].prop_map(|u| vec![Piece::NotAnEscape(u)]),
+            ];
+            vec(piece, 0..10).prop_map(|groups| groups.into_iter().flatten().collect())
+        }
+
+        /// A message of either kind, carrying the drawn string where a browser puts a title.
+        fn message() -> impl Strategy<Value = (bool, Vec<Piece>)> {
+            (any::<bool>(), pieces())
+        }
+
+        // The scheme a target writes for the endpoint we opened. The scanner rule on insecure WebSocket
+        // endpoints matches it wherever it is written, test input included, and the note above
+        // `parse_ws_url` says why there is no encrypted scheme to move to. Named once, so the one
+        // exemption covers every use.
+        // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
+        const PLAIN_SCHEME: &str = "ws://";
+
+        /// A URL as a target may advertise its debugger, and whether it is one a browser writes for
+        /// the endpoint we opened: our port or another, loopback in each spelling or a host somewhere
+        /// else, and the shapes a parser by hand gets wrong - userinfo, a second port, a scheme in
+        /// the wrong case, a port with a sign or a leading zero.
+        fn advertised(ours: u16) -> impl Strategy<Value = (String, bool)> {
+            let scheme = prop_oneof![6 => Just(PLAIN_SCHEME), 1 => Just("wss://"), 1 => Just("WS://"), 1 => Just("http://"), 1 => Just("")];
+            let host = prop_oneof![
+                Just("127.0.0.1"),
+                Just("localhost"),
+                Just("LocalHost"),
+                Just("::1"),
+                Just("[::1]"),
+                Just("127.0.0.2"),
+                Just("0.0.0.0"),
+                Just("10.0.0.1"),
+                Just("example.com"),
+                Just("127.0.0.1.example.com"),
+                Just("localhost."),
+                Just("[::ffff:127.0.0.1]"),
+                Just(""),
+                Just("127.0.0.1:1@example.com"),
+                Just("user@127.0.0.1"),
+            ];
+            let port = prop_oneof![
+                4 => Just(ours.to_string()),
+                1 => Just(ours.wrapping_add(1).to_string()),
+                1 => Just(format!("+{ours}")),
+                1 => Just(format!("0{ours}")),
+                1 => Just("65536".to_string()),
+                1 => Just(String::new()),
+                1 => any::<u16>().prop_map(|p| p.to_string()),
+            ];
+            let path = prop_oneof![Just("/devtools/browser/1d57-20f5"), Just("/"), Just(""), Just("?x"), Just("/a b"), Just("@example.com:80/")];
+            let built = (scheme, host, port, path).prop_map(move |(scheme, host, port, path)| {
+                // Written out here rather than read from LOOPBACK_HOSTS: a name gone from that list must
+                // redden this, not leave with it.
+                let ours_named = scheme == PLAIN_SCHEME
+                    && ["127.0.0.1", "localhost", "LocalHost", "::1", "[::1]"].contains(&host)
+                    && port == ours.to_string()
+                    && ["/devtools/browser/1d57-20f5", "/", ""].contains(&path);
+                (format!("{scheme}{host}:{port}{path}"), ours_named)
+            });
+            prop_oneof![8 => built, 1 => ".{0,40}".prop_map(|text| (text, false))]
+        }
+
+        /// What a target says, with what hides or breaks a line drawn by name - controls, the
+        /// separators, the marks that reorder or hide the text after them - and long enough now and
+        /// then to cross the cap on a quote, with every character showing or not.
+        fn said() -> impl Strategy<Value = String> {
+            let hidden = prop_oneof![
+                Just('\n'),
+                Just('\r'),
+                Just('\t'),
+                Just('\0'),
+                Just('\u{1b}'),
+                Just('\u{85}'),
+                Just('\u{61c}'),
+                Just('\u{200b}'),
+                Just('\u{200e}'),
+                Just('\u{202e}'),
+                Just('\u{2028}'),
+                Just('\u{2029}'),
+                Just('\u{2066}'),
+                Just('\u{feff}'),
+                Just('\u{e0001}'),
+            ];
+            // Mapped, not filtered: proptest draws control characters often, and a filter that drops
+            // them ran out of draws at 20 000 cases (measured 2026-10-19, "Too many local rejects").
+            let shown = || prop_oneof![3 => proptest::char::range(' ', '~'), 1 => any::<char>().prop_map(|c| if is_hidden_char(c) { 'x' } else { c })];
+            let any_piece = prop_oneof![5 => shown(), 1 => hidden];
+            prop_oneof![
+                3 => vec(any_piece.clone(), 0..24),
+                1 => vec(shown(), 196..206),
+                1 => vec(any_piece, 196..206),
+            ]
+            .prop_map(String::from_iter)
+        }
+
+        proptest! {
+            /// R4-S15. Any string a browser escapes reads as a UTF-16 decoder reads it: a proper pair as
+            /// its character, a lone surrogate of either half as the replacement character, and text
+            /// that only looks like an escape as itself. Refusing the message ended the session, and
+            /// the repair is done only when there is something to repair.
+            #[test]
+            fn any_string_the_browser_escapes_reads_as_a_utf16_decoder_reads_it((reply, pieces) in message()) {
+                let written: String = pieces.iter().map(Piece::written).collect();
+                let mut units = Vec::new();
+                for piece in &pieces {
+                    piece.units(&mut units);
+                }
+                let text = if reply {
+                    format!(r#"{{"id":7,"result":{{"title":"{written}"}}}}"#)
+                } else {
+                    format!(r#"{{"method":"Target.targetInfoChanged","params":{{"title":"{written}"}},"sessionId":"S"}}"#)
+                };
+                let title = match message_from_text(&text) {
+                    Some(Msg::Response { id: 7, result, error: None }) if reply => result["title"].clone(),
+                    Some(Msg::Event { method, params, session_id: Some(s) }) if !reply && method == "Target.targetInfoChanged" && s == "S" => {
+                        params["title"].clone()
+                    }
+                    other => {
+                        let read = match other {
+                            None => "nothing".to_string(),
+                            Some(Msg::Response { id, result, error }) => format!("reply {id} {result} {error:?}"),
+                            Some(Msg::Event { method, params, session_id }) => format!("event {method} {params} {session_id:?}"),
+                        };
+                        return Err(TestCaseError::fail(format!("{text:?} read as {read}")));
+                    }
+                };
+                let decoded = String::from_utf16_lossy(&units);
+                prop_assert_eq!(title.as_str(), Some(decoded.as_str()), "for {:?}", text);
+                prop_assert_eq!(repair_lone_surrogates(&text).is_some(), String::from_utf16(&units).is_err(), "for {:?}", text);
+            }
+
+            /// `webSocketDebuggerUrl` is text the target wrote, and the client connects where it says.
+            /// Whatever it says, the client goes only to this machine and only to the port it opened -
+            /// the check once looked at the scheme and whether the port parsed, and an IPv6 loopback in
+            /// brackets once went to a resolver (R4-N24). And the endpoint a browser does write for
+            /// that port, in any spelling of loopback, is taken: refusing it would end every session.
+            #[test]
+            fn whatever_endpoint_the_target_names_the_client_goes_only_to_this_machine_at_its_own_port(
+                (ours, (url, ours_named)) in (1u16..=u16::MAX).prop_flat_map(|ours| (Just(ours), advertised(ours)))
+            ) {
+                let taken = parse_ws_url(&url).ok().filter(|(host, port, _)| ws_endpoint_is_ours(host, *port, ours));
+                prop_assert!(taken.is_some() || !ours_named, "{:?} was refused for port {}", url, ours);
+                if let Some((host, port, _)) = taken {
+                    let addrs = loopback_addrs(&host, port);
+                    let here = addrs.as_ref().is_ok_and(|a| !a.is_empty() && a.iter().all(|a| a.ip().is_loopback() && a.port() == ours));
+                    prop_assert!(here, "{:?} goes to {:?}, and the port opened was {}", url, addrs, ours);
+                }
+            }
+
+            /// Text a target supplies reaches stderr and the session report, which is evidence (rule 4):
+            /// quoted, it never holds a character that breaks the line, reorders what follows or hides -
+            /// a right-to-left mark in a process name reversed the report (R5-B1). Text that shows is
+            /// kept exactly as it is, cut at two hundred characters with a mark saying so.
+            #[test]
+            fn what_a_target_says_is_quoted_on_one_line_and_hides_nothing(said in said()) {
+                let quoted = sanitise_target_text(&said);
+                prop_assert!(!quoted.chars().any(is_hidden_char), "{:?} was quoted as {:?}", said, quoted);
+                if said.chars().take(200).all(|c| !is_hidden_char(c)) {
+                    let kept: String = said.chars().take(200).collect();
+                    let want = if said.chars().count() > 200 { format!("{kept} (truncated)") } else { kept };
+                    prop_assert_eq!(quoted, want);
+                }
+            }
+        }
     }
 }
