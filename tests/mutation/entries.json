@@ -17717,13 +17717,27 @@
     "notHere": ""
   },
   {
-    "name": "prop-k2 2d the Rust word variant does not reach the author of a catalogue file",
+    "name": "prop-k2 2d an unknown rule type or step name is refused as an unknown name",
     "edits": [
       {
         "file": "crates/cli/src/calendar.rs",
         "from": "    (\"unknown variant\", \"unknown name\"),",
         "to": "    (\"unknown variant \", \"unknown name\"),"
-      },
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar::tests::a_wrong_type_anywhere_in_a_calendar_is_refused_in_the_files_own_words",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 2d a rule type that is not text is refused without a variant identifier",
+    "edits": [
       {
         "file": "crates/cli/src/calendar.rs",
         "from": "    (\"expected variant identifier\", \"expected a name, written as text\"),",
