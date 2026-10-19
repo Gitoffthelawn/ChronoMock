@@ -221,4 +221,98 @@ mod tests {
         assert!(live.iter().all(|(n, _)| !n.is_empty()));
         assert!(live.iter().any(|(n, _)| n.eq_ignore_ascii_case("SystemRoot") || n.eq_ignore_ascii_case("Path")));
     }
+
+    /// The random half: any environment and any variables of a session's, merged and encoded, against
+    /// a model of the block `CreateProcessW` is owed (R4-N17).
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+        use proptest::sample::select;
+        use std::collections::BTreeMap;
+
+        /// The drive-directory entries and the exit code the system keeps at the front of a block.
+        const DRIVE_NAMES: [&str; 4] = ["=C:", "=D:", "=::", "=ExitCode"];
+        /// Units of a value: text of every width, the separators a value holds, and halves of a pair
+        /// standing alone at both ends of each range - Windows keeps them, so a block must too.
+        const VALUE_PIECES: [&[u16]; 9] =
+            [&[0x43, 0x3A, 0x5C, 0x62], &[0x3D], &[0x3B], &[0x20], &[0x0105], &[0xD83D, 0xDE00], &[0xD800], &[0xDBFF], &[0xDC00]];
+
+        /// A variable name: letters in either case, digits and the marks names hold (`ProgramFiles(x86)`).
+        fn name() -> impl Strategy<Value = String> {
+            "[A-Za-z_][A-Za-z0-9_().-]{0,8}"
+        }
+
+        fn value() -> impl Strategy<Value = Vec<u16>> {
+            prop_oneof![
+                3 => proptest::collection::vec(select(VALUE_PIECES.to_vec()), 0..5).prop_map(|pieces| pieces.concat()),
+                1 => Just(vec![0xDFFF]),
+            ]
+        }
+
+        /// The name in every case at once, which is how the system tells two names apart.
+        fn folded(name: &str) -> String {
+            name.to_ascii_uppercase()
+        }
+
+        /// The same name written in another mix of cases.
+        fn recased(name: &str, mask: u64) -> String {
+            name.chars()
+                .enumerate()
+                .map(|(i, c)| if mask >> (i % 64) & 1 == 1 { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() })
+                .collect()
+        }
+
+        /// An environment: names that differ in more than case, drive entries among them, any values.
+        fn environment() -> impl Strategy<Value = Vec<(String, Vec<u16>)>> {
+            let drives = proptest::sample::subsequence(DRIVE_NAMES.to_vec(), 0..=DRIVE_NAMES.len());
+            (drives, proptest::collection::vec((name(), value()), 0..8), proptest::collection::vec(value(), 4)).prop_map(
+                |(drives, named, drive_values)| {
+                    let mut seen = std::collections::HashSet::new();
+                    let drives = drives.into_iter().zip(drive_values).map(|(n, v)| (n.to_string(), v));
+                    drives.chain(named).filter(|(n, _)| seen.insert(folded(n))).collect()
+                },
+            )
+        }
+
+        /// A session's variables: names of the environment's in another case, new ones, and one name twice.
+        fn extra(environment: Vec<(String, Vec<u16>)>) -> impl Strategy<Value = Vec<(String, String)>> {
+            let names: Vec<String> = environment.into_iter().map(|(n, _)| n).filter(|n| !n.starts_with('=')).collect();
+            let present = if names.is_empty() { name().boxed() } else { select(names).boxed() };
+            let one = prop_oneof![2 => (present, any::<u64>()).prop_map(|(n, mask)| recased(&n, mask)), 2 => name()];
+            (proptest::collection::vec((one, "[a-z=;\\\\ ]{0,6}|.{0,4}"), 0..4), any::<u64>()).prop_map(|(mut extra, mask)| {
+                if let Some((first, _)) = extra.first().cloned() {
+                    extra.push((recased(&first, mask), "twice".into()));
+                }
+                extra
+            })
+        }
+
+        fn units(text: &str) -> Vec<u16> {
+            text.encode_utf16().collect()
+        }
+
+        proptest! {
+            /// Every entry the session does not name reaches the block unit for unit, every variable of
+            /// the session's stands in it once with the value it was given last, nothing else does, the
+            /// entries are sorted by name without regard to case, and the block ends as the system reads it.
+            #[test]
+            fn the_block_holds_the_environment_and_the_sessions_variables_and_nothing_else(
+                (environment, extra) in environment().prop_flat_map(|env| (Just(env.clone()), extra(env))),
+            ) {
+                let entries: Vec<Vec<u16>> =
+                    environment.iter().map(|(n, v)| [units(n), vec![0x3D], v.clone()].concat()).collect();
+                let block = encode_block(&merge_entries(entries, &extra));
+
+                let mut wanted: BTreeMap<String, Vec<u16>> = environment
+                    .iter()
+                    .map(|(n, v)| (folded(n), [units(n), vec![0x3D], v.clone()].concat()))
+                    .collect();
+                for (n, v) in &extra {
+                    wanted.insert(folded(n), units(&format!("{n}={v}")));
+                }
+                let owed: Vec<u16> = wanted.into_values().flat_map(|entry| entry.into_iter().chain([0])).chain([0]).collect();
+                prop_assert_eq!(&block, &owed, "the block of {:?} with {:?}", environment, extra);
+            }
+        }
+    }
 }

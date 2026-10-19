@@ -250,9 +250,13 @@ fn marker_text(pid: u32, created: u64) -> String {
     format!("{MARKER_SWITCH}{pid}.{created}")
 }
 
-/// The pid and creation time a value's switches name, if they carry a marker at all.
+/// The pid and creation time of the core that wrote a value, if its switches carry a marker at all.
+/// That is the LAST marker: a session puts its own after whatever `*` held, and `*` may hold a marker
+/// too - a tester who copied a session's value there - whole, of another core, or broken. The first one
+/// was read, so a session's value was taken for that other core's, or for nobody's (found by the search
+/// in step 2e).
 fn parse_marker(switches: &str) -> Option<(u32, u64)> {
-    let token = switches.split_whitespace().find(|t| t.starts_with(MARKER_SWITCH))?;
+    let token = switches.split_whitespace().rfind(|t| t.starts_with(MARKER_SWITCH))?;
     let (pid, created) = token[MARKER_SWITCH.len()..].split_once('.')?;
     Some((pid.parse().ok()?, created.parse().ok()?))
 }
@@ -315,7 +319,10 @@ fn stale_in(location: &Location, alive: impl Fn(u32, u64) -> bool) -> bool {
 }
 
 /// The names of the values whose marker names a core that is gone. A value that is not a string, has
-/// no marker, or cannot be read in full is not ours and is not listed.
+/// no marker, or cannot be read in full is not ours and is not listed - and neither is one under a name
+/// no session writes under (`unusable_name`): `*` is the tester's whatever it holds, and so is the
+/// key's default value. `*` holding a marker was taken for a session's and removed (found by the search
+/// in step 2e).
 fn stale_names(location: &Location, alive: impl Fn(u32, u64) -> bool) -> Vec<String> {
     let Ok(Some(key)) = open_deepest(location, KEY_QUERY_VALUE) else {
         return Vec::new();
@@ -325,7 +332,9 @@ fn stale_names(location: &Location, alive: impl Fn(u32, u64) -> bool) -> Vec<Str
     };
     values
         .into_iter()
-        .filter(|(_, switches)| parse_marker(switches).is_some_and(|(pid, created)| !alive(pid, created)))
+        .filter(|(name, switches)| {
+            unusable_name(name).is_none() && parse_marker(switches).is_some_and(|(pid, created)| !alive(pid, created))
+        })
         .map(|(name, _)| name)
         .collect()
 }
@@ -812,6 +821,42 @@ mod tests {
         assert_eq!(parse_marker("--chrono-mock-session=12.y"), None);
         assert_eq!(parse_marker("--chrono-mock-session=99999999999.1"), None, "a pid is 32 bits");
         assert_eq!(parse_marker("--remote-debugging-port=0"), None);
+        assert_eq!(parse_marker("--chrono-mock-session=1.1 --x --chrono-mock-session=3.4"), Some((3, 4)), "the last one");
+    }
+
+    /// The writer of a value is named by its last marker, the one a session puts after whatever `*`
+    /// held. The first one was read, so a `*` with a marker of its own - a tester who copied a session's
+    /// value there - made the value somebody else's: whole, the session's own removal left it in the
+    /// registry and said it was gone, and another session's look removed it while its writer ran.
+    /// Broken, it hid a dead session's value from every look after it. Found by the search in step 2e.
+    #[test]
+    fn the_writer_of_a_value_is_named_by_its_last_marker() {
+        let scratch = Scratch::new();
+        scratch.plant_text("*", "--chrono-mock-session=1.1");
+        let mut value = written(set_in(&scratch.location, "app.exe", OWNER));
+        assert_eq!(scratch.value("app.exe"), Found::Text(format!("--chrono-mock-session=1.1 --remote-debugging-port=0 {MINE}")));
+        let only_the_core_of_the_star_is_gone = |pid: u32, _: u64| pid != 1;
+        assert_eq!(recover_in(&scratch.location, only_the_core_of_the_star_is_gone), Recovery::default(), "its writer runs");
+        assert_eq!(value.remove(), PolicyRemoval::Removed);
+        assert_eq!(scratch.value("app.exe"), Found::Absent, "and its writer's removal takes it");
+
+        let scratch = Scratch::new();
+        scratch.plant_text("dead.exe", "--chrono-mock-session=12 --remote-debugging-port=0 --chrono-mock-session=7.7");
+        assert_eq!(recover_in(&scratch.location, |_, _| false), Recovery { removed: 1, failed: 0 }, "a dead session's value");
+    }
+
+    /// A look takes only what a session could have written. `*` is the tester's whatever it holds, a
+    /// marker of a core that is gone included, and so is the key's default value: no session writes
+    /// under either name. `*` with such a marker was removed. Found by the search in step 2e.
+    #[test]
+    fn a_look_never_removes_a_value_under_a_name_no_session_writes_under() {
+        let scratch = Scratch::new();
+        scratch.plant_text("*", "--remote-debugging-port=0 --chrono-mock-session=1.1");
+        scratch.plant_text("", "--remote-debugging-port=0 --chrono-mock-session=1.1");
+        assert!(!stale_in(&scratch.location, |_, _| false));
+        assert_eq!(recover_in(&scratch.location, |_, _| false), Recovery::default());
+        assert_ne!(scratch.value("*"), Found::Absent);
+        assert_ne!(scratch.value(""), Found::Absent);
     }
 
     /// The scan removes the value of a core that is gone, and leaves every other value: one that is the
@@ -971,5 +1016,328 @@ mod tests {
             Found::Text("--remote-debugging-port=0 --chrono-mock-session=4242.7770".into()),
             "another session's value is not ours to delete"
         );
+    }
+
+    /// The random half: the whole road of a value through the registry, on any registry a tester may
+    /// have left - the look a session takes before it writes, the write, the look of another session,
+    /// the removal. After each step the key holds exactly what the model says, value for value.
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+        use proptest::sample::{select, subsequence};
+
+        /// A core as its marker names it: a pid and the time that process was created.
+        type Core = (u32, u64);
+
+        /// The core of the session under test.
+        const A: Core = OWNER;
+
+        /// The cores another value may name, by their edges: A's pid created at another time (a recycled
+        /// pid), a pid whose digits start with A's, and the smallest and the largest of both numbers.
+        const CORES: [Core; 5] = [(4242, 778), (42_420, 777), (0, 0), (1, 1), (u32::MAX, u64::MAX)];
+
+        /// Switches of the tester's, which mean nothing to this module.
+        const TESTER: [&str; 5] = ["--enable-features=Foo", "--lang=pl", "--x", "--a=b=c", "--zażółć"];
+        /// Every way a switch asks for a debugging port.
+        const PORTS: [&str; 4] =
+            ["--remote-debugging-port", "--remote-debugging-port=0", "--remote-debugging-port=9222", "--remote-debugging-port="];
+        /// Switches that only look like one asking for a port.
+        const NEAR_PORTS: [&str; 4] =
+            ["--remote-debugging-portal=1", "--remote-debugging-pipe", "--x=--remote-debugging-port=1", "remote-debugging-port=1"];
+        /// Markers that name no core: no creation time, a letter, a pid wider than 32 bits, nothing at
+        /// all, a third part.
+        const BROKEN_MARKERS: [&str; 5] = [
+            "--chrono-mock-session=12",
+            "--chrono-mock-session=x.34",
+            "--chrono-mock-session=99999999999.1",
+            "--chrono-mock-session=",
+            "--chrono-mock-session=1.2.3",
+        ];
+        /// What stands between two switches, and before and after them.
+        const GAPS: [&str; 5] = [" ", "   ", "\t", "\n", "\r\n"];
+
+        /// File names a session writes under, and names it never does: the key's default value, the
+        /// value every host reads, a backslash, a zero.
+        const APPS: [&str; 5] = ["app.exe", "My App (x86).exe", "zażółć.EXE", "日本.exe", "a"];
+        const NOT_NAMES: [&str; 4] = ["", "*", "a\\b.exe", "a\0b.exe"];
+        /// The names of the values beside the application's - the default value among them.
+        const BESIDE: [&str; 4] = ["other.exe", "Tool (1).exe", "", "żółw.exe"];
+
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        enum Stored {
+            Text(String),
+            Dword,
+        }
+
+        /// One value of the model, with the core that wrote it when a session did.
+        #[derive(Debug, Clone)]
+        struct Value {
+            name: String,
+            stored: Stored,
+            writer: Option<Core>,
+        }
+
+        #[derive(Debug, Clone)]
+        enum Star {
+            Absent,
+            Dword,
+            /// The text as stored, the switches without the gaps around them, and whether one asks for a port.
+            Text { text: String, carried: String, port: bool },
+        }
+
+        #[derive(Debug, Clone)]
+        struct Case {
+            app: String,
+            star: Star,
+            /// A value under the application's name before the session, written in capitals or not.
+            own: Option<(bool, Stored, Option<Core>)>,
+            beside: Vec<(String, Stored, Option<Core>)>,
+            /// Which of `CORES` run when the session starts, and which of those still run when the
+            /// other session looks. A is alive at the start, and maybe not by then.
+            alive: [bool; 5],
+            still: [bool; 5],
+            a_still: bool,
+        }
+
+        fn marker(core: Core) -> String {
+            format!("--chrono-mock-session={}.{}", core.0, core.1)
+        }
+
+        /// A value as docs/09 section 12.19 says a session writes one: the switches `*` held, the port
+        /// and the writer's marker.
+        fn as_a_session_writes(carried: &str, writer: Core) -> String {
+            if carried.is_empty() {
+                format!("--remote-debugging-port=0 {}", marker(writer))
+            } else {
+                format!("{carried} --remote-debugging-port=0 {}", marker(writer))
+            }
+        }
+
+        /// A name a session may write under.
+        fn usable(name: &str) -> bool {
+            !name.is_empty() && !name.contains(['\\', '*', '\0'])
+        }
+
+        fn words(list: &[&'static str]) -> BoxedStrategy<String> {
+            select(list.to_vec()).prop_map(str::to_string).boxed()
+        }
+
+        /// One switch: the tester's, a port in any form (when the text may ask for one), a near miss, a
+        /// whole marker of another core, a broken one.
+        fn switch(with_port: bool) -> BoxedStrategy<String> {
+            let whole = select(CORES.to_vec()).prop_map(marker);
+            let port = if with_port { 2 } else { 0 };
+            prop_oneof![
+                3 => words(&TESTER),
+                port => words(&PORTS),
+                2 => words(&NEAR_PORTS),
+                3 => whole,
+                2 => words(&BROKEN_MARKERS),
+            ]
+            .boxed()
+        }
+
+        /// Switches as text, with gaps of any kind between them and maybe before and after: the text,
+        /// the part between the gaps at the ends, and the switches.
+        fn switches(with_port: bool) -> impl Strategy<Value = (String, String, Vec<String>)> {
+            let gap = || proptest::option::of(words(&GAPS));
+            (gap(), proptest::collection::vec((words(&GAPS), switch(with_port)), 0..5), gap()).prop_map(
+                |(lead, pieces, trail)| {
+                    let mut carried = String::new();
+                    for (i, (gap, switch)) in pieces.iter().enumerate() {
+                        if i > 0 {
+                            carried.push_str(gap);
+                        }
+                        carried.push_str(switch);
+                    }
+                    let text = format!("{}{carried}{}", lead.unwrap_or_default(), trail.unwrap_or_default());
+                    (text, carried, pieces.into_iter().map(|(_, switch)| switch).collect())
+                },
+            )
+        }
+
+        /// A value a tester or an earlier session left: the tester's text, a number, or one written the
+        /// way a session writes it, by one of `CORES`.
+        fn left_value() -> impl Strategy<Value = (Stored, Option<Core>)> {
+            prop_oneof![
+                1 => Just((Stored::Text("--the-testers-own".into()), None)),
+                1 => Just((Stored::Dword, None)),
+                3 => (switches(false), select(CORES.to_vec()))
+                    .prop_map(|((_, carried, _), writer)| (Stored::Text(as_a_session_writes(&carried, writer)), Some(writer))),
+            ]
+        }
+
+        fn star() -> impl Strategy<Value = Star> {
+            let text = switches(true).prop_map(|(text, carried, switches)| {
+                let port = switches.iter().any(|s| s == "--remote-debugging-port" || s.starts_with("--remote-debugging-port="));
+                Star::Text { text, carried, port }
+            });
+            prop_oneof![1 => Just(Star::Absent), 1 => Just(Star::Dword), 4 => text]
+        }
+
+        fn case() -> impl Strategy<Value = Case> {
+            let app = prop_oneof![5 => words(&APPS), 1 => words(&NOT_NAMES)];
+            let beside = subsequence(BESIDE.to_vec(), 0..=BESIDE.len()).prop_flat_map(|names| {
+                let count = names.len();
+                (Just(names), proptest::collection::vec(left_value(), count))
+            });
+            let flags = || proptest::array::uniform5(any::<bool>());
+            (app, star(), proptest::option::of((any::<bool>(), left_value())), beside, flags(), flags(), any::<bool>())
+                .prop_map(|(app, star, own, (names, values), alive, still, a_still)| Case {
+                    own: own.filter(|_| usable(&app)).map(|(capitals, (stored, writer))| (capitals, stored, writer)),
+                    app,
+                    star,
+                    beside: names.into_iter().zip(values).map(|(name, (stored, writer))| (name.to_string(), stored, writer)).collect(),
+                    alive,
+                    still,
+                    a_still,
+                })
+        }
+
+        /// Whether a core runs, given which of `CORES` do and whether A does.
+        fn runs(core: Core, cores: [bool; 5], a: bool) -> bool {
+            (core == A && a) || CORES.iter().zip(cores).any(|(&c, on)| on && c == core)
+        }
+
+        /// Puts the case's values in the scratch key, the way a tester would, and returns them as the model.
+        fn plant(scratch: &Scratch, case: &Case) -> Vec<Value> {
+            let mut model = Vec::new();
+            match &case.star {
+                Star::Absent => {}
+                Star::Dword => model.push(Value { name: "*".into(), stored: Stored::Dword, writer: None }),
+                Star::Text { text, .. } => model.push(Value { name: "*".into(), stored: Stored::Text(text.clone()), writer: None }),
+            }
+            if let Some((capitals, stored, writer)) = &case.own {
+                let name = if *capitals { case.app.to_uppercase() } else { case.app.clone() };
+                model.push(Value { name, stored: stored.clone(), writer: *writer });
+            }
+            for (name, stored, writer) in &case.beside {
+                model.push(Value { name: name.clone(), stored: stored.clone(), writer: *writer });
+            }
+            for value in &model {
+                match &value.stored {
+                    Stored::Text(text) => scratch.plant_text(&value.name, text),
+                    Stored::Dword => scratch.plant(&value.name, REG_VALUE_TYPE(4), &[1, 0, 0, 0]),
+                }
+            }
+            model
+        }
+
+        /// The number of values under the deepest key, of any type, the default value included.
+        fn value_count(scratch: &Scratch) -> usize {
+            let key = open_deepest(&scratch.location, KEY_QUERY_VALUE).unwrap().unwrap();
+            let mut values = 0u32;
+            // SAFETY: the key is open, and every out-parameter is either a local or left null.
+            let status = unsafe {
+                RegQueryInfoKeyW(key.0, None, None, None, None, None, None, Some(&mut values), None, None, None, None)
+            };
+            assert_eq!(status, NO_ERROR);
+            values as usize
+        }
+
+        /// The key holds exactly the model: it exists when it should, and holds these values and no other.
+        fn holds(scratch: &Scratch, model: &[Value], key: bool, step: &str) -> Result<(), TestCaseError> {
+            prop_assert_eq!(scratch.key_exists(scratch.location.path.len()), key, "{}: whether the key exists", step);
+            if !key {
+                prop_assert!(model.is_empty(), "{}: no key, but the model holds {:?}", step, model);
+                return Ok(());
+            }
+            prop_assert_eq!(value_count(scratch), model.len(), "{}: the number of values, where the model holds {:?}", step, model);
+            for value in model {
+                let want = match &value.stored {
+                    Stored::Text(text) => Found::Text(text.clone()),
+                    Stored::Dword => Found::Other,
+                };
+                prop_assert_eq!(scratch.value(&value.name), want, "{}: the value {:?}", step, value.name);
+            }
+            Ok(())
+        }
+
+        /// A session's look for values left behind, both ways a session takes it: what the model says
+        /// is left behind is what a session could have written whose writer no longer runs.
+        fn scan(scratch: &Scratch, model: &mut Vec<Value>, runs: &dyn Fn(Core) -> bool, step: &str) -> Result<(), TestCaseError> {
+            let gone: Vec<String> = model
+                .iter()
+                .filter(|v| usable(&v.name) && v.writer.is_some_and(|w| !runs(w)))
+                .map(|v| v.name.clone())
+                .collect();
+            let asked = |pid: u32, created: u64| runs((pid, created));
+            prop_assert_eq!(stale_in(&scratch.location, asked), !gone.is_empty(), "{}: whether a value is left behind", step);
+            let removed = u32::try_from(gone.len()).unwrap();
+            prop_assert_eq!(recover_in(&scratch.location, asked), Recovery { removed, failed: 0 }, "{}: what the scan removed", step);
+            model.retain(|v| !gone.contains(&v.name));
+            Ok(())
+        }
+
+        /// The write, by the model: refused for a name a session never writes under, left for a value
+        /// already under the name, refused for a `*` that is not text, nothing for a `*` with its own
+        /// port, and otherwise the value as a session writes it.
+        fn write(scratch: &Scratch, model: &mut Vec<Value>, case: &Case) -> Result<Option<PolicyValue>, TestCaseError> {
+            let taken = model.iter().any(|v| v.name.to_uppercase() == case.app.to_uppercase());
+            let owed = if !usable(&case.app) {
+                Owed::Refused("file name")
+            } else if taken {
+                Owed::Left
+            } else {
+                match &case.star {
+                    Star::Dword => Owed::Refused("not a plain string"),
+                    Star::Text { port: true, .. } => Owed::Nothing,
+                    Star::Text { carried, .. } => Owed::Written(as_a_session_writes(carried, A)),
+                    Star::Absent => Owed::Written(as_a_session_writes("", A)),
+                }
+            };
+            match (owed, set_in(&scratch.location, &case.app, A)) {
+                (Owed::Refused(reason), PolicySet::Failed(why)) => prop_assert!(why.contains(reason), "{}", why),
+                (Owed::Left, PolicySet::Foreign) | (Owed::Nothing, PolicySet::StarHasPort) => {}
+                (Owed::Written(text), PolicySet::Written(value)) => {
+                    model.push(Value { name: case.app.clone(), stored: Stored::Text(text), writer: Some(A) });
+                    return Ok(Some(value));
+                }
+                (owed, outcome) => prop_assert!(false, "the write came to {:?} where the model owes {:?}", outcome, owed),
+            }
+            Ok(None)
+        }
+
+        /// What the write owes, by the model.
+        #[derive(Debug)]
+        enum Owed {
+            /// Refused, with a reason that holds these words.
+            Refused(&'static str),
+            /// A value already under the name, left as it is.
+            Left,
+            /// `*` opens a port of its own, so nothing is written.
+            Nothing,
+            Written(String),
+        }
+
+        proptest! {
+            /// Whatever `*` says and whatever stands beside it, the value a session writes is that
+            /// session's to every reader: it removes it itself, another session's look leaves it while
+            /// its writer runs and takes it once it does not. And a look takes only what a session could
+            /// have written - never `*`, never a value of the tester's.
+            #[test]
+            fn a_value_is_its_writers_to_every_reader_and_a_look_takes_only_what_a_session_wrote(case in case()) {
+                let scratch = Scratch::new();
+                let mut model = plant(&scratch, &case);
+                let before = !model.is_empty();
+                holds(&scratch, &model, before, "planted")?;
+
+                scan(&scratch, &mut model, &|core| runs(core, case.alive, true), "the session's own look")?;
+                holds(&scratch, &model, before, "after the session's own look")?;
+
+                let mut value = write(&scratch, &mut model, &case)?;
+                holds(&scratch, &model, before || value.is_some(), "after the write")?;
+
+                let still = std::array::from_fn(|i| case.alive[i] && case.still[i]);
+                scan(&scratch, &mut model, &|core| runs(core, still, case.a_still), "another session's look")?;
+                holds(&scratch, &model, before || value.is_some(), "after another session's look")?;
+
+                if let Some(value) = value.as_mut() {
+                    prop_assert_eq!(value.remove(), PolicyRemoval::Removed);
+                    model.retain(|v| v.writer != Some(A));
+                }
+                holds(&scratch, &model, before, "after the removal")?;
+            }
+        }
     }
 }

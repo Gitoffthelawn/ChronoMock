@@ -211,6 +211,16 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The WebView2 policy value of `--elevated-embedded` is always its own session's, also when the
+  `*` value holds a session marker.** A session copies the `*` value into its own and puts its marker
+  last, but the first marker was read. So a `*` value carrying one - a tester who copied a session's
+  value there - made the session's value look like another core's: the session left it in the
+  machine registry while saying it was removed, and another session's look for leftovers removed it
+  while its session ran. A broken marker in `*` hid a dead session's value from every look after it.
+  The last marker is read now.
+- **A look for leftover policy values never removes `*` or the key's default value.** No session
+  writes under either name, but a `*` value carrying the marker of a session that is gone was taken
+  for that session's and removed.
 - **A preset or calendar file is refused in the words of the file, not of the program reading it.**
   A rule `type` or a step name the reader does not know was an "unknown variant", and a rule `type`
   that is not text "expected variant identifier" - the names those things have in Rust. They are now
