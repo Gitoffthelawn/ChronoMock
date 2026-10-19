@@ -3005,9 +3005,11 @@ mod tests {
         assert_eq!(fake_elapsed_ticks(1_000, 10_000_000, 9_000_000, 60), 1_000);
     }
 
-    /// The random half of the command line: whatever the path and the arguments hold, a program reads
-    /// back exactly what it was started with. Read by the system's own `CommandLineToArgvW`, the rule a
-    /// C runtime parses its command line by - nothing of this crate's (P9).
+    /// The random half of what a target is handed, each read back by the system itself rather than by
+    /// anything of this crate's. The command line: whatever the path and the arguments hold, a program
+    /// reads back exactly what it was started with, read by `CommandLineToArgvW`, the rule a C runtime
+    /// parses its command line by (P9). The clock: the moment a session reports is the one Windows shows
+    /// the target for it.
     mod properties {
         use proptest::prelude::*;
         use proptest::sample::select;
@@ -3121,6 +3123,73 @@ mod tests {
                 prop_assert_eq!(&read[0], &path, "the program's own name, in {:?}", String::from_utf16_lossy(&line));
                 prop_assert_eq!(&read[1..], &args[..], "the arguments, in {:?}", String::from_utf16_lossy(&line));
             }
+
+            /// The moment a session reports - in UTC and in its zone - is the one Windows shows the target
+            /// for the same fake FILETIME, through `GetSystemTime` and through `GetLocalTime`, which takes
+            /// the zone bias off first. And what the session reports reads back as the same second, as a
+            /// jump to it would. For every instant a session clock takes and every zone it accepts, the end
+            /// of the range included, where the clamp keeps a zone of headroom for exactly this (R2-X7).
+            #[test]
+            fn the_session_reports_the_moment_its_target_reads(ticks in instant(), bias in zone_bias()) {
+                // A moment the session takes: at or after 1601 as local time in its zone too (R4-S7d).
+                let ticks = ticks.max(i64::from(bias.max(0)) * 600_000_000);
+                prop_assert!(chrono_core::instant_in_session_range(ticks, bias), "{} in a zone {} minutes off", ticks, bias);
+                prop_assert_eq!(windows_reads(ticks), Some(chrono_core::filetime_utc_to_wall(ticks, 0)), "UTC of {}", ticks);
+                // The hook's own arithmetic for the local channels, and the one `chrono-ctl` keeps for the
+                // FILETIME ones (`shift_filetime`).
+                let local = ticks - i64::from(bias) * 600_000_000;
+                prop_assert_eq!(chrono_ctl::shift_ticks_by_bias(ticks, bias, false), Some(local));
+                let reported = chrono_core::filetime_utc_to_wall(ticks, bias);
+                prop_assert_eq!(windows_reads(local), Some(reported.clone()), "{} in a zone {} minutes off", ticks, bias);
+                let whole = ticks - ticks % 10_000_000;
+                let moment = chrono_core::Moment { local: reported, tz_bias_min: Some(bias) };
+                prop_assert_eq!(chrono_core::moment_to_filetime_utc(&moment), Ok(whole));
+                prop_assert_eq!(chrono_core::session_instant(&moment), Ok((whole, bias)));
+            }
+        }
+
+        /// What Windows shows for a FILETIME, written the way a session report writes a moment: the
+        /// conversion `GetSystemTime` and `GetLocalTime` hand the target through in the hook.
+        fn windows_reads(ticks: i64) -> Option<String> {
+            use windows::Win32::Foundation::{FILETIME, SYSTEMTIME};
+            let file = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
+            let mut st = SYSTEMTIME::default();
+            // SAFETY: both structures are owned here.
+            unsafe { windows::Win32::System::Time::FileTimeToSystemTime(&file, &mut st) }.ok()?;
+            Some(format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond))
+        }
+
+        /// A FILETIME a session clock holds: an edge of the calendar as Windows counts it, either end of the
+        /// range, or anything. The edges are the first instant of 1601, the leap day of a leap year, the
+        /// last of February and the first of March in century years that are not leap years (1700, 1800,
+        /// 1900, 2100) and in one that is (2000), the end of 32-bit Unix time, the last year of four digits
+        /// and the last whole year a SYSTEMTIME holds - each at the first, a middle or the last second of
+        /// the day, and the first, one or the last tick of that second.
+        fn instant() -> impl Strategy<Value = i64> {
+            let dates: Vec<(u16, u16, u16)> = vec![
+                (1601, 1, 1), (1604, 2, 29), (1700, 2, 28), (1700, 3, 1), (1800, 2, 28), (1900, 2, 28), (1900, 3, 1),
+                (2000, 2, 29), (2038, 1, 19), (2100, 2, 28), (2100, 3, 1), (9999, 12, 31), (30827, 12, 31),
+            ];
+            let edge = (select(dates), select(vec![(0u16, 0u16, 0u16), (3, 14, 7), (23, 59, 59)]), select(vec![0i64, 1, 9_999_999]))
+                .prop_map(|((year, month, day), (hour, minute, second), tick)| {
+                    let st = windows::Win32::Foundation::SYSTEMTIME {
+                        wYear: year, wMonth: month, wDay: day, wHour: hour, wMinute: minute, wSecond: second, ..Default::default()
+                    };
+                    let mut file = windows::Win32::Foundation::FILETIME::default();
+                    // SAFETY: both structures are owned here.
+                    unsafe { windows::Win32::System::Time::SystemTimeToFileTime(&st, &mut file) }.expect("a date of Windows's own range");
+                    let ticks = ((u64::from(file.dwHighDateTime) << 32) | u64::from(file.dwLowDateTime)) as i64;
+                    ticks + tick
+                });
+            let top = chrono_ctl::FAKE_WALL_MAX;
+            prop_oneof![2 => edge, 1 => select(vec![0, top - 10_000_000, top - 1, top]), 3 => 0..=top]
+        }
+
+        /// A session zone: either end of the band, the hour offsets most tested, a minute either side of
+        /// UTC, or anything the band holds.
+        fn zone_bias() -> impl Strategy<Value = i32> {
+            let band = chrono_core::ZONE_BIAS_MAX_MIN;
+            prop_oneof![1 => select(vec![-band, -840, -60, -1, 0, 1, 60, 300, band]), 1 => -band..=band]
         }
     }
 }

@@ -50,6 +50,7 @@ on:
       - crates/cli/src/search.rs
       - crates/proto/src/search.rs
       - crates/mech/src/search.rs
+      - crates/ctl/src/search.rs
 
 permissions:
   contents: read
@@ -96,6 +97,13 @@ jobs:
             target: --lib
             canary: --lib
             cases: 150000
+          # The clock arithmetic: about 0.6 ms a case there, most of it the 2 MB control block a case
+          # allocates, so five minutes.
+          - part: control block
+            package: chrono-ctl
+            target: --lib
+            canary: --lib
+            cases: 500000
           # The integration test runs the built binary once a case, so it takes a quarter of the cases
           # (calc_cli.rs says how). It has no canary of its own - the crate's canary proves the same
           # steps of this file see a failure.
