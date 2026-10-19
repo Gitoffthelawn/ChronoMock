@@ -723,6 +723,20 @@ mod tests {
         assert_eq!(out.chars().filter(|c| *c == '\u{105}').count(), 200);
     }
 
+    /// The cap counts what the target said, not what the quote prints: a hidden character just under
+    /// it is one of the two hundred however long its escape, and one just past it goes with the rest.
+    #[test]
+    fn a_hidden_character_at_the_cap_counts_once() {
+        let mut said = "a".repeat(198);
+        said.push(char::from_u32(0x202E).unwrap());
+        said.push_str("bcdef");
+        assert_eq!(sanitise_target_text(&said), format!("{}\\u{{202e}}b (truncated)", "a".repeat(198)));
+
+        let mut past = "a".repeat(200);
+        past.push('\n');
+        assert_eq!(sanitise_target_text(&past), format!("{} (truncated)", "a".repeat(200)));
+    }
+
     #[test]
     fn a_target_error_cannot_forge_a_report_line() {
         let reported = serde_json::json!({ "message": "boom\nchrono core: verdict: works" });

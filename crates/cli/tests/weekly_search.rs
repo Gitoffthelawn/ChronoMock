@@ -45,7 +45,56 @@ fn parts(workflow: &str) -> Vec<Part> {
 
 /// Whether a Rust file holds random properties.
 fn has_properties(path: &Path) -> bool {
-    std::fs::read_to_string(path).is_ok_and(|text| text.lines().any(|l| l.trim() == "mod properties {"))
+    std::fs::read_to_string(path).is_ok_and(|text| text.lines().any(declares_properties))
+}
+
+/// Whether a line declares a `properties` module, in any form the compiler takes: behind
+/// attributes on the same line, with any visibility, inline (`{`) or in a file of its own (`;`).
+/// Only the bare inline form was read at first, and a crate that wrote `pub(crate) mod properties {`
+/// or `mod properties;` would have been searched by nobody with this guard green.
+fn declares_properties(line: &str) -> bool {
+    let mut rest = line.trim();
+    while let Some(after) = rest.strip_prefix("#[") {
+        rest = after.split_once(']').map_or("", |(_, tail)| tail).trim_start();
+    }
+    if let Some(after) = rest.strip_prefix("pub") {
+        rest = after.trim_start();
+        if let Some(inner) = rest.strip_prefix('(') {
+            rest = inner.split_once(')').map_or("", |(_, tail)| tail).trim_start();
+        }
+    }
+    rest.strip_prefix("mod properties")
+        .is_some_and(|tail| matches!(tail.trim_start().chars().next(), Some('{' | ';')))
+}
+
+/// The reader above, on the forms it has to take and the near misses it has to leave.
+#[test]
+fn every_form_of_a_properties_module_is_read_and_nothing_else() {
+    for taken in [
+        "mod properties {",
+        "    mod properties {",
+        "mod properties{",
+        "mod properties;",
+        "pub mod properties {",
+        "pub(crate) mod properties {",
+        "pub(super) mod properties;",
+        "pub(in crate::cdp) mod properties {",
+        "#[cfg(test)] mod properties;",
+        "#[cfg(test)] pub(crate) mod properties {",
+    ] {
+        assert!(declares_properties(taken), "{taken:?} was not read as a properties module");
+    }
+    for left in [
+        "/// mod properties {",
+        "// mod properties {",
+        "mod properties_of_the_core {",
+        "mod tests {",
+        "use crate::properties;",
+        "let module = \"mod properties {\";",
+        "",
+    ] {
+        assert!(!declares_properties(left), "{left:?} was read as a properties module");
+    }
 }
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

@@ -593,9 +593,10 @@ mod tests {
             }
 
             /// A line of the protocol is text under the cap, or a refusal that names which of the two it
-            /// is not. A line past the cap is called too long whatever its bytes - text cut by the cap
-            /// inside a character is still text that was too long, not text that was never text - so the
-            /// client is sent to look at what it actually did wrong (rule 6).
+            /// is not. A line past the cap is called too long whatever its bytes, because the length is
+            /// judged first - text cut by the cap inside a character is still text that was too long, not
+            /// text that was never text - so the client is sent to look at what it actually did wrong
+            /// (rule 6).
             #[test]
             fn a_protocol_line_is_text_under_the_cap_or_names_what_it_is_not(stream in stream()) {
                 let mut reader = stream.reader();
@@ -604,12 +605,7 @@ mod tests {
                     let read = read_protocol_line(&mut reader, &mut line);
                     if body.len() >= MAX_PROTOCOL_LINE {
                         let key = read.as_ref().err().map(stream_error_key);
-                        let truthful: &[&str] = if std::str::from_utf8(body).is_ok() {
-                            &["protocol.line_too_long"]
-                        } else {
-                            &["protocol.line_too_long", "protocol.stream_unreadable"]
-                        };
-                        prop_assert!(key.is_some_and(|k| truthful.contains(&k)), "{} bytes read as {:?}", body.len(), key);
+                        prop_assert_eq!(key, Some("protocol.line_too_long"), "for {:?}", Body(body.to_vec()));
                         return Ok(());
                     }
                     let Ok(text) = std::str::from_utf8(body) else {
