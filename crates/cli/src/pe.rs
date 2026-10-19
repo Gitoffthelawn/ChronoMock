@@ -193,7 +193,7 @@ const SECTION_EXECUTES: u32 = 0x2000_0000;
 /// Leans to silence on every doubt: an unreadable file, a shape that is not a PE, no `.data`, a
 /// short read - all answer "not Go".
 pub(crate) fn is_go_binary(target_path: &Path) -> bool {
-    go_buildinfo_in_data(target_path).unwrap_or(false)
+    File::open(target_path).ok().and_then(go_buildinfo_in_data).unwrap_or(false)
 }
 
 /// Whether this is a .NET executable that the files beside it may not give away, by any of the four
@@ -210,7 +210,12 @@ pub(crate) fn is_go_binary(target_path: &Path) -> bool {
 /// is opened once and every doubt answers "no", like the Go fingerprint. The module header goes last
 /// because it is the only mark that can cost more than a few kilobytes to look for.
 pub(crate) fn is_dotnet_executable(target_path: &Path) -> bool {
-    let Some(mut pe) = PeFile::open(target_path) else {
+    File::open(target_path).is_ok_and(dotnet_marks_in)
+}
+
+/// The four marks `is_dotnet_executable` looks for, in an image read from any source.
+fn dotnet_marks_in<R: Read + Seek>(image: R) -> bool {
+    let Some(mut pe) = PeFile::from_reader(image) else {
         return false;
     };
     pe.exports_any(DOTNET_RUNTIME_EXPORTS) == Some(true)
@@ -220,8 +225,8 @@ pub(crate) fn is_dotnet_executable(target_path: &Path) -> bool {
 }
 
 /// The walk `is_go_binary` wraps: a window at the start of `.data`.
-fn go_buildinfo_in_data(target_path: &Path) -> Option<bool> {
-    let bytes = PeFile::open(target_path)?.section_start(b".data\0\0\0", GO_DATA_WINDOW)?;
+fn go_buildinfo_in_data<R: Read + Seek>(image: R) -> Option<bool> {
+    let bytes = PeFile::from_reader(image)?.section_start(b".data\0\0\0", GO_DATA_WINDOW)?;
     let at = bytes.windows(GO_BUILDINFO_MAGIC.len()).position(|w| w == GO_BUILDINFO_MAGIC);
     Some(matches!(at, Some(start) if bytes.len() - start >= GO_BUILDINFO_HEADER))
 }
@@ -262,12 +267,17 @@ struct ImageSpan {
 /// something it does not do. This one is asked in order to REFUSE a target, so its doubt leans the
 /// other way: a file this could not read is not called "not a program" (untouchable rule 4).
 pub(crate) fn is_pe_image(target_path: &Path) -> Option<bool> {
-    let mut file = File::open(target_path).ok()?;
-    let Some(pe) = pe_pointer(&read_bytes(&mut file, 0, DOS_HEADER)?) else {
+    let file = File::open(target_path).ok()?;
+    let length = file.metadata().ok()?.len();
+    pe_image_in(file, length)
+}
+
+/// `is_pe_image` on an image of `length` bytes read from any source.
+fn pe_image_in<R: Read + Seek>(mut image: R, length: u64) -> Option<bool> {
+    let Some(pe) = pe_pointer(&read_bytes(&mut image, 0, DOS_HEADER)?) else {
         return Some(false);
     };
-    let header = read_bytes(&mut file, pe, PROGRAM_HEADER)?;
-    let length = file.metadata().ok()?.len();
+    let header = read_bytes(&mut image, pe, PROGRAM_HEADER)?;
     Some(names_a_program(&header, pe, length))
 }
 
@@ -284,9 +294,13 @@ const SUBSYSTEM_WINDOWS_GUI: u16 = 2;
 /// gets none, as a terminal starts it. The doubt leans to "console": explicit handles are safe for
 /// any program, while a console program taken for a windowed one would get the core's own handles.
 pub(crate) fn is_windowed_program(target_path: &Path) -> Option<bool> {
-    let mut file = File::open(target_path).ok()?;
-    let pe = pe_pointer(&read_bytes(&mut file, 0, DOS_HEADER)?)?;
-    let header = read_bytes(&mut file, pe, SUBSYSTEM_AT as u64 + 2)?;
+    File::open(target_path).ok().and_then(windowed_in)
+}
+
+/// `is_windowed_program` on an image read from any source.
+fn windowed_in<R: Read + Seek>(mut image: R) -> Option<bool> {
+    let pe = pe_pointer(&read_bytes(&mut image, 0, DOS_HEADER)?)?;
+    let header = read_bytes(&mut image, pe, SUBSYSTEM_AT as u64 + 2)?;
     windowed_subsystem(&header)
 }
 
@@ -335,7 +349,7 @@ fn pe_pointer(dos: &[u8]) -> Option<u64> {
 
 /// Up to `limit` bytes of the file from `offset`: fewer where the file ends first, `None` when it
 /// cannot be read.
-fn read_bytes(file: &mut File, offset: u64, limit: u64) -> Option<Vec<u8>> {
+fn read_bytes<R: Read + Seek>(file: &mut R, offset: u64, limit: u64) -> Option<Vec<u8>> {
     let mut bytes: Vec<u8> = Vec::new();
     file.seek(SeekFrom::Start(offset)).ok()?;
     // `take` + `read_to_end` rather than one `read`: a single read may return fewer bytes than
@@ -345,22 +359,22 @@ fn read_bytes(file: &mut File, offset: u64, limit: u64) -> Option<Vec<u8>> {
 }
 
 /// The first four kilobytes of the PE header, read from where the DOS header points and checked for
-/// its signature, plus the open handle so the sections and directories it describes can be read.
+/// its signature, plus the reader so the sections and directories it describes can be read. The
+/// reader is the open file for a target, and bytes in memory for the random properties below.
 ///
 /// Offsets into `head` count from the signature. The ones the header stores (a section's raw data)
-/// count from the start of the file, and are read through the handle. The header is usually a few
+/// count from the start of the file, and are read through the reader. The header is usually a few
 /// hundred bytes in, but Windows starts an image whose header is a megabyte in (measured), and reading
 /// from where it is rather than from the start of the file keeps such a target fingerprinted.
-struct PeFile {
-    file: File,
+struct PeFile<R> {
+    file: R,
     head: Vec<u8>,
     optional_size: usize,
     section_count: usize,
 }
 
-impl PeFile {
-    fn open(path: &Path) -> Option<Self> {
-        let mut file = File::open(path).ok()?;
+impl<R: Read + Seek> PeFile<R> {
+    fn from_reader(mut file: R) -> Option<Self> {
         let pe = pe_pointer(&read_bytes(&mut file, 0, DOS_HEADER)?)?;
         let head = read_bytes(&mut file, pe, HEADER_WINDOW)?;
         if head.get(..4)? != PE_SIGNATURE {
@@ -1226,5 +1240,311 @@ mod tests {
         assert!(crate::report::detect_runtime_warnings(&plain, false).is_empty(), "a plain executable");
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    mod properties {
+        use super::*;
+        use crate::search::near;
+        use proptest::prelude::*;
+        use std::io::Cursor;
+
+        /// The fields of an image that the two header questions read, and where the file ends. The
+        /// image is built from this model and the answer owed to it is worked out from the model, in
+        /// the numbers the PE format fixes rather than the constants above, so a wrong offset in the
+        /// reader cannot agree with itself.
+        #[derive(Debug, Clone)]
+        struct Header {
+            /// The first two bytes, `MZ` or not.
+            dos: [u8; 2],
+            /// What the DOS header holds at 0x3C: where the PE header starts.
+            pe: u32,
+            signature: [u8; 4],
+            sections: u16,
+            optional_size: u16,
+            flags: u16,
+            magic: u16,
+            subsystem: u16,
+            /// Where the file ends, wherever that cuts the rest.
+            length: u64,
+        }
+
+        /// The furthest header place an image is built out to. A pointer past it points past the end
+        /// of every file built here.
+        const BUILT_UP_TO: u32 = 0x10_0000;
+
+        impl Header {
+            fn pe(&self) -> u64 {
+                u64::from(self.pe)
+            }
+
+            /// Where the section table ends: behind the signature, the twenty-byte file header, the
+            /// optional header of the declared size, and forty bytes a section.
+            fn table_end(&self) -> u64 {
+                self.pe() + 24 + u64::from(self.optional_size) + 40 * u64::from(self.sections)
+            }
+
+            /// What both questions need first: the whole DOS header with `MZ`, the first `read` bytes
+            /// of the PE header in the file, the signature, and a magic of PE32 or PE32+.
+            fn starts_a_pe_header(&self, read: u64) -> bool {
+                self.length >= 0x40
+                    && self.dos == *b"MZ"
+                    && self.pe() + read <= self.length
+                    && self.signature == *b"PE\0\0"
+                    && matches!(self.magic, 0x10B | 0x20B)
+            }
+
+            /// The rule `is_pe_image` documents: the 26 bytes up to the magic, an optional header at
+            /// least as long as its magic, an executable that is not a library, and the whole section
+            /// table in the file.
+            fn describes_a_program(&self) -> bool {
+                self.starts_a_pe_header(26)
+                    && self.optional_size >= 2
+                    && self.flags & 0x0002 != 0
+                    && self.flags & 0x2000 == 0
+                    && self.table_end() <= self.length
+            }
+
+            /// The answer `is_windowed_program` owes: the subsystem, 68 bytes into the optional header,
+            /// read only when the file holds it and the optional header is declared long enough to.
+            fn windowed(&self) -> Option<bool> {
+                (self.starts_a_pe_header(24 + 68 + 2) && self.optional_size >= 68 + 2).then_some(self.subsystem == 2)
+            }
+
+            /// The image: `noise` over the DOS header and the first 256 bytes of the PE header, the
+            /// fields of the model on top of it, zeros everywhere else, all of it cut at `length`.
+            fn image(&self, noise: &[u8]) -> Vec<u8> {
+                let mut bytes = vec![0u8; usize::try_from(self.length).expect("every length drawn here fits in memory")];
+                let pe = self.pe();
+                for (at, &byte) in (0..0x40).chain(pe..pe + 0x100).zip(noise.iter().cycle()) {
+                    put(&mut bytes, at, &[byte]);
+                }
+                put(&mut bytes, 0, &self.dos);
+                put(&mut bytes, 0x3C, &self.pe.to_le_bytes());
+                put(&mut bytes, pe, &self.signature);
+                put(&mut bytes, pe + 6, &self.sections.to_le_bytes());
+                put(&mut bytes, pe + 20, &self.optional_size.to_le_bytes());
+                put(&mut bytes, pe + 22, &self.flags.to_le_bytes());
+                put(&mut bytes, pe + 24, &self.magic.to_le_bytes());
+                put(&mut bytes, pe + 24 + 68, &self.subsystem.to_le_bytes());
+                bytes
+            }
+        }
+
+        /// Writes `field` at `at`, as much of it as the file holds. What falls past the end is cut off
+        /// with the rest of the file.
+        fn put(bytes: &mut [u8], at: u64, field: &[u8]) {
+            for (offset, &byte) in (at..).zip(field) {
+                if let Some(slot) = usize::try_from(offset).ok().and_then(|i| bytes.get_mut(i)) {
+                    *slot = byte;
+                }
+            }
+        }
+
+        fn dos() -> impl Strategy<Value = [u8; 2]> {
+            prop_oneof![6 => Just(*b"MZ"), 1 => Just(*b"ZM"), 1 => Just(*b"mz"), 1 => any::<[u8; 2]>()]
+        }
+
+        /// Where the PE header starts, its edges by name: the usual few hundred bytes, inside the DOS
+        /// header clear of its two fields, either side of the four kilobytes the fingerprints read at
+        /// once, the places Windows was measured starting an image from, and pointers no file reaches.
+        fn pe_place() -> impl Strategy<Value = u32> {
+            prop_oneof![
+                6 => 0x40u32..=0x200,
+                1 => 2u32..=34,
+                1 => 4095u32..=4097,
+                2 => prop_oneof![Just(0x1100u32), Just(0x8000), Just(BUILT_UP_TO)],
+                1 => (u32::MAX - 4)..=u32::MAX,
+            ]
+        }
+
+        fn signature() -> impl Strategy<Value = [u8; 4]> {
+            prop_oneof![6 => Just(*b"PE\0\0"), 1 => Just(*b"NE\0\0"), 1 => Just(*b"PE\0\x01"), 1 => any::<[u8; 4]>()]
+        }
+
+        /// The declared optional header size: shorter than its magic, just enough for it, either side
+        /// of the subsystem field's end, the sizes linkers write, the largest, and any.
+        fn optional_size() -> impl Strategy<Value = u16> {
+            prop_oneof![
+                6 => prop_oneof![Just(0u16), Just(1), Just(2), Just(69), Just(70), Just(71), Just(224), Just(240)],
+                1 => Just(u16::MAX),
+                1 => any::<u16>(),
+            ]
+        }
+
+        /// The file header flags: a program, a library flagged executable, a library, neither, and any.
+        fn flags() -> impl Strategy<Value = u16> {
+            prop_oneof![
+                5 => Just(FILE_IS_EXECUTABLE),
+                1 => Just(FILE_IS_EXECUTABLE | FILE_IS_LIBRARY),
+                1 => Just(FILE_IS_LIBRARY),
+                1 => Just(0u16),
+                2 => any::<u16>(),
+            ]
+        }
+
+        fn magic() -> impl Strategy<Value = u16> {
+            prop_oneof![3 => Just(0x10Bu16), 3 => Just(0x20B), 1 => Just(0x107), 1 => Just(0), 1 => any::<u16>()]
+        }
+
+        /// Where the file ends, its edges by name: inside the DOS header, either side of the header's
+        /// start, of the end of the 26 bytes `is_pe_image` reads, of the end of the subsystem field and
+        /// of the end of the section table, anywhere between, and a little past the table.
+        fn length(shape: &Header) -> BoxedStrategy<u64> {
+            if shape.pe > BUILT_UP_TO {
+                return (0u64..0x2000).boxed();
+            }
+            let pe = shape.pe();
+            let table = shape.table_end();
+            prop_oneof![
+                1 => 0u64..0x40,
+                1 => near(pe, 1),
+                2 => near(pe + 26, 2),
+                2 => near(pe + 24 + 68 + 2, 1),
+                3 => near(table, 1),
+                1 => (pe + 26)..=table.max(pe + 26),
+                3 => table..=table + 64,
+            ]
+            .boxed()
+        }
+
+        fn header() -> impl Strategy<Value = Header> {
+            let sections = prop_oneof![6 => 0u16..=8, 1 => Just(u16::MAX)];
+            let subsystem = prop_oneof![3 => Just(SUBSYSTEM_WINDOWS_GUI), 3 => Just(3u16), 1 => any::<u16>()];
+            (dos(), pe_place(), signature(), sections, optional_size(), flags(), magic(), subsystem)
+                .prop_map(|(dos, pe, signature, sections, optional_size, flags, magic, subsystem)| Header {
+                    dos,
+                    pe,
+                    signature,
+                    sections,
+                    optional_size,
+                    flags,
+                    magic,
+                    subsystem,
+                    length: 0,
+                })
+                .prop_flat_map(|shape| {
+                    let length = length(&shape);
+                    (Just(shape), length)
+                })
+                .prop_map(|(shape, length)| Header { length, ..shape })
+        }
+
+        fn noise() -> impl Strategy<Value = Vec<u8>> {
+            prop::collection::vec(any::<u8>(), 1..=32)
+        }
+
+        /// What an image was built to be, and so what the fingerprints owe it.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum Kind {
+            Plain,
+            Go,
+            /// The apphost's bundle signature in `.data`.
+            Apphost,
+            /// One of the runtime's exports, by its place in `DOTNET_RUNTIME_EXPORTS`.
+            RuntimeExport(usize),
+            /// A CLR header behind directory 14.
+            Managed,
+            /// A NativeAOT module header, with no export to give it away.
+            NativeAot,
+        }
+
+        impl Kind {
+            /// The image, built by the fixtures the examples above use, in either PE flavour.
+            fn image(self, magic: u16) -> Vec<u8> {
+                match self {
+                    Self::Plain => synthetic_pe(magic, b".data\0\0\0", b"ordinary data", None),
+                    Self::Go => synthetic_pe(magic, b".data\0\0\0", &go_blob(), None),
+                    Self::Apphost => synthetic_pe(magic, b".data\0\0\0", &apphost_data(&APPHOST_BUNDLE_SIGNATURE), None),
+                    Self::RuntimeExport(index) => exporting(magic, &[DOTNET_RUNTIME_EXPORTS[index]]),
+                    Self::Managed => managed(magic, CLR_HEADER as u32),
+                    Self::NativeAot => aot_image(magic, &[], AOT_HEADER_AT, &AOT_ROWS, if magic == 0x20B { 24 } else { 16 }),
+                }
+            }
+        }
+
+        fn kind() -> impl Strategy<Value = Kind> {
+            prop_oneof![
+                Just(Kind::Plain),
+                Just(Kind::Go),
+                Just(Kind::Apphost),
+                (0..DOTNET_RUNTIME_EXPORTS.len()).prop_map(Kind::RuntimeExport),
+                Just(Kind::Managed),
+                Just(Kind::NativeAot),
+            ]
+        }
+
+        /// Where the PE header goes: where the fixtures put it, and further in than the four kilobytes
+        /// read at once - the places Windows was measured starting an image from, and anywhere in the
+        /// next four kilobytes. Never among the section's bytes, which a moved header would overwrite.
+        fn header_place() -> impl Strategy<Value = usize> {
+            prop_oneof![
+                3 => Just(0x80usize),
+                1 => 0x1000usize..=0x2000,
+                2 => prop_oneof![Just(0x1100usize), Just(0x8000), Just(0x10_0000)],
+            ]
+        }
+
+        /// The image with its PE header at `at`, `noise` in bytes no field points at, and `tail` behind
+        /// the end of the file. The bytes nothing points at: the DOS stub around its pointer, the gap up
+        /// to the header outside the section's bytes (four kilobytes at each end of it, where a read
+        /// that strays lands first), and the space behind the one-entry section table.
+        fn disguised(built: &[u8], magic: u16, at: usize, noise: &[u8], tail: &[u8]) -> Vec<u8> {
+            let mut image = header_moved(built, at);
+            let optional = if magic == 0x20B { 240 } else { 224 };
+            let table_end = at + 24 + optional + 40;
+            let gap = built.len()..at;
+            let unread = [
+                2..0x3C,
+                0x40..at.min(RAW),
+                gap.start..gap.end.min(gap.start + 0x1000),
+                gap.end.saturating_sub(0x1000).max(gap.start)..gap.end,
+                table_end..at + (RAW - 0x80),
+            ];
+            for (place, &byte) in unread.into_iter().flatten().zip(noise.iter().cycle()) {
+                image[place] = byte;
+            }
+            image.extend_from_slice(tail);
+            image
+        }
+
+        proptest! {
+            /// A file the user points at is called a program exactly when the rule `is_pe_image`
+            /// documents says so, worked out from the model: wherever the header sits, wherever the
+            /// file is cut, whatever fills the bytes the rule does not read (untouchable rule 34). A file
+            /// whose bytes could be read is never "do not know".
+            #[test]
+            fn a_file_is_called_a_program_exactly_when_its_header_describes_one(header in header(), noise in noise()) {
+                let image = header.image(&noise);
+                let answer = pe_image_in(Cursor::new(&image), image.len() as u64);
+                prop_assert_eq!(answer, Some(header.describes_a_program()), "for {:?}", header);
+            }
+
+            /// The subsystem is read only from a header that holds it (R4-D17). Every doubt is "do not
+            /// know", which a start treats as a console program, and a program has a window only when
+            /// its subsystem field says so.
+            #[test]
+            fn a_subsystem_is_read_only_from_a_header_that_holds_it(header in header(), noise in noise()) {
+                let image = header.image(&noise);
+                prop_assert_eq!(windowed_in(Cursor::new(&image)), header.windowed(), "for {:?}", header);
+            }
+
+            /// The fingerprints answer for what an image is and for nothing else: an image built as one
+            /// kind is recognised as that kind wherever its header sits, and the bytes no field points
+            /// at never make or unmake a fingerprint (untouchable rule 4).
+            #[test]
+            fn a_fingerprint_follows_what_the_image_is_and_not_the_bytes_no_field_points_at(
+                kind in kind(),
+                magic in prop_oneof![Just(0x20Bu16), Just(0x10B)],
+                at in header_place(),
+                noise in noise(),
+                tail in prop::collection::vec(any::<u8>(), 0..=64),
+            ) {
+                let image = disguised(&kind.image(magic), magic, at, &noise, &tail);
+                let go = go_buildinfo_in_data(Cursor::new(&image)) == Some(true);
+                prop_assert_eq!(go, kind == Kind::Go, "Go, for {:?} at {:#x}", kind, at);
+                let dotnet = matches!(kind, Kind::Apphost | Kind::RuntimeExport(_) | Kind::Managed | Kind::NativeAot);
+                prop_assert_eq!(dotnet_marks_in(Cursor::new(&image)), dotnet, ".NET, for {:?} at {:#x}", kind, at);
+            }
+        }
     }
 }
