@@ -1069,12 +1069,19 @@ mod tests {
             (any::<bool>(), pieces())
         }
 
+        // The scheme a target writes for the endpoint we opened. The scanner rule on insecure WebSocket
+        // endpoints matches it wherever it is written, test input included, and the note above
+        // `parse_ws_url` says why there is no encrypted scheme to move to. Named once, so the one
+        // exemption covers every use.
+        // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
+        const PLAIN_SCHEME: &str = "ws://";
+
         /// A URL as a target may advertise its debugger, and whether it is one a browser writes for
         /// the endpoint we opened: our port or another, loopback in each spelling or a host somewhere
         /// else, and the shapes a parser by hand gets wrong - userinfo, a second port, a scheme in
         /// the wrong case, a port with a sign or a leading zero.
         fn advertised(ours: u16) -> impl Strategy<Value = (String, bool)> {
-            let scheme = prop_oneof![6 => Just("ws://"), 1 => Just("wss://"), 1 => Just("WS://"), 1 => Just("http://"), 1 => Just("")];
+            let scheme = prop_oneof![6 => Just(PLAIN_SCHEME), 1 => Just("wss://"), 1 => Just("WS://"), 1 => Just("http://"), 1 => Just("")];
             let host = prop_oneof![
                 Just("127.0.0.1"),
                 Just("localhost"),
@@ -1105,7 +1112,7 @@ mod tests {
             let built = (scheme, host, port, path).prop_map(move |(scheme, host, port, path)| {
                 // Written out here rather than read from LOOPBACK_HOSTS: a name gone from that list must
                 // redden this, not leave with it.
-                let ours_named = scheme == "ws://"
+                let ours_named = scheme == PLAIN_SCHEME
                     && ["127.0.0.1", "localhost", "LocalHost", "::1", "[::1]"].contains(&host)
                     && port == ours.to_string()
                     && ["/devtools/browser/1d57-20f5", "/", ""].contains(&path);
