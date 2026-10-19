@@ -17924,5 +17924,86 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "prop-k3 R5-P17 a duration axis standing on its banked base says so",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "    dq.checked_mul(dm).and_then(|elapsed| dur_quit_c0.checked_add(elapsed)).is_none()",
+        "to": "    dq.checked_mul(dm).is_none()"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_axis_is_the_integral_of_its_rates_and_no_duration_axis_runs_back",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k3 R4-N5 a rate change stores its rate last",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        AnchorStore::AFake(a.a_fake),\n",
+        "to": "        AnchorStore::Multiplier(a.multiplier),\n        AnchorStore::AFake(a.a_fake),\n"
+      },
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        AnchorStore::DurQpcQ0(a.dur_qpc_q0),\n        AnchorStore::Multiplier(a.multiplier),\n",
+        "to": "        AnchorStore::DurQpcQ0(a.dur_qpc_q0),\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_prefix_of_any_rate_change_keeps_every_axis_from_running_back",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k3 R5-F7 the delay floor never lengthens a short delay",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        let floor = interval.max(-MIN_SCALED_DELAY_TICKS);",
+        "to": "        let floor = -MIN_SCALED_DELAY_TICKS;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::every_scaled_length_is_divided_never_lengthened_and_never_made_nothing",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k3 R5-F4 the sleep bias waits for two agreeing readings",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        if before == after {\n            return interrupt.saturating_sub(before).max(0);",
+        "to": "        if true {\n            return interrupt.saturating_sub(before).max(0);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::the_sleep_bias_is_never_more_than_the_sleep_and_exact_once_two_readings_agree",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

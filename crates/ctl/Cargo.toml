@@ -17,3 +17,7 @@ name = "chrono_ctl"
 # so it lives in exactly one place. This is a data contract, part of the mechanism
 # layer - NOT an interface layer, and the logical core must never depend on it.
 [dependencies]
+
+# The random properties only (see proptest in the workspace manifest).
+[dev-dependencies]
+proptest = { workspace = true }

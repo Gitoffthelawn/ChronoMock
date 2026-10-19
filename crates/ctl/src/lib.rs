@@ -40,6 +40,8 @@
 use std::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 
 pub mod inject;
+#[cfg(test)]
+mod search;
 use std::sync::atomic::{fence, AtomicU32, AtomicUsize, Ordering};
 
 /// Named shared section for a session's control memory (per interactive session).
@@ -2223,14 +2225,18 @@ pub fn delay_hit_floor(interval: i64, m: i64) -> bool {
 }
 
 /// Scale a waitable-timer due time (100 ns, FILETIME convention) into a RELATIVE real interval,
-/// always negative so the hook forwards one uniform shape to the kernel (ADR-7 class C).
+/// never positive, so the hook forwards one shape to the kernel (ADR-7 class C). A length under one
+/// real tick divides to 0, which the kernel takes as a due already reached and fires at once
+/// (measured 2026-10-20, found by the random properties of step 3 - this said "always negative").
 ///
 /// A NEGATIVE due is already relative: scale its magnitude toward zero, like `scale_delay_interval`.
 /// A POSITIVE due is an ABSOLUTE fake wall-clock instant (the app computed it from the substituted
 /// clock): convert it to the real delay until the fake clock reaches it - `(due - fake_now) / M` -
 /// returned negative. Unlike `NtDelayExecution`, a positive due here is NOT passed through: the
 /// kernel reads the REAL clock for an absolute timer, so an unconverted fake instant would fire
-/// years off. An absolute due already at or before `fake_now` fires immediately (`-1`).
+/// years off. An absolute due already at or before `fake_now` gets `-1`, the shortest relative due,
+/// which the kernel fires at its next timer tick rather than at once: about 1 ms with the timer
+/// resolution raised, up to 15.6 ms at the default one (measured 2026-10-20).
 ///
 /// `m` is clamped to >= 1, so frozen (M=0) leaves the timer at real length - the multiplier is an
 /// integer, so a fractional "slow motion" (0<M<1) is not representable and never arises (symmetric
@@ -2245,7 +2251,7 @@ pub fn delay_hit_floor(interval: i64, m: i64) -> bool {
 /// `--scale-duration` the two are the same number.
 pub fn scale_timer_due(due: i64, fake_now: i64, wall_m: i64, dur_m: i64) -> i64 {
     if due < 0 {
-        // Already relative: magnitude scaled toward zero, stays negative.
+        // Already relative: magnitude scaled toward zero - negative, or 0 under one real tick.
         due / dur_m.max(1)
     } else {
         let m = wall_m.max(1);
@@ -3576,5 +3582,501 @@ mod tests {
 
         // An entry so high that the slot address would wrap is refused rather than wrapped.
         assert_eq!(indirect_jump_slot(&rex, usize::MAX - 3, true), None);
+    }
+
+    /// The random half: the clocks of a session as arithmetic, against a model that integrates each rate
+    /// over the real time it ran for - in `i128`, so nothing the model does saturates or wraps unless it
+    /// says so. Untouchable rule 3 is the claim: no duration axis ever reads less than it read before.
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+        use proptest::sample::select;
+        use std::cell::RefCell;
+        use std::collections::VecDeque;
+
+        /// The largest rate a session takes, `chrono_core::MULTIPLIER_MAX` - this crate depends on nothing.
+        const RATE_MAX: i64 = 1_000_000;
+        /// Rates by their edges: frozen, real, the smallest speed-up, two documented speeds, the largest.
+        const RATES: [i64; 6] = [0, 1, 2, 60, 1440, RATE_MAX];
+        const TOP: i128 = i64::MAX as i128;
+
+        fn rate() -> impl Strategy<Value = i64> {
+            prop_oneof![3 => select(RATES.to_vec()), 1 => 0..=RATE_MAX]
+        }
+
+        /// A real clock where a session starts: the boot instant, one tick after it, an hour, a month of
+        /// uptime, or anything.
+        fn clock() -> impl Strategy<Value = i64> {
+            prop_oneof![1 => select(vec![0i64, 1, 36_000_000_000, 25_920_000_000_000]), 2 => 0i64..1_000_000_000_000_000]
+        }
+
+        /// A wall moment: either end of the range a session clock holds, one tick inside each, or anything.
+        fn moment() -> impl Strategy<Value = i64> {
+            prop_oneof![1 => select(vec![0, 1, FAKE_WALL_MAX - 1, FAKE_WALL_MAX]), 2 => 0..=FAKE_WALL_MAX]
+        }
+
+        /// How far a real clock moves between two events.
+        #[derive(Debug, Clone, Copy)]
+        enum Step {
+            /// So many ticks: none, one, either side of a millisecond, a second, a day, or anything.
+            Ticks(i64),
+            /// A share of the whole range at the rate in force, `i64::MAX / share / max(rate, 1)`. One such
+            /// step takes an axis halfway to the end of its range or past it, and a few of them with rate
+            /// changes between them fill the base a rate change banks (R5-P17).
+            Range(i64),
+        }
+
+        fn step() -> impl Strategy<Value = Step> {
+            prop_oneof![
+                4 => select(vec![0i64, 1, 3_333, 9_999, 10_000, 10_001, 10_000_000, 864_000_000_000]).prop_map(Step::Ticks),
+                3 => (0i64..1_000_000_000_000).prop_map(Step::Ticks),
+                1 => select(vec![2i64, 3, 5]).prop_map(Step::Range),
+            ]
+        }
+
+        fn ticks(step: Step, rate: i64) -> i64 {
+            match step {
+                Step::Ticks(n) => n,
+                Step::Range(share) => i64::MAX / share / rate.max(1),
+            }
+        }
+
+        #[derive(Debug, Clone, Copy)]
+        enum Event {
+            /// The real clocks move on, QUIT and QPC each by its own step.
+            Pass(Step, Step),
+            /// The session changes its rate (`set_multiplier`, through `rebase`).
+            Rate(i64),
+            /// The wall jumps to a moment, and the duration axes stay where they are (`jump`).
+            Jump(i64),
+            /// A reader asks every axis with clocks taken now.
+            Read,
+            /// A reader whose clocks were taken this many ticks before the anchor it then read (R4-N4).
+            ReadEarly(i64),
+            /// The session lets the process go, so many ticks after now on each clock (`release_axes`).
+            /// From here on nothing changes the rate or the wall any more - the core is gone.
+            Release(i64, i64),
+        }
+
+        fn event() -> impl Strategy<Value = Event> {
+            let margin = || select(vec![0i64, 1, RELEASE_MARGIN_QUIT]);
+            prop_oneof![
+                6 => (step(), step()).prop_map(|(quit, qpc)| Event::Pass(quit, qpc)),
+                3 => rate().prop_map(Event::Rate),
+                1 => moment().prop_map(Event::Jump),
+                5 => Just(Event::Read),
+                1 => select(vec![1i64, 5, 100]).prop_map(Event::ReadEarly),
+                1 => (margin(), margin()).prop_map(|(quit, qpc)| Event::Release(quit, qpc)),
+            ]
+        }
+
+        /// One axis by the model: where it stood at its last anchor, and the real clock it was anchored at.
+        #[derive(Debug, Clone, Copy)]
+        struct Line {
+            base: i128,
+            at: i64,
+        }
+
+        impl Line {
+            /// The value at `clock` at `rate`, exact: nothing cut to fit an `i64`, and a clock before the
+            /// anchor answers the anchor.
+            fn exact(&self, clock: i64, rate: i64) -> i128 {
+                self.base + (i128::from(clock) - i128::from(self.at)).max(0) * i128::from(rate)
+            }
+        }
+
+        /// A session's clocks by the model.
+        #[derive(Debug, Clone)]
+        struct Model {
+            quit: Line,
+            qpc: Line,
+            wall: Line,
+            rate: i64,
+            offset: i64,
+            /// Where the process was let go on each clock, once it was.
+            released: Option<(i64, i64)>,
+        }
+
+        /// What a reader of every axis gets.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        struct Reading {
+            tick: u64,
+            quit: i64,
+            qpc: i64,
+            wall: i64,
+            /// Whether the QUIT axis says it stands at the end of its range (`dur_axis_at_range_end`).
+            at_range_end: bool,
+        }
+
+        impl Model {
+            /// A duration axis on the session's line: the rate is never below 1 there, and once the value
+            /// reaches the end of an `i64` it stands.
+            fn session(line: Line, rate: i64, clock: i64) -> i128 {
+                line.exact(clock, rate.max(1)).min(TOP)
+            }
+
+            /// A duration axis after the process was let go at `released`: the session's line up to that
+            /// instant, the real rate from there on (ADR-14).
+            fn axis(line: Line, rate: i64, clock: i64, released: Option<i64>) -> i128 {
+                match released {
+                    Some(at) if clock >= at => (Self::session(line, rate, at) + i128::from(clock) - i128::from(at)).min(TOP),
+                    _ => Self::session(line, rate, clock),
+                }
+            }
+
+            fn reading(&self, quit_clock: i64, qpc_clock: i64, wall_clock: i64) -> Reading {
+                let quit = Self::axis(self.quit, self.rate, quit_clock, self.released.map(|r| r.0));
+                let qpc = Self::axis(self.qpc, self.rate, qpc_clock, self.released.map(|r| r.1));
+                // The tick count is the QUIT in whole milliseconds plus the session's offset (R4/10a).
+                let tick = (i128::from(self.offset) + quit / 10_000).max(0);
+                Reading {
+                    tick: u64::try_from(tick).unwrap(),
+                    quit: i64::try_from(quit).unwrap(),
+                    qpc: i64::try_from(qpc).unwrap(),
+                    wall: i64::try_from(self.wall.exact(wall_clock, self.rate).clamp(0, i128::from(FAKE_WALL_MAX))).unwrap(),
+                    at_range_end: self.quit.exact(quit_clock, self.rate.max(1)) > TOP,
+                }
+            }
+
+            /// A rate change at the real clocks `now`: every axis carries on from where it stands.
+            fn rebase(&mut self, now: (i64, i64), rate: i64) {
+                self.quit = Line { base: Self::session(self.quit, self.rate, now.0), at: now.0 };
+                self.qpc = Line { base: Self::session(self.qpc, self.rate, now.1), at: now.1 };
+                let wall = self.wall.exact(now.0, self.rate).clamp(0, i128::from(FAKE_WALL_MAX));
+                self.wall = Line { base: wall, at: now.0 };
+                self.rate = rate;
+            }
+        }
+
+        /// What the code answers, read the way a detour reads it: the anchor and its clock in one window.
+        fn read(p: *const Ctl, quit_clock: i64, qpc_clock: i64, wall_clock: i64, released: Option<(i64, i64)>) -> Reading {
+            // SAFETY: `p` is a live block this test owns and nothing else writes.
+            let ((d, real), (q, real_qpc), ((a_fake, a_real, m), real_wall)) = unsafe {
+                (read_dur_with(p, || quit_clock), read_qpc_with(p, || qpc_clock), read_anchor_with(p, || wall_clock))
+            };
+            let (at, qpc_at) = released.unwrap_or((0, 0));
+            Reading {
+                tick: d.tick_at(real, at),
+                quit: d.quit_at(real, at),
+                qpc: q.at(real_qpc, qpc_at),
+                wall: fake_wall_at(a_fake, a_real, real_wall, m),
+                at_range_end: dur_axis_at_range_end(d.quit_c0, d.q0, d.m, real),
+            }
+        }
+
+        /// Runs one event on the block and on the model, and checks every reading against the model.
+        /// `last` is what the previous reader with clocks taken now saw, which no later one may undercut.
+        fn apply(p: *mut Ctl, model: &mut Model, now: &mut (i64, i64), last: &mut Option<Reading>, event: Event) -> Result<(), TestCaseError> {
+            let gone = model.released.is_some();
+            match event {
+                Event::Pass(quit, qpc) => {
+                    now.0 = now.0.saturating_add(ticks(quit, model.rate));
+                    now.1 = now.1.saturating_add(ticks(qpc, model.rate));
+                }
+                Event::Rate(m) if !gone => {
+                    let clocks = *now;
+                    // SAFETY: `p` is a live block this test owns, and this is its only writer.
+                    let done = unsafe { rebase(p, m, || clocks.0, || clocks.1) };
+                    prop_assert_eq!(done, Rebased { now: clocks.0, old_m: model.rate });
+                    model.rebase(clocks, m);
+                }
+                Event::Jump(to) if !gone => {
+                    // SAFETY: as above.
+                    unsafe { write_anchor(p, to, now.0, model.rate) };
+                    model.wall = Line { base: i128::from(to), at: now.0 };
+                }
+                Event::Read => {
+                    let owed = model.reading(now.0, now.1, now.0);
+                    let got = read(p, now.0, now.1, now.0, model.released);
+                    prop_assert_eq!(got, owed, "read at {:?}", now);
+                    if let Some(released) = model.released {
+                        // SAFETY: as above.
+                        let (d, q) = unsafe { (read_dur(p), read_qpc(p)) };
+                        let watcher = release_axes(d, q, released.0, released.1);
+                        prop_assert_eq!((watcher.tick_at(now.0), watcher.quit_at(now.0), watcher.qpc_at(now.1)), (got.tick, got.quit, got.qpc));
+                    }
+                    if let Some(before) = last {
+                        prop_assert!(
+                            got.tick >= before.tick && got.quit >= before.quit && got.qpc >= before.qpc,
+                            "a duration axis ran back: {:?} after {:?}", got, before
+                        );
+                    }
+                    *last = Some(got);
+                }
+                Event::ReadEarly(early) => {
+                    let (quit, qpc, wall) = (model.quit.at - early, model.qpc.at - early, model.wall.at - early);
+                    prop_assert_eq!(read(p, quit, qpc, wall, model.released), model.reading(quit, qpc, wall), "read {} ticks before the anchor", early);
+                }
+                Event::Release(quit, qpc) => {
+                    // 0 means "not let go" to the code, so the real clock's very first tick lets nothing go.
+                    let at = (now.0.saturating_add(quit), now.1.saturating_add(qpc));
+                    if !gone && at.0 > 0 && at.1 > 0 {
+                        model.released = Some(at);
+                    }
+                }
+                Event::Rate(_) | Event::Jump(_) => {}
+            }
+            Ok(())
+        }
+
+        proptest! {
+            /// Every axis of a session, after any course of rate changes, wall jumps, real time and a
+            /// release: the duration axes are the integral of their rates (at least 1) over the real time,
+            /// standing once they reach the end of an `i64` and saying so, the wall is its anchor plus the
+            /// real time times the rate within the range a session clock holds, and no duration axis ever
+            /// reads less than a reader before it read (untouchable rule 3).
+            #[test]
+            fn every_axis_is_the_integral_of_its_rates_and_no_duration_axis_runs_back(
+                start in (clock(), clock()),
+                first_rate in rate(),
+                offset in prop_oneof![1 => select(vec![0i64, 1, 10_000_000]), 2 => 0i64..1_000_000_000],
+                wall in moment(),
+                events in proptest::collection::vec(event(), 1..32),
+            ) {
+                let mut ctl = zeroed_ctl();
+                let p = &mut *ctl as *mut Ctl;
+                let anchor = FullAnchor {
+                    a_fake: wall,
+                    a_real: start.0,
+                    multiplier: first_rate,
+                    dur_tick_offset: offset,
+                    dur_quit_c0: start.0,
+                    dur_q0: start.0,
+                    dur_qpc_c0: start.1,
+                    dur_qpc_q0: start.1,
+                };
+                // SAFETY: `p` is a live block this test owns.
+                unsafe { write_anchor_full(p, &anchor) };
+                let mut model = Model {
+                    quit: Line { base: i128::from(start.0), at: start.0 },
+                    qpc: Line { base: i128::from(start.1), at: start.1 },
+                    wall: Line { base: i128::from(wall), at: start.0 },
+                    rate: first_rate,
+                    offset,
+                    released: None,
+                };
+                let (mut now, mut last) = (start, None);
+                for event in events {
+                    apply(p, &mut model, &mut now, &mut last, event)?;
+                }
+            }
+
+            /// A core killed in the middle of any rate change, at any rates and any time into the session,
+            /// leaves an anchor no axis reads earlier from than it read when the write began - the wall
+            /// included - and the complete write is continuous with it (R4-N5).
+            #[test]
+            fn every_prefix_of_any_rate_change_keeps_every_axis_from_running_back(
+                (old_m, new_m) in (rate(), rate()),
+                start in (clock(), clock()),
+                offset in 0i64..1_000_000_000,
+                wall in moment(),
+                (elapsed, elapsed_qpc) in (step(), step()),
+            ) {
+                let anchor = FullAnchor {
+                    a_fake: wall,
+                    a_real: start.0,
+                    multiplier: old_m,
+                    dur_tick_offset: offset,
+                    dur_quit_c0: start.0,
+                    dur_q0: start.0,
+                    dur_qpc_c0: start.1,
+                    dur_qpc_q0: start.1,
+                };
+                let now = (start.0.saturating_add(ticks(elapsed, old_m)), start.1.saturating_add(ticks(elapsed_qpc, old_m)));
+                let mut ctl = zeroed_ctl();
+                let p = &mut *ctl as *mut Ctl;
+                // SAFETY: `p` is a live block this test owns, written by nothing else.
+                unsafe { write_anchor_full(p, &anchor) };
+                let before = read(p, now.0, now.1, now.0, None);
+                let stores = unsafe {
+                    rebase(p, new_m, || now.0, || now.1);
+                    full_anchor_stores(&full_anchor_fields(p))
+                };
+                let after = read(p, now.0, now.1, now.0, None);
+                prop_assert_eq!(
+                    (after.tick, after.quit, after.qpc, after.wall),
+                    (before.tick, before.quit, before.qpc, before.wall),
+                    "the complete write is not continuous"
+                );
+                for k in 0..=stores.len() {
+                    unsafe {
+                        write_anchor_full(p, &anchor);
+                        for store in &stores[..k] {
+                            store_anchor_field(p, *store);
+                        }
+                    }
+                    for later in [0i64, 1, 10_000, 10_000_000] {
+                        let r = read(p, now.0.saturating_add(later), now.1.saturating_add(later), now.0.saturating_add(later), None);
+                        prop_assert!(
+                            r.tick >= before.tick && r.quit >= before.quit && r.qpc >= before.qpc && r.wall >= before.wall,
+                            "x{} to x{}, stopped after {} of the stores, {} later: {:?} under {:?}", old_m, new_m, k, later, r, before
+                        );
+                    }
+                }
+            }
+
+            /// Every length a session divides - a wait, a delay, a timer's period, interval and due - is the
+            /// length asked for divided by the rate, never longer than asked, never a positive length
+            /// turned into none at all (zero is a yield, and a sleep turned into a yield is a spin), and
+            /// held at a floor exactly when its companion says so.
+            #[test]
+            fn every_scaled_length_is_divided_never_lengthened_and_never_made_nothing(
+                ms in edges(vec![0u32, 1, 2, 9, 10, 11, 999, 1_000, 1_001, u32::MAX - 1, u32::MAX]),
+                interval in edges(vec![i64::MIN, -20_001, -10_001, -10_000, -9_999, -2, -1, 0, 1, i64::MAX]),
+                period in edges(vec![i32::MIN, -1, 0, 1, 2, 9, 10, 11, i32::MAX]),
+                due in edges(vec![i64::MIN, -10_000, -2, -1, 0, 1, FAKE_WALL_MAX, i64::MAX]),
+                fake_now in edges(vec![i64::MIN, -1, 0, 1, FAKE_WALL_MAX, i64::MAX]),
+                near in edges(vec![-1i64, 0, 1, 2, 59, 60, 61]),
+                (m, wall_m, dur_m) in (rate(), rate(), rate()),
+            ) {
+                waits_and_delays(ms, interval, m)?;
+                periods(period, ms, m)?;
+                // A due near the clock by name too: a tick or a rate's worth either side of it.
+                timer_due(due, fake_now, wall_m, dur_m)?;
+                timer_due(fake_now.saturating_add(near), fake_now, wall_m, dur_m)?;
+            }
+
+            /// How long the machine slept, read from three clocks while timer interrupts land between the
+            /// readings: never more than it slept, never below zero, and exact once two QUIT readings agree,
+            /// whichever of the four tries that is (R5-F4).
+            #[test]
+            fn the_sleep_bias_is_never_more_than_the_sleep_and_exact_once_two_readings_agree(
+                slept in prop_oneof![1 => select(vec![0i64, 1, 10_000, 36_000_000_000]), 1 => 0i64..1_000_000_000_000_000],
+                start in 0i64..1_000_000_000_000,
+                gaps in proptest::collection::vec((tick(), tick(), tick()), SLEEP_BIAS_TRIES as usize),
+            ) {
+                // The QUIT the function reads, the interrupt time, the QUIT again - with an interrupt moving
+                // QUIT on by so much between each two, and the interrupt time always QUIT plus the sleep.
+                let (mut quit, mut quits, mut interrupts) = (start, VecDeque::new(), VecDeque::new());
+                for &(before, between, after) in &gaps {
+                    quits.push_back(quit);
+                    quit += before;
+                    interrupts.push_back(quit + slept);
+                    quit += between;
+                    quits.push_back(quit);
+                    quit += after;
+                }
+                let (quits, interrupts) = (RefCell::new(quits), RefCell::new(interrupts));
+                let got = sleep_bias(
+                    || quits.borrow_mut().pop_front().expect("more QUIT readings than four tries take"),
+                    || interrupts.borrow_mut().pop_front().expect("more interrupt readings than four tries take"),
+                );
+                prop_assert!((0..=slept).contains(&got), "{} for a sleep of {}", got, slept);
+                if gaps.iter().any(|&(before, between, _)| before + between == 0) {
+                    prop_assert_eq!(got, slept, "two readings agreed");
+                }
+            }
+        }
+
+        /// A value drawn from its edges as often as from anywhere.
+        fn edges<T>(named: Vec<T>) -> BoxedStrategy<T>
+        where
+            T: Arbitrary + Clone + std::fmt::Debug + 'static,
+            T::Strategy: 'static,
+        {
+            prop_oneof![1 => select(named), 1 => any::<T>()].boxed()
+        }
+
+        /// How far an interrupt moves QUIT between two readings: mostly not at all, or by a tick of the
+        /// system timer (15.625 ms, or 1 ms when an application raised its resolution).
+        fn tick() -> impl Strategy<Value = i64> {
+            select(vec![0i64, 0, 0, 1, 10_000, 156_250])
+        }
+
+        /// `scale_wait` and `scale_delay_interval`, with what they say about their floors.
+        fn waits_and_delays(ms: u32, interval: i64, m: i64) -> Result<(), TestCaseError> {
+            let rate = i128::from(m.max(1));
+            let wait = scale_wait(ms, m);
+            if ms == 0 || ms == u32::MAX {
+                prop_assert_eq!(wait, ms, "a poll and INFINITE pass through");
+                prop_assert!(!wait_hit_floor(ms, m));
+            } else {
+                let divided = i128::from(ms) / rate;
+                prop_assert_eq!(i128::from(wait), divided.max(1), "{} ms at x{}", ms, m);
+                prop_assert!(wait >= 1 && wait <= ms);
+                prop_assert_eq!(wait_hit_floor(ms, m), divided == 0, "{} ms at x{}", ms, m);
+            }
+
+            let delay = scale_delay_interval(interval, m);
+            if interval >= 0 {
+                prop_assert_eq!(delay, interval, "a deadline and a yield pass through");
+                prop_assert!(!delay_hit_floor(interval, m));
+                return Ok(());
+            }
+            let asked = i128::from(interval);
+            let divided = asked / rate;
+            let floor = -i128::from(MIN_SCALED_DELAY_TICKS);
+            // Divided, unless that is shorter than the floor - then the floor, or what was asked when even
+            // that is shorter (R5-F7).
+            let owed = if divided <= floor { divided } else { asked.max(floor) };
+            prop_assert_eq!(i128::from(delay), owed, "{} at x{}", interval, m);
+            prop_assert!(delay < 0 && delay >= interval, "{} at x{} came out as {}", interval, m, delay);
+            prop_assert_eq!(delay_hit_floor(interval, m), m > 1 && divided > floor, "{} at x{}", interval, m);
+            Ok(())
+        }
+
+        /// The three timer lengths: a waitable timer's period (`LONG`), a thread-pool timer's (`DWORD`) and
+        /// a window timer's interval, with what each says about its floor.
+        fn periods(period: i32, period_ms: u32, m: i64) -> Result<(), TestCaseError> {
+            let rate = i128::from(m.max(1));
+            let scaled = scale_timer_period(period, m);
+            if period <= 0 {
+                prop_assert_eq!(scaled, period, "a one-shot and a refused period pass through");
+            } else {
+                prop_assert_eq!(i128::from(scaled), (i128::from(period) / rate).max(1));
+                prop_assert!(scaled >= 1 && scaled <= period);
+            }
+            prop_assert_eq!(timer_period_hit_floor(i64::from(period), m), period > 0 && i128::from(period) / rate == 0);
+
+            let scaled = scale_timer_period_ms(period_ms, m);
+            if period_ms == 0 {
+                prop_assert_eq!(scaled, 0, "a one-shot stays one");
+            } else {
+                prop_assert_eq!(i128::from(scaled), (i128::from(period_ms) / rate).max(1));
+                prop_assert!(scaled >= 1 && scaled <= period_ms);
+            }
+            prop_assert_eq!(timer_period_hit_floor(i64::from(period_ms), m), period_ms > 0 && i128::from(period_ms) / rate == 0);
+
+            // A window timer has no floor of ours: Windows lifts anything under its minimum to it.
+            let interval = scale_timer_elapse(period_ms, m);
+            prop_assert_eq!(i128::from(interval), i128::from(period_ms) / rate);
+            prop_assert_eq!(
+                timer_elapse_hit_floor(period_ms, m),
+                period_ms >= USER_TIMER_MINIMUM_MS && interval < USER_TIMER_MINIMUM_MS
+            );
+            Ok(())
+        }
+
+        /// A timer's due as the kernel gets it: never positive, because a positive due is an instant on the
+        /// REAL clock (R5-D2). A relative one is divided by the duration rate. An absolute one is a moment
+        /// of the wall: the timer fires no later than the wall reaches it and no more than one real tick
+        /// before, a moment already past gets the shortest relative due, and a moment the arithmetic cannot
+        /// reach is handed back as it was. Zero only for less than one real tick, which the kernel fires at
+        /// once.
+        fn timer_due(due: i64, fake_now: i64, wall_m: i64, dur_m: i64) -> Result<(), TestCaseError> {
+            let got = scale_timer_due(due, fake_now, wall_m, dur_m);
+            let (asked, now) = (i128::from(due), i128::from(fake_now));
+            if due < 0 {
+                let rate = i128::from(dur_m.max(1));
+                prop_assert_eq!(i128::from(got), asked / rate, "relative {} at x{}", due, dur_m);
+                prop_assert!(got <= 0 && got >= due);
+                prop_assert!(got < 0 || asked > -rate, "relative {} at x{} came out as none", due, dur_m);
+                return Ok(());
+            }
+            let rate = i128::from(wall_m.max(1));
+            let ahead = asked - now;
+            if i64::try_from(ahead).is_err() {
+                prop_assert_eq!(got, due, "a due the arithmetic cannot reach is handed back");
+            } else if ahead <= 0 {
+                prop_assert_eq!(got, -1, "a moment already past gets the shortest relative due");
+            } else {
+                prop_assert!(got <= 0, "absolute {} from {} at x{} came out as {}", due, fake_now, wall_m, got);
+                // Where the wall stands when the timer fires.
+                let fires = -i128::from(got) * rate;
+                prop_assert!(fires <= ahead && fires > ahead - rate, "absolute {} from {} at x{}: fires {} of {} ahead", due, fake_now, wall_m, fires, ahead);
+                prop_assert!(got < 0 || ahead < rate, "absolute {} from {} at x{} came out as none", due, fake_now, wall_m);
+            }
+            Ok(())
+        }
     }
 }

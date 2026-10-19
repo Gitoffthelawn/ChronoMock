@@ -178,8 +178,8 @@ fn every_crate_with_random_properties_is_a_part_of_the_weekly_search() {
     let unlisted: Vec<&Part> = wanted.difference(&listed).collect();
     let stale: Vec<&Part> = listed.difference(&wanted).collect();
     assert!(
-        wanted.len() >= 5,
-        "found {} places with random properties, where there were five on 2026-10-19 - the scan reads \
+        wanted.len() >= 6,
+        "found {} places with random properties, where there were six on 2026-10-20 - the scan reads \
          the wrong place, or properties were removed and this floor has to come down with them",
         wanted.len()
     );
