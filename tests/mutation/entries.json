@@ -17582,5 +17582,24 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-N34 a sign in a number of a numeric date is refused",
+    "edits": [
+      {
+        "file": "crates/core/src/calc.rs",
+        "from": "        if !crate::is_ascii_digits(p) {",
+        "to": "        if p.is_empty() {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::properties::a_typed_numeric_date_is_read_in_every_order_that_names_a_real_day",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

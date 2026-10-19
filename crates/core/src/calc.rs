@@ -3194,18 +3194,20 @@ mod tests {
             (crate::CIVIL_YEAR_MIN..=crate::CIVIL_YEAR_MAX).contains(&year) && (1..=days_in(year, month)).contains(&day)
         }
 
-        /// A moment that is one, on any day of any year of the band.
+        /// A moment that is one, on any day of any year of the band, and the Unix epoch by name: the
+        /// one instant whose number is the same in seconds and in milliseconds.
         fn any_moment() -> impl Strategy<Value = CivilDateTime> {
             let in_band = year().prop_map(|y| y.clamp(crate::CIVIL_YEAR_MIN, crate::CIVIL_YEAR_MAX));
-            (in_band, 1u32..=12, 1u32..=31, 0u32..=23, 0u32..=59, 0u32..=59).prop_map(|(y, mo, d, h, mi, s)| {
+            let any = (in_band, 1u32..=12, 1u32..=31, 0u32..=23, 0u32..=59, 0u32..=59).prop_map(|(y, mo, d, h, mi, s)| {
                 let last = u32::try_from(days_in(y, i64::from(mo))).unwrap_or(28);
                 dt(y, mo, d.min(last), h, mi, s)
-            })
+            });
+            prop_oneof![7 => any, 1 => Just(dt(1970, 1, 1, 0, 0, 0))]
         }
 
-        /// A zone `--zone` accepts, in minutes.
+        /// A zone `--zone` accepts, in minutes, UTC by name.
         fn zone() -> impl Strategy<Value = i32> {
-            -(14 * 60 + 59)..=(14 * 60 + 59)
+            prop_oneof![6 => -(14 * 60 + 59)..=(14 * 60 + 59), 1 => Just(0)]
         }
 
         /// One numeric field as it is typed: its text, and the number it says when the text is
@@ -3217,7 +3219,9 @@ mod tests {
         }
 
         /// `value` typed the ways a person or a program types it: zero-padded to any width, behind a
-        /// plus sign (R4-N34), with a space inside, in another script's digits, empty, or past 64 bits.
+        /// plus sign (R4-N34), with a tab inside, in another script's digits, empty, or past 64 bits.
+        /// A tab and not a space: a space is the separator a moment allows between its date and its
+        /// time, so a space behind a field could become that separator and the text another moment.
         fn field(value: impl Strategy<Value = i64>) -> impl Strategy<Value = Field> {
             (value, 1usize..=7, 0u8..40).prop_map(|(value, width, how)| {
                 let digits = format!("{value:0width$}");
@@ -3226,7 +3230,7 @@ mod tests {
                     digits.bytes().filter_map(|b| char::from_u32(0x660 + u32::from(b - b'0'))).collect();
                 let text = match how {
                     0 => format!("+{digits}"),
-                    1 => format!("{head} {tail}"),
+                    1 => format!("{head}\t{tail}"),
                     2 => other_script,
                     3 => "9223372036854775808".to_string(),
                     4 => String::new(),
@@ -3288,7 +3292,10 @@ mod tests {
         }
 
         fn written() -> impl Strategy<Value = Written> {
-            let year = year().prop_flat_map(|y| (Just(y < 0), field(Just(y.abs()))));
+            // An empty year would leave the text starting with the dash after it, which is the sign of
+            // a year before 1 CE - another moment, not a missing field - so the year is never empty.
+            let not_empty = |f: Field| if f.text.is_empty() { Field { text: "y".into(), number: None } } else { f };
+            let year = year().prop_flat_map(move |y| (Just(y < 0), field(Just(y.abs())).prop_map(not_empty)));
             let month = field(prop_oneof![0i64..=13, Just(2)]);
             let day = field(prop_oneof![0i64..=32, 28i64..=31]);
             let hour = field(0i64..=24);
@@ -3359,7 +3366,9 @@ mod tests {
             let separators = prop_oneof![
                 6 => separator.clone().prop_map(|s| (s, s)),
                 1 => (separator.clone(), separator).prop_map(|(a, b)| (a, b)),
-                1 => prop_oneof![Just((',', ',')), Just(('-', '-')), Just(('/', ' '))],
+                // Not a dash: two dashes behind a four-digit number make an ISO date, which the
+                // moment model above covers.
+                1 => prop_oneof![Just((',', ',')), Just(('/', ' '))],
             ];
             let blank = prop_oneof![4 => Just(""), 1 => Just(" "), 1 => Just("\t ")];
             // The same number twice, by name: the one date that reads the same both ways, which was
@@ -3438,10 +3447,15 @@ mod tests {
                     let found = pl.as_ref().is_ok_and(|readings| readings.iter().any(|&(_, day)| day == midnight));
                     prop_assert!(found, "{} reads as {:?}", printed.pl, pl);
                 }
+                // At the epoch both numbers are 0, and one instant is listed once (R4-N36), so there the
+                // number reads as the moment in whichever unit is listed.
+                let same_number = printed.epoch_seconds == printed.epoch_millis;
                 for (number, reading) in [(printed.epoch_seconds, DateReading::EpochSeconds), (printed.epoch_millis, DateReading::EpochMillis)] {
                     if let Some(number) = number {
                         let got = read(&number.to_string());
-                        let found = got.as_ref().is_ok_and(|readings| readings.contains(&(reading, moment)));
+                        let found = got.as_ref().is_ok_and(|readings| {
+                            readings.contains(&(reading, moment)) || (same_number && readings.iter().any(|&(_, at)| at == moment))
+                        });
                         prop_assert!(found, "{} reads as {:?}, not as {:?}", number, got, moment);
                     }
                 }
