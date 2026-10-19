@@ -17373,5 +17373,81 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "prop-k2 PE a header past the first four kilobytes is read where it is",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": "    let header = read_bytes(&mut image, pe, PROGRAM_HEADER)?;",
+        "to": "    let header = if pe > HEADER_WINDOW { Vec::new() } else { read_bytes(&mut image, pe, PROGRAM_HEADER)? };"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::properties::a_file_is_called_a_program_exactly_when_its_header_describes_one",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 PE a section table the file does not hold is not a program's",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": "            && table_end <= length,",
+        "to": "            && table_end <= length.max(table_end),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::properties::a_file_is_called_a_program_exactly_when_its_header_describes_one",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-D17 an optional header too short for the subsystem is not read for one",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": " || optional_size < SUBSYSTEM_AT - OPTIONAL_AT + 2 {",
+        "to": " {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::properties::a_subsystem_is_read_only_from_a_header_that_holds_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 PE the fingerprints read a header past the first four kilobytes",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": "        let head = read_bytes(&mut file, pe, HEADER_WINDOW)?;",
+        "to": "        let head = if pe < HEADER_WINDOW { read_bytes(&mut file, pe, HEADER_WINDOW)? } else { return None };"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::properties::a_fingerprint_follows_what_the_image_is_and_not_the_bytes_no_field_points_at",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]
