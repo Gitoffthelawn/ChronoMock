@@ -887,7 +887,7 @@
     {
       "file": "date-default-impossible.json",
       "id": "date-default-impossible",
-      "reason": "preset 'date-default-impossible': day 31 out of range for month 2 in '2026-02-31T00:00:00' (in tests/data/preset-catalogue\\date-default-impossible.json)",
+      "reason": "preset 'date-default-impossible': day 31 out of range for month 2 in '2026-02-31' (in tests/data/preset-catalogue\\date-default-impossible.json)",
       "exit_code": 1
     },
     {
@@ -983,49 +983,49 @@
     {
       "file": "set-time-out-of-range.json",
       "id": "set-time-out-of-range",
-      "reason": "set_time 25:00:00 is not a time of day (00:00:00 to 23:59:59)",
+      "reason": "step 1: set_time 25:00:00 is not a time of day (00:00:00 to 23:59:59)",
       "exit_code": 1
     },
     {
       "file": "shift-amount-negative.json",
       "id": "shift-amount-negative",
-      "reason": "shift amount must be non-negative (the sign carries direction)",
+      "reason": "step 1: shift amount must be non-negative (the sign carries direction)",
       "exit_code": 1
     },
     {
       "file": "shift-parameter-is-date.json",
       "id": "shift-parameter-is-date",
-      "reason": "shift parameter 'start' must be a duration or variant, not a date",
+      "reason": "step 1: shift parameter 'start' must be a duration or variant, not a date",
       "exit_code": 1
     },
     {
       "file": "shift-sign-missing.json",
       "id": "shift-sign-missing",
-      "reason": "shift needs a sign (+ or -)",
+      "reason": "step 1: shift needs a sign (+ or -)",
       "exit_code": 1
     },
     {
       "file": "snap-unknown.json",
       "id": "snap-unknown",
-      "reason": "unknown snap target 'end-of-week' (use start-of/end-of month|quarter|year)",
+      "reason": "step 1: unknown snap target 'end-of-week' (use start-of/end-of month|quarter|year)",
       "exit_code": 1
     },
     {
       "file": "step-bare-name.json",
       "id": "step-bare-name",
-      "reason": "preset 'step-bare-name': bad preset JSON at line 7, column 50: invalid type: a step name on its own, expected the name with its value, like {\"snap\": \"end-of-month\"} (in tests/data/preset-catalogue\\step-bare-name.json)",
+      "reason": "preset 'step-bare-name': bad preset JSON at line 7, column 48: invalid type: a step name on its own, expected the name with its value, like {\"snap\": \"end-of-month\"} (in tests/data/preset-catalogue\\step-bare-name.json)",
       "exit_code": 1
     },
     {
       "file": "step-to-zone.json",
       "id": "step-to-zone",
-      "reason": "preset 'step-to-zone': bad preset JSON at line 8, column 83: unknown variant `to_zone`, expected one of `shift`, `set_time`, `snap`, `nearest`, `zone` (in tests/data/preset-catalogue\\step-to-zone.json)",
+      "reason": "preset 'step-to-zone': bad preset JSON at line 8, column 83: unknown name `to_zone`, expected one of `shift`, `set_time`, `snap`, `nearest`, `zone` (in tests/data/preset-catalogue\\step-to-zone.json)",
       "exit_code": 1
     },
     {
       "file": "step-two-keys.json",
       "id": "step-two-keys",
-      "reason": "preset 'step-two-keys': bad preset JSON at line 8, column 127: expected value (in tests/data/preset-catalogue\\step-two-keys.json)",
+      "reason": "preset 'step-two-keys': bad preset JSON at line 8, column 135: a step names exactly one of shift, set_time, snap, nearest, zone - this one names a second, `snap` (in tests/data/preset-catalogue\\step-two-keys.json)",
       "exit_code": 1
     },
     {
@@ -1037,7 +1037,7 @@
     {
       "file": "unit-wrong-case.json",
       "id": "unit-wrong-case",
-      "reason": "unknown unit 'Days' (use s, m, h, d, w, mo, q, y, bd - m is minutes, mo is months) in shift",
+      "reason": "step 1: unknown unit 'Days' (use s, m, h, d, w, mo, q, y, bd - m is minutes, mo is months) in shift",
       "exit_code": 1
     },
     {

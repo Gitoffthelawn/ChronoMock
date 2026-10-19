@@ -149,8 +149,8 @@ impl PresetError {
 
     /// The same failure, said to be in the step at `index` (from 0, named from 1). A preset's step that
     /// would not resolve was refused with no word of which one, in a file whose steps are a list (R5-D5,
-    /// item 2).
-    fn at_step(self, index: usize) -> Self {
+    /// item 2). The catalogue says it the same way.
+    pub(crate) fn at_step(self, index: usize) -> Self {
         let place = |m: String| format!("step {}: {m}", index + 1);
         match self {
             PresetError::NotFound(m) => PresetError::NotFound(place(m)),
@@ -255,8 +255,127 @@ impl PresetTextDto {
 #[serde(expecting = "a moment - an object with base and steps")]
 pub(crate) struct MomentDto {
     pub(crate) base: BaseDto,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "steps_of_one_key")]
     pub(crate) steps: Vec<StepDto>,
+}
+
+/// A moment's steps, each read through [`OneKey`].
+fn steps_of_one_key<'de, D: serde::Deserializer<'de>>(steps: D) -> Result<Vec<StepDto>, D::Error> {
+    Ok(Vec::<OneStep>::deserialize(steps)?.into_iter().map(|step| step.0).collect())
+}
+
+/// One step, read so that a shape which is not a step is refused in the file's words.
+///
+/// serde_json reads an externally tagged enum from a text or an object, and answers every other kind
+/// with "expected value" - its sentence for text that is not JSON - so `"steps": [5]` sent the author
+/// looking for a missing comma in a file that had none. A step with a second key was refused with the
+/// same sentence. Found by the search in step 2d.
+struct OneStep(StepDto);
+
+impl<'de> Deserialize<'de> for OneStep {
+    fn deserialize<D: serde::Deserializer<'de>>(step: D) -> Result<Self, D::Error> {
+        StepDto::deserialize(OneKey(step)).map(OneStep)
+    }
+}
+
+/// The reader of one step: an object is read with one key and no second, a text is a step name on its
+/// own (which the step's own reader refuses for its missing value), and any other kind is refused as
+/// that kind, in the words of the step's `expecting`.
+struct OneKey<D>(D);
+
+impl<'de, D: serde::Deserializer<'de>> serde::Deserializer<'de> for OneKey<D> {
+    type Error = D::Error;
+
+    fn deserialize_any<V: serde::de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
+        self.0.deserialize_any(visitor)
+    }
+
+    fn deserialize_enum<V: serde::de::Visitor<'de>>(
+        self,
+        _name: &'static str,
+        names: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, D::Error> {
+        self.0.deserialize_any(OneKeyVisitor { step: visitor, names })
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf option unit
+        unit_struct newtype_struct seq tuple tuple_struct map struct identifier ignored_any
+    }
+}
+
+struct OneKeyVisitor<V> {
+    step: V,
+    names: &'static [&'static str],
+}
+
+impl<'de, V: serde::de::Visitor<'de>> serde::de::Visitor<'de> for OneKeyVisitor<V> {
+    type Value = V::Value;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.step.expecting(f)
+    }
+
+    fn visit_str<E: serde::de::Error>(self, name: &str) -> Result<V::Value, E> {
+        self.step.visit_enum(serde::de::value::StrDeserializer::<E>::new(name))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<V::Value, A::Error> {
+        self.step.visit_enum(OneKeyMap { map, names: self.names })
+    }
+}
+
+/// An object read as one step: its first key names the step, and there is no second.
+struct OneKeyMap<A> {
+    map: A,
+    names: &'static [&'static str],
+}
+
+impl<A> OneKeyMap<A> {
+    fn refusal<E: serde::de::Error>(&self, this_one: std::fmt::Arguments) -> E {
+        E::custom(format_args!("a step names exactly one of {} - this one {this_one}", self.names.join(", ")))
+    }
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::EnumAccess<'de> for OneKeyMap<A> {
+    type Error = A::Error;
+    type Variant = Self;
+
+    fn variant_seed<S: serde::de::DeserializeSeed<'de>>(mut self, seed: S) -> Result<(S::Value, Self), A::Error> {
+        match self.map.next_key_seed(seed)? {
+            Some(name) => Ok((name, self)),
+            None => Err(self.refusal(format_args!("names none"))),
+        }
+    }
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::VariantAccess<'de> for OneKeyMap<A> {
+    type Error = A::Error;
+
+    fn unit_variant(self) -> Result<(), A::Error> {
+        Err(serde::de::Error::invalid_type(serde::de::Unexpected::Map, &"a step name on its own"))
+    }
+
+    fn newtype_variant_seed<T: serde::de::DeserializeSeed<'de>>(mut self, seed: T) -> Result<T::Value, A::Error> {
+        let value = self.map.next_value_seed(seed)?;
+        match self.map.next_key::<String>()? {
+            None => Ok(value),
+            Some(second) => Err(self.refusal(format_args!("names a second, `{second}`"))),
+        }
+    }
+
+    fn tuple_variant<W: serde::de::Visitor<'de>>(self, _len: usize, _visitor: W) -> Result<W::Value, A::Error> {
+        Err(serde::de::Error::invalid_type(serde::de::Unexpected::Map, &"a step with a list"))
+    }
+
+    fn struct_variant<W: serde::de::Visitor<'de>>(
+        self,
+        _fields: &'static [&'static str],
+        _visitor: W,
+    ) -> Result<W::Value, A::Error> {
+        Err(serde::de::Error::invalid_type(serde::de::Unexpected::Map, &"a step with fields"))
+    }
 }
 
 /// A preset base: the keyword `today`/`now`, an `{ "absolute": "ISO" }` object, an
@@ -811,10 +930,16 @@ pub(crate) fn duration_value(id: &str, amount: i64, unit_str: &str) -> Result<Pa
 }
 
 /// Parse a date or date-time - a bare date gets midnight so `--param start_date=2026-01-01` works.
+///
+/// A refusal quotes what was written. It quoted the date with the midnight added, `'2026-13-01T00:00:00'`
+/// for a `default` or a `--param` that said `2026-13-01` - text its author never wrote (found by the
+/// search in step 2d, the class of R5-D5 item 5).
 pub(crate) fn parse_param_date(s: &str) -> Result<chrono_core::calc::CivilDateTime, String> {
-    let normalized =
-        if s.contains('T') || s.contains(' ') { s.to_string() } else { format!("{s}T00:00:00") };
-    chrono_core::calc::parse_civil_datetime(&normalized)
+    if s.contains('T') || s.contains(' ') {
+        chrono_core::calc::parse_civil_datetime(s)
+    } else {
+        chrono_core::calc::parse_civil_datetime_as(&format!("{s}T00:00:00"), s)
+    }
 }
 
 /// Map a preset's `time_mode` to the substitution wire shape. `multiplier == 1` (or absent) is
@@ -1216,7 +1341,7 @@ mod tests {
             ("the steps given twice", preset(&format!(r#"{bad_steps}, "steps": []"#), "")),
         ] {
             let said = parse_preset(&text).unwrap_err().message().to_string();
-            assert!(said.contains("unknown variant"), "{case}: {said}");
+            assert!(said.contains("unknown name"), "{case}: {said}");
             assert!(!said.chars().any(chrono_core::text::is_hidden_char), "{case}: {said:?}");
             assert!(said.contains("x\\u{001b}[2K"), "{case}: {said}");
         }
@@ -1427,6 +1552,43 @@ mod tests {
         assert_eq!(after_place(&cases[14].1), after_place("[]"), "a list of nine values is a list, whatever it holds");
         assert_eq!(after_place(&cases[15].1), after_place("[]"), "and so is a list of presets");
         assert_eq!(after_place(&cases[16].1), "invalid type: list, expected a moment - an object with base and steps");
+    }
+
+    /// Found by the search in step 2d: serde_json reads a step from a text or an object and answered
+    /// every other kind with "expected value", its sentence for text that is not JSON, in a file that
+    /// was JSON. A step with a second key got the same sentence, and an unknown step name was an
+    /// "unknown variant". Each is refused now in the file's words, at the step's place.
+    #[test]
+    fn a_step_that_is_not_one_is_refused_in_the_files_own_words() {
+        let with_steps = |steps: &str| {
+            format!(
+                r#"{{"schema":"chronomock.preset/1","id":"x","name":{{"en":"n"}},"explains":{{"en":"e"}},"applies_to":"both","moment":{{"base":"today","steps":{steps}}}}}"#
+            )
+        };
+        let said = |steps: &str| match parse_preset(&with_steps(steps)) {
+            Err(PresetError::BadFile(m)) => m.split_once(": ").map(|(place, said)| {
+                assert!(place.starts_with("bad preset JSON at line 1, column "), "{steps}: {m}");
+                said.to_string()
+            }),
+            other => panic!("{steps}: {other:?}"),
+        };
+        let expecting = "expected a step - an object with one of shift, set_time, snap, nearest, zone";
+        for (steps, kind) in [("[5]", "integer `5`"), ("[true]", "boolean `true`"), ("[null]", "null"), ("[[]]", "list")] {
+            assert_eq!(said(steps).as_deref(), Some(format!("invalid type: {kind}, {expecting}").as_str()), "{steps}");
+        }
+        let names = "shift, set_time, snap, nearest, zone";
+        assert_eq!(said("[{}]").as_deref(), Some(format!("a step names exactly one of {names} - this one names none").as_str()));
+        assert_eq!(
+            said(r#"[{"snap":"eom","zone":"+01:00"}]"#).as_deref(),
+            Some(format!("a step names exactly one of {names} - this one names a second, `zone`").as_str())
+        );
+        assert_eq!(
+            said(r#"[{"to_zone":"+01:00"}]"#).as_deref(),
+            Some("unknown name `to_zone`, expected one of `shift`, `set_time`, `snap`, `nearest`, `zone`")
+        );
+        // A step that is one still reads, and so does the bare name's refusal of before.
+        assert!(parse_preset(&with_steps(r#"[{"snap":"eom"},{"zone":"+01:00"}]"#)).is_ok());
+        assert!(said(r#"["snap"]"#).is_some_and(|s| s.starts_with("invalid type: a step name on its own")));
     }
 
     /// R4-N33. Every one of these used to load and be settled by the order of the reader's code: the
@@ -1670,6 +1832,23 @@ mod tests {
         ));
     }
 
+    /// Found by the search in step 2d: a date that is not one was refused quoting it with the midnight
+    /// added - `'2026-13-01T00:00:00'` for a `--param` or a `default` that said `2026-13-01`. Both quote
+    /// what was written now, and a date written with its time is quoted as it was too.
+    #[test]
+    fn a_date_that_is_not_one_is_refused_quoting_what_was_written() {
+        let p = parse_preset(TRIAL_JSON).unwrap();
+        for (written, said) in [("2026-13-01", "month 13"), ("2026-02-29", "day 29"), ("2026-02-30 08:00:00", "day 30")] {
+            let refusal = resolve_parameters(&p.parameters, &param_map(&[("start_date", written)]), None).unwrap_err();
+            assert!(refusal.message().contains(&format!("'{written}'")) && refusal.message().contains(said), "{}", refusal.message());
+            assert!(written.contains(' ') || !refusal.message().contains("T00:00:00"), "{}", refusal.message());
+        }
+        let with_default = TRIAL_JSON.replacen(r#""type": "date""#, r#""type": "date", "default": "2026-13-01""#, 1);
+        assert_ne!(with_default, TRIAL_JSON, "the trial preset declares a date parameter");
+        let refusal = parse_preset(&with_default).unwrap_err();
+        assert!(refusal.message().ends_with("in '2026-13-01'"), "{}", refusal.message());
+    }
+
     /// A duration value in a date slot (or vice versa) is refused at substitution, not misread.
     #[test]
     fn param_wrong_type_for_slot_is_refused() {
@@ -1757,5 +1936,106 @@ mod tests {
         let values =
             resolve_parameters(&p.parameters, &param_map(&[("start_date", "2030-12-31")]), Some(target)).unwrap();
         assert!(matches!(values.get("start_date"), Some(ParamValue::Date(x)) if *x == civil(2030, 12, 31, 0, 0, 0)));
+    }
+
+    mod properties {
+        use super::*;
+        use crate::search::{drawn_preset, preset_flaw, with_preset_flaw, DrawnPreset, PresetFlaw};
+        use proptest::prelude::*;
+
+        /// Whether two parameter values are the same value.
+        fn same(a: Option<&ParamValue>, b: Option<&ParamValue>) -> bool {
+            match (a, b) {
+                (None, None) => true,
+                (Some(ParamValue::Date(a)), Some(ParamValue::Date(b))) => a == b,
+                (Some(ParamValue::Duration { amount: a, unit: u }), Some(ParamValue::Duration { amount: b, unit: v })) => a == b && u == v,
+                (Some(ParamValue::Variant(a)), Some(ParamValue::Variant(b))) => a == b,
+                _ => false,
+            }
+        }
+
+        /// The texts a preset was written with, as the model wrote them: English, Polish when it was
+        /// translated, and not the language given as something other than text.
+        fn texts(preset: &DrawnPreset, what: &str) -> BTreeMap<String, String> {
+            let mut texts = BTreeMap::from([("en".to_string(), format!("{what} of {}", preset.id))]);
+            if preset.translated {
+                texts.insert("pl".to_string(), format!("{what} po polsku"));
+            }
+            texts
+        }
+
+        /// A preset with no flaw, or one with a flaw - drawn small, so the flaw is its only one.
+        fn case() -> impl Strategy<Value = (DrawnPreset, Option<PresetFlaw>)> {
+            prop_oneof![
+                2 => drawn_preset(false).prop_map(|preset| (preset, None)),
+                3 => (drawn_preset(true), preset_flaw()).prop_map(|(preset, flaw)| (preset, Some(flaw))),
+            ]
+        }
+
+        fn reads_as_written(preset: &DrawnPreset) -> Result<(), TestCaseError> {
+            let text = preset.json().to_string();
+            let read = parse_preset(&text).map_err(|e| TestCaseError::fail(format!("refused: {} - {text}", e.message())))?;
+            prop_assert_eq!(&read.id, &preset.id);
+            prop_assert_eq!(read.applies_to.as_str(), preset.applies_to);
+            prop_assert_eq!(read.market.as_deref(), preset.market);
+            prop_assert_eq!(&read.name_texts, &texts(preset, "Name"));
+            prop_assert_eq!(&read.explains_texts, &texts(preset, "Explains"));
+            prop_assert_eq!(&read.name_en, &format!("Name of {}", preset.id));
+            let (mode, multiplier) = match preset.time_mode {
+                None | Some((None | Some(1), _)) => ("flow", None),
+                Some((Some(m), _)) => ("multiplier", Some(m)),
+            };
+            prop_assert_eq!(read.time_mode.mode.as_str(), mode);
+            prop_assert_eq!(read.time_mode.multiplier, multiplier);
+            prop_assert_eq!(read.time_mode.scale_duration, preset.time_mode.is_some_and(|(_, scale)| scale));
+            prop_assert_eq!(read.parameters.len(), preset.parameters.len());
+            for (got, drawn) in read.parameters.iter().zip(&preset.parameters) {
+                prop_assert_eq!(&got.id, &drawn.id);
+                prop_assert_eq!(got.kind, drawn.kind);
+                let owed = drawn.default.as_ref().map(|d| d.value());
+                prop_assert!(same(got.default.as_ref(), owed.as_ref()), "{}: default {:?}, owed {:?}", drawn.id, got.default, owed);
+                prop_assert_eq!(got.default_hint.as_deref(), drawn.hint.then_some("target_file_creation"));
+                let label = if drawn.label {
+                    BTreeMap::from([("en".to_string(), format!("Label of {}", drawn.id)), ("pl".to_string(), format!("Etykieta {}", drawn.id))])
+                } else {
+                    BTreeMap::new()
+                };
+                prop_assert_eq!(&got.label_texts, &label);
+            }
+            let moment = resolve_moment(read.moment, &preset.values()).map_err(|e| TestCaseError::fail(e.message().to_string()))?;
+            prop_assert_eq!(moment, preset.moment(), "{}", text);
+            Ok(())
+        }
+
+        proptest! {
+            /// A preset written within its schema reads as what it says: its texts in every language
+            /// written as text, its module, market and time mode, every parameter with its type,
+            /// default, hint and label, and a moment that, filled with values, is the moment the
+            /// model works out - every base, step, unit word and zone as written. And the same preset
+            /// with ONE thing wrong, from the refusals its readers owe by name (R4-N33, R4-S12, R5-B2,
+            /// R5-D5), is refused when it is read or when it is used, with the exit code of that
+            /// refusal and a message that names the thing - a step by its number.
+            #[test]
+            fn a_preset_reads_as_written_or_is_refused_for_its_one_flaw((preset, flaw) in case()) {
+                let Some(flaw) = flaw else { return reads_as_written(&preset) };
+                let (json, owed) = with_preset_flaw(&preset, &flaw);
+                // Refused by the evaluator, which this does not run - the catalogue's property holds it.
+                if owed.unused_until_evaluated {
+                    return Ok(());
+                }
+                let text = json.to_string();
+                let refused = match parse_preset(&text) {
+                    Err(e) => Some(e),
+                    Ok(read) => resolve_moment(read.moment, &owed.values).err(),
+                };
+                let Some(refusal) = refused else {
+                    return Err(TestCaseError::fail(format!("{flaw:?} was read and resolved: {text}")));
+                };
+                for piece in &owed.said {
+                    prop_assert!(refusal.message().contains(piece.as_str()), "{:?}: {} - owed {:?}", flaw, refusal.message(), piece);
+                }
+                prop_assert_eq!(refusal.exit_code(), owed.exit_code, "{:?}: {}", flaw, refusal.message());
+            }
+        }
     }
 }

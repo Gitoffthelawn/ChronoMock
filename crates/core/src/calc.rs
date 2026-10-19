@@ -335,8 +335,10 @@ pub fn parse_civil_datetime(s: &str) -> Result<CivilDateTime, String> {
     parse_civil_datetime_as(s, s)
 }
 
-/// [`parse_civil_datetime`], quoting `shown` in its refusals (see `crate::parse_civil_as`).
-fn parse_civil_datetime_as(s: &str, shown: &str) -> Result<CivilDateTime, String> {
+/// [`parse_civil_datetime`], quoting `shown` in its refusals (see `crate::parse_civil_as`). For a
+/// caller that completes what was written before it is read - a bare date given midnight - so that a
+/// refusal quotes what its reader wrote, not the completed text (R5-D5 item 5).
+pub fn parse_civil_datetime_as(s: &str, shown: &str) -> Result<CivilDateTime, String> {
     let (y, mo, d, h, mi, sec) = super::parse_civil_as(s, shown)?;
     Ok(CivilDateTime {
         year: y,

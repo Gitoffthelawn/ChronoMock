@@ -445,13 +445,17 @@ fn read_catalogue_text(file: impl std::io::Read, size: u64, path: &std::path::Pa
 
 /// serde's own words for a shape, as the person who wrote the file would put them. Checked in order,
 /// each one replaced wherever it stands.
-const SERDE_WORDS: [(&str, &str); 7] = [
+const SERDE_WORDS: [(&str, &str); 9] = [
     // A step written as its bare name, `"snap"` where `{"snap": "end-of-month"}` belongs. Only a preset
     // step can produce it: the one enum in either reader whose variants carry a value.
     (
         "invalid type: unit variant, expected newtype variant",
         "invalid type: a step name on its own, expected the name with its value, like {\"snap\": \"end-of-month\"}",
     ),
+    // A rule's `type` or a step's key that names nothing this build knows, and a rule `type` that is not
+    // a text at all. "Variant" is the Rust word for both - found by the search in step 2d.
+    ("unknown variant", "unknown name"),
+    ("expected variant identifier", "expected a name, written as text"),
     ("invalid type: map", "invalid type: object"),
     ("invalid type: sequence", "invalid type: list"),
     ("expected a sequence", "expected a list"),
@@ -983,11 +987,15 @@ mod tests {
             ("a month as text", with(&|c| c["holidays"][0]["rule"]["month"] = "1".into())),
             // A file holding a list of calendars, which serde used to read as one calendar by position.
             ("a list of calendars in one file", format!("[{shipped},{shipped}]")),
+            // Found by the search in step 2d: serde's "variant" for a rule type that is not text, and
+            // for one it does not know.
+            ("a rule type as a number", with(&|c| c["holidays"][0]["rule"]["type"] = 5.into())),
+            ("a rule type it does not know", with(&|c| c["holidays"][0]["rule"]["type"] = "fxed".into())),
         ];
         for (what, text) in &cases {
             let refusal = calendar_from_text(text).expect_err(what);
             assert!(refusal.starts_with("bad calendar JSON at line "), "{what}: the place comes first - {refusal}");
-            for word in ["Dto", "struct ", "enum ", "i64", "i32", "u32", "sequence", "map", "invalid length"] {
+            for word in ["Dto", "struct ", "enum ", "i64", "i32", "u32", "sequence", "map", "invalid length", "variant"] {
                 assert!(!refusal.contains(word), "{what}: says {word:?} - {refusal}");
             }
         }
@@ -1004,6 +1012,8 @@ mod tests {
         assert_eq!(after_place(&cases[8].1), r#"invalid type: string "1", expected a whole number, zero or more"#);
         assert_eq!(after_place(&cases[9].1), after_place(&cases[0].1), "a list of calendars is a list, not a calendar");
         assert!(after_place(&cases[0].1).starts_with("invalid type: list, expected a calendar - "), "{}", after_place(&cases[0].1));
+        assert_eq!(after_place(&cases[10].1), "invalid type: integer `5`, expected a name, written as text");
+        assert_eq!(after_place(&cases[11].1), "unknown name `fxed`, expected one of `fixed`, `nth_weekday`, `easter_offset`");
     }
 
     /// The guard behind both halves of finding (g): every DTO of a file people write by hand says what it
@@ -1501,5 +1511,1044 @@ mod tests {
         assert!(weekday_index("funday").is_err());
         assert!(matches!(observed_from("sun_to_mon").unwrap(), chrono_core::calendar::Observed::SunToMon));
         assert!(observed_from("whenever").is_err());
+    }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+        use std::io::Read;
+
+        /// The largest catalogue file, written out rather than read from `MAX_CATALOGUE_BYTES`, so a
+        /// limit moved by mistake is a red case instead of an answer that moves with it.
+        const LIMIT: u64 = 4 * 1024 * 1024;
+
+        /// Bytes that are not UTF-8 wherever they stand: two bytes no UTF-8 text holds, an overlong
+        /// encoding, a surrogate, a code point past U+10FFFF and a continuation byte with no lead.
+        const BROKEN: [&[u8]; 6] = [&[0xFF], &[0xFE], &[0xC0, 0x80], &[0xED, 0xA0, 0x80], &[0xF4, 0x90, 0x80, 0x80], &[0x80]];
+
+        /// A piece of a catalogue file: text, which is what it says, or bytes that are not text.
+        #[derive(Debug, Clone)]
+        enum Piece {
+            Text(String),
+            Broken(&'static [u8]),
+        }
+
+        /// How a file begins: as its pieces do, with the UTF-8 byte order mark once or twice, or with
+        /// the UTF-16 one that a Windows editor writes for "Unicode".
+        #[derive(Debug, Clone, Copy)]
+        enum Start {
+            Plain,
+            Marks(usize),
+            Wide,
+        }
+
+        /// The spaces after the pieces: a few, or as many as bring the file to the limit plus `k`.
+        #[derive(Debug, Clone, Copy)]
+        enum Filler {
+            Few(u64),
+            ToLimit(i64),
+        }
+
+        /// The size the file says it has: its own length and the bytes either side, or any number.
+        #[derive(Debug, Clone, Copy)]
+        enum Said {
+            Truth(i64),
+            Exactly(u64),
+        }
+
+        /// How the reading goes: smoothly, interrupted before every piece (which a reader retries),
+        /// or failing at a byte - the first, the last, or any.
+        #[derive(Debug, Clone, Copy)]
+        enum Fault {
+            Never,
+            Interrupted,
+            FailsAt(u64),
+        }
+
+        /// A catalogue file as bytes, described rather than held: the filler can be four megabytes,
+        /// and a failing case prints this, not them.
+        #[derive(Debug, Clone)]
+        struct File {
+            start: Start,
+            pieces: Vec<Piece>,
+            filler: Filler,
+            /// The lead byte of a three-byte character and one of its continuations, as the very last
+            /// thing in the file. Only last: a continuation drawn after it would complete it.
+            cut_lead: bool,
+            said: Said,
+            /// The most a single read hands over.
+            chunk: usize,
+            fault: Fault,
+        }
+
+        impl File {
+            fn head(&self) -> Vec<u8> {
+                let mut bytes = match self.start {
+                    Start::Plain => Vec::new(),
+                    Start::Marks(n) => [0xEF, 0xBB, 0xBF].repeat(n),
+                    Start::Wide => vec![0xFF, 0xFE],
+                };
+                for piece in &self.pieces {
+                    match piece {
+                        Piece::Text(text) => bytes.extend_from_slice(text.as_bytes()),
+                        Piece::Broken(broken) => bytes.extend_from_slice(broken),
+                    }
+                }
+                bytes
+            }
+
+            fn tail(&self) -> &'static [u8] {
+                if self.cut_lead { &[0xE2, 0x82] } else { &[] }
+            }
+
+            fn filler(&self) -> u64 {
+                let around = (self.head().len() + self.tail().len()) as u64;
+                match self.filler {
+                    Filler::Few(n) => n,
+                    Filler::ToLimit(k) => LIMIT.saturating_add_signed(k).saturating_sub(around),
+                }
+            }
+
+            fn length(&self) -> u64 {
+                (self.head().len() + self.tail().len()) as u64 + self.filler()
+            }
+
+            fn said(&self) -> u64 {
+                match self.said {
+                    Said::Truth(by) => self.length().saturating_add_signed(by),
+                    Said::Exactly(n) => n,
+                }
+            }
+
+            /// The byte the read fails at, when it fails at one.
+            fn fails_at(&self) -> Option<u64> {
+                match (self.fault, self.length()) {
+                    (Fault::FailsAt(_), 0) | (Fault::Never | Fault::Interrupted, _) => None,
+                    (Fault::FailsAt(u64::MAX), length) => Some(length - 1),
+                    (Fault::FailsAt(n), length) => Some(n % length),
+                }
+            }
+
+            /// Whether every byte belongs to a character, as the model was drawn - not as a decoder
+            /// would say.
+            fn is_text(&self) -> bool {
+                !matches!(self.start, Start::Wide) && !self.cut_lead && self.pieces.iter().all(|p| matches!(p, Piece::Text(_)))
+            }
+
+            /// What the file says, less one leading byte order mark: a mark is not part of the text,
+            /// and a second one is (RFC 8259 section 8.1 allows a reader to skip one).
+            fn text(&self) -> String {
+                let mut text = match self.start {
+                    Start::Marks(n) => char::from_u32(0xFEFF).expect("a scalar value").to_string().repeat(n),
+                    Start::Plain | Start::Wide => String::new(),
+                };
+                for piece in &self.pieces {
+                    if let Piece::Text(piece) = piece {
+                        text.push_str(piece);
+                    }
+                }
+                text.push_str(&" ".repeat(usize::try_from(self.filler()).expect("a filler fits in memory")));
+                match text.strip_prefix(char::from_u32(0xFEFF).expect("a scalar value")) {
+                    Some(rest) => rest.to_string(),
+                    None => text,
+                }
+            }
+
+            fn reader(&self) -> Awkward<impl Read> {
+                let bytes = std::io::Cursor::new(self.head())
+                    .chain(std::io::repeat(b' ').take(self.filler()))
+                    .chain(self.tail());
+                // A megabyte read a byte at a time would take minutes in a debug build, and says no
+                // more than a small file read that way.
+                let chunk = if self.length() > 1 << 16 { self.chunk.max(1 << 16) } else { self.chunk };
+                Awkward {
+                    bytes,
+                    chunk,
+                    interrupts: matches!(self.fault, Fault::Interrupted),
+                    interrupted: false,
+                    fails_at: self.fails_at(),
+                    given: 0,
+                }
+            }
+        }
+
+        /// A reader that hands over at most `chunk` bytes a call, is interrupted before every piece
+        /// when asked to, and fails at a byte when asked to.
+        struct Awkward<R> {
+            bytes: R,
+            chunk: usize,
+            interrupts: bool,
+            interrupted: bool,
+            fails_at: Option<u64>,
+            given: u64,
+        }
+
+        impl<R: Read> Read for Awkward<R> {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if self.interrupts && !self.interrupted {
+                    self.interrupted = true;
+                    return Err(std::io::ErrorKind::Interrupted.into());
+                }
+                self.interrupted = false;
+                let mut room = buffer.len().min(self.chunk);
+                if let Some(at) = self.fails_at {
+                    if self.given >= at {
+                        return Err(std::io::Error::other("the disk went away"));
+                    }
+                    room = room.min(usize::try_from(at - self.given).unwrap_or(usize::MAX));
+                }
+                let read = self.bytes.read(&mut buffer[..room])?;
+                self.given += read as u64;
+                Ok(read)
+            }
+        }
+
+        fn piece() -> impl Strategy<Value = Piece> {
+            // A character of two, three and four bytes, the byte order mark inside the text, and a
+            // combining mark - all text, written as numbers so this source holds only ASCII.
+            let character = prop::sample::select(vec![0x015B_u32, 0x20AC, 0x1F600, 0xFEFF, 0x0301])
+                .prop_map(|code| Piece::Text(char::from_u32(code).expect("a scalar value").to_string()));
+            prop_oneof![
+                4 => prop::sample::select(vec!["{", "}", "\"id\": \"pl\"", " ", "\n"]).prop_map(|t| Piece::Text(t.to_string())),
+                3 => character,
+                2 => prop::sample::select(BROKEN.to_vec()).prop_map(Piece::Broken),
+            ]
+        }
+
+        fn file() -> impl Strategy<Value = File> {
+            let start = prop_oneof![4 => Just(Start::Plain), 2 => (1usize..=2).prop_map(Start::Marks), 1 => Just(Start::Wide)];
+            let filler = prop_oneof![3 => (0u64..=64).prop_map(Filler::Few), 1 => (-2i64..=2).prop_map(Filler::ToLimit)];
+            let said = prop_oneof![
+                4 => (-3i64..=3).prop_map(Said::Truth),
+                1 => prop::sample::select(vec![0, LIMIT - 1, LIMIT, LIMIT + 1, u64::MAX]).prop_map(Said::Exactly),
+            ];
+            let fault = prop_oneof![
+                4 => Just(Fault::Never),
+                1 => Just(Fault::Interrupted),
+                1 => prop_oneof![Just(0u64), Just(u64::MAX), any::<u64>()].prop_map(Fault::FailsAt),
+            ];
+            let chunk = prop::sample::select(vec![1usize, 3, 4096, usize::MAX]);
+            (start, prop::collection::vec(piece(), 0..8), filler, prop::bool::weighted(0.1), said, chunk, fault).prop_map(
+                |(start, pieces, filler, cut_lead, said, chunk, fault)| File { start, pieces, filler, cut_lead, said, chunk, fault },
+            )
+        }
+
+        proptest! {
+            /// R4-N37 and R5-B9 item 6. A catalogue file is read whole as text exactly when it said a
+            /// size within the limit, holds no more than the limit, could be read to its end and is
+            /// UTF-8 - and then as what it says, less one leading byte order mark. Every other file is
+            /// refused, by the first of those it fails, and the refusal says which.
+            #[test]
+            fn a_catalogue_file_is_its_text_or_a_refusal_that_says_why(file in file()) {
+                let path = std::path::Path::new("drawn.json");
+                let read = read_catalogue_text(file.reader(), file.said(), path);
+                let reached = file.length().min(LIMIT + 1);
+                let refusal = |read: &Result<String, String>| read.as_ref().err().cloned().unwrap_or_default();
+                if file.said() > LIMIT {
+                    let owed = format!("drawn.json is {} bytes, past the {LIMIT}-byte limit", file.said());
+                    prop_assert!(refusal(&read).contains(&owed), "{:?}: {:?}", file.said(), read.map(|t| t.len()));
+                } else if file.fails_at().is_some_and(|at| at < reached) {
+                    prop_assert!(refusal(&read).starts_with("cannot read drawn.json: the disk went away"), "{:?}", read.map(|t| t.len()));
+                } else if file.length() > LIMIT {
+                    prop_assert!(refusal(&read).contains("grew past the"), "{:?}", read.map(|t| t.len()));
+                } else if !file.is_text() {
+                    prop_assert!(refusal(&read).contains("it is not UTF-8 text"), "{:?}", read.map(|t| t.len()));
+                } else {
+                    let text = read.map_err(|e| TestCaseError::fail(format!("refused a text file: {e}")))?;
+                    let owed = file.text();
+                    prop_assert!(text == owed, "read {} bytes, owed {}: {:?} against {:?}", text.len(), owed.len(),
+                        text.chars().take(16).collect::<String>(), owed.chars().take(16).collect::<String>());
+                }
+            }
+        }
+
+        /// Characters that do not show as themselves, by name and written as numbers: both ends of
+        /// the control ranges and the ones a terminal acts on, the format characters of the measured
+        /// attacks, the two separators and format characters past the first plane.
+        const HIDDEN: [u32; 30] = [
+            0x00, 0x09, 0x0A, 0x0D, 0x1B, 0x1F, 0x7F, 0x80, 0x9B, 0x9F, 0xAD, 0x061C, 0x200B, 0x200E, 0x200F,
+            0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x206F, 0x2028, 0x2029, 0xFEFF, 0xFFF9, 0xFFFB, 0x1D173,
+            0xE0001, 0xE0020, 0xE007F,
+        ];
+
+        /// Characters that show: ASCII with the two JSON has to escape, letters of the catalogues'
+        /// languages, a combining mark, an emoji, and the neighbours of the hidden ranges.
+        const SHOWN: [u32; 18] = [
+            0x41, 0x7A, 0x20, 0x22, 0x5C, 0x7E, 0x0105, 0x015B, 0x0436, 0x6708, 0x0301, 0x1F600, 0xAC, 0xAE, 0x200A,
+            0x2010, 0x2070, 0xFEFE,
+        ];
+
+        /// Keys a catalogue file is read by, so a drawn tree also reaches the fields a typed read
+        /// quotes.
+        const FIELDS: [&str; 12] =
+            ["schema", "id", "name", "en", "local", "weekend", "holidays", "rule", "applies_to", "moment", "base", "steps"];
+
+        fn is_hidden(c: char) -> bool {
+            HIDDEN.contains(&(c as u32))
+        }
+
+        fn drawn_text(hidden_weight: u32) -> impl Strategy<Value = String> {
+            let character = prop_oneof![
+                8 => prop::sample::select(SHOWN.to_vec()),
+                hidden_weight => prop::sample::select(HIDDEN.to_vec()),
+            ];
+            prop::collection::vec(character, 0..6)
+                .prop_map(|codes| codes.into_iter().map(|code| char::from_u32(code).expect("a scalar value")).collect())
+        }
+
+        /// A JSON document as a catalogue file may hold one.
+        #[derive(Debug, Clone)]
+        enum Tree {
+            Text(String),
+            Number(i64),
+            Flag(bool),
+            Nothing,
+            List(Vec<Tree>),
+            Object(std::collections::BTreeMap<String, Tree>),
+        }
+
+        fn tree() -> impl Strategy<Value = Tree> {
+            let leaf = prop_oneof![
+                4 => drawn_text(1).prop_map(Tree::Text),
+                1 => any::<i64>().prop_map(Tree::Number),
+                1 => any::<bool>().prop_map(Tree::Flag),
+                1 => Just(Tree::Nothing),
+            ];
+            let key = prop_oneof![2 => prop::sample::select(FIELDS.to_vec()).prop_map(str::to_string), 1 => drawn_text(1)];
+            leaf.prop_recursive(4, 32, 4, move |inner| {
+                prop_oneof![
+                    prop::collection::vec(inner.clone(), 0..4).prop_map(Tree::List),
+                    prop::collection::btree_map(key.clone(), inner, 0..4).prop_map(Tree::Object),
+                ]
+            })
+        }
+
+        /// A text as JSON writes it: the quote, the backslash and every control character escaped,
+        /// and with `ascii` every other character outside ASCII too, past the first plane as two
+        /// UTF-16 halves - the way a shared file may carry it.
+        fn write_text(text: &str, ascii: bool, out: &mut String) {
+            out.push('"');
+            for c in text.chars() {
+                match c {
+                    '"' => out.push_str("\\\""),
+                    '\\' => out.push_str("\\\\"),
+                    c if (c as u32) < 0x20 || (ascii && !c.is_ascii()) => {
+                        let mut halves = [0u16; 2];
+                        for half in c.encode_utf16(&mut halves) {
+                            out.push_str(&format!("\\u{half:04x}"));
+                        }
+                    }
+                    c => out.push(c),
+                }
+            }
+            out.push('"');
+        }
+
+        fn write_tree(tree: &Tree, ascii: bool, out: &mut String) {
+            match tree {
+                Tree::Text(text) => write_text(text, ascii, out),
+                Tree::Number(n) => out.push_str(&n.to_string()),
+                Tree::Flag(flag) => out.push_str(&flag.to_string()),
+                Tree::Nothing => out.push_str("null"),
+                Tree::List(items) => {
+                    out.push('[');
+                    for (i, item) in items.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        write_tree(item, ascii, out);
+                    }
+                    out.push(']');
+                }
+                Tree::Object(map) => {
+                    out.push('{');
+                    for (i, (key, item)) in map.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        write_text(key, ascii, out);
+                        out.push(':');
+                        write_tree(item, ascii, out);
+                    }
+                    out.push('}');
+                }
+            }
+        }
+
+        /// Where a hidden character stands, as a refusal names it: the place, the code point and the
+        /// position in characters from 1 - for every text and key of `tree` that holds one.
+        fn hidden_places(tree: &Tree, path: &str, found: &mut Vec<String>) {
+            let place = if path.is_empty() { "at the top level".to_string() } else { format!("in `{path}`") };
+            let first_hidden = |text: &str| text.chars().enumerate().find(|&(_, c)| is_hidden(c)).map(|(at, c)| (at + 1, c as u32));
+            match tree {
+                Tree::Text(text) => {
+                    if let Some((at, code)) = first_hidden(text) {
+                        found.push(format!("the text {place} holds U+{code:04X} at character {at} "));
+                    }
+                }
+                Tree::List(items) => {
+                    for (i, item) in items.iter().enumerate() {
+                        hidden_places(item, &format!("{path}[{i}]"), found);
+                    }
+                }
+                Tree::Object(map) => {
+                    for (key, item) in map {
+                        if let Some((at, code)) = first_hidden(key) {
+                            found.push(format!("a key {place} holds U+{code:04X} at character {at} "));
+                        }
+                        let child = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+                        hidden_places(item, &child, found);
+                    }
+                }
+                Tree::Number(_) | Tree::Flag(_) | Tree::Nothing => {}
+            }
+        }
+
+        proptest! {
+            /// R5-B1. A catalogue file holding a character that does not show as itself, in any text or
+            /// key at any depth, written as itself or as an escape, is refused by its place, its code
+            /// point and its position - and a file without one is not. The place named is one where
+            /// such a character stands, whichever the walk meets first.
+            ///
+            /// And no refusal of a calendar or a preset carries such a character as itself: a file cut
+            /// short is not JSON, and one with a key given twice hides its first value from the walk, so
+            /// what the typed read quotes from them is written as codes.
+            #[test]
+            fn a_hidden_character_anywhere_is_refused_by_its_place_and_never_repeated(
+                tree in tree(),
+                ascii in any::<bool>(),
+                cut in any::<prop::sample::Index>(),
+                hidden in drawn_text(3),
+            ) {
+                let mut text = String::new();
+                write_tree(&tree, ascii, &mut text);
+                let mut places = Vec::new();
+                hidden_places(&tree, "", &mut places);
+                match refuse_hidden_characters("drawn", &text) {
+                    Ok(()) => prop_assert!(places.is_empty(), "{:?} passed, holding {:?}", text, places),
+                    Err(refusal) => prop_assert!(
+                        places.iter().any(|place| refusal.contains(place.as_str())),
+                        "{:?}: {} - the places that hold one: {:?}", text, refusal, places
+                    ),
+                }
+
+                let ends: Vec<usize> = text.char_indices().map(|(at, _)| at).chain([text.len()]).collect();
+                let short = text[..ends[cut.index(ends.len())]].to_string();
+                // The first `name` is a text where both readers want an object, so the typed read
+                // quotes it - and only the second is in the document the walk sees.
+                let mut twice = String::from(r#"{"schema":"chronomock.calendar/1","name":"#);
+                write_text(&hidden, ascii, &mut twice);
+                twice.push_str(r#","name":"#);
+                twice.push_str(&text);
+                twice.push('}');
+                for file in [&short, &twice] {
+                    let refusals = [calendar_from_text(file).err(), crate::preset::parse_preset(file).err().map(|e| e.message().to_string())];
+                    for refusal in refusals.into_iter().flatten() {
+                        prop_assert!(!refusal.chars().any(is_hidden), "{:?} is refused with a hidden character: {:?}", file, refusal);
+                    }
+                }
+            }
+        }
+
+        /// What a field of a catalogue file holds, as docs/04 writes the two schemas - restated here as
+        /// the contract, not read from the DTOs it checks.
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        enum Holds {
+            /// The file itself: an object, and a list there is refused like any other kind.
+            File,
+            Text,
+            /// A whole number in this range.
+            Number(i128, i128),
+            Flag,
+            List,
+            Object,
+            /// A preset's base: a keyword or an object.
+            TextOrObject,
+            /// A preset step: an object with one key.
+            Step,
+            /// A default, a text in a language other than English, a field a preset does not read.
+            Anything,
+        }
+
+        const I64: Holds = Holds::Number(i64::MIN as i128, i64::MAX as i128);
+        const I32: Holds = Holds::Number(i32::MIN as i128, i32::MAX as i128);
+        const U32: Holds = Holds::Number(0, u32::MAX as i128);
+
+        /// The calendar schema (docs/04 section 5), field by field, with `[]` for any item of a list.
+        /// `None` for a path the schema does not have - a calendar refuses every unknown field.
+        fn calendar_field(path: &[&str]) -> Option<(Holds, bool)> {
+            use Holds::{File, List, Object, Text};
+            Some(match path {
+                [] => (File, false),
+                ["schema" | "id" | "country" | "observed" | "law_as_of" | "source"] => (Text, false),
+                ["stability" | "subregion"] => (Text, true),
+                ["name"] => (Object, true),
+                ["name", "en" | "local"] | ["holidays", "[]", "name", "en" | "local"] => (Text, false),
+                ["weekend"] | ["holidays"] => (List, false),
+                ["weekend", "[]"] => (Text, false),
+                ["valid_from"] => (I64, false),
+                ["holidays", "[]"] | ["holidays", "[]", "name" | "rule"] => (Object, false),
+                ["holidays", "[]", "id" | "source"] | ["holidays", "[]", "rule", "type" | "weekday"] => (Text, false),
+                ["holidays", "[]", "rule", "month" | "day"] => (U32, false),
+                ["holidays", "[]", "rule", "order" | "offset"] => (I32, false),
+                ["holidays", "[]", "valid_from" | "valid_to"] => (I64, true),
+                _ => return None,
+            })
+        }
+
+        /// The preset schema (docs/04 section 4.2). A preset reads past the fields it does not know,
+        /// so everything outside the table holds anything.
+        fn preset_field(path: &[&str]) -> (Holds, bool) {
+            use Holds::{Anything, File, Flag, List, Object, Step, Text, TextOrObject};
+            match path {
+                [] => (File, false),
+                ["schema" | "id" | "applies_to"] => (Text, false),
+                ["name" | "explains"] | ["moment"] | ["parameters", "[]"] => (Object, false),
+                ["name" | "explains", "en"] | ["parameters", "[]", "label", "en"] => (Text, false),
+                ["parameters"] | ["moment", "steps"] => (List, false),
+                ["parameters", "[]", "id" | "type"] => (Text, false),
+                ["parameters", "[]", "label"] | ["time_mode"] => (Object, true),
+                ["parameters", "[]", "default_hint"] | ["market"] => (Text, true),
+                ["moment", "base"] => (TextOrObject, false),
+                ["moment", "base", "absolute" | "absolute_utc" | "parameter"] => (Text, true),
+                ["moment", "steps", "[]"] => (Step, false),
+                ["moment", "steps", "[]", "shift"] => (Object, false),
+                ["moment", "steps", "[]", "shift", "sign" | "unit" | "parameter"] => (Text, true),
+                ["moment", "steps", "[]", "shift", "amount"] | ["time_mode", "multiplier"] => (I64, true),
+                ["moment", "steps", "[]", "set_time" | "snap" | "nearest" | "zone"] => (Text, false),
+                ["time_mode", "scale_duration_clock"] => (Flag, false),
+                _ => (Anything, false),
+            }
+        }
+
+        /// Whether a reader of this field has to refuse `value`. A null where the field may be left out
+        /// is the field left out. A list where a nested object belongs is read by position (the note on
+        /// `ObjectOnly`), so nothing is claimed for it, while the file itself as a list is refused.
+        fn must_refuse(holds: Holds, optional: bool, value: &serde_json::Value) -> bool {
+            use serde_json::Value;
+            if holds == Holds::Anything || (optional && value.is_null()) {
+                return false;
+            }
+            match (holds, value) {
+                (Holds::Object | Holds::TextOrObject | Holds::Step, Value::Array(_)) => false,
+                (Holds::File | Holds::Object | Holds::TextOrObject | Holds::Step, Value::Object(_))
+                | (Holds::Text | Holds::TextOrObject, Value::String(_))
+                | (Holds::Flag, Value::Bool(_))
+                | (Holds::List, Value::Array(_)) => false,
+                (Holds::Number(low, high), Value::Number(n)) => {
+                    let whole = n.as_i64().map(i128::from).or_else(|| n.as_u64().map(i128::from));
+                    !whole.is_some_and(|n| (low..=high).contains(&n))
+                }
+                _ => true,
+            }
+        }
+
+        /// What serde says in the words of the Rust it builds - none of it may reach the person who
+        /// wrote the file (finding (g) of PR A). A variant is the Rust name of a rule type and of a step,
+        /// and a word of the preset schema too (a parameter type, `unknown variant 'x'` of its label), so
+        /// only serde's phrases are listed - serde quotes a name with backticks.
+        const RUST_WORDS: [&str; 18] = [
+            "Dto", "struct ", "enum ", "i64", "i32", "u32", "u64", "sequence", "map", "invalid length", "untagged",
+            "newtype", "unknown variant `", "unit variant", "variant identifier", "variant of", "Option", "unit value",
+        ];
+
+        /// What a JSON parser says of text that is not JSON. Every file here is JSON, so a refusal in
+        /// these words sends its author looking for a missing comma that is not there.
+        const NOT_JSON_WORDS: [&str; 6] =
+            ["expected value", "EOF while parsing", "trailing c", "key must be a string", "expected `,`", "expected `:`"];
+
+        /// A value of each kind JSON has, with the edges of every width a field is read in.
+        fn replacement() -> impl Strategy<Value = serde_json::Value> {
+            let past_i64_low: serde_json::Value = serde_json::from_str("-9223372036854775809").expect("a number");
+            prop::sample::select(vec![
+                serde_json::json!(""),
+                serde_json::json!("x"),
+                serde_json::json!("2002"),
+                serde_json::json!(0),
+                serde_json::json!(-1),
+                serde_json::json!(13),
+                serde_json::json!(2_147_483_648_i64),
+                serde_json::json!(4_294_967_296_i64),
+                serde_json::json!(9_223_372_036_854_775_808_u64),
+                past_i64_low,
+                serde_json::json!(1.5),
+                serde_json::json!(2.0),
+                serde_json::json!(true),
+                serde_json::json!(null),
+                serde_json::json!([]),
+                serde_json::json!(["x"]),
+                serde_json::json!([1]),
+                serde_json::json!({}),
+            ])
+        }
+
+        /// Every catalogue file that ships, read once: whether it is a calendar, and its document.
+        fn shipped() -> &'static [(bool, serde_json::Value)] {
+            static SHIPPED: std::sync::OnceLock<Vec<(bool, serde_json::Value)>> = std::sync::OnceLock::new();
+            SHIPPED.get_or_init(|| {
+                let mut files = Vec::new();
+                for (folder, calendar) in [("calendars", true), ("presets", false)] {
+                    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(folder);
+                    let mut paths: Vec<_> = std::fs::read_dir(&dir).expect("a shipped folder").map(|e| e.expect("an entry").path()).collect();
+                    paths.sort();
+                    for path in paths.into_iter().filter(|p| p.extension().is_some_and(|x| x == "json")) {
+                        let text = std::fs::read_to_string(&path).expect("a shipped file");
+                        files.push((calendar, serde_json::from_str(&text).expect("a shipped file is JSON")));
+                    }
+                }
+                assert!(files.len() >= 17, "the shipped catalogue looks empty: {}", files.len());
+                files
+            })
+        }
+
+        /// Every place in `value`, as the keys and list positions that reach it.
+        fn places(value: &serde_json::Value, path: &mut Vec<String>, found: &mut Vec<Vec<String>>) {
+            found.push(path.clone());
+            let children: Vec<(String, &serde_json::Value)> = match value {
+                serde_json::Value::Array(items) => items.iter().enumerate().map(|(i, item)| (i.to_string(), item)).collect(),
+                serde_json::Value::Object(map) => map.iter().map(|(key, item)| (key.clone(), item)).collect(),
+                _ => Vec::new(),
+            };
+            for (step, child) in children {
+                path.push(step);
+                places(child, path, found);
+                path.pop();
+            }
+        }
+
+        /// The place written as the schema tables read it: a list position as `[]`.
+        fn schema_path<'a>(document: &serde_json::Value, path: &'a [String]) -> Vec<&'a str> {
+            let mut at = document;
+            let mut words = Vec::new();
+            for step in path {
+                if let serde_json::Value::Array(items) = at {
+                    words.push("[]");
+                    at = &items[step.parse::<usize>().expect("a list position")];
+                } else {
+                    words.push(step.as_str());
+                    at = &at[step.as_str()];
+                }
+            }
+            words
+        }
+
+        fn replace(document: &mut serde_json::Value, path: &[String], value: serde_json::Value) {
+            let mut at = document;
+            for step in path {
+                at = match at {
+                    serde_json::Value::Array(items) => &mut items[step.parse::<usize>().expect("a list position")],
+                    other => &mut other[step.as_str()],
+                };
+            }
+            *at = value;
+        }
+
+        proptest! {
+            /// Finding (g) of PR A, for any place in any shipped file. A value of another kind than the
+            /// field holds, or a number past the width it is read in, is refused - and no refusal of a
+            /// catalogue file speaks of Rust types, while one that names a place in the file names a
+            /// line and a column an editor shows.
+            #[test]
+            fn a_wrong_kind_anywhere_is_refused_in_the_files_own_words(
+                which in any::<prop::sample::Index>(),
+                at in any::<prop::sample::Index>(),
+                value in replacement(),
+            ) {
+                let (calendar, original) = which.get(shipped());
+                let mut found = Vec::new();
+                places(original, &mut Vec::new(), &mut found);
+                let path = at.get(&found);
+                let words = schema_path(original, path);
+                let (holds, optional) = if *calendar {
+                    calendar_field(&words).ok_or_else(|| TestCaseError::fail(format!("{words:?} is not in the calendar schema table")))?
+                } else {
+                    preset_field(&words)
+                };
+                let mut document = original.clone();
+                replace(&mut document, path, value.clone());
+                let text = document.to_string();
+                let (kind, read) = if *calendar {
+                    ("calendar", calendar_from_text(&text).err())
+                } else {
+                    ("preset", crate::preset::parse_preset(&text).err().map(|e| e.message().to_string()))
+                };
+                if must_refuse(holds, optional, &value) {
+                    prop_assert!(read.is_some(), "{}: {:?} at {:?} ({:?}) was read", kind, value, words, holds);
+                }
+                let Some(refusal) = read else { return Ok(()) };
+                for word in RUST_WORDS.iter().chain(&NOT_JSON_WORDS) {
+                    prop_assert!(!refusal.contains(word), "{} at {:?}: says {:?} - {}", kind, words, word, refusal);
+                }
+                if let Some(rest) = refusal.strip_prefix(&format!("bad {kind} JSON")) {
+                    let place = rest.split_once(": ").map_or(rest, |(place, _)| place);
+                    let column = place.strip_prefix(" at line ").and_then(|p| p.split_once(", column ")).map(|(_, c)| c);
+                    prop_assert!(
+                        place.is_empty() || column.and_then(|c| c.parse::<u64>().ok()).is_some_and(|c| c >= 1),
+                        "{} at {:?}: the place is not one an editor shows - {}", kind, words, refusal
+                    );
+                }
+            }
+        }
+
+        const WEEKDAYS: [&str; 7] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+        /// How long each month runs in a leap year - the longest it runs in any year, which is the
+        /// bound a fixed holiday is held to (February 29 is a holiday a calendar may name, R2-N7).
+        const LONGEST: [u32; 12] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+        const OBSERVANCES: [(&str, chrono_core::calendar::Observed); 4] = [
+            ("none", chrono_core::calendar::Observed::None),
+            ("sat_to_fri_sun_to_mon", chrono_core::calendar::Observed::SatToFriSunToMon),
+            ("sun_to_mon", chrono_core::calendar::Observed::SunToMon),
+            ("weekend_to_mon", chrono_core::calendar::Observed::WeekendToMon),
+        ];
+
+        /// Saturday and Sunday, the one weekend an observance rule is defined for (R2-N8).
+        const SATURDAY_SUNDAY: u8 = 0b100_0001;
+
+        fn days_in(year: i64, month: u32) -> u32 {
+            let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+            if month == 2 && !leap { 28 } else { LONGEST[month as usize - 1] }
+        }
+
+        /// A day's name as an author may write it: lower case, capitalised or in capitals.
+        fn written(day: u32, case: u8) -> String {
+            let name = WEEKDAYS[day as usize];
+            match case % 3 {
+                0 => name.to_string(),
+                1 => name[..1].to_uppercase() + &name[1..],
+                _ => name.to_uppercase(),
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        enum DrawnRule {
+            Fixed(u32, u32),
+            Nth { month: u32, weekday: u32, case: u8, order: i32 },
+            Easter(i32),
+        }
+
+        #[derive(Debug, Clone)]
+        struct DrawnHoliday {
+            rule: DrawnRule,
+            from: Option<i64>,
+            to: Option<i64>,
+        }
+
+        /// A calendar as its author writes it, every field within what the schema allows.
+        #[derive(Debug, Clone)]
+        struct DrawnCalendar {
+            /// Each day off with the way its name is written - repeated, in any order.
+            weekend: Vec<(u32, u8)>,
+            observed: usize,
+            valid_from: i64,
+            law: (i64, u32, u32),
+            holidays: Vec<DrawnHoliday>,
+            /// With the contract's fields this reader does not use: a title, a stability, a subregion.
+            titled: bool,
+        }
+
+        impl DrawnCalendar {
+            fn json(&self) -> serde_json::Value {
+                let holidays: Vec<serde_json::Value> = self.holidays.iter().enumerate().map(|(i, h)| holiday_json(i, h)).collect();
+                let (year, month, day) = self.law;
+                let mut calendar = serde_json::json!({
+                    "schema": "chronomock.calendar/1",
+                    "id": "drawn",
+                    "country": "XX",
+                    "weekend": self.weekend.iter().map(|&(day, case)| written(day, case)).collect::<Vec<_>>(),
+                    "observed": OBSERVANCES[self.observed].0,
+                    "valid_from": self.valid_from,
+                    "law_as_of": format!("{year:04}-{month:02}-{day:02}"),
+                    "source": "drawn",
+                    "holidays": holidays,
+                });
+                if self.titled {
+                    calendar["name"] = serde_json::json!({ "en": "Drawn", "local": "Drawn" });
+                    calendar["stability"] = "unstable".into();
+                    calendar["subregion"] = serde_json::Value::Null;
+                }
+                calendar
+            }
+
+            /// The calendar this file describes, worked out from the model.
+            fn calendar(&self) -> chrono_core::calendar::Calendar {
+                use chrono_core::calendar::{Calendar, Holiday, HolidayRule};
+                let mut weekend: Vec<u32> = self.weekend.iter().map(|&(day, _)| day).collect();
+                weekend.sort_unstable();
+                weekend.dedup();
+                let (year, month, day) = self.law;
+                let holidays = self.holidays.iter().enumerate().map(|(i, h)| Holiday {
+                    id: format!("h{i}"),
+                    name_en: format!("Holiday {i}"),
+                    name_local: format!("{}wi{}to {i}", char::from_u32(0x015A).expect("a letter"), char::from_u32(0x0119).expect("a letter")),
+                    rule: match h.rule {
+                        DrawnRule::Fixed(month, day) => HolidayRule::Fixed { month, day },
+                        DrawnRule::Nth { month, weekday, order, .. } => HolidayRule::NthWeekday { month, weekday, order },
+                        DrawnRule::Easter(offset) => HolidayRule::EasterOffset { offset },
+                    },
+                    valid_from: h.from,
+                    valid_to: h.to,
+                    source: format!("source {i}"),
+                });
+                Calendar {
+                    id: "drawn".into(),
+                    country: "XX".into(),
+                    weekend,
+                    observed: OBSERVANCES[self.observed].1,
+                    valid_from: Some(self.valid_from),
+                    law_as_of: Some(chrono_core::calc::CivilDateTime { year, month, day, hour: 0, minute: 0, second: 0 }),
+                    holidays: holidays.collect(),
+                }
+            }
+        }
+
+        fn rule_json(rule: &DrawnRule) -> serde_json::Value {
+            match *rule {
+                DrawnRule::Fixed(month, day) => serde_json::json!({ "type": "fixed", "month": month, "day": day }),
+                DrawnRule::Nth { month, weekday, case, order } => {
+                    serde_json::json!({ "type": "nth_weekday", "month": month, "weekday": written(weekday, case), "order": order })
+                }
+                DrawnRule::Easter(offset) => serde_json::json!({ "type": "easter_offset", "offset": offset }),
+            }
+        }
+
+        fn holiday_json(i: usize, holiday: &DrawnHoliday) -> serde_json::Value {
+            let mut json = serde_json::json!({
+                "id": format!("h{i}"),
+                "name": { "en": format!("Holiday {i}"), "local": format!("{}wi{}to {i}", char::from_u32(0x015A).expect("a letter"), char::from_u32(0x0119).expect("a letter")) },
+                "rule": rule_json(&holiday.rule),
+                "source": format!("source {i}"),
+            });
+            if let Some(from) = holiday.from {
+                json["valid_from"] = from.into();
+            }
+            if let Some(to) = holiday.to {
+                json["valid_to"] = to.into();
+            }
+            json
+        }
+
+        fn drawn_rule() -> impl Strategy<Value = DrawnRule> {
+            let fixed = (1u32..=12, any::<prop::sample::Index>(), any::<bool>()).prop_map(|(month, at, last)| {
+                let longest = LONGEST[month as usize - 1];
+                DrawnRule::Fixed(month, if last { longest } else { 1 + at.index(longest as usize) as u32 })
+            });
+            let nth = (1u32..=12, 0u32..7, any::<u8>(), prop_oneof![Just(-1i32), 1i32..=5])
+                .prop_map(|(month, weekday, case, order)| DrawnRule::Nth { month, weekday, case, order });
+            let easter = prop_oneof![Just(-80i32), Just(250), -80i32..=250].prop_map(DrawnRule::Easter);
+            prop_oneof![fixed, nth, easter]
+        }
+
+        /// A holiday whose years fit the calendar's: a window that does not end before `first`, the
+        /// calendar's first year, and does not end before it begins.
+        fn drawn_holiday(first: i64) -> impl Strategy<Value = DrawnHoliday> {
+            (drawn_rule(), prop::option::of(first - 40..=first + 40)).prop_flat_map(move |(rule, from)| {
+                let lower = from.unwrap_or(first).max(first);
+                prop::option::of(prop_oneof![Just(lower), lower..=lower + 40])
+                    .prop_map(move |to| DrawnHoliday { rule: rule.clone(), from, to })
+            })
+        }
+
+        fn drawn_calendar() -> impl Strategy<Value = DrawnCalendar> {
+            let law = (prop_oneof![1583i64..=1600, 1900i64..=2100, 9990i64..=9999], 1u32..=12, any::<prop::sample::Index>())
+                .prop_map(|(year, month, at)| (year, month, 1 + at.index(days_in(year, month) as usize) as u32));
+            // Any weekend with a working day in it, Saturday and Sunday more often than the rest.
+            let days_off = prop_oneof![2 => Just(SATURDAY_SUNDAY), 1 => 0u8..0x7F];
+            (law, days_off, prop::collection::vec(any::<u8>(), 7), any::<bool>(), any::<bool>()).prop_flat_map(
+                |(law, days_off, cases, repeated, titled)| {
+                    let mut weekend: Vec<(u32, u8)> = (0..7u32).filter(|d| days_off & (1 << d) != 0).map(|d| (d, cases[d as usize])).collect();
+                    if repeated && let Some(&(day, case)) = weekend.first() {
+                        weekend.push((day, case.wrapping_add(1)));
+                    }
+                    let observed = if days_off == SATURDAY_SUNDAY { (0usize..4).boxed() } else { Just(0usize).boxed() };
+                    let first = prop_oneof![Just(1583i64), Just(law.0), 1583i64..=law.0];
+                    (Just(weekend).prop_shuffle(), observed, first).prop_flat_map(move |(weekend, observed, valid_from)| {
+                        prop::collection::vec(drawn_holiday(valid_from), 0..=5).prop_map(move |holidays| DrawnCalendar {
+                            weekend: weekend.clone(),
+                            observed,
+                            valid_from,
+                            law,
+                            holidays,
+                            titled,
+                        })
+                    })
+                },
+            )
+        }
+
+        /// One thing wrong with a calendar, by name - each a refusal this reader owes, with its history.
+        #[derive(Debug, Clone)]
+        enum Flaw {
+            /// S-1: a week with no working day.
+            AllWeek,
+            /// R2-N8: an observance rule over a weekend other than Saturday and Sunday.
+            ForeignObserved { rule: usize, days_off: u8 },
+            UnknownDay(&'static str),
+            UnknownObserved(&'static str),
+            /// S-17 and R2-N7: a month or a day past its range, an order past the fifth, and R4-N39: an
+            /// Easter offset that leaves the year of its Easter.
+            Month(u32),
+            Day { month: u32, zero: bool },
+            Order(i32),
+            Easter(i32),
+            SameId,
+            Inverted,
+            EndsEarly,
+            /// R4-S20: a first year before the Gregorian calendar or after the law was read.
+            FirstYear(i64),
+            LawNotADate(&'static str),
+            /// R4-N38: an unknown field, at every level.
+            Unknown { level: u8, field: &'static str },
+            Schema(&'static str),
+        }
+
+        fn flaw() -> impl Strategy<Value = Flaw> {
+            prop_oneof![
+                Just(Flaw::AllWeek),
+                (1usize..4, (0u8..0x7F).prop_filter_map("Saturday and Sunday", |d| (d != SATURDAY_SUNDAY).then_some(d)))
+                    .prop_map(|(rule, days_off)| Flaw::ForeignObserved { rule, days_off }),
+                prop::sample::select(vec!["funday", "sat", "saturday "]).prop_map(Flaw::UnknownDay),
+                prop::sample::select(vec!["Sun_To_Mon", "sun-to-mon", "weekend", ""]).prop_map(Flaw::UnknownObserved),
+                prop::sample::select(vec![0u32, 13, u32::MAX]).prop_map(Flaw::Month),
+                (1u32..=12, any::<bool>()).prop_map(|(month, zero)| Flaw::Day { month, zero }),
+                prop::sample::select(vec![0i32, 6, -2, i32::MIN, i32::MAX]).prop_map(Flaw::Order),
+                prop::sample::select(vec![-81i32, 251, i32::MIN, i32::MAX]).prop_map(Flaw::Easter),
+                Just(Flaw::SameId),
+                Just(Flaw::Inverted),
+                Just(Flaw::EndsEarly),
+                prop::sample::select(vec![1582i64, i64::MIN, -2026, 0]).prop_map(Flaw::FirstYear),
+                Just(Flaw::FirstYear(i64::MAX)),
+                prop::sample::select(vec!["2026-1-1", "2026-02-29", "2026-13-01", "26-01-01", "2026/01/01", "2026-01-01T00:00:00", "+2026-01-0", ""])
+                    .prop_map(Flaw::LawNotADate),
+                (0u8..5, prop::sample::select(vec!["obsreved", "valid_form", "loacl", "dya", "Id"]))
+                    .prop_map(|(level, field)| Flaw::Unknown { level, field }),
+                prop::sample::select(vec!["chronomock.calendar/2", "chronomock.calendar/10", "Chronomock.calendar/1", ""]).prop_map(Flaw::Schema),
+            ]
+        }
+
+        /// `calendar` with `flaw` and nothing else wrong, and what the refusal has to say. A holiday-level
+        /// flaw lands on the first holiday, which is added when the calendar has none.
+        fn with_flaw(calendar: &DrawnCalendar, flaw: &Flaw) -> (serde_json::Value, String) {
+            let mut json = calendar.json();
+            let holidays = json["holidays"].as_array_mut().expect("a list");
+            while holidays.len() < 2 {
+                let extra = DrawnHoliday { rule: DrawnRule::Fixed(1, 1), from: None, to: None };
+                holidays.push(holiday_json(holidays.len(), &extra));
+            }
+            let first = calendar.valid_from;
+            let said = match *flaw {
+                Flaw::AllWeek => {
+                    json["weekend"] = (0..7).map(|d| written(d, 0)).collect::<Vec<_>>().into();
+                    json["observed"] = "none".into();
+                    "'weekend' lists all seven days".to_string()
+                }
+                Flaw::ForeignObserved { rule, days_off } => {
+                    json["weekend"] = (0..7u32).filter(|d| days_off & (1 << d) != 0).map(|d| written(d, 1)).collect::<Vec<_>>().into();
+                    json["observed"] = OBSERVANCES[rule].0.into();
+                    format!("calendar 'observed' is '{}'", OBSERVANCES[rule].0)
+                }
+                Flaw::UnknownDay(name) => {
+                    json["weekend"].as_array_mut().expect("a list").push(name.into());
+                    format!("unknown weekday '{}'", name.to_ascii_lowercase())
+                }
+                Flaw::UnknownObserved(name) => {
+                    json["observed"] = name.into();
+                    format!("unknown observed rule '{name}'")
+                }
+                Flaw::Month(month) => {
+                    json["holidays"][0]["rule"] = serde_json::json!({ "type": "fixed", "month": month, "day": 1 });
+                    format!("holiday 'h0': month {month} out of range")
+                }
+                Flaw::Day { month, zero } => {
+                    let day = if zero { 0 } else { LONGEST[month as usize - 1] + 1 };
+                    json["holidays"][0]["rule"] = serde_json::json!({ "type": "fixed", "month": month, "day": day });
+                    format!("holiday 'h0': day {day} out of range for month {month}")
+                }
+                Flaw::Order(order) => {
+                    json["holidays"][0]["rule"] = serde_json::json!({ "type": "nth_weekday", "month": 5, "weekday": "monday", "order": order });
+                    format!("holiday 'h0': order {order} out of range")
+                }
+                Flaw::Easter(offset) => {
+                    json["holidays"][0]["rule"] = serde_json::json!({ "type": "easter_offset", "offset": offset });
+                    format!("holiday 'h0': easter offset {offset} out of range")
+                }
+                Flaw::SameId => {
+                    json["holidays"][1]["id"] = "h0".into();
+                    "duplicate holiday id 'h0'".to_string()
+                }
+                Flaw::Inverted => {
+                    json["holidays"][0]["valid_from"] = (first + 1).into();
+                    json["holidays"][0]["valid_to"] = first.into();
+                    format!("holiday 'h0': valid_from {} is after valid_to {first}", first + 1)
+                }
+                Flaw::EndsEarly => {
+                    json["holidays"][0]["valid_from"] = serde_json::Value::Null;
+                    json["holidays"][0]["valid_to"] = (first - 1).into();
+                    format!("holiday 'h0': valid_to {} is before the calendar's valid_from {first}", first - 1)
+                }
+                Flaw::FirstYear(year) => {
+                    for holiday in json["holidays"].as_array_mut().expect("a list") {
+                        holiday["valid_from"] = serde_json::Value::Null;
+                        holiday["valid_to"] = serde_json::Value::Null;
+                    }
+                    let year = if year == i64::MAX { calendar.law.0 + 1 } else { year };
+                    json["valid_from"] = year.into();
+                    format!("calendar 'valid_from' is {year}, outside")
+                }
+                Flaw::LawNotADate(text) => {
+                    json["law_as_of"] = text.into();
+                    format!("calendar 'law_as_of' is '{text}', not a date")
+                }
+                Flaw::Unknown { level, field } => {
+                    let at = match level {
+                        0 => &mut json,
+                        1 => &mut json["holidays"][0],
+                        2 => &mut json["holidays"][0]["name"],
+                        3 => &mut json["holidays"][0]["rule"],
+                        _ => {
+                            json["name"] = serde_json::json!({ "en": "Drawn", "local": "Drawn" });
+                            &mut json["name"]
+                        }
+                    };
+                    at[field] = 1.into();
+                    format!("unknown field `{field}`")
+                }
+                Flaw::Schema(schema) => {
+                    json["schema"] = schema.into();
+                    format!("unsupported calendar schema '{schema}'")
+                }
+            };
+            (json, said)
+        }
+
+        proptest! {
+            /// A calendar written within its schema loads as exactly the calendar it describes - its
+            /// weekend however its days are written and repeated, its observance, its years, every
+            /// holiday with its rule and its window. And the same calendar with ONE thing wrong, from
+            /// the refusals this reader owes by name (S-1, S-17, R2-N7, R2-N8, R4-N38, R4-N39, R4-S20),
+            /// is refused with a message that names that thing.
+            #[test]
+            fn a_calendar_reads_as_written_or_is_refused_for_its_one_flaw(
+                calendar in drawn_calendar(),
+                flaw in prop::option::weighted(0.6, flaw()),
+            ) {
+                match flaw {
+                    None => {
+                        let text = calendar.json().to_string();
+                        let read = calendar_from_text(&text);
+                        prop_assert_eq!(read, Ok(calendar.calendar()), "{}", text);
+                    }
+                    Some(flaw) => {
+                        let (json, said) = with_flaw(&calendar, &flaw);
+                        let text = json.to_string();
+                        match calendar_from_text(&text) {
+                            Ok(_) => prop_assert!(false, "{:?} loaded: {}", flaw, text),
+                            Err(refusal) => prop_assert!(refusal.contains(&said), "{:?}: {} - owed {:?}", flaw, refusal, said),
+                        }
+                    }
+                }
+            }
+        }
     }
 }
