@@ -681,4 +681,283 @@ mod tests {
         let ra = parse_run_args(&words(&["app.exe", "--args", "--report", "--report", "r.txt"])).unwrap();
         assert_eq!(ra.report.as_deref(), Some("r.txt"));
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// What one part of a `run` command line sets when the parser takes it.
+        #[derive(Debug, Clone, PartialEq)]
+        enum Sets {
+            Target(String),
+            At(String),
+            Preset(String),
+            Zone(i32),
+            Mode(&'static str, Option<i64>),
+            Args(Vec<String>),
+            Cwd(String),
+            Ticks(u64),
+            Timeout(u64),
+            SetAfter(u64, i64),
+            JumpAfter(u64, String),
+            Report(String),
+            Param(String, String),
+            Switch(&'static str),
+        }
+
+        /// One part of a command line as typed: its words, and what it sets, `None` for a part the
+        /// parser has to refuse - a value it does not take, a flag it does not know, a flag at the
+        /// end with no value.
+        #[derive(Debug, Clone)]
+        struct Part {
+            words: Vec<String>,
+            sets: Option<Sets>,
+        }
+
+        /// A flag and one of its values, each value with what it sets or `None` when it is refused.
+        fn valued(flag: &'static str, values: Vec<(String, Option<Sets>)>) -> impl Strategy<Value = Part> {
+            prop::sample::select(values).prop_map(move |(value, sets)| Part { words: vec![flag.to_string(), value], sets })
+        }
+
+        fn values<const N: usize>(table: [(&str, Option<Sets>); N]) -> Vec<(String, Option<Sets>)> {
+            table.into_iter().map(|(value, sets)| (value.to_string(), sets)).collect()
+        }
+
+        /// An argument as a target receives it: any text without a double quote, blanks of every
+        /// kind inside it, a flag of the target's own, a path with spaces, nothing at all.
+        fn argument() -> impl Strategy<Value = String> {
+            let blank = prop_oneof![Just(" "), Just("\t"), Just("\u{a0}"), Just("\u{2028}"), Just("\u{3000}")];
+            prop_oneof![
+                4 => "[a-z0-9./=-]{1,8}",
+                2 => ("[a-z]{1,4}", blank, "[a-z]{0,4}").prop_map(|(a, blank, b)| format!("{a}{blank}{b}")),
+                1 => prop_oneof![Just("--help".to_string()), Just(r"C:\Program Files\x".to_string()), Just(String::new())],
+            ]
+        }
+
+        /// The `--args` value written from `args` the way the flag documents: an argument that is empty
+        /// or holds a blank goes inside double quotes, and `between` stands between two of them.
+        fn written(args: &[String], between: &str) -> String {
+            let quoted = |a: &String| if a.is_empty() || a.chars().any(char::is_whitespace) { format!("\"{a}\"") } else { a.clone() };
+            args.iter().map(quoted).collect::<Vec<_>>().join(between)
+        }
+
+        fn between() -> impl Strategy<Value = &'static str> {
+            prop_oneof![4 => Just(" "), 1 => Just("  "), 1 => Just("\t"), 1 => Just(" \t ")]
+        }
+
+        /// Any one part of a `run` command line: every flag with values it takes and values it
+        /// refuses, drawn by name at the edges (the largest multiplier and one past it, a tick count
+        /// past 64 bits, a zone a minute past the range), every switch, flags it does not know, and
+        /// a target, an ordinary one and one written with a single dash.
+        fn part() -> impl Strategy<Value = Part> {
+            let max = chrono_core::MULTIPLIER_MAX;
+            let switches = prop::sample::select(vec![
+                "--scale-duration", "--no-embedded", "--elevated-embedded", "--keep-background-timers", "--scale-qpc",
+                "--force", "--dry-run", "--json", "--report-args",
+            ])
+            .prop_map(|flag| Part { words: vec![flag.to_string()], sets: Some(Sets::Switch(flag)) });
+            let unknown = prop::sample::select(vec!["--AT", "--at=2026-01-01T00:00:00", "--unknown", "--"])
+                .prop_map(|flag| Part { words: vec![flag.to_string()], sets: None });
+            let target = prop::sample::select(vec!["app.exe", r"C:\Program Files\a b.exe", "-x"])
+                .prop_map(|t| Part { words: vec![t.to_string()], sets: Some(Sets::Target(t.to_string())) });
+            let args = (prop::collection::vec(argument(), 0..4), between()).prop_map(|(args, between)| Part {
+                words: vec!["--args".to_string(), written(&args, between)],
+                sets: Some(Sets::Args(args)),
+            });
+            let at = |v: &str| Some(Sets::At(v.to_string()));
+            let mode = |m: &'static str, n: Option<i64>| Some(Sets::Mode(m, n));
+            let flags = prop_oneof![
+                valued("--at", values([("2026-01-31T00:00:00", at("2026-01-31T00:00:00")), ("+3d", at("+3d")), ("--3d", None)])),
+                valued("--preset", values([("month-end", Some(Sets::Preset("month-end".into()))), ("--x", None)])),
+                valued("--zone", values([
+                    ("+02:00", Some(Sets::Zone(-120))), ("-05:30", Some(Sets::Zone(330))), ("+14:59", Some(Sets::Zone(-899))),
+                    ("+15:00", None), ("+05:+30", None), ("abc", None),
+                ])),
+                valued("--mode", vec![
+                    ("flow".into(), mode("flow", None)), ("frozen".into(), mode("frozen", None)),
+                    ("x60".into(), mode("multiplier", Some(60))), ("X2".into(), mode("multiplier", Some(2))),
+                    (format!("x{max}"), mode("multiplier", Some(max))), (format!("x{}", max + 1), None),
+                    ("x0".into(), None), ("x-5".into(), None), ("fast".into(), None), ("x".into(), None),
+                ]),
+                args,
+                valued("--cwd", values([
+                    ("work", Some(Sets::Cwd("work".into()))), (r"C:\work dir", Some(Sets::Cwd(r"C:\work dir".into()))),
+                    ("", None), ("   ", None), ("--x", None),
+                ])),
+                valued("--ticks", vec![
+                    ("0".into(), Some(Sets::Ticks(0))), ("5".into(), Some(Sets::Ticks(5))),
+                    (u64::MAX.to_string(), Some(Sets::Ticks(u64::MAX))), ((u128::from(u64::MAX) + 1).to_string(), None),
+                    ("-1".into(), None), ("x".into(), None),
+                ]),
+                valued("--timeout", values([("1", Some(Sets::Timeout(1))), ("30", Some(Sets::Timeout(30))), ("0", None), ("-1", None)])),
+                valued("--set-after", vec![
+                    ("3:60".into(), Some(Sets::SetAfter(3, 60))), ("0:1".into(), Some(Sets::SetAfter(0, 1))),
+                    (format!("1:{max}"), Some(Sets::SetAfter(1, max))), (format!("1:{}", max + 1), None),
+                    ("3:0".into(), None), ("3".into(), None), ("x:60".into(), None),
+                ]),
+                valued("--jump-after", values([
+                    ("3:2026-01-01T00:00:00", Some(Sets::JumpAfter(3, "2026-01-01T00:00:00".into()))),
+                    ("0:+1d", Some(Sets::JumpAfter(0, "+1d".into()))), ("3", None), ("x:2026", None),
+                ])),
+                valued("--report", values([("out.md", Some(Sets::Report("out.md".into()))), ("--x", None)])),
+                valued("--param", values([
+                    ("start_date=2026-01-01", Some(Sets::Param("start_date".into(), "2026-01-01".into()))),
+                    ("trial_length=30days", Some(Sets::Param("trial_length".into(), "30days".into()))),
+                    ("a==b", Some(Sets::Param("a".into(), "=b".into()))), ("novalue", None), ("=5", None),
+                ])),
+            ];
+            prop_oneof![8 => flags, 3 => switches, 1 => unknown, 2 => target]
+        }
+
+        /// A whole command line: a target or not, any parts in any order, now and then one part
+        /// given twice (R5-P16), and now and then a flag that takes a value standing last with none.
+        fn command_line() -> impl Strategy<Value = Vec<Part>> {
+            let target = Part { words: vec!["app.exe".into()], sets: Some(Sets::Target("app.exe".into())) };
+            let bare = prop::sample::select(vec!["--at", "--zone", "--mode", "--args", "--report", "--param"])
+                .prop_map(|flag| Part { words: vec![flag.to_string()], sets: None });
+            (
+                prop::collection::vec(part(), 0..7),
+                prop::bool::weighted(0.85),
+                prop::option::weighted(0.25, any::<prop::sample::Index>()),
+                prop::option::weighted(0.05, bare),
+            )
+                .prop_flat_map(move |(mut parts, with_target, twice, bare)| {
+                    if with_target {
+                        parts.push(target.clone());
+                    }
+                    if let Some(index) = twice.filter(|_| !parts.is_empty()) {
+                        parts.push(parts[index.index(parts.len())].clone());
+                    }
+                    (Just(parts).prop_shuffle(), Just(bare))
+                })
+                .prop_map(|(mut parts, bare)| {
+                    parts.extend(bare);
+                    parts
+                })
+        }
+
+        /// The fields a parse is judged by, from the parser and from the model alike.
+        #[derive(Debug, Clone, PartialEq)]
+        struct Seen {
+            target: String,
+            args: Vec<String>,
+            cwd: Option<String>,
+            at: Option<String>,
+            zone: Option<i32>,
+            mode: String,
+            multiplier: Option<i64>,
+            ticks: u64,
+            timeout: Option<u64>,
+            set_after: Option<(u64, i64)>,
+            jump_after: Option<(u64, String)>,
+            report: Option<String>,
+            preset: Option<String>,
+            params: Vec<(String, String)>,
+            /// scale-duration, embedded, elevated, background timers, scale-qpc, force, dry run, json, report args.
+            switches: [bool; 9],
+        }
+
+        fn seen(ra: &RunArgs) -> Seen {
+            let mut params: Vec<(String, String)> = ra.params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            params.sort();
+            Seen {
+                target: ra.target.clone(),
+                args: ra.args.clone(),
+                cwd: ra.cwd.clone(),
+                at: ra.at.clone(),
+                zone: ra.zone_bias_min,
+                mode: ra.mode.clone(),
+                multiplier: ra.multiplier,
+                ticks: ra.ticks,
+                timeout: ra.timeout_secs,
+                set_after: ra.set_after,
+                jump_after: ra.jump_after.clone(),
+                report: ra.report.clone(),
+                preset: ra.preset.clone(),
+                params,
+                switches: [
+                    ra.scale_duration, ra.embedded, ra.elevated_embedded, ra.keep_background_timers, ra.scale_qpc, ra.force,
+                    ra.dry_run, ra.json, ra.report_args,
+                ],
+            }
+        }
+
+        /// What the documented rules of `run` make of the parts: every part taken, a flag that takes
+        /// one value given once (`--param` once per id), one target, and none of the pairs that
+        /// contradict each other. `None` when the line has to be refused.
+        fn owed(parts: &[Part]) -> Option<Seen> {
+            let mut owed = Seen {
+                target: String::new(), args: Vec::new(), cwd: None, at: None, zone: None, mode: "flow".into(), multiplier: None,
+                ticks: 0, timeout: None, set_after: None, jump_after: None, report: None, preset: None, params: Vec::new(),
+                switches: [false, true, false, false, false, false, false, false, false],
+            };
+            let (mut targets, mut flags_once, mut time_flag) = (0, Vec::new(), false);
+            for part in parts {
+                // A flag with its value, other than `--param`, is a flag that takes one value.
+                let word = part.words[0].as_str();
+                if part.words.len() == 2 && word != "--param" {
+                    if flags_once.contains(&word) {
+                        return None;
+                    }
+                    flags_once.push(word);
+                }
+                match part.sets.clone()? {
+                    Sets::Target(t) => (targets, owed.target) = (targets + 1, t),
+                    Sets::At(at) => (owed.at, time_flag) = (Some(at), true),
+                    Sets::Preset(id) => owed.preset = Some(id),
+                    Sets::Zone(bias) => owed.zone = Some(bias),
+                    Sets::Mode(mode, n) => (owed.mode, owed.multiplier, time_flag) = (mode.into(), n, true),
+                    Sets::Args(args) => owed.args = args,
+                    Sets::Cwd(dir) => owed.cwd = Some(dir),
+                    Sets::Ticks(n) => owed.ticks = n,
+                    Sets::Timeout(n) => owed.timeout = Some(n),
+                    Sets::SetAfter(tick, n) => owed.set_after = Some((tick, n)),
+                    Sets::JumpAfter(tick, at) => owed.jump_after = Some((tick, at)),
+                    Sets::Report(path) => owed.report = Some(path),
+                    Sets::Param(id, value) => {
+                        if owed.params.iter().any(|(seen, _)| *seen == id) {
+                            return None;
+                        }
+                        owed.params.push((id, value));
+                    }
+                    Sets::Switch(flag) => {
+                        let at = ["--scale-duration", "--no-embedded", "--elevated-embedded", "--keep-background-timers",
+                            "--scale-qpc", "--force", "--dry-run", "--json", "--report-args"].iter().position(|f| *f == flag)?;
+                        owed.switches[at] = flag != "--no-embedded";
+                        time_flag |= flag == "--scale-duration";
+                    }
+                }
+            }
+            owed.params.sort();
+            let [_, embedded, elevated, _, _, _, _, _, report_args] = owed.switches;
+            let contradiction = (owed.preset.is_some() && time_flag)
+                || (!owed.params.is_empty() && owed.preset.is_none())
+                || (elevated && !embedded)
+                || (report_args && owed.report.is_none());
+            (targets == 1 && !contradiction).then_some(owed)
+        }
+
+        proptest! {
+            /// R5-P16. A `run` command line is taken exactly when the documented rules take it, with
+            /// every field what the line says: each part a flag takes or refuses, a flag that takes
+            /// one value given once, one target, and no pair of flags that contradict each other.
+            #[test]
+            fn a_run_command_line_is_taken_exactly_when_its_rules_take_it(parts in command_line()) {
+                let line: Vec<String> = parts.iter().flat_map(|part| part.words.clone()).collect();
+                let parsed = parse_run_args(&line);
+                prop_assert_eq!(parsed.as_ref().ok().map(seen), owed(&parts), "{:?} gave {:?}", line, parsed.as_ref().err());
+            }
+
+            /// An `--args` value splits into the arguments it was written from: an argument with any
+            /// blank in it, or empty, inside double quotes, and blanks of any width between them.
+            #[test]
+            fn an_args_value_splits_into_the_arguments_it_was_written_from(
+                args in prop::collection::vec(argument(), 0..6),
+                between in between(),
+            ) {
+                let value = written(&args, between);
+                prop_assert_eq!(split_args(&value), args, "{:?}", value);
+            }
+        }
+    }
 }

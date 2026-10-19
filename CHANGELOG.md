@@ -216,6 +216,10 @@ Notable changes to Chrono Mock, newest first. The format follows
   or more bytes was refused as `protocol.stream_unreadable` ("not UTF-8 text"), which sent a client
   looking at its encoding when the length was what it got wrong. It is now `protocol.line_too_long`, as
   for any other line past the limit.
+- **A pasted date with a sign in a number is refused.** `chrono calc --analyze "+1/1/2026"` read the
+  date as January 1st, because the integer reader takes a leading `+`. A US or Polish date is now
+  digits only in all three numbers, the rule an ISO date's fields have had since the analyser refused
+  `2026-+1-05`, and the refusal says so ("bad number ... (digits only)").
 - **A Chromium session that could not start says what it left behind.** When the browser never opened
   its debugging port, the session ended only the process it had started, tried once to remove the
   profile and reported `clean` whatever happened. It now ends everything the browser started and removes
