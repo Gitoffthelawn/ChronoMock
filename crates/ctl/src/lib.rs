@@ -2267,7 +2267,7 @@ pub fn scale_timer_due(due: i64, fake_now: i64, wall_m: i64, dur_m: i64) -> i64 
             return due; // not representable: hand the app's own value back, unscaled
         };
         if delta_fake <= 0 {
-            -1 // fake clock already at/past the due time: fire now
+            -1 // fake clock already at/past the due time: the shortest relative due, the next timer tick
         } else {
             -(delta_fake / m)
         }
@@ -3347,7 +3347,7 @@ mod tests {
         // due = fake_now + 6s (60_000_000 ticks) ahead - at x60 the real wait is 0.1s (1_000_000 ticks).
         let fake_now = 1_000_000_000;
         assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 60, 60), -1_000_000);
-        // Absolute already at or before fake_now: fire immediately.
+        // Absolute already at or before fake_now: the shortest relative due, fired at the next timer tick.
         assert_eq!(scale_timer_due(fake_now - 5, fake_now, 60, 60), -1);
         assert_eq!(scale_timer_due(fake_now, fake_now, 60, 60), -1);
         // Frozen and slow motion clamp to real length (>= 1): a relative due stays real...
@@ -3379,7 +3379,7 @@ mod tests {
         assert_eq!(scale_timer_due(-6_000_000, fake_now, 60, 1), -6_000_000);
         // At x1 the absolute due is still converted - a shifted DATE is enough to need it.
         assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 1, 1), -60_000_000);
-        // A due in the past on the fake clock fires at once in either kind of session.
+        // A due in the past on the fake clock gets the shortest relative due in either kind of session.
         assert_eq!(scale_timer_due(fake_now - 1, fake_now, 1, 1), -1);
     }
 
