@@ -12,6 +12,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// What the random properties share - edges, risky text, the weekly canary.
+#[cfg(test)]
+mod search;
+
 /// Wire protocol version carried in every message envelope.
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -877,6 +881,175 @@ mod tests {
                     assert_eq!(origin, "proto");
                 }
                 other => panic!("wrong event variant: {other:?}"),
+            }
+        }
+    }
+
+    mod properties {
+        use super::*;
+        use crate::search::{edge_i64, edge_u64, text};
+        use proptest::collection::vec;
+        use proptest::option;
+        use proptest::prelude::*;
+
+        fn edge_u32() -> impl Strategy<Value = u32> {
+            prop_oneof![3 => any::<u32>(), 1 => 0u32..=2, 1 => (u32::MAX - 2)..=u32::MAX]
+        }
+
+        fn edge_i32() -> impl Strategy<Value = i32> {
+            prop_oneof![3 => any::<i32>(), 1 => -2i32..=2, 1 => (i32::MAX - 2)..=i32::MAX, 1 => i32::MIN..=(i32::MIN + 2)]
+        }
+
+        /// A list as short as a field that is left off the wire when empty needs, and no longer.
+        fn few<S: Strategy>(item: S) -> impl Strategy<Value = Vec<S::Value>> {
+            vec(item, 0..3)
+        }
+
+        fn channel() -> impl Strategy<Value = CoveredChannel> {
+            (text(), edge_u64(), any::<bool>()).prop_map(|(channel, calls, capped)| CoveredChannel { channel, calls, capped })
+        }
+
+        fn followed() -> impl Strategy<Value = FollowedProcess> {
+            (edge_u32(), option::of(text())).prop_map(|(pid, image)| FollowedProcess { pid, image })
+        }
+
+        fn uncovered_child() -> impl Strategy<Value = UncoveredChild> {
+            (edge_u32(), edge_u32(), option::of(text()), option::of(text()))
+                .prop_map(|(pid, parent_pid, image, role)| UncoveredChild { pid, parent_pid, image, role })
+        }
+
+        fn engine() -> impl Strategy<Value = ReachedEngine> {
+            (edge_u32(), any::<u16>(), text(), edge_u32())
+                .prop_map(|(pid, port, browser, context_count)| ReachedEngine { pid, port, browser, context_count })
+        }
+
+        fn clock() -> impl Strategy<Value = Clock> {
+            (text(), edge_i32()).prop_map(|(wall, zone_bias_min)| Clock { wall, zone_bias_min })
+        }
+
+        fn coverage() -> impl Strategy<Value = Event> {
+            let kind = prop_oneof![Just(UNIT_PROCESS.to_string()), Just(UNIT_CONTEXT.to_string()), text()];
+            let lists = (few(channel()), few(channel()), few(text()), few(text()), few(text()), few(text()));
+            (edge_u32(), edge_u32(), kind, lists).prop_map(
+                |(v, pid, kind, (covered, observed, uncovered, unobserved, installed_late, warning_keys))| Event::Coverage {
+                    v,
+                    pid,
+                    kind,
+                    covered,
+                    observed,
+                    uncovered,
+                    unobserved,
+                    installed_late,
+                    warning_keys,
+                },
+            )
+        }
+
+        fn verdict() -> impl Strategy<Value = Event> {
+            (edge_u32(), option::of(edge_u64()), text(), any::<bool>(), text(), few(followed()), any::<bool>()).prop_map(
+                |(v, id, verdict, refuse_start, reason_key, left_running, family_search_incomplete)| Event::Verdict {
+                    v,
+                    id,
+                    verdict,
+                    refuse_start,
+                    reason_key,
+                    left_running,
+                    family_search_incomplete,
+                },
+            )
+        }
+
+        fn session_verdict() -> impl Strategy<Value = Event> {
+            let first = (edge_u32(), text(), text(), edge_u32(), few(text()), few(uncovered_child()));
+            let rest = (edge_u32(), edge_u32(), few(engine()), few(followed()), edge_u64(), option::of(text()));
+            (first, rest).prop_map(
+                |(
+                    (v, verdict, reason_key, process_count, warning_keys, uncovered_children),
+                    (uncovered_children_total, context_count, engines, followed, host_slept_ms, browser),
+                )| Event::SessionVerdict {
+                    v,
+                    verdict,
+                    reason_key,
+                    process_count,
+                    warning_keys,
+                    uncovered_children,
+                    uncovered_children_total,
+                    context_count,
+                    engines,
+                    followed,
+                    host_slept_ms,
+                    browser,
+                },
+            )
+        }
+
+        fn ended() -> impl Strategy<Value = Event> {
+            (edge_u32(), any::<bool>(), few(text()), option::of(edge_i32()), edge_i64(), edge_i64(), option::of(text())).prop_map(
+                |(v, clean, residue_keys, target_exit_code, elapsed_real_ms, elapsed_fake_ms, fake_end_wall)| Event::Ended {
+                    v,
+                    clean,
+                    residue_keys,
+                    target_exit_code,
+                    elapsed_real_ms,
+                    elapsed_fake_ms,
+                    fake_end_wall,
+                },
+            )
+        }
+
+        /// Every event the core writes, each of its optional and defaulted fields both present and
+        /// absent, its numbers at their edges and its text with what a one-line framing must survive.
+        fn event() -> impl Strategy<Value = Event> {
+            let ready = (edge_u32(), edge_u32(), text(), text(), few(text())).prop_map(
+                |(v, protocol, core_version, bitness, capabilities)| Event::Ready { v, protocol, core_version, bitness, capabilities },
+            );
+            let ack = (edge_u32(), edge_u64()).prop_map(|(v, id)| Event::Ack { v, id });
+            let state = (edge_u32(), clock(), clock(), edge_i64(), edge_i64(), edge_i64()).prop_map(
+                |(v, fake, real, multiplier, elapsed_fake_ms, elapsed_real_ms)| Event::State {
+                    v,
+                    fake,
+                    real,
+                    multiplier,
+                    elapsed_fake_ms,
+                    elapsed_real_ms,
+                },
+            );
+            let vanished = (edge_u32(), edge_u32(), text(), edge_u64())
+                .prop_map(|(v, pid, reason_key, lived_ms)| Event::Vanished { v, pid, reason_key, lived_ms });
+            let host_slept = (edge_u32(), edge_u64(), edge_u64())
+                .prop_map(|(v, slept_ms, total_slept_ms)| Event::HostSlept { v, slept_ms, total_slept_ms });
+            let error = (edge_u32(), option::of(edge_u64()), edge_i32(), text(), text())
+                .prop_map(|(v, id, code, key, origin)| Event::Error { v, id, code, key, origin });
+            prop_oneof![
+                ready.boxed(),
+                coverage().boxed(),
+                verdict().boxed(),
+                ack.boxed(),
+                state.boxed(),
+                vanished.boxed(),
+                session_verdict().boxed(),
+                host_slept.boxed(),
+                ended().boxed(),
+                error.boxed(),
+            ]
+        }
+
+        proptest! {
+            /// What the core writes is what a client reads, from exactly one line. A field left off the
+            /// wire when it is empty, false or zero (`skip_serializing_if`) is additive only while its
+            /// reader defaults it - without the default, the core's own most ordinary message (a verdict
+            /// that left nothing running) stops parsing. And a line break written into a message ends the
+            /// line under every reader of the stream. Both are judged on the value read back, compared as
+            /// JSON with the value sent.
+            #[test]
+            fn every_event_reads_back_as_itself_from_one_line(event in event()) {
+                let line = event.to_ndjson();
+                prop_assert!(!line.contains(['\n', '\r']), "the event takes more than one line: {:?}", line);
+                let back = parse_event(&line);
+                prop_assert!(back.is_ok(), "the line does not read back: {} ({:?})", line, back.err());
+                let sent = serde_json::to_value(&event).expect("an event is JSON");
+                let read = serde_json::to_value(back.expect("checked above")).expect("an event is JSON");
+                prop_assert_eq!(read, sent, "for the line {}", line);
             }
         }
     }

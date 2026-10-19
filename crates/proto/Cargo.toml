@@ -17,3 +17,6 @@ name = "chrono_proto"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

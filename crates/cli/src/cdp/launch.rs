@@ -319,7 +319,11 @@ fn give_up(child: PlainChild, user_data_dir: PathBuf, error: io::Error) -> Launc
 /// What `DevToolsActivePort` says: the port on the first line - a `0` there means "not chosen yet" -
 /// and the browser endpoint's path on the second, when there is one.
 fn read_active_port(port_file: &Path) -> Option<(u16, Option<String>)> {
-    let contents = std::fs::read_to_string(port_file).ok()?;
+    active_port_from(&std::fs::read_to_string(port_file).ok()?)
+}
+
+/// What the text of a `DevToolsActivePort` file says - [`read_active_port`] without the file.
+fn active_port_from(contents: &str) -> Option<(u16, Option<String>)> {
     let mut lines = contents.lines();
     let port: u16 = lines.next()?.trim().parse().ok()?;
     let path = lines.next().map(str::trim).filter(|p| !p.is_empty()).map(str::to_string);
@@ -726,5 +730,90 @@ mod tests {
 
         assert!(live.exists(), "a live driver's profile must survive the sweep");
         assert!(!dead.exists(), "a dead driver's profile is what the sweep is for");
+    }
+
+    mod properties {
+        use super::*;
+        use crate::cdp::is_browser_ws_path;
+        use proptest::prelude::*;
+
+        /// The first line of a port file: a port the browser chose, the zero it writes before it has
+        /// chosen, or something no browser writes - an empty line, a number past the range, words.
+        #[derive(Debug, Clone)]
+        enum PortLine {
+            Chosen(u16),
+            NotYet(&'static str),
+            Junk(&'static str),
+        }
+
+        fn port_line() -> impl Strategy<Value = PortLine> {
+            prop_oneof![
+                4 => (1u16..=u16::MAX).prop_map(PortLine::Chosen),
+                1 => prop_oneof![Just("0"), Just("00")].prop_map(PortLine::NotYet),
+                2 => prop_oneof![Just(""), Just("65536"), Just("99999"), Just("-1"), Just("92 22"), Just("0x1f"), Just("port")]
+                    .prop_map(PortLine::Junk),
+            ]
+        }
+
+        /// The second line, and whether it is a path of the shape a browser writes: an id of letters,
+        /// digits and hyphens up to 64 long, or the same with something else in it or around it - a
+        /// space, a carriage return inside, an escape, a slash, an id one past the limit, a page path.
+        fn path_line() -> impl Strategy<Value = (Option<String>, bool)> {
+            let good = "[A-Za-z0-9-]{1,64}".prop_map(|id| (Some(format!("/devtools/browser/{id}")), true));
+            let bad = prop_oneof![
+                ("[a-z0-9]{1,8}", prop_oneof![Just(" "), Just("\r"), Just("%0D"), Just("/"), Just("?"), Just("\t"), Just(".")], "[a-z0-9]{0,8}")
+                    .prop_map(|(a, inside, b)| format!("/devtools/browser/{a}{inside}{b}")),
+                "[a-z]{65,70}".prop_map(|id| format!("/devtools/browser/{id}")),
+                Just("/devtools/page/abc".to_string()),
+                Just("/devtools/browser/".to_string()),
+                Just(String::new()),
+            ]
+            .prop_map(|path| (Some(path), false));
+            prop_oneof![4 => good, 2 => bad, 1 => Just((None, false))]
+        }
+
+        proptest! {
+            /// The port file is written by the browser, and its second line goes into the request line
+            /// of the upgrade. Whatever the file says: a chosen port is read as itself and a zero as
+            /// "not chosen yet", and the only path that reaches the request line is one of the shape a
+            /// browser writes - read through either line ending and the blanks around it, so the path a
+            /// browser did write is never lost on the way.
+            #[test]
+            fn a_port_file_gives_its_port_and_only_a_browser_path_reaches_the_request(
+                port in port_line(),
+                (path, good) in path_line(),
+                blank in prop_oneof![Just(""), Just(" "), Just("\t ")],
+                crlf in any::<bool>(),
+                last_ends in any::<bool>(),
+            ) {
+                let end = if crlf { "\r\n" } else { "\n" };
+                let first = match &port {
+                    PortLine::Chosen(p) => p.to_string(),
+                    PortLine::NotYet(text) | PortLine::Junk(text) => (*text).to_string(),
+                };
+                let mut contents = format!("{blank}{first}{blank}");
+                if let Some(path) = &path {
+                    contents.push_str(end);
+                    contents.push_str(&format!("{blank}{path}{blank}"));
+                }
+                if last_ends {
+                    contents.push_str(end);
+                }
+                let read = active_port_from(&contents);
+                match port {
+                    PortLine::Chosen(p) => prop_assert_eq!(read.as_ref().map(|r| r.0), Some(p), "for {:?}", contents),
+                    PortLine::NotYet(_) | PortLine::Junk(_) => prop_assert_eq!(read.as_ref(), None, "for {:?}", contents),
+                }
+                let used = read.and_then(|(_, p)| p).filter(|p| is_browser_ws_path(p));
+                if let Some(used) = &used {
+                    let id = used.strip_prefix("/devtools/browser/").unwrap_or_default();
+                    let shaped = !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+                    prop_assert!(shaped, "{:?} reaches the request line from {:?}", used, contents);
+                }
+                if good && matches!(port, PortLine::Chosen(_)) {
+                    prop_assert_eq!(used, path, "for {:?}", contents);
+                }
+            }
+        }
     }
 }
