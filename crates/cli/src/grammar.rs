@@ -249,4 +249,129 @@ mod tests {
         assert_eq!(parse_nearest("pbd").unwrap(), NearestTarget::PrevBusinessDay);
         assert!(parse_nearest("next-full-moon").is_err());
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Every word the grammar reads for a unit, written out here rather than read from
+        /// `parse_unit`, so a word dropped from the parser - or one added to it without a test that
+        /// says so - is a red case. The words are a contract: presets and the window send them.
+        const UNIT_WORDS: [(&str, Unit); 32] = [
+            ("s", Unit::Seconds), ("sec", Unit::Seconds), ("secs", Unit::Seconds), ("seconds", Unit::Seconds),
+            ("m", Unit::Minutes), ("min", Unit::Minutes), ("mins", Unit::Minutes), ("minutes", Unit::Minutes),
+            ("h", Unit::Hours), ("hr", Unit::Hours), ("hrs", Unit::Hours), ("hours", Unit::Hours),
+            ("d", Unit::Days), ("day", Unit::Days), ("days", Unit::Days),
+            ("w", Unit::Weeks), ("week", Unit::Weeks), ("weeks", Unit::Weeks),
+            ("mo", Unit::Months), ("month", Unit::Months), ("months", Unit::Months),
+            ("q", Unit::Quarters), ("quarter", Unit::Quarters), ("quarters", Unit::Quarters),
+            ("y", Unit::Years), ("yr", Unit::Years), ("yrs", Unit::Years), ("year", Unit::Years), ("years", Unit::Years),
+            ("bd", Unit::BusinessDays), ("business_days", Unit::BusinessDays), ("businessdays", Unit::BusinessDays),
+        ];
+
+        const SNAP_WORDS: [(&str, SnapTarget); 12] = [
+            ("start-of-month", SnapTarget::StartOfMonth), ("som", SnapTarget::StartOfMonth),
+            ("end-of-month", SnapTarget::EndOfMonth), ("eom", SnapTarget::EndOfMonth),
+            ("start-of-quarter", SnapTarget::StartOfQuarter), ("soq", SnapTarget::StartOfQuarter),
+            ("end-of-quarter", SnapTarget::EndOfQuarter), ("eoq", SnapTarget::EndOfQuarter),
+            ("start-of-year", SnapTarget::StartOfYear), ("soy", SnapTarget::StartOfYear),
+            ("end-of-year", SnapTarget::EndOfYear), ("eoy", SnapTarget::EndOfYear),
+        ];
+
+        const NEAREST_WORDS: [(&str, NearestTarget); 8] = [
+            ("next-business-day", NearestTarget::NextBusinessDay), ("nbd", NearestTarget::NextBusinessDay),
+            ("prev-business-day", NearestTarget::PrevBusinessDay),
+            ("previous-business-day", NearestTarget::PrevBusinessDay), ("pbd", NearestTarget::PrevBusinessDay),
+            ("next-leap-day", NearestTarget::NextLeapDay), ("next-feb-29", NearestTarget::NextLeapDay),
+            ("nld", NearestTarget::NextLeapDay),
+        ];
+
+        /// The refusal of an unknown unit lists every code (R5-D5, item 3).
+        const EVERY_CODE: &str = "use s, m, h, d, w, mo, q, y, bd";
+
+        /// Digits in another script, which `char::is_numeric` takes and this grammar does not.
+        fn other_script(digits: &str) -> String {
+            digits.bytes().filter_map(|b| char::from_u32(0x660 + u32::from(b - b'0'))).collect()
+        }
+
+        /// A number as it is typed, and the value it says when it is ASCII digits and fits `T`: any
+        /// small one, zero-padded, the largest that fits and one past it, empty, behind a space or a
+        /// plus sign, and in another script.
+        fn number(largest: u64) -> impl Strategy<Value = (String, Option<u64>)> {
+            prop_oneof![
+                6 => (0u64..=1000).prop_map(|n| (n.to_string(), Some(n))),
+                1 => (0u64..=99).prop_map(|n| (format!("{n:04}"), Some(n))),
+                1 => Just((largest.to_string(), Some(largest))),
+                1 => Just(((u128::from(largest) + 1).to_string(), None)),
+                1 => prop_oneof![Just(String::new()), Just(" 5".to_string()), Just("+5".to_string())].prop_map(|t| (t, None)),
+                1 => (0u64..=99).prop_map(|n| (other_script(&n.to_string()), None)),
+            ]
+        }
+
+        /// A word that is a table's word, or near one: another case, a letter more or less, a blank
+        /// beside it, nothing at all. Never starting with a digit, which would join the number before it.
+        fn word<T: Copy + std::fmt::Debug + 'static>(table: &'static [(&'static str, T)]) -> impl Strategy<Value = String> {
+            let known = prop::sample::select(table).prop_map(|(w, _)| w.to_string());
+            let near = (prop::sample::select(table), 0u8..5).prop_map(|((w, _), how)| match how {
+                0 => w.to_uppercase(),
+                1 => format!("{w}s"),
+                2 => w[..w.len() - 1].to_string(),
+                3 => format!("{w} "),
+                _ => format!(" {w}"),
+            });
+            prop_oneof![6 => known, 2 => near, 1 => Just(String::new()), 1 => Just("mth".to_string())]
+        }
+
+        fn looked_up<T: Copy>(table: &[(&str, T)], word: &str) -> Option<T> {
+            table.iter().find(|(w, _)| *w == word).map(|&(_, value)| value)
+        }
+
+        proptest! {
+            /// R4-N34 and R5-D5 item 3. A step value is read exactly when the grammar writes it so,
+            /// and as what it says: a shift is a plus or a minus, ASCII digits that fit 64 bits and
+            /// a unit word, a time of day is three fields of ASCII digits, a snap and a nearest
+            /// target are words of their tables. An unknown unit is refused with every code listed.
+            #[test]
+            fn a_step_value_is_read_exactly_when_the_grammar_writes_it_so(
+                sign in prop_oneof![4 => Just("+"), 4 => Just("-"), 1 => Just(""), 1 => Just("\u{b1}"), 1 => Just("++"), 1 => Just("+-")],
+                (amount, amount_says) in number(i64::MAX as u64),
+                unit in word(&UNIT_WORDS),
+                time in prop::collection::vec(number(u64::from(u32::MAX)), 2..=4),
+                time_joined_by in prop_oneof![6 => Just(":"), 1 => Just("."), 1 => Just(": ")],
+                snap in word(&SNAP_WORDS),
+                nearest in word(&NEAREST_WORDS),
+            ) {
+                let shift = format!("{sign}{amount}{unit}");
+                // No sign in front of a number written with a plus is a plus and the number.
+                let (sign, amount_says) = match (sign, amount.strip_prefix('+')) {
+                    ("", Some("5")) => ("+", Some(5)),
+                    _ => (sign, amount_says),
+                };
+                let unit_says = looked_up(&UNIT_WORDS, &unit);
+                let sign_says = match sign { "+" => Some(Sign::Plus), "-" => Some(Sign::Minus), _ => None };
+                let owed = match (sign_says, amount_says, unit_says) {
+                    (Some(sign), Some(amount), Some(unit)) => Some(Step::Shift { sign, amount: amount as i64, unit }),
+                    _ => None,
+                };
+                let read = parse_shift(&shift);
+                prop_assert_eq!(read.as_ref().ok(), owed.as_ref(), "--shift {:?} reads as {:?}", shift, read);
+                if let (Some(_), Some(_), None, Err(refusal)) = (sign_says, amount_says, unit_says, &read) {
+                    prop_assert!(refusal.contains(EVERY_CODE), "--shift {:?}: {}", shift, refusal);
+                }
+
+                let set_time = time.iter().map(|(text, _)| text.as_str()).collect::<Vec<_>>().join(time_joined_by);
+                let owed = match (time_joined_by, time.as_slice()) {
+                    (":", [(_, Some(hour)), (_, Some(minute)), (_, Some(second))]) => {
+                        Some(Step::SetTime { hour: *hour as u32, minute: *minute as u32, second: *second as u32 })
+                    }
+                    _ => None,
+                };
+                let read = parse_set_time(&set_time);
+                prop_assert_eq!(read.as_ref().ok(), owed.as_ref(), "--set-time {:?} reads as {:?}", set_time, read);
+
+                prop_assert_eq!(parse_snap(&snap).ok(), looked_up(&SNAP_WORDS, &snap), "--snap {:?}", snap);
+                prop_assert_eq!(parse_nearest(&nearest).ok(), looked_up(&NEAREST_WORDS, &nearest), "--nearest {:?}", nearest);
+            }
+        }
+    }
 }

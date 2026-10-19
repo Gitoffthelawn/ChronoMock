@@ -1629,7 +1629,14 @@ pub fn analyze_date(input: &str, zone_bias_min: i32) -> Result<DateAnalysis, Str
     {
         return Err(format!("expected N{sep}N{sep}YYYY, got '{input}'"));
     }
-    let num = |p: &str| p.parse::<i64>().map_err(|_| format!("bad number in '{input}'"));
+    // Digits only, the gate an ISO date's fields go through in this same function: the integer parse
+    // alone took `+1/1/2026` as January 1st (R4-N34, found by the random properties).
+    let num = |p: &str| {
+        if !crate::is_ascii_digits(p) {
+            return Err(format!("bad number in '{input}' (digits only)"));
+        }
+        p.parse::<i64>().map_err(|_| format!("bad number in '{input}'"))
+    };
     let (a, b, year) = (num(parts[0])?, num(parts[1])?, num(parts[2])?);
     // Two candidate orders - keep the ones that form a real date, and never list one date twice.
     let mut readings = Vec::new();
@@ -3159,6 +3166,305 @@ mod tests {
                         prop_assert!(crate::civil_year_in_band(moment.year), "left the band: {:?}", moment);
                         prop_assert!(is_a_civil_moment(moment), "not a moment: {:?}", moment);
                     }
+                }
+            }
+        }
+
+        // --- What is typed: a moment written out, and a date pasted for analysis ---
+
+        /// The leap rule of the proleptic Gregorian calendar and the length of a month, as the
+        /// calendar defines them. Written here rather than taken from the engine, so a wrong month
+        /// length in the engine cannot agree with itself.
+        fn leap(year: i64) -> bool {
+            year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        }
+
+        fn days_in(year: i64, month: i64) -> i64 {
+            match month {
+                1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                4 | 6 | 9 | 11 => 30,
+                2 if leap(year) => 29,
+                2 => 28,
+                _ => 0,
+            }
+        }
+
+        /// Whether `year-month-day` is a day of the calendar inside the band.
+        fn is_a_day(year: i64, month: i64, day: i64) -> bool {
+            (crate::CIVIL_YEAR_MIN..=crate::CIVIL_YEAR_MAX).contains(&year) && (1..=days_in(year, month)).contains(&day)
+        }
+
+        /// A moment that is one, on any day of any year of the band.
+        fn any_moment() -> impl Strategy<Value = CivilDateTime> {
+            let in_band = year().prop_map(|y| y.clamp(crate::CIVIL_YEAR_MIN, crate::CIVIL_YEAR_MAX));
+            (in_band, 1u32..=12, 1u32..=31, 0u32..=23, 0u32..=59, 0u32..=59).prop_map(|(y, mo, d, h, mi, s)| {
+                let last = u32::try_from(days_in(y, i64::from(mo))).unwrap_or(28);
+                dt(y, mo, d.min(last), h, mi, s)
+            })
+        }
+
+        /// A zone `--zone` accepts, in minutes.
+        fn zone() -> impl Strategy<Value = i32> {
+            -(14 * 60 + 59)..=(14 * 60 + 59)
+        }
+
+        /// One numeric field as it is typed: its text, and the number it says when the text is
+        /// digits and nothing else (`None` for any other text, and for digits past 64 bits).
+        #[derive(Debug, Clone)]
+        struct Field {
+            text: String,
+            number: Option<i64>,
+        }
+
+        /// `value` typed the ways a person or a program types it: zero-padded to any width, behind a
+        /// plus sign (R4-N34), with a space inside, in another script's digits, empty, or past 64 bits.
+        fn field(value: impl Strategy<Value = i64>) -> impl Strategy<Value = Field> {
+            (value, 1usize..=7, 0u8..40).prop_map(|(value, width, how)| {
+                let digits = format!("{value:0width$}");
+                let (head, tail) = digits.split_at(1);
+                let other_script: String =
+                    digits.bytes().filter_map(|b| char::from_u32(0x660 + u32::from(b - b'0'))).collect();
+                let text = match how {
+                    0 => format!("+{digits}"),
+                    1 => format!("{head} {tail}"),
+                    2 => other_script,
+                    3 => "9223372036854775808".to_string(),
+                    4 => String::new(),
+                    _ => return Field { text: digits, number: Some(value) },
+                };
+                Field { text, number: None }
+            })
+        }
+
+        /// What a typed moment holds besides its six fields: all of them, the date alone, the
+        /// seconds missing, or one field too many on either side.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum Shape {
+            Whole,
+            DateOnly,
+            NoSecond,
+            ExtraDateField,
+            ExtraTimeField,
+        }
+
+        /// A moment as it is typed: a minus in front of the year or not, the six fields, and what
+        /// stands between the date and the time.
+        #[derive(Debug, Clone)]
+        struct Written {
+            negative: bool,
+            fields: [Field; 6],
+            between: &'static str,
+            shape: Shape,
+        }
+
+        impl Written {
+            fn text(&self) -> String {
+                let [y, mo, d, h, mi, s] = &self.fields;
+                let sign = if self.negative { "-" } else { "" };
+                let date = format!("{sign}{}-{}-{}", y.text, mo.text, d.text);
+                let at = self.between;
+                match self.shape {
+                    Shape::Whole => format!("{date}{at}{}:{}:{}", h.text, mi.text, s.text),
+                    Shape::DateOnly => date,
+                    Shape::NoSecond => format!("{date}{at}{}:{}", h.text, mi.text),
+                    Shape::ExtraDateField => format!("{date}-01{at}{}:{}:{}", h.text, mi.text, s.text),
+                    Shape::ExtraTimeField => format!("{date}{at}{}:{}:{}:00", h.text, mi.text, s.text),
+                }
+            }
+
+            /// The moment the text names by the documented rule, or `None`: the whole shape with a
+            /// `T` or a space between, digits only in every field, and fields naming a second of the
+            /// band - a month and a day that exist, an hour to 23, a minute and a second to 59.
+            fn names(&self) -> Option<CivilDateTime> {
+                if self.shape != Shape::Whole || !matches!(self.between, "T" | " ") {
+                    return None;
+                }
+                let [y, mo, d, h, mi, s] = self.fields.clone().map(|f| f.number);
+                let (y, mo, d, h, mi, s) = (y?, mo?, d?, h?, mi?, s?);
+                let year = if self.negative { -y } else { y };
+                let named = is_a_day(year, mo, d) && h <= 23 && mi <= 59 && s <= 59;
+                named.then(|| dt(year, mo as u32, d as u32, h as u32, mi as u32, s as u32))
+            }
+        }
+
+        fn written() -> impl Strategy<Value = Written> {
+            let year = year().prop_flat_map(|y| (Just(y < 0), field(Just(y.abs()))));
+            let month = field(prop_oneof![0i64..=13, Just(2)]);
+            let day = field(prop_oneof![0i64..=32, 28i64..=31]);
+            let hour = field(0i64..=24);
+            let minute = field(0i64..=60);
+            let second = field(prop_oneof![0i64..=61, Just(59), Just(60)]);
+            let between = prop_oneof![6 => Just("T"), 2 => Just(" "), 1 => Just("t"), 1 => Just("_"), 1 => Just("TT"), 1 => Just("")];
+            let shape = prop_oneof![
+                8 => Just(Shape::Whole),
+                1 => Just(Shape::DateOnly),
+                1 => Just(Shape::NoSecond),
+                1 => Just(Shape::ExtraDateField),
+                1 => Just(Shape::ExtraTimeField),
+            ];
+            (year, month, day, hour, minute, second, between, shape).prop_map(
+                |((negative, y), mo, d, h, mi, s, between, shape)| Written { negative, fields: [y, mo, d, h, mi, s], between, shape },
+            )
+        }
+
+        /// A date typed the US or the Polish way: two numbers and a year, the separators between
+        /// them, a fourth part or not, and the blanks a paste brings around it.
+        #[derive(Debug, Clone)]
+        struct Numeric {
+            first: Field,
+            second: Field,
+            /// The year as typed, and its number when it is four digits and nothing else.
+            year: (String, Option<i64>),
+            separators: (char, char),
+            fourth: bool,
+            blank: &'static str,
+        }
+
+        impl Numeric {
+            fn text(&self) -> String {
+                let (one, two) = self.separators;
+                let fourth = if self.fourth { format!("{two}01") } else { String::new() };
+                let blank = self.blank;
+                format!("{blank}{}{one}{}{two}{}{fourth}{blank}", self.first.text, self.second.text, self.year.0)
+            }
+
+            /// The readings the documented rule gives: one separator, slash or dot, three parts, a
+            /// year of four digits, digits only in the two numbers, and then the US order (month
+            /// first) and the Polish one (day first) wherever they name a real day, one date once.
+            fn readings(&self) -> Option<Vec<(DateReading, CivilDateTime)>> {
+                if self.separators.0 != self.separators.1 || !matches!(self.separators.0, '/' | '.') || self.fourth {
+                    return None;
+                }
+                let (year, a, b) = (self.year.1?, self.first.number?, self.second.number?);
+                let mut readings = Vec::new();
+                if is_a_day(year, a, b) {
+                    readings.push((DateReading::UsMonthDay, dt(year, a as u32, b as u32, 0, 0, 0)));
+                }
+                if is_a_day(year, b, a) && a != b {
+                    readings.push((DateReading::PlDayMonth, dt(year, b as u32, a as u32, 0, 0, 0)));
+                }
+                (!readings.is_empty()).then_some(readings)
+            }
+        }
+
+        fn numeric() -> impl Strategy<Value = Numeric> {
+            let number = || field(prop_oneof![0i64..=13, 28i64..=32, Just(99)]);
+            let full_width: String = "2026".bytes().filter_map(|b| char::from_u32(0xFF10 + u32::from(b - b'0'))).collect();
+            let year = prop_oneof![
+                6 => (0i64..=9999).prop_map(|y| (format!("{y:04}"), Some(y))),
+                1 => prop_oneof![Just("+999"), Just("999"), Just("12345"), Just("-999"), Just("20 6")].prop_map(|y| (y.to_string(), None)),
+                1 => Just((full_width, None)),
+            ];
+            let separator = prop_oneof![Just('/'), Just('.')];
+            let separators = prop_oneof![
+                6 => separator.clone().prop_map(|s| (s, s)),
+                1 => (separator.clone(), separator).prop_map(|(a, b)| (a, b)),
+                1 => prop_oneof![Just((',', ',')), Just(('-', '-')), Just(('/', ' '))],
+            ];
+            let blank = prop_oneof![4 => Just(""), 1 => Just(" "), 1 => Just("\t ")];
+            // The same number twice, by name: the one date that reads the same both ways, which was
+            // listed twice (R4-N36). Drawn independently, two equal numbers of a real day come up
+            // about once in four hundred cases.
+            let second = prop_oneof![4 => number().prop_map(Some), 1 => Just(None)];
+            (number(), second, year, separators, prop::bool::weighted(0.1), blank).prop_map(
+                |(first, second, year, separators, fourth, blank)| {
+                    let second = second.unwrap_or_else(|| first.clone());
+                    Numeric { first, second, year, separators, fourth, blank }
+                },
+            )
+        }
+
+        /// What a tester pastes for analysis: a moment typed as above with an offset or a fraction
+        /// behind it or not, a date typed the US or Polish way, pieces of dates run together, and any
+        /// text at all.
+        fn pasted() -> impl Strategy<Value = String> {
+            let behind = prop_oneof![
+                4 => Just(""),
+                1 => prop_oneof![Just("Z"), Just("z"), Just("+05:00"), Just("-14:59"), Just("+15:00"), Just("+05:+30")],
+                1 => prop_oneof![Just(".5"), Just(".123456789"), Just(".1234567890"), Just("."), Just(".5Z")],
+            ];
+            let piece = prop_oneof![
+                Just("2026"), Just("-"), Just("02"), Just("30"), Just("/"), Just("."), Just("T"), Just(" "),
+                Just(":"), Just("Z"), Just("+"), Just("05:00"), Just(".123"), Just("1740607200"), Just("x"), Just("60"),
+            ];
+            prop_oneof![
+                3 => (written(), behind).prop_map(|(w, behind)| format!("{}{behind}", w.text())),
+                2 => numeric().prop_map(|n| n.text()),
+                2 => proptest::collection::vec(piece, 1..10).prop_map(|pieces| pieces.concat()),
+                1 => any::<String>(),
+            ]
+        }
+
+        proptest! {
+            /// R3-6. Every moment of the band reads back from the way the tool writes it, a year
+            /// before 1 CE too. Any shift back past year 1 produces one, and `--base` refused it, so
+            /// the tool did not accept its own output.
+            #[test]
+            fn every_moment_of_the_band_reads_back_from_the_way_the_tool_writes_it(moment in any_moment()) {
+                prop_assert_eq!(parse_civil_datetime(&moment.to_iso()), Ok(moment));
+            }
+
+            /// R4-N34 and R2-S11. A typed moment is read exactly when its shape is the documented one
+            /// and its fields name a second of the band: digits only in every field (a sign has a
+            /// place in front of the year alone), a month, a day, an hour, a minute and a second that
+            /// exist, and no leap second. A refusal quotes what was typed.
+            #[test]
+            fn a_typed_moment_is_read_exactly_when_its_fields_name_a_second_of_the_band(written in written()) {
+                let text = written.text();
+                match (parse_civil_datetime(&text), written.names()) {
+                    (Ok(read), Some(named)) => prop_assert_eq!(read, named, "for {:?}", text),
+                    (Err(refusal), None) => {
+                        prop_assert!(refusal.contains(&format!("'{text}'")), "{:?} is refused quoting something else: {}", text, refusal);
+                    }
+                    (got, named) => prop_assert!(false, "{:?} reads as {:?}, where the model names {:?}", text, got, named),
+                }
+            }
+
+            /// R5-D5 item 5. The analyser reads back every rendering the calculator prints for a
+            /// moment: the ISO date, the ISO date and time with its offset, the US and Polish dates
+            /// when the year has four digits, and the epoch in seconds and in milliseconds.
+            #[test]
+            fn the_analyser_reads_back_everything_the_calculator_prints(moment in any_moment(), zone in zone()) {
+                let printed = formats(&moment, zone);
+                let midnight = dt(moment.year, moment.month, moment.day, 0, 0, 0);
+                let read = |text: &str| analyze_date(text, zone).map(|analysis| analysis.readings);
+                prop_assert_eq!(read(&printed.iso_date), Ok(vec![(DateReading::Iso, midnight)]), "{}", printed.iso_date);
+                prop_assert_eq!(read(&printed.iso_datetime), Ok(vec![(DateReading::IsoOffset, moment)]), "{}", printed.iso_datetime);
+                if (0..=9999).contains(&moment.year) {
+                    let us = read(&printed.us);
+                    let first = us.as_ref().ok().and_then(|readings| readings.first().copied());
+                    prop_assert_eq!(first, Some((DateReading::UsMonthDay, midnight)), "{} reads as {:?}", printed.us, us);
+                    let pl = read(&printed.pl);
+                    let found = pl.as_ref().is_ok_and(|readings| readings.iter().any(|&(_, day)| day == midnight));
+                    prop_assert!(found, "{} reads as {:?}", printed.pl, pl);
+                }
+                for (number, reading) in [(printed.epoch_seconds, DateReading::EpochSeconds), (printed.epoch_millis, DateReading::EpochMillis)] {
+                    if let Some(number) = number {
+                        let got = read(&number.to_string());
+                        let found = got.as_ref().is_ok_and(|readings| readings.contains(&(reading, moment)));
+                        prop_assert!(found, "{} reads as {:?}, not as {:?}", number, got, moment);
+                    }
+                }
+            }
+
+            /// R2-C3 and R4-N36. A date typed with slashes or dots is read in every order that makes
+            /// it a real day, US first, one date never listed twice, with a year of four digits and
+            /// nothing else. A number with a sign in it is no more a number here than in an ISO date
+            /// (R4-N34).
+            #[test]
+            fn a_typed_numeric_date_is_read_in_every_order_that_names_a_real_day(numeric in numeric()) {
+                let text = numeric.text();
+                let got = analyze_date(&text, 0).map(|analysis| analysis.readings);
+                prop_assert_eq!(got.as_ref().ok().cloned(), numeric.readings(), "{:?} gave {:?}", text, got);
+            }
+
+            /// R5-D5 item 5. Whatever is pasted, a refusal quotes it as it was pasted - never the
+            /// text the analyser built from it, a moment nobody typed.
+            #[test]
+            fn a_refusal_of_a_pasted_date_quotes_what_was_pasted(text in pasted(), zone in zone()) {
+                if let Err(refusal) = analyze_date(&text, zone) {
+                    let quoted = text.trim().is_empty() || refusal.contains(&format!("'{text}'"));
+                    prop_assert!(quoted, "{:?} is refused quoting something else: {}", text, refusal);
                 }
             }
         }

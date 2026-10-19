@@ -17449,5 +17449,138 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "prop-k2 R3-6 a year before 1 CE reads back from the way the tool writes it",
+    "edits": [
+      {
+        "file": "crates/core/src/lib.rs",
+        "from": "    let (negative_year, date) = match date.strip_prefix('-') {\n        Some(rest) => (true, rest),\n        None => (false, date),\n    };",
+        "to": "    let (negative_year, date) = (false, date);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::properties::every_moment_of_the_band_reads_back_from_the_way_the_tool_writes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-N34 a sign in a field of a typed moment is refused",
+    "edits": [
+      {
+        "file": "crates/core/src/lib.rs",
+        "from": "        if !is_ascii_digits(s) {",
+        "to": "        if s.is_empty() {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::properties::a_typed_moment_is_read_exactly_when_its_fields_name_a_second_of_the_band",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R5-D5 the analyser reads the offset the calculator prints",
+    "edits": [
+      {
+        "file": "crates/core/src/calc.rs",
+        "from": "    if let Some(rest) = time.strip_suffix(['Z', 'z']) {\n        return Ok((rest, Some(0)));\n    }",
+        "to": "    if !time.is_empty() {\n        return Ok((time, None));\n    }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::properties::the_analyser_reads_back_everything_the_calculator_prints",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-N36 a numeric date that reads the same both ways is listed once",
+    "edits": [
+      {
+        "file": "crates/core/src/calc.rs",
+        "from": "        if readings.first().map(|(_, uc)| *uc) != Some(c) {",
+        "to": "        if readings.len() < 2 {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::properties::a_typed_numeric_date_is_read_in_every_order_that_names_a_real_day",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R5-D5 a refusal of a pasted date quotes what was pasted",
+    "edits": [
+      {
+        "file": "crates/core/src/calc.rs",
+        "from": "        return Ok((DateReading::Iso, parse_civil_datetime_as(&format!(\"{s}T00:00:00\"), input)?));",
+        "to": "        return Ok((DateReading::Iso, parse_civil_datetime(&format!(\"{s}T00:00:00\"))?));"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calc::tests::properties::a_refusal_of_a_pasted_date_quotes_what_was_pasted",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-N34 a sign in a set-time field is refused",
+    "edits": [
+      {
+        "file": "crates/cli/src/grammar.rs",
+        "from": "    if !p.iter().all(|f| chrono_core::is_ascii_digits(f)) {",
+        "to": "    if p.iter().any(|f| f.is_empty()) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "grammar::tests::properties::a_step_value_is_read_exactly_when_the_grammar_writes_it_so",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R5-P16 a run flag that takes one value is refused the second time",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/args.rs",
+        "from": "        refuse_repeat(&mut given, argv[i].as_str(), &ONE_VALUE_FLAGS)?;",
+        "to": "        let _ = refuse_repeat(&mut given, argv[i].as_str(), &ONE_VALUE_FLAGS);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::properties::a_run_command_line_is_taken_exactly_when_its_rules_take_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]
