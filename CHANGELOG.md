@@ -211,6 +211,19 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A preset or calendar file is refused in the words of the file, not of the program reading it.**
+  A rule `type` or a step name the reader does not know was an "unknown variant", and a rule `type`
+  that is not text "expected variant identifier" - the names those things have in Rust. They are now
+  an "unknown name" and a "name, written as text". A preset step that is not an object (`"steps": [5]`)
+  or names two steps at once was refused with "expected value", the sentence for a file that is not
+  JSON, so its author looked for a missing comma. It is now refused as what it is, with the step names
+  it may use, and a second key is named.
+- **A date that is not one is quoted as it was written.** A preset parameter's `default`, or a
+  `--param` value, that is not a date (`2026-13-01`) was refused quoting `'2026-13-01T00:00:00'`, a
+  text nobody wrote. The refusal quotes the date as given.
+- **`chrono presets` names the step of a preset that does not resolve.** `--preset` has said "step 2:"
+  for a step it cannot use, and the catalogue - the list the window shows its skipped files from -
+  gave the same reason without the number. Both say it now.
 - **A protocol line past the size limit is called too long, whatever character the limit cuts.** The
   core reads a command line of at most 1 MiB. A longer line whose limit fell inside a character of two
   or more bytes was refused as `protocol.stream_unreadable` ("not UTF-8 text"), which sent a client

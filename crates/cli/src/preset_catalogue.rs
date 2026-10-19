@@ -222,11 +222,14 @@ fn canonical_entry(preset: &Preset, file: String) -> Result<PresetEntryJson, Pre
     let stand_ins: HashMap<String, ParamValue> =
         preset.parameters.iter().map(|p| (p.id.clone(), stand_in(p.kind))).collect();
     let base = canonical_base(&preset.moment.base, &stand_ins)?;
+    // A step is named by its number, as `--preset` names it: the window shows this refusal, and a
+    // preset's steps are a list (found by the search in step 2d, the class of R5-D5 item 2).
     let steps = preset
         .moment
         .steps
         .iter()
-        .map(|step| canonical_step(step, &stand_ins, &preset.parameters))
+        .enumerate()
+        .map(|(i, step)| canonical_step(step, &stand_ins, &preset.parameters).map_err(|e| e.at_step(i)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(PresetEntryJson {
         file,
@@ -586,5 +589,89 @@ mod tests {
         assert!(parse_presets_args(&words(&["--json", "--json"])).is_err());
         assert!(parse_presets_args(&words(&["--dir", "a", "--dir", "b"])).is_err());
         assert!(parse_presets_args(&words(&["--preset"])).is_err());
+    }
+
+    mod properties {
+        use super::*;
+        use crate::preset::{duration_value, parse_param_date, parse_preset, variant_days};
+        use crate::search::{drawn_preset, preset_flaw, with_preset_flaw, DrawnPreset, PresetFlaw};
+        use proptest::prelude::*;
+
+        /// The calendar each market counts in - restated, not read from `calendar_for_market`.
+        fn market_calendar(market: Option<&str>) -> serde_json::Value {
+            match market {
+                Some("us") => "us-banking".into(),
+                Some("pl") => "pl".into(),
+                _ => serde_json::Value::Null,
+            }
+        }
+
+        fn fail(e: &PresetError) -> TestCaseError {
+            TestCaseError::fail(e.message().to_string())
+        }
+
+        /// What the catalogue hands on for a preset with no flaw says what the engine resolves: the
+        /// moment rebuilt from its words through the step grammar alone, every default read back from
+        /// its canonical form, the choices of a variant and nothing else, and the market's calendar.
+        fn listed_as_resolved(preset: &DrawnPreset) -> Result<(), TestCaseError> {
+            let text = preset.json().to_string();
+            let read = parse_preset(&text).map_err(|e| fail(&e))?;
+            let entry = canonical_entry(&read, "drawn.json".to_string()).map_err(|e| fail(&e))?;
+            let json = serde_json::to_value(&entry).expect("an entry serialises");
+            let stand_ins: HashMap<String, ParamValue> = read.parameters.iter().map(|p| (p.id.clone(), stand_in(p.kind))).collect();
+            let engine = crate::preset::resolve_moment(read.moment.clone(), &stand_ins).map_err(|e| fail(&e))?;
+            prop_assert_eq!(moment_from_canonical(&json), engine, "{}", text);
+            prop_assert_eq!(&json["calendar"], &market_calendar(preset.market));
+            for (listed, drawn) in json["parameters"].as_array().expect("a list").iter().zip(&preset.parameters) {
+                let id = drawn.id.as_str();
+                let default = &listed["default"];
+                let read_back = match (drawn.kind, default) {
+                    (_, serde_json::Value::Null) => None,
+                    (ParamKind::Date, serde_json::Value::String(at)) => parse_param_date(at).ok().map(ParamValue::Date),
+                    (ParamKind::Duration, d) => {
+                        d["amount"].as_i64().zip(d["unit"].as_str()).and_then(|(amount, unit)| duration_value(id, amount, unit).ok())
+                    }
+                    (ParamKind::Variant, serde_json::Value::String(label)) => variant_days(id, label).ok().map(ParamValue::Variant),
+                    (_, other) => return Err(TestCaseError::fail(format!("{id}: a default written as {other}"))),
+                };
+                let owed = drawn.default.as_ref().map(|d| d.value());
+                prop_assert_eq!(format!("{read_back:?}"), format!("{owed:?}"), "{}: the default reads back as another value", id);
+                prop_assert_eq!(listed["choices"].is_array(), drawn.kind == ParamKind::Variant, "{}", id);
+            }
+            Ok(())
+        }
+
+        fn case() -> impl Strategy<Value = (DrawnPreset, Option<PresetFlaw>)> {
+            prop_oneof![
+                2 => drawn_preset(false).prop_map(|preset| (preset, None)),
+                3 => (drawn_preset(true), preset_flaw()).prop_map(|(preset, flaw)| (preset, Some(flaw))),
+            ]
+        }
+
+        proptest! {
+            /// R4-S22 and R4/18. A preset is listed exactly when `--preset` accepts it: one with no flaw
+            /// is listed in a canonical form that says what the engine resolves, and one with a flaw is
+            /// left out with the sentence and the exit code `--preset` gives for it - a step by its
+            /// number - plus the one flaw only the evaluator would meet, a time past the day.
+            #[test]
+            fn the_catalogue_lists_a_preset_exactly_when_it_can_be_used((preset, flaw) in case()) {
+                let Some(flaw) = flaw else { return listed_as_resolved(&preset) };
+                let (json, owed) = with_preset_flaw(&preset, &flaw);
+                let text = json.to_string();
+                let listed = parse_preset(&text).and_then(|read| canonical_entry(&read, "drawn.json".to_string()).map(|_| ()));
+                let Err(left_out) = listed else {
+                    return Err(TestCaseError::fail(format!("{flaw:?} is listed: {text}")));
+                };
+                for piece in &owed.said {
+                    prop_assert!(left_out.message().contains(piece.as_str()), "{:?}: {} - owed {:?}", flaw, left_out.message(), piece);
+                }
+                prop_assert_eq!(left_out.exit_code(), owed.exit_code, "{:?}: {}", flaw, left_out.message());
+                if !owed.unused_until_evaluated {
+                    let used = parse_preset(&text).and_then(|read| crate::preset::resolve_moment(read.moment, &owed.values).map(|_| ()));
+                    let refused = used.err().map(|e| e.message().to_string());
+                    prop_assert_eq!(Some(left_out.message()), refused.as_deref(), "{:?}: the catalogue and --preset say different things", flaw);
+                }
+            }
+        }
     }
 }
