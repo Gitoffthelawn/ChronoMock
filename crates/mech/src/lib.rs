@@ -26,6 +26,8 @@ mod loader;
 mod policy;
 mod policy_value;
 mod process_facts;
+#[cfg(test)]
+mod search;
 mod stdio;
 mod tree;
 
@@ -3001,5 +3003,124 @@ mod tests {
         // Frozen spends nothing, and a clock behind the segment's start adds nothing.
         assert_eq!(fake_elapsed_ticks(1_000, 0, 10_000_000, 0), 1_000);
         assert_eq!(fake_elapsed_ticks(1_000, 10_000_000, 9_000_000, 60), 1_000);
+    }
+
+    /// The random half of the command line: whatever the path and the arguments hold, a program reads
+    /// back exactly what it was started with. Read by the system's own `CommandLineToArgvW`, the rule a
+    /// C runtime parses its command line by - nothing of this crate's (P9).
+    mod properties {
+        use proptest::prelude::*;
+        use proptest::sample::select;
+
+        #[cfg_attr(target_arch = "x86", link(name = "shell32", kind = "raw-dylib", import_name_type = "undecorated"))]
+        #[cfg_attr(not(target_arch = "x86"), link(name = "shell32", kind = "raw-dylib"))]
+        unsafe extern "system" {
+            fn CommandLineToArgvW(line: *const u16, count: *mut i32) -> *mut *mut u16;
+        }
+
+        /// The arguments `CommandLineToArgvW` reads out of a zero-terminated command line, the program first.
+        fn argv(line: &[u16]) -> Vec<String> {
+            assert_eq!(line.last(), Some(&0), "a command line ends in a zero");
+            let mut count = 0i32;
+            // SAFETY: the line ends in a zero, every argument is copied out before the array is let go,
+            // and each one the call returns ends in a zero of its own.
+            unsafe {
+                let array = CommandLineToArgvW(line.as_ptr(), &raw mut count);
+                assert!(!array.is_null(), "CommandLineToArgvW read nothing");
+                let read = (0..usize::try_from(count).unwrap())
+                    .map(|i| {
+                        let arg = *array.add(i);
+                        let length = (0..).take_while(|&j| *arg.add(j) != 0).count();
+                        String::from_utf16(std::slice::from_raw_parts(arg, length)).expect("the arguments are text")
+                    })
+                    .collect();
+                let _ = windows::Win32::Foundation::LocalFree(Some(windows::Win32::Foundation::HLOCAL(array.cast())));
+                read
+            }
+        }
+
+        /// Where a path starts: a drive in either case, a share, a verbatim drive, nothing, the current folder.
+        const ROOTS: [&str; 6] = ["C:\\", "c:\\", "\\\\server\\share\\", "\\\\?\\C:\\", "", ".\\"];
+        /// Pieces of the names Windows takes, with every mark a command line might take for its own.
+        const NAME_PIECES: [&str; 20] = [
+            "app", "My App", "R&D", "50%", "a^b", "wow!", "it's", "(x86)", "a;b", "a=b", "a,b", "v1.2", "zażółć", "日本", "😀",
+            " ", "  ", "-", "#", "~1",
+        ];
+        const SEPARATORS: [&str; 2] = ["\\", "\\\\"];
+        const EXTENSIONS: [&str; 5] = [".exe", ".EXE", ".com", "", ".exe.exe"];
+        /// Pieces of an argument: each separator a parser might split on, the quote, runs of one to three
+        /// backslashes (before a quote, before the end, before a letter and before a space, by what follows
+        /// them), and the marks of a shell.
+        const ARG_PIECES: [&str; 28] = [
+            "a", "word", " ", "\t", "\n", "\u{b}", "\r", "\"", "\\", "\\\\", "\\\\\\", "\\\"", "\u{3000}", "\u{a0}", "^", "&", "|",
+            "<", ">", "%", "!", "=", "zażółć", "日本", "😀", "'", "\u{1}", "\u{7f}",
+        ];
+
+        fn joined(pieces: &'static [&'static str], count: std::ops::Range<usize>) -> impl Strategy<Value = String> {
+            proptest::collection::vec(select(pieces), count).prop_map(|pieces| pieces.concat())
+        }
+
+        /// A program path: a root, up to three folders and a file name, never ending in a backslash and
+        /// never holding a quote - no file of a program is named either way.
+        fn program() -> impl Strategy<Value = String> {
+            let folder = (joined(&NAME_PIECES, 1..4), select(SEPARATORS.to_vec())).prop_map(|(name, sep)| format!("{name}{sep}"));
+            (select(ROOTS.to_vec()), proptest::collection::vec(folder, 0..4), joined(&NAME_PIECES, 1..4), select(EXTENSIONS.to_vec()))
+                .prop_map(|(root, folders, file, extension)| format!("{root}{}{file}{extension}", folders.concat()))
+        }
+
+        /// Where a zero character goes, when one does.
+        #[derive(Debug, Clone, Copy)]
+        enum Zero {
+            Path,
+            Folder,
+            Argument(usize),
+        }
+
+        fn with_zero(text: &str, at: usize) -> String {
+            let at = text.char_indices().map(|(i, _)| i).chain([text.len()]).nth(at % (text.chars().count() + 1)).unwrap();
+            format!("{}\0{}", &text[..at], &text[at..])
+        }
+
+        proptest! {
+            /// A program reads back its path and every argument, in order and unchanged - an empty one, one
+            /// with spaces, quotes or backslashes before a quote included. A zero character, which would cut
+            /// the line short, is refused before anything starts, naming where it stood (R4-N16).
+            #[test]
+            fn a_program_reads_back_the_arguments_it_was_started_with(
+                path in program(),
+                args in proptest::collection::vec(joined(&ARG_PIECES, 0..6), 0..5),
+                folder in proptest::option::of(Just("C:\\work".to_string())),
+                zero in proptest::option::weighted(0.15, prop_oneof![
+                    Just(Zero::Path), Just(Zero::Folder), (0usize..5).prop_map(Zero::Argument),
+                ]),
+                at in any::<usize>(),
+            ) {
+                let (mut path, mut args, mut folder) = (path, args, folder);
+                let place = match zero {
+                    Some(Zero::Path) => { path = with_zero(&path, at); Some("the target path") }
+                    Some(Zero::Folder) => { folder = Some(with_zero("C:\\work", at)); Some("the working folder") }
+                    Some(Zero::Argument(i)) if !args.is_empty() => {
+                        let i = i % args.len();
+                        args[i] = with_zero(&args[i], at);
+                        Some("the argument")
+                    }
+                    _ => None,
+                };
+                let target = crate::Target {
+                    path: &path, args: &args, cwd: folder.as_deref(), env: &[], stdio: crate::TargetStdio::Shared,
+                };
+                let line = crate::launch_line(&target);
+                if let Some(place) = place {
+                    let refusal = line.expect_err("a zero character is refused");
+                    prop_assert!(refusal.starts_with(place) && refusal.contains("zero character"), "{}", refusal);
+                    return Ok(());
+                }
+                let (application, line) = line.expect("a line without a zero character");
+                prop_assert_eq!(String::from_utf16(&application[..application.len() - 1]).unwrap(), path.clone());
+                let read = argv(&line);
+                prop_assert_eq!(&read[0], &path, "the program's own name, in {:?}", String::from_utf16_lossy(&line));
+                prop_assert_eq!(&read[1..], &args[..], "the arguments, in {:?}", String::from_utf16_lossy(&line));
+            }
+        }
     }
 }

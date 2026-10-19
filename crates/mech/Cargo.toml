@@ -18,3 +18,6 @@ name = "chrono_mech"
 chrono-core = { workspace = true }
 chrono-ctl = { workspace = true }
 windows = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

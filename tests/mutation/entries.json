@@ -3040,8 +3040,8 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp/mod.rs",
-        "from": "            .or_else(|| repair_lone_surrogates(text).and_then(|t| serde_json::from_str::<Value>(&t).ok()));\n",
-        "to": "            .or_else(|| None);\n"
+        "from": "        .or_else(|| repair_lone_surrogates(text).and_then(|t| serde_json::from_str::<Value>(&t).ok()))?;\n",
+        "to": "        .or_else(|| None)?;\n"
       }
     ],
     "runner": "rust",
@@ -17826,6 +17826,101 @@
       "--bins"
     ],
     "test": "preset_catalogue::tests::the_test_catalogue_gives_its_recorded_answer",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 P9 an argument with a space reaches the program as one argument",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "            .any(|c| c == ' ' || c == '\\t' || c == '\\n' || c == '\\x0b' || c == '\"');",
+        "to": "            .any(|c| c == '\\t' || c == '\\n' || c == '\\x0b' || c == '\"');"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::properties::a_program_reads_back_the_arguments_it_was_started_with",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 wv2 a look never removes the value of a session that runs",
+    "edits": [
+      {
+        "file": "crates/mech/src/policy_value.rs",
+        "from": "is_some_and(|(pid, created)| !alive(pid, created))",
+        "to": "is_some_and(|(pid, created)| alive(pid, created))"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "policy_value::tests::properties::a_value_is_its_writers_to_every_reader_and_a_look_takes_only_what_a_session_wrote",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 R4-N17 an environment entry reaches the block unit for unit",
+    "edits": [
+      {
+        "file": "crates/mech/src/environment.rs",
+        "from": "        out.extend_from_slice(entry);\n",
+        "to": "        out.extend(String::from_utf16_lossy(entry).encode_utf16());\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "environment::tests::properties::the_block_holds_the_environment_and_the_sessions_variables_and_nothing_else",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 2e the writer of a policy value is named by its last marker",
+    "edits": [
+      {
+        "file": "crates/mech/src/policy_value.rs",
+        "from": "    let token = switches.split_whitespace().rfind(|t| t.starts_with(MARKER_SWITCH))?;",
+        "to": "    let token = switches.split_whitespace().find(|t| t.starts_with(MARKER_SWITCH))?;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "policy_value::tests::the_writer_of_a_value_is_named_by_its_last_marker",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "prop-k2 2e a look never removes a value under a name no session writes under",
+    "edits": [
+      {
+        "file": "crates/mech/src/policy_value.rs",
+        "from": "            unusable_name(name).is_none() && parse_marker(switches)",
+        "to": "            parse_marker(switches)"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "policy_value::tests::a_look_never_removes_a_value_under_a_name_no_session_writes_under",
     "match": "exact",
     "build": "",
     "notHere": ""

@@ -82,6 +82,7 @@ version = "0.4.0"
 dependencies = [
  "chrono-core",
  "chrono-ctl",
+ "proptest",
  "windows",
 ]
 

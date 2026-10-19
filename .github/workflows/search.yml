@@ -49,6 +49,7 @@ on:
       - crates/core/src/search.rs
       - crates/cli/src/search.rs
       - crates/proto/src/search.rs
+      - crates/mech/src/search.rs
 
 permissions:
   contents: read
@@ -87,6 +88,14 @@ jobs:
             target: --lib
             canary: --lib
             cases: 1000000
+          # The registry property writes, reads and deletes values under a scratch key of HKCU, about
+          # 2.5 ms a case on the machine that set these numbers, so this part is sized by it: six
+          # minutes there.
+          - part: mechanism
+            package: chrono-mech
+            target: --lib
+            canary: --lib
+            cases: 150000
           # The integration test runs the built binary once a case, so it takes a quarter of the cases
           # (calc_cli.rs says how). It has no canary of its own - the crate's canary proves the same
           # steps of this file see a failure.
