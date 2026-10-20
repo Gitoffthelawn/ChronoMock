@@ -16891,7 +16891,7 @@
       "--test",
       "hygiene"
     ],
-    "test": "no_public_definition_in_the_workspace_is_unreferenced",
+    "test": "a_file_compiled_only_for_tests_is_found_from_its_declaration",
     "match": "exact",
     "build": "",
     "notHere": ""
@@ -17578,7 +17578,7 @@
     "target": [
       "--bins"
     ],
-    "test": "run::args::tests::properties::a_run_command_line_is_taken_exactly_when_its_rules_take_it",
+    "test": "run::args::tests::a_one_value_flag_or_a_parameter_given_twice_is_refused",
     "match": "exact",
     "build": "",
     "notHere": ""
