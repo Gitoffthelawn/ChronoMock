@@ -7757,7 +7757,7 @@
       {
         "file": "crates/cli/src/cdp_clock.rs",
         "from": "        let mult = match start_time_mode(time)? {\n            TimeMode::Flow => 1,\n            TimeMode::Frozen => 0,\n            TimeMode::Multiplier(m) => m,\n        };",
-        "to": "        let mult = match time.mode.as_str() {\n            \"multiplier\" => time.multiplier.unwrap_or(1).max(1),\n            \"frozen\" => 0,\n            _ => 1,\n        };"
+        "to": "        let mult = match time.mode {\n            chrono_proto::TimeModeKind::Multiplier => time.multiplier.unwrap_or(1).max(1),\n            chrono_proto::TimeModeKind::Frozen => 0,\n            _ => 1,\n        };"
       }
     ],
     "runner": "rust",
@@ -7794,7 +7794,7 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp_clock.rs",
-        "from": "moment_epoch_ms(local, to.tz_bias_min.unwrap_or(clock.bias))",
+        "from": "moment_epoch_ms(local, bias.unwrap_or(clock.bias))",
         "to": "moment_epoch_ms(local, clock.bias)"
       }
     ],
@@ -7813,8 +7813,8 @@
     "edits": [
       {
         "file": "crates/cli/src/core.rs",
-        "from": "                tz_bias_min: Some(spec.tz_bias_min.unwrap_or(session_bias)),",
-        "to": "                tz_bias_min: Some(spec.tz_bias_min.unwrap_or(0)),"
+        "from": "tz_bias_min: Some(bias.unwrap_or(session_bias)) };",
+        "to": "tz_bias_min: Some(bias.unwrap_or(0)) };"
       }
     ],
     "runner": "rust",
@@ -9271,7 +9271,7 @@
     "name": "r4-4b N39 range",
     "edits": [
       {
-        "file": "crates/cli/src/calendar.rs",
+        "file": "crates/core/src/calendar.rs",
         "from": "= -80..=250;",
         "to": "= -366..=366;"
       }
@@ -16263,8 +16263,8 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp_session.rs",
-        "from": "            let felt = !attacher.contexts().is_empty();",
-        "to": "            let felt = true;"
+        "from": "        let felt = !self.attacher.contexts().is_empty();",
+        "to": "        let felt = true;"
       }
     ],
     "runner": "rust",
@@ -17053,8 +17053,8 @@
     "edits": [
       {
         "file": "crates/cli/src/wire.rs",
-        "from": "                    Err(_) => sink(&Event::Error {",
-        "to": "                    Err(_) => std::mem::drop(Event::Error {"
+        "from": "                    Err(_) => sink(&error_event(None, 1, \"protocol.bad_command_ignored\", \"core\")),",
+        "to": "                    Err(_) => std::mem::drop(error_event(None, 1, \"protocol.bad_command_ignored\", \"core\")),"
       }
     ],
     "runner": "rust",
@@ -18434,6 +18434,390 @@
     "target": [],
     "test": "ChronoMock.App.Tests.SessionRunTests.A_speed_change_sent_to_a_core_that_is_already_gone_is_let_go_quietly",
     "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a P18 an unknown moment kind no longer reads",
+    "edits": [
+      {
+        "file": "crates/proto/src/lib.rs",
+        "from": "    /// Any other word. Sent by no client of this build.\n    #[serde(other)]\n    Unknown,\n}\n\n/// The time flow",
+        "to": "    /// Any other word. Sent by no client of this build.\n    Unknown,\n}\n\n/// The time flow"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::an_unknown_kind_mode_or_query_word_is_read_as_unknown_and_known_ones_keep_their_spelling",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a P18 an unknown mode runs as flow",
+    "edits": [
+      {
+        "file": "crates/cli/src/events.rs",
+        "from": "        TimeModeKind::Unknown => Err(\"time.bad_mode\"),",
+        "to": "        TimeModeKind::Unknown => Ok(TimeMode::Flow),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_clock::tests::a_chromium_start_is_held_to_the_native_gate",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A3 an absolute jump without its moment is read as an empty one",
+    "edits": [
+      {
+        "file": "crates/cli/src/session_commands.rs",
+        "from": "            let local = to.local.as_deref().ok_or(\"moment.invalid\")?;",
+        "to": "            let local = to.local.as_deref().unwrap_or_default();"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "session_commands::tests::a_jump_target_is_read_once_for_both_mechanisms",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A3 a rate out of range reaches the clock",
+    "edits": [
+      {
+        "file": "crates/cli/src/session_commands.rs",
+        "from": "            if !chrono_core::multiplier_in_range(multiplier) {",
+        "to": "            if false {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "session_commands::tests::a_refused_command_does_not_move_the_clock_and_a_move_hands_on_what_the_clock_answered",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A3 a refused jump is noted as a move",
+    "edits": [
+      {
+        "file": "crates/cli/src/session_commands.rs",
+        "from": "            Err(key) => {\n                emit(&error_event(Some(id), 1, key, \"core\"));\n                false",
+        "to": "            Err(key) => {\n                emit(&error_event(Some(id), 1, key, \"core\"));\n                true"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "session_commands::tests::a_refused_command_does_not_move_the_clock_and_a_move_hands_on_what_the_clock_answered",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A3 an error event built by hand again",
+    "edits": [
+      {
+        "file": "crates/cli/src/wire.rs",
+        "from": "                    sink(&error_event(None, 1, stream_error_key(&e), \"core\"));",
+        "to": "                    sink(&Event::Error { v: 1, id: None, code: 1, key: stream_error_key(&e).into(), origin: \"core\".into() });"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "wire_keys"
+    ],
+    "test": "an_error_event_is_built_in_one_place",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A2 a preset for the other surface is taken",
+    "edits": [
+      {
+        "file": "crates/cli/src/preset.rs",
+        "from": "        if surface.takes(&self.applies_to) {",
+        "to": "        if true {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "preset::tests::a_preset_is_taken_onto_a_surface_and_filled_the_same_way_for_both",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A2 a bad value is blamed on the file",
+    "edits": [
+      {
+        "file": "crates/cli/src/preset.rs",
+        "from": ".map_err(|e| (e, PresetStage::Parameters))?;",
+        "to": ".map_err(|e| (e, PresetStage::File))?;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "preset::tests::a_preset_is_taken_onto_a_surface_and_filled_the_same_way_for_both",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A9 the timeout reads as the idle limit",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/mod.rs",
+        "from": "            Some(t) if self.started.elapsed() >= t => DriverLimit::Timeout,",
+        "to": "            Some(t) if self.started.elapsed() >= t => DriverLimit::Idle,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::tests::the_read_budget_is_not_renewed_by_lines_that_say_nothing",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A9 the idle limit is said as a lost core",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "        CutShort::Idle => \"the core went quiet and was stopped\",",
+        "to": "        CutShort::Idle => \"the core stopped before it closed the session\","
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "report::tests::each_way_a_run_is_cut_short_says_its_own_why",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the late mask leaves out the late modules",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        if !CHANNELS[i].module.in_every_process() {",
+        "to": "        if CHANNELS[i].module.in_every_process() {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_late_channels_are_read_off_the_table_and_their_modules_have_a_name",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 winmm has no name to be looked up by",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "            Self::Winmm => Some(b\"winmm.dll\\0\"),",
+        "to": "            Self::Winmm => None,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::the_late_channels_are_read_off_the_table_and_their_modules_have_a_name",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the socket wait has no late site",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "        IDX_WSAWFME => (h_wsawfme as *const () as *mut c_void, &O_WSAWFME),\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::every_late_channel_has_a_site_and_the_table_holds_only_late_channels",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the late-install guard misses a channel without a site",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "        IDX_WSAWFME => (h_wsawfme as *const () as *mut c_void, &O_WSAWFME),\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "hygiene"
+    ],
+    "test": "every_optional_module_channel_can_be_installed_late",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 H4 lets the log allocate unlisted",
+    "edits": [
+      {
+        "file": "crates/cli/tests/hygiene.rs",
+        "from": "    (\"log\", \"the diagnostic writer of the install and the watcher - no detour calls it, held below\"),\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "hygiene"
+    ],
+    "test": "the_hook_allocates_only_where_it_says_why",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the FILETIME epoch off by a factor of ten",
+    "edits": [
+      {
+        "file": "crates/cli/src/zone.rs",
+        "from": "pub(crate) const FT_UNIX_EPOCH: i64 = chrono_core::DAYS_1601_TO_1970 * 86_400 * 10_000_000;",
+        "to": "pub(crate) const FT_UNIX_EPOCH: i64 = chrono_core::DAYS_1601_TO_1970 * 86_400 * 1_000_000;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "zone::tests::the_unix_epoch_is_one_constant_on_both_counts",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the engine computes a rule outside its bounds",
+    "edits": [
+      {
+        "file": "crates/core/src/calendar.rs",
+        "from": "    if rule.check().is_err() {\n        return None;\n    }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calendar::tests::a_rule_outside_the_dates_a_year_has_is_no_holiday_and_says_which_field",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 a weekday of 20 passes the check",
+    "edits": [
+      {
+        "file": "crates/core/src/calendar.rs",
+        "from": "    if weekday <= 6 { Ok(()) } else { Err(RuleError::Weekday(weekday)) }",
+        "to": "    if weekday <= 20 { Ok(()) } else { Err(RuleError::Weekday(weekday)) }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-core",
+    "target": [
+      "--lib"
+    ],
+    "test": "calendar::tests::a_rule_outside_the_dates_a_year_has_is_no_holiday_and_says_which_field",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the GUI's copyright names another year",
+    "edits": [
+      {
+        "file": "gui/Directory.Build.props",
+        "from": "<Copyright>Copyright (C) 2026 DonislawDev.",
+        "to": "<Copyright>Copyright (C) 2025 DonislawDev."
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "components"
+    ],
+    "test": "the_copyright_is_said_alike_wherever_it_is_written",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9a A11 the engine warning key spelled apart again",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "        warnings.push(KEY_WEB_ENGINE_UNCOVERED.to_string());",
+        "to": "        warnings.push(\"embedded.web_engine_uncovered_\".to_string());"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "core::tests::a_web_engine_warning_claims_only_what_the_role_proves",
+    "match": "exact",
     "build": "",
     "notHere": ""
   }

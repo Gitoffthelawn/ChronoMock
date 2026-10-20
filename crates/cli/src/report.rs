@@ -1916,6 +1916,17 @@ mod tests {
         assert!(render_report(&bare).contains("the computer slept during the session"));
     }
 
+    /// R5-A9: each way a run is cut short has a line of its own - the idle limit too, which no test read
+    /// while it was the catch-all of a match on strings - and a run that ended by itself has none.
+    #[test]
+    fn each_way_a_run_is_cut_short_says_its_own_why() {
+        let lines = [CutShort::Timeout, CutShort::Idle, CutShort::CoreLost].map(|why| render_cut_short(Some(why)));
+        assert!(lines[0].contains("the --timeout ceiling was reached"), "{}", lines[0]);
+        assert!(lines[1].contains("the core went quiet and was stopped"), "{}", lines[1]);
+        assert!(lines[2].contains("the core stopped before it closed the session"), "{}", lines[2]);
+        assert_eq!(render_cut_short(None), "");
+    }
+
     #[test]
     fn a_run_cut_short_says_so_above_its_numbers_and_is_never_cited_as_proof() {
         // The failure this closes, measured on a real target: a 30 s --timeout printed
