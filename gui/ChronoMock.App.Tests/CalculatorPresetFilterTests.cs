@@ -62,6 +62,7 @@ public class CalculatorPresetFilterTests
         Settled(() => vm.PresetFilter = "no scenario is called this");
         Assert.True(Settled(() => vm.HasNoPresetMatches));
         Assert.Null(Marked(list)); // the list let go of a row it cannot show - not vacuous
+        Assert.Equal(System.Windows.Visibility.Collapsed, Settled(() => list.Visibility)); // no empty strip
 
         Settled(() => vm.PresetFilter = string.Empty);
 

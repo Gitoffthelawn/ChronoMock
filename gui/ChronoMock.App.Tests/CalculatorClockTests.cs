@@ -55,6 +55,28 @@ public class CalculatorClockTests
         Assert.Equal(2, asked());
     }
 
+    /// <summary>"Today" in a fixed zone east of UTC turns at that zone's midnight, which is the evening before in
+    /// UTC. Reversal probe: read the day in UTC and both presses fall on one UTC day, so nothing is asked again.</summary>
+    [Fact]
+    public async Task A_today_answer_in_a_fixed_zone_turns_at_that_zones_midnight()
+    {
+        var clock = new ManualClock(Morning);
+        var (vm, asked) = Calculator(clock);
+        var east = vm.BaseZones.First(z => !z.IsHost && z.BiasMinutes < 0);
+        var midnight = new DateTimeOffset(2026, 10, 21, 0, 0, 0, TimeSpan.Zero).AddMinutes(east.BiasMinutes); // UTC = local + bias
+        clock.Now = midnight.AddMinutes(-30);
+        vm.SelectedBaseZone = east;
+        await vm.EnsureComputedAsync();
+        await CalculatorAnswerTests.Until(() => vm.HasResult && !vm.IsResultStale, "the first answer");
+        var before = asked();
+
+        clock.Now = midnight.AddMinutes(30);
+        await Transferred(vm);
+
+        Assert.Equal(midnight.UtcDateTime.Date, midnight.AddMinutes(-30).UtcDateTime.Date); // one UTC day - not vacuous
+        Assert.Equal(before + 1, asked());
+    }
+
     /// <summary>A Now base is read to the second, so a copy a moment later copies the answer for the time of
     /// the press, and the screen shows that same answer.</summary>
     [Fact]
