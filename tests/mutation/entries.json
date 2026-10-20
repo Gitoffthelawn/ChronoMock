@@ -19357,5 +19357,56 @@
     "match": "method",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-6a CR132 an incomplete calendar answer is read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/CalendarCatalogue.cs",
+        "from": "            throw new CalcException(\"the engine's calendar catalogue is incomplete\", 0);",
+        "to": "            return catalogue;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.An_incomplete_answer_is_refused_as_unreadable",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a CR132 an incomplete preset answer is read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/PresetCatalogue.cs",
+        "from": "            throw new CalcException(\"the engine's preset catalogue is incomplete\", 0);",
+        "to": "            return catalogue;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.PresetCatalogueTests.An_incomplete_answer_is_refused_as_unreadable",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a CR132 the debounce scan loses the clock's line",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App.Tests/CalculatorDebounceTests.cs",
+        "from": "            .SelectMany(file => File.ReadAllLines(Path.Combine(TestPaths.AppDirectory(), \"Calc\", file)))",
+        "to": "            .SelectMany(file => File.ReadAllLines(Path.Combine(TestPaths.AppDirectory(), \"Calc\", file)).Where(l => !l.Contains(\"AskForTheMovedClockAsync() =>\", StringComparison.Ordinal)))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorDebounceTests.Every_live_recompute_goes_through_the_debounce",
+    "match": "method",
+    "build": "",
+    "notHere": ""
   }
 ]

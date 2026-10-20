@@ -208,12 +208,14 @@ public class CalculatorDebounceTests
             "AllowedDirectCalls with the reason it may spawn a process per edit: " + string.Join("; ", direct));
 
         // The canary, and it earned its keep on the first run by firing at a threshold written from a
-        // guess rather than a count. Exactly four call-shaped mentions stand in those files: the two method
-        // declarations, and the two first-reveal calls registered above. The debounced call sites are not
-        // among them - they pass the method as a delegate, without parentheses, which is the whole point.
+        // guess rather than a count. The call-shaped mentions in those files are the two method declarations
+        // and one for each direct call registered above, so the floor follows the list - a hand-kept number
+        // stayed at four when a third call was registered, and the scan could have lost a line unseen. The
+        // debounced call sites are not among them - they pass the method as a delegate, without parentheses,
+        // which is the whole point.
         Assert.True(
             source.Count(l => l.Contains("RecomputeAsync()", StringComparison.Ordinal)
-                              || l.Contains("AnalyzeAsync()", StringComparison.Ordinal)) >= 4,
+                              || l.Contains("AnalyzeAsync()", StringComparison.Ordinal)) >= 2 + AllowedDirectCalls.Length,
             "the scan did not find the calls it is supposed to be reading - it is looking at the wrong files");
     }
 

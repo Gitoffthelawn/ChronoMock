@@ -38,6 +38,23 @@ public class CalendarCatalogueTests
         Assert.Contains("chronomock.calendars/2", e.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>An answer missing a list or holding an entry without an id is refused as unreadable, not read
+    /// into nulls that fail later where nothing catches them (review of #132). Reversal probe: drop the check and
+    /// every case parses.</summary>
+    [Theory]
+    [InlineData("""{ "schema": "chronomock.calendars/1" }""")]
+    [InlineData("""{ "schema": "chronomock.calendars/1", "calendars": null, "refused": [] }""")]
+    [InlineData("""{ "schema": "chronomock.calendars/1", "calendars": [], "refused": null }""")]
+    [InlineData("""{ "schema": "chronomock.calendars/1", "calendars": [ null ], "refused": [] }""")]
+    [InlineData("""{ "schema": "chronomock.calendars/1", "calendars": [ { "id": null, "country": "PL", "name": null } ], "refused": [] }""")]
+    [InlineData("""{ "schema": "chronomock.calendars/1", "calendars": [ { "id": "pl", "name": null } ], "refused": [] }""")]
+    public void An_incomplete_answer_is_refused_as_unreadable(string json)
+    {
+        var e = Assert.Throws<CalcException>(() => CalendarCatalogueClient.Parse(json));
+
+        Assert.Contains("incomplete", e.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>R5-D66: a calendar the window ships keeps the window's own text, any other is labelled by its
     /// file's English name, and one whose file names none by its id.</summary>
     [Fact]

@@ -80,10 +80,23 @@ public sealed class CalendarCatalogueClient(Func<string> chronoPath, string cale
             throw new CalcException("the engine gave no calendar catalogue", 0);
         }
 
-        return catalogue.Schema == CalendarCatalogue.SupportedSchema
-            ? catalogue
-            : throw new CalcException(
+        if (catalogue.Schema != CalendarCatalogue.SupportedSchema)
+        {
+            throw new CalcException(
                 $"the engine answered with catalogue schema '{catalogue.Schema}', and this window reads {CalendarCatalogue.SupportedSchema}",
                 0);
+        }
+
+        // System.Text.Json does not hold a reference type to its nullability, so an answer missing a list, or
+        // holding an entry with no id, would arrive here whole and fail later as a null dereference nobody
+        // catches - the calculator's scenario list then stayed on "reading" with no reason. Refused here, it
+        // takes the path every other unreadable answer takes, and the calendar field says why.
+        if (catalogue.Calendars is null || catalogue.Refused is null
+            || catalogue.Calendars.Any(c => c is null || string.IsNullOrEmpty(c.Id) || c.Country is null))
+        {
+            throw new CalcException("the engine's calendar catalogue is incomplete", 0);
+        }
+
+        return catalogue;
     }
 }
