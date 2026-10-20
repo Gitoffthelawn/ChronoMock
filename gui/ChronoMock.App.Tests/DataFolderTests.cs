@@ -37,6 +37,17 @@ public sealed class DataFolderTests : IDisposable
             WritableFolder.ForApp(name));
     }
 
+    /// <summary>
+    /// Review round on #133. Windows answers an empty path for an account it gives no local application data
+    /// folder, and a folder built on it is relative - the history and logs would land in whatever folder the
+    /// window was started from. Refused instead. Reversal probe: drop the check and the answer is relative.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void An_empty_per_user_root_is_refused_rather_than_made_relative(string root)
+        => Assert.Throws<InvalidOperationException>(() => WritableFolder.In(root, "history"));
+
     [Fact]
     public void A_portable_copy_with_the_installers_marker_beside_it_is_installed()
     {

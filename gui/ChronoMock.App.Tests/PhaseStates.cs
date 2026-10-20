@@ -208,6 +208,26 @@ internal static class PhaseStates
     }
 
     /// <summary>
+    /// A clear that found the history unreadable and moved it aside (R5-D73, review round on #133): no rows
+    /// left, and the section stays to say where the old history went.
+    /// </summary>
+    public static SessionViewModel ResultWithHistoryClearedAside()
+    {
+        var model = ResultRunning(new SessionViewModel(new SetAsideHistoryStore(
+            @"C:\Users\a.tester\AppData\Local\ChronoMock\history\sessions.json.unreadable-20261020-190000")));
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "session.family_covered",
+            ProcessCount = 1,
+        });
+        model.Apply(Ended());
+        model.ClearHistoryAsync().GetAwaiter().GetResult(); // the store answers at once - no thread to wait for
+        return model;
+    }
+
+    /// <summary>
     /// A works session the machine slept through for eight hours (R5-D71): the warning on the audit, and the
     /// fact row that says how long the session clock stood still.
     /// </summary>

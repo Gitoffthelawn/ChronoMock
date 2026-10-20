@@ -510,4 +510,40 @@ public sealed class SessionHistoryStoreTests : IDisposable
         Assert.True(waited, "the removal must wait for the instance that holds the history");
         Assert.Equal("Kept.exe", Assert.Single(store.Load()).TargetName);
     }
+
+    /// <summary>
+    /// R5-D72, review round on #133. Once the old history is read in, a later start does not take the gate to
+    /// learn that: the old file stays beside the executable for good, and the load runs on the window's thread
+    /// while it opens, so asking under the gate made every start wait out another instance's write. Measured
+    /// here as a load that returns while another instance holds the gate. Reversal probe: drop the check before
+    /// the gate and the load waits for it.
+    /// </summary>
+    [Fact]
+    public async Task A_history_read_in_once_does_not_wait_for_the_gate_on_later_starts()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Old"));
+        Assert.Single(new FileSessionHistoryStore(PerUser, BesideExe).Load()); // read in - not vacuous
+        using var taken = new ManualResetEventSlim();
+        using var letGo = new ManualResetEventSlim();
+        var other = new Thread(() =>
+        {
+            using var gate = new Mutex(initiallyOwned: false, @"Local\ChronoMock.History");
+            gate.WaitOne();
+            taken.Set();
+            letGo.Wait();
+            gate.ReleaseMutex();
+        });
+        other.Start();
+        taken.Wait(TestContext.Current.CancellationToken);
+
+        var load = Task.Run(() => new FileSessionHistoryStore(PerUser, BesideExe).Load(), TestContext.Current.CancellationToken);
+        await Task.Delay(1000, TestContext.Current.CancellationToken);
+        var waited = !load.IsCompleted;
+        letGo.Set();
+        var loaded = await load;
+        other.Join();
+
+        Assert.False(waited, "a start after the import waited for another instance's write");
+        Assert.Equal("Old.exe", Assert.Single(loaded).TargetName);
+    }
 }

@@ -24,6 +24,12 @@ internal sealed class SetAsideHistoryStore(string setAsidePath) : ISessionHistor
         return Task.FromResult(string.Empty);
     }
 
+    public Task<string> ClearAsync()
+    {
+        Clear();
+        return Task.FromResult(string.Empty);
+    }
+
     public string TakeSetAside()
     {
         var path = _setAside;

@@ -193,7 +193,11 @@ public sealed class SessionViewModel : ObservableObject
             }
         };
 
-        History.CollectionChanged += (_, _) => RaisePropertyChanged(nameof(HasHistory));
+        History.CollectionChanged += (_, _) =>
+        {
+            RaisePropertyChanged(nameof(HasHistory));
+            RaisePropertyChanged(nameof(ShowsHistorySection));
+        };
         RecentTargets.CollectionChanged += (_, _) => RaisePropertyChanged(nameof(HasRecentTargets));
         foreach (var record in _store.Load())
         {
@@ -375,6 +379,11 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>True when there is at least one recorded session - the History panel binds its visibility here.</summary>
     public bool HasHistory => History.Count > 0;
 
+    /// <summary>Whether the history section is on the screen: while there is a recorded session, and while it
+    /// has to say where an unreadable history went - a clear that moved one leaves no rows, and the section
+    /// that would say so used to go with them (R5-D73).</summary>
+    public bool ShowsHistorySection => HasHistory || HasHistorySetAside;
+
     /// <summary>Raw detail when a session could not be written to history (e.g. a read-only drive), empty
     /// otherwise. Surfaced, never swallowed (rule 6).</summary>
     public string HistoryError
@@ -392,7 +401,14 @@ public sealed class SessionViewModel : ObservableObject
     public string HistorySetAside
     {
         get => _historySetAside;
-        private set { if (Set(ref _historySetAside, value)) { RaisePropertyChanged(nameof(HasHistorySetAside)); } }
+        private set
+        {
+            if (Set(ref _historySetAside, value))
+            {
+                RaisePropertyChanged(nameof(HasHistorySetAside));
+                RaisePropertyChanged(nameof(ShowsHistorySection));
+            }
+        }
     }
 
     /// <summary>True when recording this session set an unreadable history aside - the panel says where.</summary>
@@ -2452,6 +2468,9 @@ public sealed class SessionViewModel : ObservableObject
     {
         History.Clear();
         HistoryError = await _store.ClearAsync().ConfigureAwait(true);
+        // A clear that found the file unreadable moves it aside as an append does, and says so here - read
+        // only by the next record, the move was silent now and claimed by a record that moved nothing.
+        HistorySetAside = _store.TakeSetAside();
     }
 
     /// <summary>Repeat a past session by filling the setup form with its parameters. It never starts a

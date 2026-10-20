@@ -72,8 +72,8 @@ public partial class App : Application
 
     /// <summary>
     /// Write a fault record to the diagnostics folder, or nothing. The save itself never throws for a folder it
-    /// cannot write, but this runs where a failed start is being reported, and anything that escaped here
-    /// would replace that report with a crash.
+    /// cannot write, but finding the folder can (<see cref="WritableFolder.In"/>), and this runs where a fault
+    /// is being reported - anything that escaped here would replace that report with a crash.
     /// </summary>
     private static string? SaveQuietly(string record)
     {
@@ -150,7 +150,7 @@ public partial class App : Application
             return;
         }
 
-        var saved = FileDiagnosticsLog.ForApp().Save(FaultReports.Record(fault, source, notice == FaultNotice.RecordLast));
+        var saved = SaveQuietly(FaultReports.Record(fault, source, notice == FaultNotice.RecordLast));
         // Past the cap on boxes the fault is still written (R5/6b, D1), and only shown while under it.
         if (notice != FaultNotice.Show || Dispatcher.HasShutdownStarted)
         {

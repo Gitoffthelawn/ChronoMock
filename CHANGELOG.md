@@ -10,9 +10,10 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 - **"Copy as command" under the calculator's result** copies the question it answers as a PowerShell
   command line: the engine by its full path, so it works from a portable copy that is not on PATH, and
-  the same arguments, so a terminal gives the same answer. A value with a double quote in it, which
-  Windows PowerShell 5.1 passes on wrongly, puts a comment first that says to run it in PowerShell 7.3
-  or later.
+  the same arguments, so a terminal gives the same answer. Windows PowerShell 5.1 passes three kinds of
+  value on wrongly - one with a double quote in it, an empty one, and one with a space that ends in a
+  backslash - so a command holding one of them starts with a comment that says to run it in PowerShell
+  7.3 or later.
 - **`chrono calendars` lists the calendars the calculator can count in**, the way `chrono presets`
   lists the presets: every calendar file `--calendar` reads, with its country and its own name, and
   every file it would refuse, with the reason. `--dir` reads another folder, `--json` answers in

@@ -13145,8 +13145,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
-        "from": "        => In(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), name);",
-        "to": "        => In(AppContext.BaseDirectory, name);"
+        "from": "        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),",
+        "to": "        AppContext.BaseDirectory,"
       }
     ],
     "runner": "rust",
@@ -19703,8 +19703,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
-        "from": "        => In(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), name);",
-        "to": "        => In(AppContext.BaseDirectory, name);"
+        "from": "        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),",
+        "to": "        AppContext.BaseDirectory,"
       }
     ],
     "runner": "cs",
@@ -19839,8 +19839,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        HistorySetAside = _store.TakeSetAside();",
-        "to": ""
+        "from": "        HistoryError = await _store.AppendAsync(record).ConfigureAwait(true);\n        HistorySetAside = _store.TakeSetAside();",
+        "to": "        HistoryError = await _store.AppendAsync(record).ConfigureAwait(true);"
       }
     ],
     "runner": "cs",
@@ -19915,6 +19915,91 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.CalculatorAnswerTests.Copy_as_command_without_a_result_copies_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b CR133 a command copied before the answer",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        return await _result.WhenCurrentAsync(ActionWait) && HasResult ? _client.CommandLine(BuildCurrentArgs()) : null;",
+        "to": "        return await Task.FromResult(true) && HasResult ? _client.CommandLine(BuildCurrentArgs()) : null;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorAnswerTests.Copy_as_command_pressed_straight_after_a_refused_edit_copies_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b CR133 every start takes the gate",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "            if (AlreadyReadIn(old, out _))\n            {\n                return;\n            }\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.A_history_read_in_once_does_not_wait_for_the_gate_on_later_starts",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b CR133 a clear says nothing",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        // only by the next record, the move was silent now and claimed by a record that moved nothing.\n        HistorySetAside = _store.TakeSetAside();",
+        "to": "        // only by the next record, the move was silent now and claimed by a record that moved nothing."
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_clear_that_set_the_old_history_aside_says_where_it_went",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b CR133 the section goes with the rows",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "    public bool ShowsHistorySection => HasHistory || HasHistorySetAside;",
+        "to": "    public bool ShowsHistorySection => HasHistory;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_clear_that_set_the_old_history_aside_says_where_it_went",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b CR133 an empty root made relative",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
+        "from": "        if (string.IsNullOrWhiteSpace(perUserRoot))",
+        "to": "        if (perUserRoot is null)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DataFolderTests.An_empty_per_user_root_is_refused_rather_than_made_relative",
     "match": "method",
     "build": "",
     "notHere": ""

@@ -190,6 +190,23 @@ public class SessionRunTests
         Assert.Equal((string.Empty, false), (vm.HistorySetAside, vm.HasHistorySetAside));
     }
 
+    /// <summary>
+    /// R5-D73, review round on #133. A clear that found the history unreadable moves it aside as an append
+    /// does, and says where at once - with the section kept on screen for it although the clear left no rows.
+    /// Read only by the next record, the move was silent and then claimed by a record that moved nothing.
+    /// Reversal probe: drop the read after the clear and the note stays empty.
+    /// </summary>
+    [Fact]
+    public async Task A_clear_that_set_the_old_history_aside_says_where_it_went()
+    {
+        const string movedTo = @"C:\Users\tester\AppData\Local\ChronoMock\history\sessions.json.unreadable-20261020-190000";
+        var vm = new SessionViewModel(new SetAsideHistoryStore(movedTo));
+
+        await vm.ClearHistoryAsync();
+
+        Assert.Equal((movedTo, false, true), (vm.HistorySetAside, vm.HasHistory, vm.ShowsHistorySection));
+    }
+
     [Fact]
     public async Task A_core_that_refuses_the_handshake_launches_nothing_and_its_words_are_kept()
     {

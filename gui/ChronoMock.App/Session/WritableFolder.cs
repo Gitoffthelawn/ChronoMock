@@ -19,11 +19,29 @@ namespace ChronoMock.App;
 /// </summary>
 internal static class WritableFolder
 {
-    /// <summary>The folder the running window keeps one kind of its own files in (<c>history</c>, <c>logs</c>).</summary>
-    internal static string ForApp(string name)
-        => In(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), name);
+    /// <summary>The folder the running window keeps one kind of its own files in (<c>history</c>, <c>logs</c>).
+    /// Windows is asked to create the per-user folder when the account has none yet.</summary>
+    internal static string ForApp(string name) => In(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
+        name);
 
-    /// <summary>The folder for one kind of the window's own files under a per-user root - separate so a test
-    /// can ask it of a root it made.</summary>
-    internal static string In(string perUserRoot, string name) => Path.Combine(perUserRoot, "ChronoMock", name);
+    /// <summary>
+    /// The folder for one kind of the window's own files under a per-user root - separate so a test can ask it
+    /// of a root it made.
+    /// <para>
+    /// 🔴 An empty root is refused. Windows answers an empty path for an account it gives no local application
+    /// data folder, and a path built on it is relative - every history and log would then be written into
+    /// whatever folder the window was started from, outside both places README and SECURITY name.
+    /// </para>
+    /// </summary>
+    internal static string In(string perUserRoot, string name)
+    {
+        if (string.IsNullOrWhiteSpace(perUserRoot))
+        {
+            throw new InvalidOperationException(
+                "Windows gives this account no local application data folder, so Chrono Mock has nowhere of its own to keep its history and logs.");
+        }
+
+        return Path.Combine(perUserRoot, "ChronoMock", name);
+    }
 }

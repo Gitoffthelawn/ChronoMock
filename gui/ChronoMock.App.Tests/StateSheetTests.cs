@@ -266,6 +266,10 @@ public class StateSheetTests
             total += Shows(
                 RenderResult("result-history-set-aside", PhaseStates.ResultWithHistorySetAside(), "HistorySection"),
                 "history.set_aside");
+            // A clear that moved it aside: no rows, and the section stays for the note.
+            total += Shows(
+                RenderResult("result-history-cleared-aside", PhaseStates.ResultWithHistoryClearedAside(), "HistorySection"),
+                "history.set_aside");
 
             total += RenderedFloor(
                 "result-floor",

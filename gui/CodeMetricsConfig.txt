@@ -93,10 +93,13 @@
 # `SessionViewModelTests` and `LayoutGuardTests` at 80, and the tightened copy at 80 has to fail.
 CA1506: 81
 
-# `PresetCatalog.ReadParameters`, a JSON reader that validates each field as it goes. Next are
-# `SessionViewModel.Apply` at 15 and `SessionViewModel`'s event router at 13. The analyzer's default
-# here is 25, which nothing in this codebase approaches - left at the default, the rule would never
-# have fired and would have been a gate in name only.
+# `SessionViewModel.Apply`, the event fold of the session panel, and `ScanViews` in the item-name guard,
+# tied at 14 (measured 2026-10-20 with tools/margin.ps1). The analyzer's default here is 25, which nothing
+# in this codebase approaches - left at the default, the rule would never have fired and would have been a
+# gate in name only. The paragraphs below are the history, oldest first.
+#
+# Written at 18 for `PresetCatalog.ReadParameters`, a JSON reader that validated each field as it went, with
+# `SessionViewModel.Apply` at 15 and `SessionViewModel`'s event router at 13 behind it.
 #
 # Re-measured 2026-09-09: `ReadParameters` still holds 18 and `SessionViewModel.Apply` is still 15, but
 # nothing in `SessionViewModel` reaches 13 any more. The two at 13 are `CalculatorViewModel.ApplyResult`

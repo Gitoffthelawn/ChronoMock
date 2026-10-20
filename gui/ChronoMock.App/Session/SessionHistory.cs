@@ -188,9 +188,20 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
             return;
         }
 
+        var old = new FileSessionHistoryStore(_besideExe);
         try
         {
-            UnderGate(() => ImportUnderGate(new FileSessionHistoryStore(_besideExe)));
+            // 🔴 Asked BEFORE the gate as well as under it. The old file stays where it is, so it is there on
+            // every start, and this runs on the window's thread while it opens: taking the gate just to read
+            // "already done" made every start wait up to WriteMutexWait for another instance's write - the
+            // wait the history's changes were moved off this thread to avoid (R4/13). Asked again under the
+            // gate, because two instances may both see it unmarked and only one may read it in.
+            if (AlreadyReadIn(old, out _))
+            {
+                return;
+            }
+
+            UnderGate(() => ImportUnderGate(old));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -198,12 +209,20 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         }
     }
 
+    /// <summary>Whether <paramref name="old"/> is listed in <see cref="ImportedName"/> already, with the list
+    /// as read.</summary>
+    private bool AlreadyReadIn(FileSessionHistoryStore old, out string[] done)
+    {
+        var marker = Path.Combine(_directory, ImportedName);
+        done = File.Exists(marker) ? File.ReadAllLines(marker) : [];
+        return done.Contains(Path.GetFullPath(old.FilePath), StringComparer.OrdinalIgnoreCase);
+    }
+
     private void ImportUnderGate(FileSessionHistoryStore old)
     {
         var marker = Path.Combine(_directory, ImportedName);
         var source = Path.GetFullPath(old.FilePath);
-        var done = File.Exists(marker) ? File.ReadAllLines(marker) : [];
-        if (done.Contains(source, StringComparer.OrdinalIgnoreCase))
+        if (AlreadyReadIn(old, out var done))
         {
             return;
         }
@@ -228,7 +247,9 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         // Created here too: an old history with no sessions in it writes nothing above, and without the folder
         // the marker would fail on every start and the import be tried for good.
         Directory.CreateDirectory(_directory);
-        var temp = $"{marker}.{Environment.ProcessId}.tmp";
+        // The process id AND the counter, as Write's scratch name: the gate goes ahead after its wait runs out,
+        // so two stores of one process can be here at once.
+        var temp = $"{marker}.{Environment.ProcessId}.{Interlocked.Increment(ref _tempCounter)}.tmp";
         try
         {
             File.WriteAllLines(temp, [.. done, source]);
