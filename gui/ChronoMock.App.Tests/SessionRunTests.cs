@@ -123,6 +123,40 @@ public class SessionRunTests
         Assert.DoesNotContain(core.Sent, c => c is SetMultiplierCommand); // the restore sends nothing
     }
 
+    /// <summary>
+    /// R5-P11: the jump target typed in one session is not waiting in the next. It is read in the zone of the
+    /// session it is sent to, so a leftover would jump the new session somewhere nobody asked for - and it is
+    /// cleared to the untouched state, not to an empty date, which would open the new session's field on
+    /// "the date is empty". Reversal probe: drop the clear and the field still holds the old moment.
+    /// </summary>
+    [Fact]
+    public async Task A_new_session_starts_with_an_untouched_jump_field()
+    {
+        var core = new FakeCoreConnection(
+            [FakeCoreConnection.ReadyFor(Target)],
+            command => command is StartCommand ? [Heartbeat, Works] : []);
+        var vm = ViewModel(new InMemorySessionHistoryStore(), core);
+
+        var run = vm.StartAsync();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!vm.IsRunning && clock.Elapsed < Limit)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        vm.JumpMoment.DateText = "2040-06-15";
+        vm.JumpMoment.TimeText = "13:30";
+        Assert.True(vm.JumpMoment.IsValid); // typed during the session - not vacuous
+        core.End();
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        vm.BeginNewSession();
+
+        Assert.Equal((string.Empty, string.Empty), (vm.JumpMoment.DateText, vm.JumpMoment.TimeText));
+        Assert.Equal(string.Empty, vm.JumpMoment.ActiveErrorKey);
+        Assert.False(vm.JumpMoment.HasDateError);
+    }
+
     [Fact]
     public async Task A_core_that_refuses_the_handshake_launches_nothing_and_its_words_are_kept()
     {

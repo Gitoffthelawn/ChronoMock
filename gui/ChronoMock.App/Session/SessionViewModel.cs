@@ -2258,6 +2258,12 @@ public sealed class SessionViewModel : ObservableObject
         // A note about what the last LOAD could not fill belongs to the form the user is about to run, not
         // to the run itself - once they start, they have accepted the form as it stands.
         HistoryNoteKey = string.Empty;
+        // The jump target belongs to the session it was typed in (R5-P11). It is read in the zone of the
+        // session it is sent to, so a moment left from the last run would jump the next one somewhere nobody
+        // asked for. Cleared to the untouched state - an empty field typed out says "the date is empty", and a
+        // new session's field must not open on an error. The field is on the session screen only, so at Start
+        // nothing typed for this session is lost.
+        JumpMoment.Clear();
     }
 
     /// <summary>The setup the form holds right now - what Start takes as the session's setup.</summary>

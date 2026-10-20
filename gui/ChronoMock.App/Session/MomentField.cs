@@ -126,6 +126,20 @@ public sealed class MomentField : ObservableObject
         return true;
     }
 
+    /// <summary>
+    /// Empty the field back to the state it was built in: nothing typed and no message under it. Not the
+    /// same as typing nothing - an empty date the user left is "the date is empty", while a field nobody
+    /// has touched yet says nothing, and a new session's jump field must not greet its reader with an error.
+    /// </summary>
+    public void Clear()
+    {
+        _dateText = string.Empty;
+        _timeText = string.Empty;
+        RaisePropertyChanged(nameof(DateText));
+        RaisePropertyChanged(nameof(TimeText));
+        Show(new MomentResult(false, string.Empty, MomentPart.None, string.Empty));
+    }
+
     /// <summary>Fill the field with midnight today in the SESSION zone (a fixed offset, rule 2 - relative to
     /// the session zone, never the OS clock's local time). The bias comes from the panel's selected zone.</summary>
     public void SetToday(int biasMinutes) => SetToday(biasMinutes, DateTime.UtcNow);
@@ -164,9 +178,10 @@ public sealed class MomentField : ObservableObject
         Recompute();
     }
 
-    private void Recompute()
+    private void Recompute() => Show(MomentParse.Compose(_dateText, _timeText));
+
+    private void Show(MomentResult result)
     {
-        var result = MomentParse.Compose(_dateText, _timeText);
         IsValid = result.Ok;
         Canonical = result.Canonical;
         _errorPart = result.ErrorPart;
