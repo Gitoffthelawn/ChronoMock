@@ -18,6 +18,8 @@
 
 use serde::Deserialize;
 
+use chrono_core::calendar::{check_day, check_easter_offset, check_month, check_order, RuleError, EASTER_OFFSET_RANGE};
+
 /// The schema field on its own, read before the rest of the file. A file written to a later version
 /// has to be refused as that - read strictly first, it would be refused over whichever of its new
 /// fields came first, and the reader would chase a typo that is not there.
@@ -138,7 +140,6 @@ pub(crate) fn rule_from(id: &str, dto: RuleDto) -> Result<chrono_core::calendar:
     use chrono_core::calendar::HolidayRule;
     Ok(match dto {
         RuleDto::Fixed { month, day } => {
-            check_month(id, month)?;
             // The month's longest length in ANY year, not a flat 1..=31. Two different things look
             // alike here and only one of them is legal. February 29 is a rule a calendar may
             // legitimately name - the engine answers "not this year" in a common year (R2-N7) - so
@@ -146,28 +147,17 @@ pub(crate) fn rule_from(id: &str, dto: RuleDto) -> Result<chrono_core::calendar:
             // it is a typo, and the engine would answer "not this year" for EVERY year: a holiday
             // silently absent forever. Refused here, naming the month's real length, because a
             // calendar is a data file from outside the build.
-            let longest = chrono_core::max_day_in_month(month);
-            if !(1..=longest).contains(&day) {
-                return Err(format!(
-                    "holiday '{id}': day {day} out of range for month {month} (1..={longest})"
-                ));
-            }
-
+            check_day(month, day).map_err(|e| rule_refusal(id, e))?;
             HolidayRule::Fixed { month, day }
         }
         RuleDto::NthWeekday { month, weekday, order } => {
-            check_month(id, month)?;
+            check_month(month).map_err(|e| rule_refusal(id, e))?;
             // -1 = "the last such weekday in the month" - 1..=5 counts from the start. A fifth exists
             // only in some months, and the engine now answers "this holiday does not fall in that
             // year" rather than borrowing a day from the next month - which is what it actually did
             // while this comment claimed otherwise (R2-N4). Anything outside the range would walk
             // past the end for every month, so it stays a load error.
-            if order != -1 && !(1..=5).contains(&order) {
-                return Err(format!(
-                    "holiday '{id}': order {order} out of range (-1 for last, or 1..=5)"
-                ));
-            }
-
+            check_order(order).map_err(|e| rule_refusal(id, e))?;
             HolidayRule::NthWeekday { month, weekday: weekday_index(&weekday)?, order }
         }
         RuleDto::EasterOffset { offset } => {
@@ -179,28 +169,29 @@ pub(crate) fn rule_from(id: &str, dto: RuleDto) -> Result<chrono_core::calendar:
             // for it in the date's own year and finds nothing, while the day-off cache looks a year
             // either side and finds it, so a report called one day "not a holiday" and "a holiday
             // shifted here from a weekend". Real observances sit well inside (Corpus Christi is +60).
-            if !EASTER_OFFSET_RANGE.contains(&offset) {
-                return Err(format!(
-                    "holiday '{id}': easter offset {offset} out of range ({}..={} days, which keeps the holiday in the year of its Easter)",
-                    EASTER_OFFSET_RANGE.start(),
-                    EASTER_OFFSET_RANGE.end()
-                ));
-            }
-
+            check_easter_offset(offset).map_err(|e| rule_refusal(id, e))?;
             HolidayRule::EasterOffset { offset }
         }
     })
 }
 
-/// The Easter offsets a calendar may name - see where `rule_from` checks it.
-const EASTER_OFFSET_RANGE: std::ops::RangeInclusive<i32> = -80..=250;
-
-pub(crate) fn check_month(id: &str, month: u32) -> Result<(), String> {
-    if !(1..=12).contains(&month) {
-        return Err(format!("holiday '{id}': month {month} out of range (1..=12)"));
+/// The loader's sentence for a rule field outside the dates a year has, naming the holiday and the field.
+/// The bounds are the engine's (`chrono_core::calendar::RuleError`, R5-A11), the words are the loader's.
+fn rule_refusal(id: &str, e: RuleError) -> String {
+    match e {
+        RuleError::Month(month) => format!("holiday '{id}': month {month} out of range (1..=12)"),
+        RuleError::Day { month, day, longest } => {
+            format!("holiday '{id}': day {day} out of range for month {month} (1..={longest})")
+        }
+        RuleError::Order(order) => format!("holiday '{id}': order {order} out of range (-1 for last, or 1..=5)"),
+        // A file names its weekday as a word, read by `weekday_index`, so no file reaches this one.
+        RuleError::Weekday(weekday) => format!("holiday '{id}': weekday {weekday} out of range (0..=6)"),
+        RuleError::EasterOffset(offset) => format!(
+            "holiday '{id}': easter offset {offset} out of range ({}..={} days, which keeps the holiday in the year of its Easter)",
+            EASTER_OFFSET_RANGE.start(),
+            EASTER_OFFSET_RANGE.end()
+        ),
     }
-
-    Ok(())
 }
 
 /// Locate a calendar file: next to the executable (portable layout), else in ./calendars.

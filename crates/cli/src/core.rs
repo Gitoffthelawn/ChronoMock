@@ -29,7 +29,9 @@ use crate::cdp_clock::shim_origin_from_state;
 use crate::cdp_session::cdp_session;
 use crate::cli::{this_bitness, CORE_VERSION};
 use crate::embedded::{is_renderer_role, is_web_engine_subprocess, role_from_command_line};
-use crate::embedded_bridge::{reconcile_engine_warnings, EmbeddedBridge, Launch, KEY_REGISTRY_ARGUMENTS_HIDDEN};
+use crate::embedded_bridge::{
+    reconcile_engine_warnings, EmbeddedBridge, Launch, KEY_REGISTRY_ARGUMENTS_HIDDEN, KEY_WEB_ENGINE_UNCOVERED,
+};
 use crate::events::{
     emit, emit_coverage, ended_clean, error_event, jump_error_key, moment_error_key, reported_sleep_ms,
     sleep_to_announce, start_time_mode, state_event, state_event_from, KEY_HOST_SLEPT, SLEPT_REPORTED_MS,
@@ -1015,7 +1017,7 @@ pub(crate) fn uncovered_children_warnings(children: &[UncoveredChild], total: u3
     let renderer = children.iter().any(is_renderer_child);
     let engine = children.iter().any(|c| c.image.as_deref().is_some_and(is_web_engine_subprocess));
     if renderer {
-        warnings.push("embedded.web_engine_uncovered".to_string());
+        warnings.push(KEY_WEB_ENGINE_UNCOVERED.to_string());
     } else if engine {
         warnings.push("embedded.web_engine_processes_uncovered".to_string());
     }
