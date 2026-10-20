@@ -265,6 +265,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   session's scenario list started the engine for every row it passed. A row chosen while the one
   before it is still being worked out now waits a fifth of a second, so a run of rows asks about the
   row it stops on, and a click still asks at once.
+- **A large process family no longer holds the window as its reports come in.** Every change on the
+  session panel told all nineteen of its commands to check themselves again, and every coverage report
+  rebuilt the audit lists even when it said nothing new. A family of 256 processes reporting the same
+  channels took 275 ms of the window's time and now takes 37 ms. A heartbeat no longer re-announces the
+  whole result either.
 - **The copied session summary says what the CLI report says about errors, sleep and the browser.**
   Every error the core sent is listed under the verdict - a speed it refused while the session ran was
   on the screen only while the session lasted. How long the computer slept is in the session's block,

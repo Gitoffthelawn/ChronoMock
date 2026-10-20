@@ -24,6 +24,25 @@ public abstract class ObservableObject : INotifyPropertyChanged
         return true;
     }
 
+    /// <summary>
+    /// Set a list and raise <see cref="PropertyChanged"/> only when what it holds changes, item by item.
+    /// <see cref="Set{T}"/> compares a list by reference, so a list rebuilt with the same items announced a
+    /// change all the same - the audit is rebuilt from every coverage report, and a family of 256 processes
+    /// reporting the same channels re-ran every binding on the audit 256 times for nothing (R5-WY4).
+    /// </summary>
+    protected bool SetItems<T>(ref IReadOnlyList<T> field, IReadOnlyList<T> value, [CallerMemberName] string? name = null)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (field.SequenceEqual(value))
+        {
+            return false;
+        }
+
+        field = value;
+        RaisePropertyChanged(name);
+        return true;
+    }
+
     /// <summary>Raise <see cref="PropertyChanged"/> for a property, e.g. a computed one that depends on another.</summary>
     protected void RaisePropertyChanged(string? name)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
