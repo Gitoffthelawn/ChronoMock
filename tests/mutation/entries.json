@@ -18195,5 +18195,195 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D62 the summary reads the form instead of the start setup",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "return SessionReport.Summary(_result, Requested, Fake.Wall, translate);",
+        "to": "return SessionReport.Summary(_result, LiveSetup, Fake.Wall, translate);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionViewModelTests.The_summary_names_the_target_and_zone_the_session_ran_on_not_a_later_edit",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D62 the diagnostics block reads its own clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": ".Append(utcNow.ToString(\"yyyy-MM-ddTHH:mm:ssZ\", CultureInfo.InvariantCulture))",
+        "to": ".Append(DateTime.UtcNow.ToString(\"yyyy-MM-ddTHH:mm:ssZ\", CultureInfo.InvariantCulture))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportTests.The_diagnostics_block_is_stamped_with_the_clock_it_is_given",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D9 a run overtaken while it computes shows its answer",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/LatestAnswer.cs",
+        "from": "            if (Accept(ticket))\n            {\n                answer(value);\n            }\n",
+        "to": "            Accept(ticket);\n            answer(value);\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.LatestAnswerTests.A_run_overtaken_while_it_computes_shows_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D9 a question that throws leaves its input unanswered",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/LatestAnswer.cs",
+        "from": "        catch (Exception e)\n        {\n            if (Accept(ticket))\n            {\n                fail(e);\n            }\n        }\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.LatestAnswerTests.A_question_that_throws_is_shown_as_a_failure_and_answers_the_input",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D9 the empty result column loses its dash",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "false, string.Empty, \"-\", string.Empty,",
+        "to": "false, string.Empty, string.Empty, string.Empty,"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ResultProjectionTests.The_empty_column_shows_a_dash_and_nothing_else",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D63 the session ignores the connection it is given",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/CoreSession.cs",
+        "from": "new CoreSession((connect ?? CoreClient.Connect)(plan.CorePath))",
+        "to": "new CoreSession(CoreClient.Connect(plan.CorePath))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "*SessionRunTests",
+    "match": "class",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D63 a refused core is not let go",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                    await CloseSessionAsync(session);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_core_that_refuses_the_handshake_launches_nothing_and_its_words_are_kept",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D64 a field the window has no place for passes the wire check",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/Events.cs",
+        "from": "[JsonPropertyName(\"residue_keys\")]",
+        "to": "[JsonPropertyName(\"residue_key\")]"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.WireGoldenTests.Every_field_of_every_event_the_core_sends_has_a_place_in_the_window",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D64 the copied summary drops a section of the report",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        AppendEngines(sb, r, translate);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.Every_section_of_the_cli_report_has_its_line_in_the_copied_summary",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D64 the golden events leave a field at the default serde skips",
+    "edits": [
+      {
+        "file": "crates/proto/tests/wire_golden.rs",
+        "from": "            host_slept_ms: 7_200_000,",
+        "to": "            host_slept_ms: 0,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--test",
+      "wire_golden"
+    ],
+    "test": "the_golden_events_are_one_of_each_kind_with_every_field_written_out",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b A11 the labelled drop-down loses the names of its items",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/App.xaml",
+        "from": "        <Setter Property=\"ItemContainerStyle\" Value=\"{StaticResource LabelKeyComboItem}\" />\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "*ItemNameGuardTests",
+    "match": "class",
+    "build": "",
+    "notHere": ""
   }
 ]

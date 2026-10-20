@@ -12,9 +12,17 @@ public class SessionRunTests
 {
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
 
-    /// <summary>A real executable for the plan to read the header of - this test run's own, so its bitness is
-    /// the machine's and the fake core's <c>ready</c> matches it.</summary>
-    private static string Target => Environment.ProcessPath!;
+    /// <summary>
+    /// A real executable for the plan to read the header of: the sample target this repository builds for its
+    /// own sessions, which lives a few seconds and exits.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 NOT this test run's own exe, which it was at first. A session that missed the fake core - the
+    /// mutation entry for R5-D63 makes one - launched the real core with the test runner as its target, and
+    /// the runner ran the whole suite again as the application under test, holding its own binaries locked.
+    /// </remarks>
+    private static string Target => SessionPlan.DefaultTargetPath()
+        ?? throw new InvalidOperationException("the sample target is not built - build the solution first");
 
     private static StateEvent Heartbeat => new()
     {
@@ -45,7 +53,7 @@ public class SessionRunTests
     {
         var store = new InMemorySessionHistoryStore();
         var core = new FakeCoreConnection(
-            [FakeCoreConnection.Ready],
+            [FakeCoreConnection.ReadyFor(Target)],
             command => command is StartCommand
                 ? [Heartbeat, Works, new EndedEvent { V = ProtocolJson.ProtocolVersion, Clean = true }]
                 : []);
@@ -99,7 +107,7 @@ public class SessionRunTests
     public async Task A_close_during_a_running_session_stops_it_records_it_and_lets_the_core_go()
     {
         var store = new InMemorySessionHistoryStore();
-        var core = new FakeCoreConnection([FakeCoreConnection.Ready], command => command is StartCommand ? [Heartbeat, Works] : []);
+        var core = new FakeCoreConnection([FakeCoreConnection.ReadyFor(Target)], command => command is StartCommand ? [Heartbeat, Works] : []);
         var vm = ViewModel(store, core);
 
         var run = vm.StartAsync();

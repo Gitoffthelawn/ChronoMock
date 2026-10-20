@@ -26,13 +26,14 @@ internal sealed class FakeCoreConnection : ICoreConnection
         }
     }
 
-    /// <summary>The <c>ready</c> a core built for this machine's own bitness sends first.</summary>
-    internal static ReadyEvent Ready => new()
+    /// <summary>The <c>ready</c> a core built for <paramref name="target"/>'s bitness sends first, so the
+    /// handshake passes for that target.</summary>
+    internal static ReadyEvent ReadyFor(string target) => new()
     {
         V = ProtocolJson.ProtocolVersion,
         Protocol = ProtocolJson.ProtocolVersion,
         CoreVersion = "0.0.0-test",
-        Bitness = Environment.Is64BitProcess ? "x64" : "x86",
+        Bitness = PeReader.ReadMachine(target) == PeReader.Machine.X86 ? "x86" : "x64",
     };
 
     /// <summary>The path the session asked to connect to, once it did.</summary>
