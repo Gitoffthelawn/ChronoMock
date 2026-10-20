@@ -396,6 +396,14 @@
     <Setter Property="MinWidth" Value="{StaticResource PrimaryActionMinWidth}" />
   </Style>
 
+  <!-- A button that copies what stands beside or above it: caption size, because the value is what is read
+       and the button only hands it over, and wide enough that its "Copied" moment does not move anything.
+       Named on its third use (rule 7) - the calculator's format rows, its custom format and its command. -->
+  <Style x:Key="PartCopyAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="MinWidth" Value="{StaticResource CopyButtonMinWidth}" />
+    <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}" />
+  </Style>
+
   <!--
     ============================ Text field ============================
 

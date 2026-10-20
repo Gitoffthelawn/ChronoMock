@@ -42,6 +42,9 @@ internal sealed class FakeCalcEngine : ICalcEngine
         }
     }
 
+    /// <summary>The question as words, so a test reads which arguments a command was built from.</summary>
+    public string? CommandLine(IReadOnlyList<string> calcArgs) => "calc " + string.Join(" ", calcArgs);
+
     public Task<CalcResult> EvaluateAsync(IReadOnlyList<string> calcArgs, CancellationToken ct = default)
     {
         var question = new Question(calcArgs);

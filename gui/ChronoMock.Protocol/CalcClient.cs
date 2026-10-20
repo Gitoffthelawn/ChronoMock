@@ -76,6 +76,18 @@ public sealed class CalcClient : ICalcEngine
     }
 
     /// <summary>
+    /// The engine this client runs, asked the same question from a terminal. A shipped engine finds its
+    /// calendars and presets by where it stands, so the command works from any folder. A development build's
+    /// engine finds them through the folder it runs in, which this client sets and a pasted command does not -
+    /// there it works from the repository root.
+    /// </summary>
+    public string? CommandLine(IReadOnlyList<string> calcArgs)
+    {
+        ArgumentNullException.ThrowIfNull(calcArgs);
+        return PowerShellCommand.For(_chronoPath(), ["calc", .. calcArgs]);
+    }
+
+    /// <summary>
     /// Run one engine question and return its standard output, or throw <see cref="CalcException"/> carrying
     /// the engine's own sentence - or, for a launch that failed or a limit reached, a sentence in the engine's
     /// shape ending in a stable key (<c>calc.launch_failed</c>, <c>calc.timeout</c>), so the interface can

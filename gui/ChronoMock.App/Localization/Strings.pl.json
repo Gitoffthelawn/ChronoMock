@@ -687,6 +687,7 @@
   "calc.all_formats": "Wszystkie formaty - kopiuj jednym klikiem",
   "calc.copy": "Kopiuj",
   "calc.copied": "Skopiowano",
+  "calc.copy_command": "Kopiuj jako polecenie",
   "calc.custom_format": "Format własny",
   "calc.custom_format_hint": "np. yyyy-MM-dd HH:mm:ss",
   "calc.metadata": "Szczegóły",
@@ -847,5 +848,6 @@
   "tip.calc_calendar": "Kalendarz świąt i dni roboczych używany przez kroki dni roboczych i najbliższy.",
   "tip.custom_format": "Sformatuj wynik własną maską (tokeny .NET/Java).",
   "tip.analyze": "Wklej datę, by zobaczyć jak się czyta - obie interpretacje, gdy niejednoznaczna.",
+  "tip.copy_command": "Kopiuje polecenie PowerShella, które da ten wynik w terminalu.",
   "tip.use_in_substitution": "Wyślij tę datę i godzinę do trybu „Uruchom aplikację”. Dostępne tylko, gdy jej strefa jest jedną z oferowanych stref sesji."
 }

@@ -53,6 +53,33 @@ public class CalculatorAnswerTests
         Assert.Equal(["2026-01-31T00:00:00"], sent);
     }
 
+    /// <summary>
+    /// R5-D54. "Copy as command" pressed straight after an edit copies the command for the edit - the question
+    /// whose answer the screen is about to show, never the one before it. Reversal probe: build the command
+    /// before waiting for the result and it carries the old amount.
+    /// </summary>
+    [Fact]
+    public async Task Copy_as_command_pressed_straight_after_an_edit_copies_the_command_for_the_edit()
+    {
+        var vm = await CalculatorWithOneStepAsync(new FakeCalcEngine(NewYearShifted));
+
+        vm.Steps[0].Amount = "30";
+        var command = await vm.CopyCommandAsync();
+
+        Assert.Equal("calc " + string.Join(" ", vm.BuildCurrentArgs()), command);
+        Assert.Contains("30", command, StringComparison.Ordinal);
+    }
+
+    /// <summary>A calculator with no result has no command to copy.</summary>
+    [Fact]
+    public async Task Copy_as_command_without_a_result_copies_nothing()
+    {
+        var vm = new CalculatorViewModel(new FakeCalcEngine(NewYearShifted));
+
+        Assert.False(vm.HasResult); // nothing asked yet - not vacuous
+        Assert.Null(await vm.CopyCommandAsync());
+    }
+
     [Fact]
     public async Task Copy_pressed_straight_after_an_edit_copies_the_value_for_the_edit_from_the_same_row()
     {

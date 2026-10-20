@@ -97,6 +97,15 @@
           </WrapPanel>
 
           <TextBlock Style="{StaticResource PartCaption}" Margin="{StaticResource StackGapLg}"
+                     Text="Copy - hands over the value beside it or the result above it. Caption size, because the value is what is read, and a width floor so its Copied moment moves nothing. Off while there is nothing to copy, and with the longest label it carries." />
+          <WrapPanel Margin="{StaticResource StackGapSm}">
+            <Button Content="Copy" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+            <Button Content="Copied" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+            <Button Content="Copy" Style="{StaticResource PartCopyAction}" IsEnabled="False" Margin="{StaticResource SpaceXs}" />
+            <Button Content="Copy as command" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+          </WrapPanel>
+
+          <TextBlock Style="{StaticResource PartCaption}" Margin="{StaticResource StackGapLg}"
                      Text="The same drawing in the failure red, for an action that ends something - the session Stop and the destructive answer in a dialog. Not the accent, because the accent marks the next step and this ends one." />
           <WrapPanel Margin="{StaticResource StackGapSm}">
             <Button Content="Stop session" Style="{DynamicResource PrimaryActionButton}"
