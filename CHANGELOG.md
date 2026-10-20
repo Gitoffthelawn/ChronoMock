@@ -240,6 +240,8 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **"New session" comes back at the mode the last session started with.** Changing the speed while a
+  session ran moved the Mode list with it, so a session started in flow left the next form at x60.
 - **A calculator scenario that counts in a calendar this installation does not have is no longer
   computed in another one.** The window kept the calendar picked before, so a scenario for a market
   with no calendar here counted its business days in another country's, without a word. It now says

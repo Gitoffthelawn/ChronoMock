@@ -1219,6 +1219,16 @@ public sealed class SessionViewModel : ObservableObject
         }
 
         ResetSession();
+        // The mode the session STARTED with, not the speed it was left at (R5-D51). The live speed buttons
+        // move the Mode list while the session runs (SyncModeToMultiplier), so the new form came up at x60
+        // after a session started in flow. The list is on the setup screen only, so nobody changed it by
+        // hand in between, and the callers that fill the form from history or the calculator do it after
+        // this. Not in ResetSession, which also runs at Start, where the list is the user's choice.
+        if (_started is { } started)
+        {
+            SelectedMode = started.Mode;
+        }
+
         Idle = true;
         SetStatus("status.idle", SessionStatusKind.Idle);
     }

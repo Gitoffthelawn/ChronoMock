@@ -80,6 +80,49 @@ public class SessionRunTests
         Assert.True(vm.IsIdle);
     }
 
+    /// <summary>
+    /// R5-P10, R5-D51: the new form comes back at the mode the last session STARTED with. The live speed moves
+    /// the Mode list while the session runs, and the form used to open at the speed it was left at - a run
+    /// started in flow came back at x60. Reversal probe: drop the restore and the last assertion fails on x60.
+    /// </summary>
+    [Fact]
+    public async Task A_new_session_comes_back_at_the_mode_the_last_one_started_with()
+    {
+        var atSixty = new StateEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Fake = new Clock { Wall = "2038-01-19T03:14:08" },
+            Real = new Clock { Wall = "2026-10-20T10:00:01" },
+            Multiplier = 60,
+            ElapsedRealMs = 1000,
+            ElapsedFakeMs = 60000,
+        };
+        var core = new FakeCoreConnection(
+            [FakeCoreConnection.ReadyFor(Target)],
+            command => command is StartCommand
+                ? [atSixty, Works, new EndedEvent { V = ProtocolJson.ProtocolVersion, Clean = true }]
+                : []);
+        var vm = ViewModel(new InMemorySessionHistoryStore(), core);
+        var flow = vm.Modes.Single(m => m.Mode == "flow");
+        vm.SelectedMode = flow;
+
+        var run = vm.StartAsync();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (vm.StatusKind != SessionStatusKind.Ended && clock.Elapsed < Limit)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        core.End();
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+        Assert.Equal(60, vm.SelectedMode.Multiplier); // the live speed moved the list - not vacuous
+
+        vm.BeginNewSession();
+
+        Assert.Same(flow, vm.SelectedMode);
+        Assert.DoesNotContain(core.Sent, c => c is SetMultiplierCommand); // the restore sends nothing
+    }
+
     [Fact]
     public async Task A_core_that_refuses_the_handshake_launches_nothing_and_its_words_are_kept()
     {
