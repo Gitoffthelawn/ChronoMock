@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono_proto::TimeSpec;
+use chrono_proto::{TimeModeKind, TimeSpec};
 
 use super::args::RunArgs;
 use super::moment::TimeOrigin;
@@ -282,7 +282,7 @@ fn time_block(p: &Plan) -> String {
     out.push_str(&line("moment", &format!("{moment} in {zone}")));
     out.push_str(&origin_block(p.origin));
 
-    let mut mode = mode_label(&p.spec.mode, p.spec.multiplier);
+    let mut mode = mode_label(p.spec.mode, p.spec.multiplier);
     if p.spec.scale_duration {
         mode.push_str(", duration clocks scaled");
     }
@@ -450,7 +450,7 @@ struct TimeJson<'a> {
     zone_bias_min: i32,
     /// Whether `--zone` named that bias, as against it being this machine's.
     zone_from_flag: bool,
-    mode: &'a str,
+    mode: TimeModeKind,
     multiplier: Option<i64>,
     scale_duration: bool,
     scale_qpc: bool,
@@ -537,7 +537,7 @@ fn render_json(p: &Plan) -> String {
             moment: p.spec.moment.local.as_deref(),
             zone_bias_min: p.zone_bias_min,
             zone_from_flag: p.ra.zone_bias_min.is_some(),
-            mode: &p.spec.mode,
+            mode: p.spec.mode,
             multiplier: p.spec.multiplier,
             scale_duration: p.spec.scale_duration,
             scale_qpc: p.spec.scale_qpc,

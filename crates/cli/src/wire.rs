@@ -364,9 +364,10 @@ mod tests {
     mod properties {
         use super::*;
         use crate::search::edge_u64;
-        use chrono_proto::{MomentSpec, TargetConsole, TargetSpec, TimeSpec};
+        use chrono_proto::{MomentKind, MomentSpec, QueryWhat, TargetConsole, TargetSpec, TimeModeKind, TimeSpec};
         use proptest::collection::vec;
         use proptest::option;
+        use proptest::sample::select;
         use proptest::prelude::*;
         use std::io::{BufReader, Cursor};
 
@@ -464,7 +465,12 @@ mod tests {
         /// in it.
         fn command() -> impl Strategy<Value = Command> {
             let text = || "[^\u{0}]{0,12}";
-            let moment = (text(), option::of(text()), option::of(any::<i32>()), option::of(text()))
+            // Flat selections rather than nested `prop_oneof!`: the nesting deepened the strategy enough
+            // to overflow the test thread's stack in a debug build.
+            let kind = select(vec![MomentKind::Absolute, MomentKind::Relative, MomentKind::Unknown]);
+            let mode = select(vec![TimeModeKind::Flow, TimeModeKind::Frozen, TimeModeKind::Multiplier, TimeModeKind::Unknown]);
+            let what = select(vec![QueryWhat::State, QueryWhat::Unknown]);
+            let moment = (kind, option::of(text()), option::of(any::<i32>()), option::of(text()))
                 .prop_map(|(kind, local, tz_bias_min, delta)| MomentSpec { kind, local, tz_bias_min, delta });
             let target = (text(), vec(text(), 0..3), option::of(text()), any::<[bool; 3]>(), any::<bool>()).prop_map(
                 |(path, args, cwd, [embedded, elevated_embedded, keep_background_timers], new)| TargetSpec {
@@ -477,14 +483,14 @@ mod tests {
                     console: if new { TargetConsole::New } else { TargetConsole::Shared },
                 },
             );
-            let time = (moment.clone(), text(), option::of(any::<i64>()), any::<[bool; 2]>()).prop_map(
+            let time = (moment.clone(), mode, option::of(any::<i64>()), any::<[bool; 2]>()).prop_map(
                 |(moment, mode, multiplier, [scale_duration, scale_qpc])| TimeSpec { moment, mode, multiplier, scale_duration, scale_qpc },
             );
             let id = edge_u64;
             prop_oneof![
                 (id(), target, time, any::<bool>())
                     .prop_map(|(id, target, time, force)| Command::Start { v: PROTOCOL_VERSION, id, target, time, force }),
-                (id(), text()).prop_map(|(id, what)| Command::Query { v: PROTOCOL_VERSION, id, what }),
+                (id(), what).prop_map(|(id, what)| Command::Query { v: PROTOCOL_VERSION, id, what }),
                 (id(), any::<i64>()).prop_map(|(id, multiplier)| Command::SetMultiplier { v: PROTOCOL_VERSION, id, multiplier }),
                 (id(), moment).prop_map(|(id, to)| Command::Jump { v: PROTOCOL_VERSION, id, to }),
                 id().prop_map(|id| Command::End { v: PROTOCOL_VERSION, id }),

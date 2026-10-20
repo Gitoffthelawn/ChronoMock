@@ -1225,10 +1225,12 @@ pub(crate) fn session_is_reliable(r: &SessionReport) -> bool {
 }
 
 /// Human label for the requested time mode.
-pub(crate) fn mode_label(mode: &str, multiplier: Option<i64>) -> String {
+pub(crate) fn mode_label(mode: chrono_proto::TimeModeKind, multiplier: Option<i64>) -> String {
     match mode {
-        "multiplier" => format!("x{}", multiplier.unwrap_or(1)),
-        other => other.to_string(),
+        chrono_proto::TimeModeKind::Multiplier => format!("x{}", multiplier.unwrap_or(1)),
+        chrono_proto::TimeModeKind::Flow => "flow".to_string(),
+        chrono_proto::TimeModeKind::Frozen => "frozen".to_string(),
+        chrono_proto::TimeModeKind::Unknown => "unknown".to_string(),
     }
 }
 

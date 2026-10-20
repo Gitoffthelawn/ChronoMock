@@ -7,7 +7,7 @@
 
 use chrono_core::calc::{Base, CivilDateTime, EvalContext, EvalError, MomentExpr, Step, Unit};
 use chrono_core::Moment;
-use chrono_proto::{MomentSpec, TimeSpec};
+use chrono_proto::{MomentKind, MomentSpec, TimeSpec};
 
 use super::args::RunArgs;
 use crate::calc::{calc_error_exit_code, describe_calc_error, resolve_now_civil};
@@ -45,7 +45,7 @@ pub(super) struct ResolvedTime {
 /// where a mode and a moment quietly swap places.
 struct Decided {
     at: Option<String>,
-    mode: String,
+    mode: chrono_proto::TimeModeKind,
     multiplier: Option<i64>,
     scale_duration: bool,
     session_bias: Option<i32>,
@@ -115,7 +115,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
                 };
                 Decided {
                     at: Some(eval_preset_moment(&p.id, p.market.as_deref(), &moment, now, now_bias)?),
-                    mode: p.time_mode.mode.clone(),
+                    mode: p.time_mode.mode,
                     multiplier: p.time_mode.multiplier,
                     scale_duration: p.time_mode.scale_duration,
                     // The zone the moment was computed in travels with it: a preset moment paired
@@ -163,7 +163,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
         let session_bias = Some(now_bias);
         Decided {
             at: resolved,
-            mode: ra.mode.clone(),
+            mode: ra.mode,
             multiplier: ra.multiplier,
             scale_duration: ra.scale_duration,
             session_bias,
@@ -189,7 +189,7 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
     }
     let spec = TimeSpec {
         moment: MomentSpec {
-            kind: "absolute".into(),
+            kind: MomentKind::Absolute,
             local: at,
             tz_bias_min: session_bias,
             delta: None,
@@ -490,7 +490,7 @@ mod tests {
     fn an_absolute_at_carries_the_session_zone_onto_the_wire() {
         let ra = parse_run_args(&["app.exe".into(), "--at".into(), "2038-01-19T03:14:07".into()]).unwrap();
         let spec = resolve_time_spec(&ra, 120).expect("an absolute moment needs neither disk nor clock").spec;
-        assert_eq!(spec.moment.kind, "absolute");
+        assert_eq!(spec.moment.kind, MomentKind::Absolute);
         assert_eq!(spec.moment.local.as_deref(), Some("2038-01-19T03:14:07"));
         assert_eq!(spec.moment.tz_bias_min, Some(120), "the session zone must travel with the moment");
         assert_eq!(spec.moment.delta, None);
@@ -512,14 +512,14 @@ mod tests {
         ])
         .unwrap();
         let spec = resolve_time_spec(&ra, 0).unwrap().spec;
-        assert_eq!(spec.mode, "multiplier");
+        assert_eq!(spec.mode, chrono_proto::TimeModeKind::Multiplier);
         assert_eq!(spec.multiplier, Some(60));
         assert!(spec.scale_duration);
         assert!(spec.scale_qpc);
 
         let plain = parse_run_args(&["app.exe".into(), "--at".into(), "2026-01-01T00:00:00".into()]).unwrap();
         let spec = resolve_time_spec(&plain, 0).unwrap().spec;
-        assert_eq!(spec.mode, "flow");
+        assert_eq!(spec.mode, chrono_proto::TimeModeKind::Flow);
         assert_eq!(spec.multiplier, None);
         assert!(!spec.scale_duration);
         assert!(!spec.scale_qpc);

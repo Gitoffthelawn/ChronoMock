@@ -538,8 +538,8 @@ mod tests {
         let mut watch = WallWatch::start();
         let mut clock = CdpClock::from_time_spec(
             &TimeSpec {
-                moment: chrono_proto::MomentSpec { kind: "absolute".into(), local: None, tz_bias_min: Some(0), delta: None },
-                mode: "multiplier".into(),
+                moment: chrono_proto::MomentSpec { kind: chrono_proto::MomentKind::Absolute, local: None, tz_bias_min: Some(0), delta: None },
+                mode: chrono_proto::TimeModeKind::Multiplier,
                 multiplier: Some(60),
                 scale_duration: false,
                 scale_qpc: false,

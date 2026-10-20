@@ -18,8 +18,8 @@ use chrono_core::{
 };
 use chrono_mech::{FamilyMember, UncoveredChild};
 use chrono_proto::{
-    parse_command, Command, Event, FollowedProcess, MomentSpec, ReachedEngine, TargetConsole, TargetSpec,
-    TimeSpec, PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
+    parse_command, Command, Event, FollowedProcess, MomentKind, MomentSpec, ReachedEngine, TargetConsole,
+    TargetSpec, TimeSpec, PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
 };
 
 use crate::cdp;
@@ -613,7 +613,7 @@ pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut Emb
             // evaluator, so `jump` accepts the same calendar units as calc and `--at`. The core
             // alone knows the live fake clock. Absolute resolves through moment_from_spec. Both
             // re-anchor under one clock read.
-            let resolved: Result<(), &str> = if to.kind == "relative" {
+            let resolved: Result<(), &str> = if to.kind == MomentKind::Relative {
                 match to.delta.as_deref() {
                     Some(d) => match parse_shift(d) {
                         Ok(step) => session.jump_step(&step).map_err(jump_error_key),
@@ -1120,15 +1120,15 @@ pub(crate) fn every_renderer_reached(children: &[UncoveredChild], engines: &[Rea
 /// driver's own `--jump-after` had been fixed for. One that names a zone keeps it: the moment is read
 /// there and the session zone does not change.
 pub(crate) fn moment_from_spec(spec: &MomentSpec, session_bias: i32) -> Result<i64, &'static str> {
-    match spec.kind.as_str() {
-        "absolute" => {
+    match spec.kind {
+        MomentKind::Absolute => {
             let m = Moment {
                 local: spec.local.clone().unwrap_or_default(),
                 tz_bias_min: Some(spec.tz_bias_min.unwrap_or(session_bias)),
             };
             chrono_core::session_instant(&m).map(|(ft, _)| ft).map_err(|e| moment_error_key(&e))
         }
-        _ => Err("moment.unsupported_kind"),
+        MomentKind::Relative | MomentKind::Unknown => Err("moment.unsupported_kind"),
     }
 }
 
@@ -1247,6 +1247,7 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
 mod tests {
     use super::*;
     use crate::testutil::unique_temp_dir;
+    use chrono_proto::TimeModeKind;
 
     /// R5-P1, R5-D34. A sleep of the machine reaches the log once, when it is at least a second long, and
     /// each later one on its own - never the same sleep twice, never a resume of a fraction of a second.
@@ -1379,12 +1380,12 @@ mod tests {
         // to the REAL clock, and successive reads jumped between centuries).
         let spec = |m: i64| TimeSpec {
             moment: MomentSpec {
-                kind: "absolute".into(),
+                kind: MomentKind::Absolute,
                 local: Some("2038-01-01T00:00:00".into()),
                 tz_bias_min: Some(0),
                 delta: None,
             },
-            mode: "multiplier".into(),
+            mode: TimeModeKind::Multiplier,
             multiplier: Some(m),
             scale_duration: false,
             scale_qpc: false,
@@ -1401,7 +1402,7 @@ mod tests {
     }
 
     fn moment_spec(local: &str, bias: Option<i32>) -> MomentSpec {
-        MomentSpec { kind: "absolute".into(), local: Some(local.into()), tz_bias_min: bias, delta: None }
+        MomentSpec { kind: MomentKind::Absolute, local: Some(local.into()), tz_bias_min: bias, delta: None }
     }
 
     /// R4-S7 and R4-S9 at the native start: the gate runs before anything launches and names the fault
@@ -1410,7 +1411,7 @@ mod tests {
     fn build_spec_holds_the_moment_and_its_zone_to_the_session_gate() {
         let spec = |local: &str, bias: Option<i32>| TimeSpec {
             moment: moment_spec(local, bias),
-            mode: "flow".into(),
+            mode: TimeModeKind::Flow,
             multiplier: None,
             scale_duration: false,
             scale_qpc: false,
@@ -1494,12 +1495,12 @@ mod tests {
             },
             time: TimeSpec {
                 moment: MomentSpec {
-                    kind: "absolute".into(),
+                    kind: MomentKind::Absolute,
                     local: Some("2038-01-19T03:14:07".into()),
                     tz_bias_min: Some(0),
                     delta: None,
                 },
-                mode: "flow".into(),
+                mode: TimeModeKind::Flow,
                 multiplier: None,
                 scale_duration: false,
                 scale_qpc: false,
@@ -1612,7 +1613,7 @@ mod tests {
         assert_eq!(id, 1);
         assert_eq!(target.path, "app.exe");
         assert_eq!(target.cwd, None);
-        assert_eq!(time.mode, "flow");
+        assert_eq!(time.mode, TimeModeKind::Flow);
         assert_eq!(time.moment.local.as_deref(), Some("2038-01-19T03:14:07"));
         assert!(!force);
     }

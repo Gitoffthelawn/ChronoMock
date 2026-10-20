@@ -24,7 +24,7 @@ use std::process::{Command as PCommand, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use chrono_proto::{Command, Event, MomentSpec, TimeSpec, PROTOCOL_VERSION};
+use chrono_proto::{Command, Event, MomentKind, MomentSpec, TimeSpec, PROTOCOL_VERSION};
 
 use args::{elevation_problem, parse_run_args, target_spec_for, RunArgs};
 use collect::Collector;
@@ -60,9 +60,9 @@ pub(crate) fn send_set_multiplier(stdin: &mut std::process::ChildStdin, m: i64) 
 pub(crate) fn send_jump(stdin: &mut std::process::ChildStdin, moment: &str, tz_bias_min: Option<i32>) {
     let first = moment.as_bytes().first().copied();
     let to = if first == Some(b'+') || first == Some(b'-') {
-        MomentSpec { kind: "relative".into(), local: None, tz_bias_min, delta: Some(moment.to_string()) }
+        MomentSpec { kind: MomentKind::Relative, local: None, tz_bias_min, delta: Some(moment.to_string()) }
     } else {
-        MomentSpec { kind: "absolute".into(), local: Some(moment.to_string()), tz_bias_min, delta: None }
+        MomentSpec { kind: MomentKind::Absolute, local: Some(moment.to_string()), tz_bias_min, delta: None }
     };
     send_command(stdin, &Command::Jump { v: PROTOCOL_VERSION, id: 4, to });
 }
@@ -89,7 +89,7 @@ fn evidence_params(ra: &RunArgs, spec: &TimeSpec, now_bias: i32, started_utc: St
             Some(b) => format_bias(b),
             None => format!("{} (host default)", format_bias(now_bias)),
         },
-        mode: mode_label(&spec.mode, spec.multiplier),
+        mode: mode_label(spec.mode, spec.multiplier),
         run: RunFacts {
             build: format!("{}, {}-bit core", env!("CARGO_PKG_VERSION"), usize::BITS),
             started_utc,

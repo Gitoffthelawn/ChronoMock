@@ -7,7 +7,7 @@
 use std::cell::Cell;
 
 use chrono_core::TimeMode;
-use chrono_proto::{Clock, Event, MomentSpec, TimeSpec, PROTOCOL_VERSION};
+use chrono_proto::{Clock, Event, MomentKind, MomentSpec, TimeSpec, PROTOCOL_VERSION};
 
 use crate::cdp::{self, ScheduledRate};
 use crate::cdp_attach::ShimOrigin;
@@ -434,19 +434,19 @@ pub(crate) fn cdp_release_expr() -> String {
 /// of moment neither mechanism knows is refused alike (`moment.unsupported_kind`, R5-P18) - it was
 /// read here as absolute.
 pub(crate) fn cdp_resolve_jump(clock: &CdpClock, to: &MomentSpec, now: i64) -> Result<i64, &'static str> {
-    match to.kind.as_str() {
-        "relative" => {
+    match to.kind {
+        MomentKind::Relative => {
             let delta = to.delta.as_deref().ok_or("moment.invalid")?;
             let step = parse_shift(delta).map_err(|_| "moment.invalid")?;
             let fake_ft = epoch_ms_to_filetime(clock.fake_wall_ms(now));
             let target = chrono_core::calc::step_target(fake_ft, clock.bias, &step).map_err(jump_error_key)?;
             Ok(filetime_to_epoch_ms(target))
         }
-        "absolute" => {
+        MomentKind::Absolute => {
             let local = to.local.as_deref().ok_or("moment.invalid")?;
             moment_epoch_ms(local, to.tz_bias_min.unwrap_or(clock.bias)).map_err(|e| moment_error_key(&e))
         }
-        _ => Err("moment.unsupported_kind"),
+        MomentKind::Unknown => Err("moment.unsupported_kind"),
     }
 }
 
@@ -458,6 +458,7 @@ fn epoch_ms_to_filetime(ms: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono_proto::TimeModeKind;
 
     fn origin(fake0: i64, real0: i64, mult: i64) -> ShimOrigin {
         ShimOrigin { fake0, real0, mult, dur: mult, scheduled: None }
@@ -720,15 +721,15 @@ mod tests {
         assert_eq!(c.fake_wall_ms(next.at_ms + 1_000), c.fake_wall_ms(next.at_ms + 9_000)); // frozen after
     }
 
-    fn spec(local: Option<&str>, bias: Option<i32>, mode: &str, multiplier: Option<i64>) -> TimeSpec {
+    fn spec(local: Option<&str>, bias: Option<i32>, mode: TimeModeKind, multiplier: Option<i64>) -> TimeSpec {
         TimeSpec {
             moment: MomentSpec {
-                kind: "absolute".into(),
+                kind: MomentKind::Absolute,
                 local: local.map(str::to_string),
                 tz_bias_min: bias,
                 delta: None,
             },
-            mode: mode.into(),
+            mode,
             multiplier,
             scale_duration: false,
             scale_qpc: false,
@@ -743,7 +744,7 @@ mod tests {
         // `.err()` rather than comparing the whole Result: the type under test has no business
         // deriving Debug and PartialEq so that a test can print it.
         assert_eq!(
-            CdpClock::from_time_spec(&spec(Some("not-a-moment"), Some(0), "flow", None), 1_000).err(),
+            CdpClock::from_time_spec(&spec(Some("not-a-moment"), Some(0), TimeModeKind::Flow, None), 1_000).err(),
             Some("moment.invalid")
         );
     }
@@ -752,7 +753,7 @@ mod tests {
     /// which is what makes `chrono run app.exe --mode x60` mean "faster, same date".
     #[test]
     fn no_moment_starts_the_fake_clock_at_real_now() {
-        let clock = CdpClock::from_time_spec(&spec(None, Some(0), "flow", None), 1_700_000_000_000).unwrap();
+        let clock = CdpClock::from_time_spec(&spec(None, Some(0), TimeModeKind::Flow, None), 1_700_000_000_000).unwrap();
         assert_eq!(clock.fake_wall_ms(1_700_000_000_000), 1_700_000_000_000);
     }
 
@@ -761,37 +762,37 @@ mod tests {
     /// froze a native application and ran a Chromium one at real speed.
     #[test]
     fn the_mode_becomes_the_rate_the_shim_runs_at() {
-        let rate = |mode: &str, m: Option<i64>| {
+        let rate = |mode: TimeModeKind, m: Option<i64>| {
             CdpClock::from_time_spec(&spec(None, Some(0), mode, m), 0).unwrap().shim_origin().mult
         };
-        assert_eq!(rate("flow", None), 1);
-        assert_eq!(rate("frozen", None), 0);
-        assert_eq!(rate("multiplier", Some(60)), 60);
-        assert_eq!(rate("multiplier", None), 1);
-        assert_eq!(rate("multiplier", Some(0)), 0, "zero is freeze on every path");
+        assert_eq!(rate(TimeModeKind::Flow, None), 1);
+        assert_eq!(rate(TimeModeKind::Frozen, None), 0);
+        assert_eq!(rate(TimeModeKind::Multiplier, Some(60)), 60);
+        assert_eq!(rate(TimeModeKind::Multiplier, None), 1);
+        assert_eq!(rate(TimeModeKind::Multiplier, Some(0)), 0, "zero is freeze on every path");
     }
 
     /// R4-S9: the Chromium start goes through the gate the native one does, and gets the same keys.
     #[test]
     fn a_chromium_start_is_held_to_the_native_gate() {
         let refusal = |s: TimeSpec| CdpClock::from_time_spec(&s, 0).err();
-        assert_eq!(refusal(spec(None, Some(0), "flwo", None)), Some("time.bad_mode"));
-        assert_eq!(refusal(spec(None, Some(0), "multiplier", Some(-1))), Some("time.bad_multiplier"));
+        assert_eq!(refusal(spec(None, Some(0), TimeModeKind::Unknown, None)), Some("time.bad_mode"));
+        assert_eq!(refusal(spec(None, Some(0), TimeModeKind::Multiplier, Some(-1))), Some("time.bad_multiplier"));
         assert_eq!(
-            refusal(spec(None, Some(0), "multiplier", Some(chrono_core::MULTIPLIER_MAX + 1))),
+            refusal(spec(None, Some(0), TimeModeKind::Multiplier, Some(chrono_core::MULTIPLIER_MAX + 1))),
             Some("time.bad_multiplier")
         );
-        assert_eq!(refusal(spec(None, None, "flow", None)), Some("time.bad_zone"), "a session never guesses a zone");
-        assert_eq!(refusal(spec(None, Some(900), "flow", None)), Some("time.bad_zone"));
-        assert_eq!(refusal(spec(None, Some(i32::MIN), "flow", None)), Some("time.bad_zone"));
-        assert_eq!(refusal(spec(Some("30828-09-14T04:00:00"), Some(-120), "flow", None)), Some("moment.out_of_range"));
-        assert_eq!(refusal(spec(Some("1600-12-31T20:00:00"), Some(300), "flow", None)), Some("moment.out_of_range"));
-        assert_eq!(refusal(spec(Some("2030-06-15T12:00:00"), Some(899), "flow", None)), None);
+        assert_eq!(refusal(spec(None, None, TimeModeKind::Flow, None)), Some("time.bad_zone"), "a session never guesses a zone");
+        assert_eq!(refusal(spec(None, Some(900), TimeModeKind::Flow, None)), Some("time.bad_zone"));
+        assert_eq!(refusal(spec(None, Some(i32::MIN), TimeModeKind::Flow, None)), Some("time.bad_zone"));
+        assert_eq!(refusal(spec(Some("30828-09-14T04:00:00"), Some(-120), TimeModeKind::Flow, None)), Some("moment.out_of_range"));
+        assert_eq!(refusal(spec(Some("1600-12-31T20:00:00"), Some(300), TimeModeKind::Flow, None)), Some("moment.out_of_range"));
+        assert_eq!(refusal(spec(Some("2030-06-15T12:00:00"), Some(899), TimeModeKind::Flow, None)), None);
     }
 
     fn jump_to(local: Option<&str>, bias: Option<i32>, delta: Option<&str>) -> MomentSpec {
         MomentSpec {
-            kind: if delta.is_some() { "relative" } else { "absolute" }.into(),
+            kind: if delta.is_some() { MomentKind::Relative } else { MomentKind::Absolute },
             local: local.map(str::to_string),
             tz_bias_min: bias,
             delta: delta.map(str::to_string),
@@ -829,7 +830,7 @@ mod tests {
         assert_eq!(cdp_resolve_jump(&clock, &jump_to(None, None, Some("-2h")), 0), Ok(start - 7_200_000));
         assert_eq!(cdp_resolve_jump(&clock, &jump_to(None, None, Some("+5bd")), 0), Err("moment.needs_calendar"));
         let odd = MomentSpec {
-            kind: "sideways".into(),
+            kind: MomentKind::Unknown,
             local: Some("2030-06-15T12:00:00".into()),
             tz_bias_min: None,
             delta: None,
@@ -844,8 +845,8 @@ mod tests {
     /// round and went red, which is how the convention came to be checked here rather than assumed.
     #[test]
     fn the_moment_is_read_in_the_session_zone() {
-        let as_utc = CdpClock::from_time_spec(&spec(Some("2038-01-19T03:14:07"), Some(0), "flow", None), 0).unwrap();
-        let as_east2 = CdpClock::from_time_spec(&spec(Some("2038-01-19T03:14:07"), Some(-120), "flow", None), 0).unwrap();
+        let as_utc = CdpClock::from_time_spec(&spec(Some("2038-01-19T03:14:07"), Some(0), TimeModeKind::Flow, None), 0).unwrap();
+        let as_east2 = CdpClock::from_time_spec(&spec(Some("2038-01-19T03:14:07"), Some(-120), TimeModeKind::Flow, None), 0).unwrap();
         assert_eq!(
             as_utc.fake_wall_ms(0) - as_east2.fake_wall_ms(0),
             120 * 60 * 1_000,

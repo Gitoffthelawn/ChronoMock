@@ -23,6 +23,7 @@ use serde::Deserialize;
 use chrono_core::calc::{Base, MomentExpr, Sign, Step, Unit};
 use chrono_core::calendar::Calendar;
 use chrono_core::filetime_utc_to_wall;
+use chrono_proto::TimeModeKind;
 
 use crate::calendar::{catalogue_search_places, check_declared_id, find_catalogue_file, is_valid_catalogue_id};
 use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit, unknown_unit};
@@ -107,8 +108,8 @@ pub(crate) enum ParamValue {
 /// `scale_duration_clock` (docs/04 4.2) - `multiplier == 1` is real-time `flow`, `> 1` is `xN`.
 #[derive(Debug, Clone)]
 pub(crate) struct PresetTimeMode {
-    /// Wire mode token: "flow" or "multiplier". (Presets do not express "frozen".)
-    pub(crate) mode: String,
+    /// The time flow on the wire: flow or multiplier. Presets do not express frozen.
+    pub(crate) mode: TimeModeKind,
     pub(crate) multiplier: Option<i64>,
     pub(crate) scale_duration: bool,
 }
@@ -116,7 +117,7 @@ pub(crate) struct PresetTimeMode {
 impl Default for PresetTimeMode {
     /// A preset with no `time_mode` (e.g. a calculator-only one) runs at real speed.
     fn default() -> Self {
-        Self { mode: "flow".into(), multiplier: None, scale_duration: false }
+        Self { mode: TimeModeKind::Flow, multiplier: None, scale_duration: false }
     }
 }
 
@@ -950,14 +951,14 @@ pub(crate) fn time_mode_from(dto: Option<TimeModeDto>) -> Result<PresetTimeMode,
     let Some(dto) = dto else { return Ok(PresetTimeMode::default()) };
     let multiplier = dto.multiplier.unwrap_or(1);
     let (mode, multiplier) = match multiplier {
-        1 => ("flow".to_string(), None),
+        1 => (TimeModeKind::Flow, None),
         m if m > chrono_core::MULTIPLIER_MAX => {
             return Err(PresetError::BadFile(format!(
                 "time_mode multiplier must be <= {}, got {m}",
                 chrono_core::MULTIPLIER_MAX
             )));
         }
-        m if m > 1 => ("multiplier".to_string(), Some(m)),
+        m if m > 1 => (TimeModeKind::Multiplier, Some(m)),
         _ => return Err(PresetError::BadFile(format!("time_mode multiplier must be >= 1, got {multiplier}"))),
     };
     Ok(PresetTimeMode { mode, multiplier, scale_duration: dto.scale_duration_clock })
@@ -1707,15 +1708,15 @@ mod tests {
     #[test]
     fn preset_time_mode_maps_to_wire_shape() {
         let none = time_mode_from(None).unwrap();
-        assert_eq!(none.mode, "flow");
+        assert_eq!(none.mode, TimeModeKind::Flow);
         assert_eq!(none.multiplier, None);
         assert!(!none.scale_duration);
 
         let flow = time_mode_from(Some(TimeModeDto { multiplier: Some(1), scale_duration_clock: false })).unwrap();
-        assert_eq!((flow.mode.as_str(), flow.multiplier), ("flow", None));
+        assert_eq!((flow.mode, flow.multiplier), (TimeModeKind::Flow, None));
 
         let xn = time_mode_from(Some(TimeModeDto { multiplier: Some(60), scale_duration_clock: true })).unwrap();
-        assert_eq!((xn.mode.as_str(), xn.multiplier, xn.scale_duration), ("multiplier", Some(60), true));
+        assert_eq!((xn.mode, xn.multiplier, xn.scale_duration), (TimeModeKind::Multiplier, Some(60), true));
 
         assert!(matches!(
             time_mode_from(Some(TimeModeDto { multiplier: Some(0), scale_duration_clock: false })),
@@ -1755,7 +1756,7 @@ mod tests {
             "time_mode": { "multiplier": 1440, "scale_duration_clock": true }
         }"#;
         let p = parse_preset(json).unwrap();
-        assert_eq!(p.time_mode.mode, "multiplier");
+        assert_eq!(p.time_mode.mode, TimeModeKind::Multiplier);
         assert_eq!(p.time_mode.multiplier, Some(1440));
         assert!(p.time_mode.scale_duration);
     }
@@ -1982,10 +1983,10 @@ mod tests {
             prop_assert_eq!(&read.explains_texts, &texts(preset, "Explains"));
             prop_assert_eq!(&read.name_en, &format!("Name of {}", preset.id));
             let (mode, multiplier) = match preset.time_mode {
-                None | Some((None | Some(1), _)) => ("flow", None),
-                Some((Some(m), _)) => ("multiplier", Some(m)),
+                None | Some((None | Some(1), _)) => (TimeModeKind::Flow, None),
+                Some((Some(m), _)) => (TimeModeKind::Multiplier, Some(m)),
             };
-            prop_assert_eq!(read.time_mode.mode.as_str(), mode);
+            prop_assert_eq!(read.time_mode.mode, mode);
             prop_assert_eq!(read.time_mode.multiplier, multiplier);
             prop_assert_eq!(read.time_mode.scale_duration, preset.time_mode.is_some_and(|(_, scale)| scale));
             prop_assert_eq!(read.parameters.len(), preset.parameters.len());
