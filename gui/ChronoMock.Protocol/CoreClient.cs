@@ -16,7 +16,7 @@ namespace ChronoMock.Protocol;
 /// </para>
 /// The GUI is a client of this protocol, not FFI, so it stays AnyCPU and lets the core match the target's bitness.
 /// </summary>
-public sealed class CoreClient : IAsyncDisposable
+public sealed class CoreClient : ICoreConnection
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 

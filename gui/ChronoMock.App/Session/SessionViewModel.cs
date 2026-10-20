@@ -90,6 +90,10 @@ public sealed class SessionViewModel : ObservableObject
     private string _workingFolder = string.Empty;
     private readonly ISessionHistoryStore _store;
     private readonly IDiagnosticsLog _diagnosticsLog;
+    // How a session reaches its core: null is the core process every build ships (CoreClient), a test passes
+    // a connection that answers in the order it chooses, so the whole start-to-record path runs without a
+    // core process (R5-D63).
+    private readonly Func<string, ICoreConnection>? _connect;
     private bool _launched;
     private bool _stopRequested;
     private string _historyError = string.Empty;
@@ -116,9 +120,11 @@ public sealed class SessionViewModel : ObservableObject
         ICalcEngine? calcClient = null,
         ScenarioPicker? scenarios = null,
         bool canReachElevated = false,
-        TimeSpan? momentWait = null)
+        TimeSpan? momentWait = null,
+        Func<string, ICoreConnection>? connect = null)
     {
         _store = history;
+        _connect = connect;
         _diagnosticsLog = diagnosticsLog ?? new NoOpDiagnosticsLog();
         _scenarios = scenarios ?? new ScenarioPicker();
         _canReachElevated = canReachElevated;
@@ -2002,7 +2008,7 @@ public sealed class SessionViewModel : ObservableObject
             // translation key, because that is all the difference amounts to here - both refuse before the
             // target is ever launched (docs/08 section 3, zasady/13 section 11). The session comes back
             // either way so the finally below still disposes the core and still captures its stderr.
-            var open = await CoreSession.OpenAsync(plan, ReadyTimeout);
+            var open = await CoreSession.OpenAsync(plan, ReadyTimeout, _connect);
             session = open.Session;
             _session = session;
             if (open.RefusalKey is not null)

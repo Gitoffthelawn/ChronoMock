@@ -24,9 +24,9 @@ namespace ChronoMock.App;
 /// </summary>
 internal sealed class CoreSession : IAsyncDisposable
 {
-    private readonly CoreClient _client;
+    private readonly ICoreConnection _client;
 
-    private CoreSession(CoreClient client) => _client = client;
+    private CoreSession(ICoreConnection client) => _client = client;
 
     /// <summary>The core's event stream. Pump it with <see cref="PumpAsync"/>.</summary>
     internal ChannelReader<ChronoEvent> Events => _client.Events;
@@ -50,11 +50,16 @@ internal sealed class CoreSession : IAsyncDisposable
     /// Failing to spawn the core at all throws, exactly as <see cref="CoreClient.Connect"/> does, so the
     /// caller can still tell a broken core install from a rejected handshake (RELEASE-007).
     /// </para>
+    /// <para>
+    /// <paramref name="connect"/> opens the connection to the core at a path, <see cref="CoreClient.Connect"/>
+    /// when null - a test passes one that answers in the order it chooses (R5-D63).
+    /// </para>
     /// </summary>
-    internal static async Task<CoreSessionOpen> OpenAsync(SessionPlan plan, TimeSpan readyTimeout)
+    internal static async Task<CoreSessionOpen> OpenAsync(
+        SessionPlan plan, TimeSpan readyTimeout, Func<string, ICoreConnection>? connect = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        var session = new CoreSession(CoreClient.Connect(plan.CorePath));
+        var session = new CoreSession((connect ?? CoreClient.Connect)(plan.CorePath));
 
         var handshake = await ReadReadyAsync(session._client, readyTimeout);
         // An error the core sent INSTEAD of ready is its own refusal, and a better one than
@@ -201,7 +206,7 @@ internal sealed class CoreSession : IAsyncDisposable
     /// wrong. A diagnosis pointing away from the answer, for the price of one match arm.
     /// </para>
     /// </summary>
-    private static async Task<HandshakeResult> ReadReadyAsync(CoreClient client, TimeSpan timeout)
+    private static async Task<HandshakeResult> ReadReadyAsync(ICoreConnection client, TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
         try
