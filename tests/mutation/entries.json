@@ -4273,8 +4273,8 @@
     "name": "r4-16 n28 gui record without the field",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "            KeepBackgroundTimers = _startCaptured ? _startKeepBackgroundTimers : _keepBackgroundTimers,\n",
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        KeepBackgroundTimers = setup.KeepBackgroundTimers,\n",
         "to": ""
       }
     ],
@@ -10681,7 +10681,7 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "                LeftRunningRows = FollowedLines(v.LeftRunning);\n",
+        "from": "                LeftRunningRows = SessionReport.ProcessLines(v.LeftRunning);\n",
         "to": ""
       }
     ],
@@ -10714,8 +10714,8 @@
     "name": "r4-8 g3 clipboard without the list",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        AppendList(sb, translate, \"report.left_running\", _leftRunningRows, translateItems: false);\n",
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        AppendList(sb, translate, \"report.left_running\", r.LeftRunningRows, translateItems: false);\n",
         "to": ""
       }
     ],
@@ -10816,7 +10816,7 @@
     "name": "r4-8 g9 clipboard without the caveat",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
         "from": "            sb.Append(\"  \").Append(translate(\"result.refusal_incomplete\")).Append('\\n');\n",
         "to": ""
       }
@@ -12595,8 +12595,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "ElevatedEmbedded = _startCaptured ? _startReachElevated : WantsElevatedEmbedded,",
-        "to": "ElevatedEmbedded = _reachElevatedEmbedded,"
+        "from": "        WantsElevatedEmbedded);\n",
+        "to": "        _reachElevatedEmbedded);\n"
       }
     ],
     "runner": "cs",
@@ -12646,8 +12646,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "                    .. sv.WarningKeys.Where(w => w == LeftBehindKey),\n                    .. _warnings,\n",
-        "to": "                    .. _warnings,\n"
+        "from": "                    .. sv.WarningKeys.Where(w => w == LeftBehindKey),\n                    .. _result.Warnings,\n",
+        "to": "                    .. _result.Warnings,\n"
       }
     ],
     "runner": "cs",
@@ -14248,8 +14248,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];",
-        "to": "        => ResultIsVerdict && _verdictKind == VerdictKind.Fails ? [.. EvidenceUndoingWarnings] : [];"
+        "from": "        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Works ? [.. _result.EvidenceUndoingWarnings] : [];",
+        "to": "        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Fails ? [.. _result.EvidenceUndoingWarnings] : [];"
       }
     ],
     "runner": "cs",
@@ -14265,8 +14265,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];",
-        "to": "        => ResultIsVerdict ? [.. EvidenceUndoingWarnings] : [];"
+        "from": "        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Works ? [.. _result.EvidenceUndoingWarnings] : [];",
+        "to": "        => ResultIsVerdict ? [.. _result.EvidenceUndoingWarnings] : [];"
       }
     ],
     "runner": "cs",
@@ -14298,9 +14298,9 @@
     "name": "r5-w1 a works session that proves nothing is reliable in the window",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "                              && !IsCutShort\n                              && !EvidenceUndoingWarnings.Any();",
-        "to": "                              && !IsCutShort;"
+        "file": "gui/ChronoMock.App/Session/SessionResult.cs",
+        "from": "                                && !IsCutShort\n                                && !EvidenceUndoingWarnings.Any();",
+        "to": "                                && !IsCutShort;"
       }
     ],
     "runner": "cs",

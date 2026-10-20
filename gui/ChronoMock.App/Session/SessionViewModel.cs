@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
-using System.Text;
 using System.Threading.Channels;
 using ChronoMock.App.Calc;
 using ChronoMock.App.Localization;
@@ -41,8 +40,9 @@ public sealed class SessionViewModel : ObservableObject
 
     private CoreSession? _session;
     private long _nextCommandId = FirstInFlightCommandId;
-    private string _statusKey = "status.idle";
-    private SessionStatusKind _statusKind = SessionStatusKind.Idle;
+    // What the session has said about itself - status, verdict, audit, processes, timing (R5-D62). The
+    // properties below project it onto the panel, SessionReport composes the reports from it.
+    private readonly SessionResult _result = new();
     private string _multiplierText = string.Empty;
     private string _lastError = string.Empty;
     private bool _idle = true;
@@ -95,39 +95,12 @@ public sealed class SessionViewModel : ObservableObject
     private string _historyError = string.Empty;
     private string _historyNoteKey = string.Empty;
     private SessionRecord? _selectedRecord;
-    // Snapshot of the start setup, taken at Start, so history and the summary record what was REQUESTED
-    // even after the form is changed (rule 4 - the record is the start).
-    //
-    // 🔴 The target and the zone are in here for a REASON that the moment and the mode do not have. Those
-    // two can change IN FLIGHT (the moment becomes a jump, the mode a set_multiplier), which is the case the
-    // first two fields were written for. The target and the zone cannot - they are start-only, and the drop
-    // handler and every setup control gate on IsIdle. What they CAN do is change AFTER the session ends,
-    // because the form unlocks while the summary is still copyable (CanCopySummary holds for every status
-    // but Idle and Connecting). Reading them live then produced a report that carried one session's verdict
-    // under another session's target name and zone - evidence naming the wrong application, in the one
-    // artifact that leaves this tool and lands in somebody else's ticket.
-    //
-    // Null means "no session has started yet", and every reader falls back to the live value for it, so a
-    // view model that never ran (a unit test, a fresh window) reads exactly as it did before.
-    private string _startMomentText = string.Empty;
-    private ModeOption? _startMode;
-    private string? _startTargetPath;
-    private ZoneOption? _startZone;
-    // The remaining five inputs, kept as plain values rather than a setup type: this class sits exactly on
-    // its class-coupling ceiling (CA1506 = 82, gui/CodeMetricsConfig.txt), so a new type here would redden
-    // the metrics gate. Strings and bools cost nothing there.
-    // True once Start has taken the snapshot. An explicit flag rather than a null check on one of the
-    // fields: three of them are bools with no null to test, and inferring "was a snapshot taken" from a
-    // sibling field is the kind of coupling that stops holding the moment one of them changes type.
-    private bool _startCaptured;
-    private string _startTargetArgs = string.Empty;
-    private string _startWorkingFolder = string.Empty;
-    private bool _startScaleDuration;
-    private bool _startScaleQpc;
-    private bool _startKeepBackgroundTimers;
-    private bool _startForce;
-    private bool _startReachEmbedded = true;
-    private bool _startReachElevated;
+    // The setup the session was started with, taken at Start, so history and the reports record what was
+    // REQUESTED even after the form is changed (rule 4 - the record is the start). See SessionSetup for why
+    // the target and the zone are in it. Null means "no session has started yet", and every reader falls
+    // back to the live form for it (Requested), so a view model that never ran (a unit test, a fresh window)
+    // reads exactly as it did before. Never cleared: a new session replaces it at its own Start.
+    private SessionSetup? _started;
     private string _inFlightErrorKey = string.Empty;
     private bool _applyingMultiplier; // guard: syncing the Mode dropdown from a state event must not re-send
 
@@ -228,65 +201,6 @@ public sealed class SessionViewModel : ObservableObject
         // view model never sees it (rule 16).
         Commands = new SessionCommands(this);
     }
-    private bool _verdictKnown;
-    private VerdictKind _verdictKind = VerdictKind.Unknown;
-    private string _verdictLabelKey = "verdict.unknown";
-    private string _verdictReasonKey = string.Empty;
-    private string _verdictMeaningKey = string.Empty;
-    private bool _verdictHasReason;
-    private bool _verdictHasMeaning;
-    private int _processCount;
-    private bool _coverageKnown;
-    /// <summary>The pid of the process whose call counts the panel shows - the first one reported,
-    /// which is the parent. Later events for it replace its counts - other pids never do (R2-X8).</summary>
-    private uint? _parentPid;
-    private bool _isCdp;
-    private IReadOnlyList<CoveredChannel> _covered = [];
-    private IReadOnlyList<CoveredChannel> _observed = [];
-    // A native session's covered rows in two halves: the parent process's (replaced by its later
-    // snapshot, R2-X8) and the pages reached inside the application (accumulated per context, docs/09).
-    // Kept apart so a late parent snapshot cannot wipe the page rows, whichever arrives last.
-    private IReadOnlyList<CoveredChannel> _parentCovered = [];
-    private IReadOnlyList<CoveredChannel> _pageCovered = [];
-    private IReadOnlyList<string> _uncovered = [];
-    private IReadOnlyList<string> _unobserved = [];
-    private IReadOnlyList<string> _installedLate = [];
-    private IReadOnlyList<string> _warnings = [];
-    // The processes the family spawned and the hook did not follow into, as the session verdict names them
-    // (docs/zasady/SLOWNIK uncoveredChild). They are the reason a family verdict is partial, and until slice
-    // A2 the model dropped them: the screen said "the ones this application started without it ran on the
-    // real clock" and never said which (untouchable rule 4). The wire caps the list, so the total travels
-    // separately and is the number the screen prints.
-    private IReadOnlyList<UncoveredChild> _uncoveredChildren = [];
-    private int _uncoveredChildrenTotal;
-
-    // The web engines inside the application whose debugging port the session reached, so the pages they
-    // host ran on the session clock. The port is the actionable half and the reason this list is on the
-    // screen at all: the session raises a warning that a debugging port stands open to other programs for
-    // as long as the engine runs, and a warning whose subject the reader cannot identify is one they
-    // cannot act on. The CLI report has named the port since slice C - this is the same fact, one
-    // interface over.
-    private IReadOnlyList<ReachedEngine> _engines = [];
-
-    private bool _enginePagesReached;
-
-    private bool _hasTiming;
-
-    // Whether the core closed the session with `ended` (R4-W3). See IsCutShort.
-    private bool _endedSeen;
-    private long _elapsedRealMs;
-    private long _elapsedFakeMs;
-    private string _fakeEndWall = string.Empty;
-    private string _vanishReasonKey = string.Empty;
-    private long _livedMs;
-    // Final-state facts the core reports in `ended` (RELEASE audit): the target's own exit code (native
-    // sessions where the app exited on its own - null for Stop/end and for CDP) and any cleanup residue it
-    // could not remove (today only a CDP temp profile). Surfaced honestly, never dropped (rule 6).
-    private int? _targetExitCode;
-    private IReadOnlyList<string> _followedRows = [];
-    private IReadOnlyList<string> _leftRunningRows = [];
-    private bool _refusalIncomplete;
-    private IReadOnlyList<string> _residueKeys = [];
     // Diagnostics captured when a session ends in anything but a clean success (RELEASE-012): the core's
     // stderr and parse errors, composed into a block the user can copy and that is also written to a log
     // file beside the exe. Empty on a clean works session, so the button and log stay out of the happy path.
@@ -304,14 +218,14 @@ public sealed class SessionViewModel : ObservableObject
     public ClockView Real { get; } = new("clock.real");
 
     /// <summary>Translation key for the current status label (the view renders it in the user's language).</summary>
-    public string StatusKey { get => _statusKey; private set => Set(ref _statusKey, value); }
+    public string StatusKey { get => _result.StatusKey; private set => Set(ref _result.StatusKey, value); }
 
     public SessionStatusKind StatusKind
     {
-        get => _statusKind;
+        get => _result.StatusKind;
         private set
         {
-            if (Set(ref _statusKind, value))
+            if (Set(ref _result.StatusKind, value))
             {
                 RaisePropertyChanged(nameof(IsRunning));
                 RaisePropertyChanged(nameof(CanCopySummary));
@@ -359,11 +273,10 @@ public sealed class SessionViewModel : ObservableObject
     /// one that did would have left the session on <see cref="SessionStatusKind.Ended"/>. A Stop is the one
     /// ending that can go either way, because the core is killed when it does not end in time.
     /// </summary>
-    public bool IsCutShort => _statusKind is SessionStatusKind.CoreStopped or SessionStatusKind.CoreUnresponsive
-        || (_statusKind == SessionStatusKind.Stopped && !_endedSeen);
+    public bool IsCutShort => _result.IsCutShort;
 
     /// <summary>True while the session is live - the in-flight controls bind their visibility to this.</summary>
-    public bool IsRunning => _statusKind == SessionStatusKind.Running;
+    public bool IsRunning => _result.StatusKind == SessionStatusKind.Running;
 
     /// <summary>
     /// The session phase's controls are still worth showing: the session is live, or on its way in or out.
@@ -374,7 +287,7 @@ public sealed class SessionViewModel : ObservableObject
     /// once the session is over. Stopping is not over: the reader has just pressed Stop, and the card stays,
     /// disabled, until the core confirms, rather than vanishing under the pointer.
     /// </remarks>
-    public bool ShowsSessionControls => !IsTerminal(_statusKind);
+    public bool ShowsSessionControls => !SessionResult.IsTerminal(_result.StatusKind);
 
     /// <summary>
     /// Which of the three phases the window shows. Exactly one is true for any status, and the three are
@@ -387,17 +300,17 @@ public sealed class SessionViewModel : ObservableObject
     /// session was run to produce. The status stays terminal until a new session starts, which is what the
     /// result phase is keyed to.
     /// </remarks>
-    public bool ShowsSetupPhase => _statusKind == SessionStatusKind.Idle;
+    public bool ShowsSetupPhase => _result.StatusKind == SessionStatusKind.Idle;
 
     /// <summary>See <see cref="ShowsSetupPhase"/> - the result phase owns every terminal status.</summary>
-    public bool ShowsResultPhase => IsTerminal(_statusKind);
+    public bool ShowsResultPhase => SessionResult.IsTerminal(_result.StatusKind);
 
     /// <summary>See <see cref="ShowsSetupPhase"/> - a session on its way in, live, or shutting down.</summary>
     public bool ShowsSessionPhase => !ShowsSetupPhase && !ShowsResultPhase;
 
     /// <summary>True once a session has started (running or finished) - there is then something to copy.
     /// The Copy summary button binds its visibility to this (chrono-mock 7.2, 8.8).</summary>
-    public bool CanCopySummary => _statusKind is not (SessionStatusKind.Idle or SessionStatusKind.Connecting);
+    public bool CanCopySummary => _result.StatusKind is not (SessionStatusKind.Idle or SessionStatusKind.Connecting);
 
     /// <summary>The current rate as data, e.g. "x60" - empty until the first heartbeat.</summary>
     public string MultiplierText { get => _multiplierText; private set => Set(ref _multiplierText, value); }
@@ -432,7 +345,7 @@ public sealed class SessionViewModel : ObservableObject
     /// <remarks>A refused command from a session that has since ended explains nothing on the session phase,
     /// where it would sit under "Session ended" saying the clock did not move. The shipped panel binds
     /// <see cref="HasInFlightError"/> and keeps its own behaviour.</remarks>
-    public bool ShowsInFlightError => HasInFlightError && !IsTerminal(_statusKind);
+    public bool ShowsInFlightError => HasInFlightError && !SessionResult.IsTerminal(_result.StatusKind);
 
     /// <summary>Translation key for the copy-summary feedback ("copy.done" / "copy.failed"), empty until a
     /// copy is attempted. A clipboard failure is surfaced, never swallowed (rule 6).</summary>
@@ -1284,7 +1197,7 @@ public sealed class SessionViewModel : ObservableObject
     /// core has to be stopped. A new form begun in between was then written over by that tail (R4-S27), so
     /// the button waits for idle as well.
     /// </para></summary>
-    public bool CanBeginNewSession => IsTerminal(_statusKind) && _idle;
+    public bool CanBeginNewSession => SessionResult.IsTerminal(_result.StatusKind) && _idle;
 
     /// <summary>
     /// Return a finished session to a fresh setup form: clear the result (verdict, coverage, diagnostics)
@@ -1322,23 +1235,23 @@ public sealed class SessionViewModel : ObservableObject
     }
 
     /// <summary>True once a verdict has arrived - the indicator stays hidden until then.</summary>
-    public bool VerdictKnown { get => _verdictKnown; private set => Set(ref _verdictKnown, value); }
+    public bool VerdictKnown { get => _result.VerdictKnown; private set => Set(ref _result.VerdictKnown, value); }
 
     /// <summary>The verdict kind, driving the indicator's glyph and colour (chrono-mock 7.1).</summary>
-    public VerdictKind VerdictKind { get => _verdictKind; private set => Set(ref _verdictKind, value); }
+    public VerdictKind VerdictKind { get => _result.VerdictKind; private set => Set(ref _result.VerdictKind, value); }
 
     /// <summary>Translation key for the verdict label ("verdict.works" etc.).</summary>
-    public string VerdictLabelKey { get => _verdictLabelKey; private set => Set(ref _verdictLabelKey, value); }
+    public string VerdictLabelKey { get => _result.VerdictLabelKey; private set => Set(ref _result.VerdictLabelKey, value); }
 
     /// <summary>The core's specific reason key (rendered raw if untranslated), shown for a non-works verdict.</summary>
-    public string VerdictReasonKey { get => _verdictReasonKey; private set => Set(ref _verdictReasonKey, value); }
+    public string VerdictReasonKey { get => _result.VerdictReasonKey; private set => Set(ref _result.VerdictReasonKey, value); }
 
     /// <summary>The plain-language "what this means for the test" key, shown for a non-works verdict.</summary>
-    public string VerdictMeaningKey { get => _verdictMeaningKey; private set => Set(ref _verdictMeaningKey, value); }
+    public string VerdictMeaningKey { get => _result.VerdictMeaningKey; private set => Set(ref _result.VerdictMeaningKey, value); }
 
-    public bool VerdictHasReason { get => _verdictHasReason; private set => Set(ref _verdictHasReason, value); }
+    public bool VerdictHasReason { get => _result.VerdictHasReason; private set => Set(ref _result.VerdictHasReason, value); }
 
-    public bool VerdictHasMeaning { get => _verdictHasMeaning; private set => Set(ref _verdictHasMeaning, value); }
+    public bool VerdictHasMeaning { get => _result.VerdictHasMeaning; private set => Set(ref _result.VerdictHasMeaning, value); }
 
     /// <summary>
     /// Translation key for the one word the result phase leads with: the verdict when the session produced
@@ -1355,29 +1268,29 @@ public sealed class SessionViewModel : ObservableObject
     /// Strings and an enum this class already couples to, so the coupling ceiling is not touched
     /// (gui/CodeMetricsConfig.txt).
     /// </remarks>
-    public string ResultHeadlineKey => _statusKind switch
+    public string ResultHeadlineKey => _result.StatusKind switch
     {
         SessionStatusKind.DidNotTakeEffect => "result.headline_did_not_take_effect",
-        SessionStatusKind.Error when !_hasTiming => "result.headline_did_not_start",
+        SessionStatusKind.Error when !_result.HasTiming => "result.headline_did_not_start",
         _ when IsCutShort => "result.headline_cut_short",
-        _ => _verdictKnown ? _verdictLabelKey : "result.headline_no_verdict",
+        _ => _result.VerdictKnown ? _result.VerdictLabelKey : "result.headline_no_verdict",
     };
 
     /// <summary>The kind behind <see cref="ResultHeadlineKey"/>, driving its glyph and colour: an outcome
     /// without a verdict word is drawn as a failure when the substitution never took effect and as
     /// undetermined when nothing was judged.</summary>
-    public VerdictKind ResultKind => _statusKind switch
+    public VerdictKind ResultKind => _result.StatusKind switch
     {
         SessionStatusKind.DidNotTakeEffect => VerdictKind.Fails,
-        SessionStatusKind.Error when !_hasTiming => VerdictKind.Fails,
+        SessionStatusKind.Error when !_result.HasTiming => VerdictKind.Fails,
         _ when IsCutShort => VerdictKind.Undetermined,
-        _ => _verdictKnown ? _verdictKind : VerdictKind.Undetermined,
+        _ => _result.VerdictKnown ? _result.VerdictKind : VerdictKind.Undetermined,
     };
 
     /// <summary>The headline is the verdict word itself, so the verdict's own reason and meaning belong under it.
     /// Under any other headline they would explain a word that is not on the screen.</summary>
     private bool ResultIsVerdict
-        => _verdictKnown && ResultHeadlineKey == _verdictLabelKey;
+        => _result.VerdictKnown && ResultHeadlineKey == _result.VerdictLabelKey;
 
     /// <summary>
     /// The core's reason for the verdict, for EVERY verdict the result phase leads with.
@@ -1388,10 +1301,10 @@ public sealed class SessionViewModel : ObservableObject
     /// "Works" alone says nothing about what worked - the core's sentence ("every process that read the time
     /// saw the fake clock") is the explanation, and it arrives for works as for the rest.
     /// </remarks>
-    public bool ResultHasReason => ResultIsVerdict && _verdictReasonKey.Length > 0;
+    public bool ResultHasReason => ResultIsVerdict && _result.VerdictReasonKey.Length > 0;
 
     /// <summary>The plain-language meaning, under the headline it is about (see <see cref="ResultHasReason"/>).</summary>
-    public bool ResultHasMeaning => ResultIsVerdict && _verdictHasMeaning;
+    public bool ResultHasMeaning => ResultIsVerdict && _result.VerdictHasMeaning;
 
     /// <summary>
     /// The warnings that undo a works headline as evidence (<see cref="WarningsThatUndoEvidence"/>), each as
@@ -1406,14 +1319,14 @@ public sealed class SessionViewModel : ObservableObject
     /// audit already, so the sentences are not repeated there.
     /// </remarks>
     public IReadOnlyList<string> ResultEvidenceCaveats
-        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];
+        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Works ? [.. _result.EvidenceUndoingWarnings] : [];
 
     public bool ResultHasEvidenceCaveats => ResultEvidenceCaveats.Count > 0;
 
     /// <summary>The status line tells how the session ended, unless the headline already did: a target that
     /// vanished has "did not take effect" as its headline and how long it lived under it, and the status
     /// sentence would say the same thing a third time.</summary>
-    public bool ResultHasEnding => _statusKind != SessionStatusKind.DidNotTakeEffect;
+    public bool ResultHasEnding => _result.StatusKind != SessionStatusKind.DidNotTakeEffect;
 
     /// <summary>
     /// The audit block prints the verdict's reason beside its evidence only while the session runs.
@@ -1425,10 +1338,10 @@ public sealed class SessionViewModel : ObservableObject
     /// twice. The block is one component on both screens, so the choice is made here, where the phase is
     /// known, rather than by a switch on the drawing. The shipped panel keeps <see cref="VerdictHasReason"/>.
     /// </remarks>
-    public bool AuditExplainsVerdict => _verdictHasReason && !IsTerminal(_statusKind);
+    public bool AuditExplainsVerdict => _result.VerdictHasReason && !SessionResult.IsTerminal(_result.StatusKind);
 
     /// <summary>The meaning line of the audit block, on the same terms as <see cref="AuditExplainsVerdict"/>.</summary>
-    public bool AuditExplainsMeaning => _verdictHasMeaning && !IsTerminal(_statusKind);
+    public bool AuditExplainsMeaning => _result.VerdictHasMeaning && !SessionResult.IsTerminal(_result.StatusKind);
 
     /// <summary>
     /// The audit section is drawn open when the verdict is worse than a clean works.
@@ -1441,26 +1354,26 @@ public sealed class SessionViewModel : ObservableObject
     /// (<see cref="VerdictKnown"/> is false), so they keep the section folded and let their own sentence stand.
     /// OneWay in the view, so the reader can still fold it and it stays folded.
     /// </remarks>
-    public bool AuditStartsOpen => _coverageKnown && _verdictKnown && _verdictKind != VerdictKind.Works;
+    public bool AuditStartsOpen => _result.CoverageKnown && _result.VerdictKnown && _result.VerdictKind != VerdictKind.Works;
 
     /// <summary>The core's reason key for a target that vanished, shown with <see cref="LivedMs"/>. On screen only
     /// for a session that did not take effect - the summary composes the same two into one line.</summary>
-    public string VanishReasonKey => _vanishReasonKey;
+    public string VanishReasonKey => _result.VanishReasonKey;
 
     public bool HasVanishReason
-        => _statusKind == SessionStatusKind.DidNotTakeEffect && _vanishReasonKey.Length > 0;
+        => _result.StatusKind == SessionStatusKind.DidNotTakeEffect && _result.VanishReasonKey.Length > 0;
 
     /// <summary>How long the vanished target lived, in milliseconds - what tells a single-instance hand-off
     /// (gone within a blink) from an application that ran and then quit.</summary>
-    public long LivedMs => _livedMs;
+    public long LivedMs => _result.LivedMs;
 
     /// <summary>True once a heartbeat or the end timing arrived: the facts block of the result phase has
     /// something to say. A start that failed or was refused has no timing and shows no facts.</summary>
-    public bool HasTiming => _hasTiming;
+    public bool HasTiming => _result.HasTiming;
 
     /// <summary>The moment the session STARTED at, formatted like <see cref="MomentPreview"/>, from the start
     /// snapshot rather than the form - the form is unlocked once the session is over.</summary>
-    public string StartedAtPreview => ClockView.FormatMoment(RequestedMoment, RequestedZone.Label);
+    public string StartedAtPreview => ClockView.FormatMoment(Requested.Moment, Requested.Zone.Label);
 
     /// <summary>
     /// Where the fake clock stopped, formatted like <see cref="MomentPreview"/>.
@@ -1473,7 +1386,7 @@ public sealed class SessionViewModel : ObservableObject
     /// session that ended without one (a vanished target).
     /// </remarks>
     public string FakeEndPreview
-        => ClockView.FormatMoment(_fakeEndWall.Length > 0 ? _fakeEndWall : Fake.Wall, Fake.Zone);
+        => ClockView.FormatMoment(_result.FakeEndWall.Length > 0 ? _result.FakeEndWall : Fake.Wall, Fake.Zone);
 
     /// <summary>True when a raw failure detail is being shown (see <see cref="LastError"/>).</summary>
     public bool HasLastError => _lastError.Length > 0;
@@ -1481,10 +1394,10 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>Size of the process family the session verdict covers (parent plus children).</summary>
     public int ProcessCount
     {
-        get => _processCount;
+        get => _result.ProcessCount;
         private set
         {
-            if (Set(ref _processCount, value))
+            if (Set(ref _result.ProcessCount, value))
             {
                 RaisePropertyChanged(nameof(IsFamily));
                 RaisePropertyChanged(nameof(HasCoverageNote));
@@ -1493,15 +1406,15 @@ public sealed class SessionViewModel : ObservableObject
     }
 
     /// <summary>True when the session spanned more than one process (the verdict is the family aggregate).</summary>
-    public bool IsFamily => _processCount > 1;
+    public bool IsFamily => _result.IsFamily;
 
     /// <summary>True once a coverage report has arrived - the audit block stays hidden until then.</summary>
     public bool CoverageKnown
     {
-        get => _coverageKnown;
+        get => _result.CoverageKnown;
         private set
         {
-            if (Set(ref _coverageKnown, value))
+            if (Set(ref _result.CoverageKnown, value))
             {
                 RaisePropertyChanged(nameof(HasCoverageNote));
                 RaisePropertyChanged(nameof(IsAuditPending));
@@ -1525,7 +1438,7 @@ public sealed class SessionViewModel : ObservableObject
     ///
     /// It used to be "coverage not known" alone, which kept promising the report after the session was over.
     /// </remarks>
-    public bool IsAuditPending => !_coverageKnown && !IsTerminal(_statusKind);
+    public bool IsAuditPending => !_result.CoverageKnown && !SessionResult.IsTerminal(_result.StatusKind);
 
     /// <summary>
     /// The session is over and no audit ever arrived, so the place for it has to say that it will not.
@@ -1535,7 +1448,7 @@ public sealed class SessionViewModel : ObservableObject
     /// would appear once the tool had checked - after the application had vanished, with nothing left to
     /// check.
     /// </remarks>
-    public bool AuditNeverArrived => !_coverageKnown && IsTerminal(_statusKind) && !AuditNeverStarted;
+    public bool AuditNeverArrived => !_result.CoverageKnown && SessionResult.IsTerminal(_result.StatusKind) && !AuditNeverStarted;
 
     /// <summary>
     /// The application was never started under the fake clock, so there was nothing to check.
@@ -1547,7 +1460,7 @@ public sealed class SessionViewModel : ObservableObject
     /// its first render. A failure before the first heartbeat is this case, and it gets its own sentence.
     /// </remarks>
     public bool AuditNeverStarted
-        => !_coverageKnown && _statusKind == SessionStatusKind.Error && !_hasTiming;
+        => !_result.CoverageKnown && _result.StatusKind == SessionStatusKind.Error && !_result.HasTiming;
 
     /// <summary>True when this session is driven over CDP (a Chromium/Electron target, ADR-9). The coverage
     /// unit is then a JS context, not an OS process, so the audit accumulates every context and the note
@@ -1558,10 +1471,10 @@ public sealed class SessionViewModel : ObservableObject
     /// thing the panel gets wrong silently when it is wrong.</remarks>
     public bool IsCdp
     {
-        get => _isCdp;
+        get => _result.IsCdp;
         internal set
         {
-            if (Set(ref _isCdp, value))
+            if (Set(ref _result.IsCdp, value))
             {
                 RaisePropertyChanged(nameof(CoverageNoteKey));
                 RaisePropertyChanged(nameof(HasCoverageNote));
@@ -1572,32 +1485,32 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>Translation key for the coverage note: a CDP session shows every JS context, a native
     /// family session shows the parent's call counts with the whole family's warnings and uncovered
     /// channels (rule 4 - counts are never summed across processes).</summary>
-    public string CoverageNoteKey => _isCdp ? "coverage.contexts_note" : "coverage.family_note";
+    public string CoverageNoteKey => _result.IsCdp ? "coverage.contexts_note" : "coverage.family_note";
 
     /// <summary>Whether to show the coverage note: for CDP once coverage arrived (it spans contexts), for
     /// native only when the session spanned a process family.</summary>
-    public bool HasCoverageNote => _isCdp ? _coverageKnown : IsFamily;
+    public bool HasCoverageNote => _result.IsCdp ? _result.CoverageKnown : IsFamily;
 
     /// <summary>Covered channels, formatted "channel  xN", from the parent process (never summed, rule 4).</summary>
     public IReadOnlyList<CoveredChannel> Covered
     {
-        get => _covered;
-        private set { if (Set(ref _covered, value)) { RaisePropertyChanged(nameof(HasCovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
+        get => _result.Covered;
+        private set { if (Set(ref _result.Covered, value)) { RaisePropertyChanged(nameof(HasCovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Channels hooked but deliberately left real (e.g. QPC-based waits, ADR-2), formatted "channel  xN".</summary>
     public IReadOnlyList<CoveredChannel> Observed
     {
-        get => _observed;
-        private set { if (Set(ref _observed, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
+        get => _result.Observed;
+        private set { if (Set(ref _result.Observed, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Uncovered channel identifiers (raw API names, not translation keys) - the partial verdict's
     /// evidence, unioned over every process of the family (R2-W5).</summary>
     public IReadOnlyList<string> Uncovered
     {
-        get => _uncovered;
-        private set { if (Set(ref _uncovered, value)) { RaisePropertyChanged(nameof(HasUncovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
+        get => _result.Uncovered;
+        private set { if (Set(ref _result.Uncovered, value)) { RaisePropertyChanged(nameof(HasUncovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Channels the session meant to watch and could not hook, unioned over the family. Its own
@@ -1605,8 +1518,8 @@ public sealed class SessionViewModel : ObservableObject
     /// - it is the panel admitting that a watch it promised is not running.</summary>
     public IReadOnlyList<string> Unobserved
     {
-        get => _unobserved;
-        private set { if (Set(ref _unobserved, value)) { RaisePropertyChanged(nameof(HasUnobserved)); RaisePropertyChanged(nameof(HasAuditRows)); } }
+        get => _result.Unobserved;
+        private set { if (Set(ref _result.Unobserved, value)) { RaisePropertyChanged(nameof(HasUnobserved)); RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Channels that came under the fake clock only once their module loaded, unioned over the
@@ -1614,18 +1527,18 @@ public sealed class SessionViewModel : ObservableObject
     /// names which of those counts are floors, which the late-hook warning needs and cannot say itself.</summary>
     public IReadOnlyList<string> InstalledLate
     {
-        get => _installedLate;
-        private set { if (Set(ref _installedLate, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
+        get => _result.InstalledLate;
+        private set { if (Set(ref _result.InstalledLate, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Warning translation keys the core raised (rendered in the current language), unioned over
     /// every process of the family and the session aggregate (R2-W5, R2-S9).</summary>
     public IReadOnlyList<string> Warnings
     {
-        get => _warnings;
+        get => _result.Warnings;
         private set
         {
-            if (Set(ref _warnings, value))
+            if (Set(ref _result.Warnings, value))
             {
                 RaisePropertyChanged(nameof(HasWarnings));
                 RaiseEvidenceCaveatsChanged();
@@ -1640,10 +1553,10 @@ public sealed class SessionViewModel : ObservableObject
     /// (UNCOVERED_CHILDREN_WIRE_MAX) - <see cref="UncoveredChildrenTotal"/> is the true count regardless.</summary>
     public IReadOnlyList<UncoveredChild> UncoveredChildren
     {
-        get => _uncoveredChildren;
+        get => _result.UncoveredChildren;
         private set
         {
-            if (Set(ref _uncoveredChildren, value))
+            if (Set(ref _result.UncoveredChildren, value))
             {
                 RaisePropertyChanged(nameof(UncoveredChildrenUnnamed));
                 RaisePropertyChanged(nameof(HasUnnamedUncoveredChildren));
@@ -1657,10 +1570,10 @@ public sealed class SessionViewModel : ObservableObject
     /// smaller than the rows under it.</summary>
     public int UncoveredChildrenTotal
     {
-        get => _uncoveredChildrenTotal;
+        get => _result.UncoveredChildrenTotal;
         private set
         {
-            if (Set(ref _uncoveredChildrenTotal, value))
+            if (Set(ref _result.UncoveredChildrenTotal, value))
             {
                 RaisePropertyChanged(nameof(HasUncoveredChildren));
                 RaisePropertyChanged(nameof(UncoveredChildrenUnnamed));
@@ -1673,10 +1586,9 @@ public sealed class SessionViewModel : ObservableObject
     /// Said in words under the table, so a total above the rows is never a mismatch left for the reader to
     /// notice (untouchable rule 4). Distinct from a named row that has no image: that process was seen and
     /// gone before it could be asked, this one was never listed at all.</summary>
-    public int UncoveredChildrenUnnamed
-        => _uncoveredChildrenTotal > _uncoveredChildren.Count ? _uncoveredChildrenTotal - _uncoveredChildren.Count : 0;
+    public int UncoveredChildrenUnnamed => _result.UncoveredChildrenUnnamed;
 
-    public bool HasUncoveredChildren => _uncoveredChildrenTotal > 0;
+    public bool HasUncoveredChildren => _result.UncoveredChildrenTotal > 0;
 
     /// <summary>The web engines inside the application the session reached through their debugging ports,
     /// as the verdict names them - whether any of their pages was put on the session clock is
@@ -1686,11 +1598,11 @@ public sealed class SessionViewModel : ObservableObject
     /// Chromium session, which opens its own port rather than finding one.</summary>
     public IReadOnlyList<ReachedEngine> Engines
     {
-        get => _engines;
-        private set { if (Set(ref _engines, value)) { RaisePropertyChanged(nameof(HasEngines)); } }
+        get => _result.Engines;
+        private set { if (Set(ref _result.Engines, value)) { RaisePropertyChanged(nameof(HasEngines)); } }
     }
 
-    public bool HasEngines => _engines.Count > 0;
+    public bool HasEngines => _result.Engines.Count > 0;
 
     /// <summary>
     /// Whether the session put any page on its clock through an engine's debugging port - the session
@@ -1700,12 +1612,12 @@ public sealed class SessionViewModel : ObservableObject
     /// </summary>
     public bool EnginePagesReached
     {
-        get => _enginePagesReached;
-        private set { if (Set(ref _enginePagesReached, value)) { RaisePropertyChanged(nameof(EnginesNoteKey)); } }
+        get => _result.EnginePagesReached;
+        private set { if (Set(ref _result.EnginePagesReached, value)) { RaisePropertyChanged(nameof(EnginesNoteKey)); } }
     }
 
     /// <summary>The note under the engines table, one of two keys by <see cref="EnginePagesReached"/>.</summary>
-    public string EnginesNoteKey => _enginePagesReached ? "audit.engines_note" : "audit.engines_note_none";
+    public string EnginesNoteKey => _result.EnginePagesReached ? "audit.engines_note" : "audit.engines_note_none";
 
     public bool HasUnnamedUncoveredChildren => UncoveredChildrenUnnamed > 0;
 
@@ -1714,11 +1626,11 @@ public sealed class SessionViewModel : ObservableObject
     /// verdict - shown so the reader can tell "the app closed itself (code N)" from "the session was stopped".</summary>
     public int? TargetExitCode
     {
-        get => _targetExitCode;
-        private set { if (Set(ref _targetExitCode, value)) { RaisePropertyChanged(nameof(HasTargetExit)); } }
+        get => _result.TargetExitCode;
+        private set { if (Set(ref _result.TargetExitCode, value)) { RaisePropertyChanged(nameof(HasTargetExit)); } }
     }
 
-    public bool HasTargetExit => _targetExitCode.HasValue;
+    public bool HasTargetExit => _result.TargetExitCode.HasValue;
 
     /// <summary>The processes the session went on for after the application closed (ADR-16), one line each
     /// in the CLI report's own spelling: "app.exe (pid 5150)", or "pid 5151" for one the process list could
@@ -1727,30 +1639,30 @@ public sealed class SessionViewModel : ObservableObject
     /// alone reads as the end of the session, and for a launcher it was not.</summary>
     public IReadOnlyList<string> FollowedRows
     {
-        get => _followedRows;
-        private set { if (Set(ref _followedRows, value)) { RaisePropertyChanged(nameof(HasFollowed)); } }
+        get => _result.FollowedRows;
+        private set { if (Set(ref _result.FollowedRows, value)) { RaisePropertyChanged(nameof(HasFollowed)); } }
     }
 
-    public bool HasFollowed => _followedRows.Count > 0;
+    public bool HasFollowed => _result.FollowedRows.Count > 0;
 
     /// <summary>The processes of the application a refusal could not end, from <c>verdict.left_running</c>
     /// (R4-S5), in the spelling of <see cref="FollowedRows"/>. They run on the real clock, which the status
     /// line alone would hide - it says the application was ended. Empty for every session not refused.</summary>
     public IReadOnlyList<string> LeftRunningRows
     {
-        get => _leftRunningRows;
-        private set { if (Set(ref _leftRunningRows, value)) { RaisePropertyChanged(nameof(HasLeftRunning)); } }
+        get => _result.LeftRunningRows;
+        private set { if (Set(ref _result.LeftRunningRows, value)) { RaisePropertyChanged(nameof(HasLeftRunning)); } }
     }
 
-    public bool HasLeftRunning => _leftRunningRows.Count > 0;
+    public bool HasLeftRunning => _result.LeftRunningRows.Count > 0;
 
     /// <summary>Whether a refusal could not look for all of the application's processes, from
     /// <c>verdict.family_search_incomplete</c> - some may run on the real clock unnamed, so the status that
     /// says the application was ended must not stand alone. False for every session not refused.</summary>
     public bool RefusalIncomplete
     {
-        get => _refusalIncomplete;
-        private set => Set(ref _refusalIncomplete, value);
+        get => _result.RefusalIncomplete;
+        private set => Set(ref _result.RefusalIncomplete, value);
     }
 
     /// <summary>Cleanup residue translation keys from <c>ended.residue_keys</c> - what a teardown could not
@@ -1758,11 +1670,11 @@ public sealed class SessionViewModel : ObservableObject
     /// warnings so a session reports the mess it left rather than hiding it (rule 6).</summary>
     public IReadOnlyList<string> ResidueKeys
     {
-        get => _residueKeys;
-        private set { if (Set(ref _residueKeys, value)) { RaisePropertyChanged(nameof(HasResidue)); } }
+        get => _result.ResidueKeys;
+        private set { if (Set(ref _result.ResidueKeys, value)) { RaisePropertyChanged(nameof(HasResidue)); } }
     }
 
-    public bool HasResidue => _residueKeys.Count > 0;
+    public bool HasResidue => _result.ResidueKeys.Count > 0;
 
     /// <summary>The captured diagnostics block (core stderr and parse errors, with a header naming the
     /// status, target, and requested moment) for the Copy-diagnostics action. Empty on a clean success, so
@@ -1786,19 +1698,19 @@ public sealed class SessionViewModel : ObservableObject
 
     public bool HasDiagnosticsSaved => _diagnosticsSavedPath.Length > 0;
 
-    public bool HasCovered => _covered.Count > 0;
+    public bool HasCovered => _result.Covered.Count > 0;
 
-    public bool HasUncovered => _uncovered.Count > 0;
+    public bool HasUncovered => _result.Uncovered.Count > 0;
 
-    public bool HasUnobserved => _unobserved.Count > 0;
+    public bool HasUnobserved => _result.Unobserved.Count > 0;
 
     /// <summary>Whether the audit table has a row to show: any function the session saw, wherever it read
     /// from. The table folds the four channel lists into one (AuditRowsConverter), so its visibility is
     /// the union of theirs. HasObserved and HasInstalledLate went with the separate lists they gated.</summary>
-    public bool HasAuditRows => _covered.Count > 0 || _observed.Count > 0 || _uncovered.Count > 0
-        || _unobserved.Count > 0 || _installedLate.Count > 0;
+    public bool HasAuditRows => _result.Covered.Count > 0 || _result.Observed.Count > 0 || _result.Uncovered.Count > 0
+        || _result.Unobserved.Count > 0 || _result.InstalledLate.Count > 0;
 
-    public bool HasWarnings => _warnings.Count > 0;
+    public bool HasWarnings => _result.Warnings.Count > 0;
 
     /// <summary>
     /// Fold one event into the view state. Pure and synchronous (no I/O, no threading) so the mapping is
@@ -1820,15 +1732,15 @@ public sealed class SessionViewModel : ObservableObject
                 // ours, and there is only one of it.
                 MultiplierText = $"×{s.Multiplier}";
                 SyncModeToMultiplier(s.Multiplier);
-                _elapsedRealMs = s.ElapsedRealMs;
-                _elapsedFakeMs = s.ElapsedFakeMs;
-                _hasTiming = true;
+                _result.ElapsedRealMs = s.ElapsedRealMs;
+                _result.ElapsedFakeMs = s.ElapsedFakeMs;
+                _result.HasTiming = true;
                 PublishElapsed();
                 SetStatus("status.running", SessionStatusKind.Running);
                 break;
             case VanishedEvent vd:
-                _vanishReasonKey = vd.ReasonKey;
-                _livedMs = vd.LivedMs;
+                _result.VanishReasonKey = vd.ReasonKey;
+                _result.LivedMs = vd.LivedMs;
                 RaisePropertyChanged(nameof(VanishReasonKey));
                 RaisePropertyChanged(nameof(LivedMs));
                 SetStatus("status.did_not_take_effect", SessionStatusKind.DidNotTakeEffect);
@@ -1836,15 +1748,15 @@ public sealed class SessionViewModel : ObservableObject
             // Guarded on the terminal state like `state` above (M-9): a late `ended`/`error` after a
             // terminal outcome (e.g. `ended` arriving right after `vanished` -> DidNotTakeEffect) must not
             // overwrite the honest "did not take effect" verdict in the summary and history.
-            case EndedEvent e when !IsTerminal(StatusKind):
-                _endedSeen = true;
+            case EndedEvent e when !SessionResult.IsTerminal(StatusKind):
+                _result.EndedSeen = true;
                 if (e.FakeEndWall is not null)
                 {
                     // The core's authoritative end timing (docs/08 section 6) - prefer it over the last heartbeat.
-                    _fakeEndWall = e.FakeEndWall;
-                    _elapsedRealMs = e.ElapsedRealMs;
-                    _elapsedFakeMs = e.ElapsedFakeMs;
-                    _hasTiming = true;
+                    _result.FakeEndWall = e.FakeEndWall;
+                    _result.ElapsedRealMs = e.ElapsedRealMs;
+                    _result.ElapsedFakeMs = e.ElapsedFakeMs;
+                    _result.HasTiming = true;
                     PublishElapsed();
                 }
 
@@ -1861,7 +1773,7 @@ public sealed class SessionViewModel : ObservableObject
                 // live, never end the session (rule 6).
                 InFlightErrorKey = InFlightKey(err.Key);
                 break;
-            case ErrorEvent err when !IsTerminal(StatusKind):
+            case ErrorEvent err when !SessionResult.IsTerminal(StatusKind):
                 // A start-time or fatal error (bad start moment, hook DLL missing, launch/inject/attach
                 // failed). The session never became live: the status was set to "running" optimistically
                 // right after `start`, but this error answers the START command (id 1) or is unsolicited (no
@@ -1876,7 +1788,7 @@ public sealed class SessionViewModel : ObservableObject
                 SetVerdict(VerdictKinds.Parse(v.Verdict), v.ReasonKey);
                 // Empty and false unless the core refused and could not end, or look for, all of the
                 // application (R4-S5).
-                LeftRunningRows = FollowedLines(v.LeftRunning);
+                LeftRunningRows = SessionReport.ProcessLines(v.LeftRunning);
                 RefusalIncomplete = v.FamilySearchIncomplete;
                 if (v.RefuseStart)
                 {
@@ -1907,7 +1819,7 @@ public sealed class SessionViewModel : ObservableObject
                 // twice - is decided in the converter, which is where presentation belongs anyway.
                 Engines = sv.Engines;
                 EnginePagesReached = sv.ContextCount > 0;
-                FollowedRows = FollowedLines(sv.Followed);
+                FollowedRows = SessionReport.ProcessLines(sv.Followed);
                 // Session-level warnings join the per-process ones (R2-S9). They are about the family,
                 // not about any one process, so the panel shows them in the same list - a warning the
                 // reader has to attribute to an event type is a warning they will not read.
@@ -1918,24 +1830,24 @@ public sealed class SessionViewModel : ObservableObject
                 Warnings =
                 [
                     .. sv.WarningKeys.Where(w => w == LeftBehindKey),
-                    .. _warnings,
-                    .. sv.WarningKeys.Where(w => w != LeftBehindKey).Except(_warnings),
+                    .. _result.Warnings,
+                    .. sv.WarningKeys.Where(w => w != LeftBehindKey).Except(_result.Warnings),
                 ];
                 SetVerdict(VerdictKinds.Parse(sv.Verdict), sv.ReasonKey);
                 break;
-            case CoverageEvent c when _isCdp:
+            case CoverageEvent c when _result.IsCdp:
                 // CDP emits one coverage per JS context - accumulate them all (each context's counts stay
                 // its own, never summed across contexts, rule 4) - union the warnings and uncovered lists.
                 // Two pages both produce "page Date.now", so two contexts reading one channel become two
                 // rows that tell apart only by their read count (rule 4 keeps each context's count its own,
                 // never summed). The raw context id used to prefix each row - dropped in P6 as a number that
                 // named nothing to the reader.
-                Covered = [.. _covered, .. c.Covered];
-                Observed = [.. _observed, .. c.Observed];
-                Uncovered = [.. _uncovered, .. c.Uncovered.Where(u => !_uncovered.Contains(u))];
-                Unobserved = [.. _unobserved, .. c.Unobserved.Where(u => !_unobserved.Contains(u))];
-                InstalledLate = [.. _installedLate, .. c.InstalledLate.Where(u => !_installedLate.Contains(u))];
-                Warnings = [.. _warnings, .. c.WarningKeys.Where(w => !_warnings.Contains(w))];
+                Covered = [.. _result.Covered, .. c.Covered];
+                Observed = [.. _result.Observed, .. c.Observed];
+                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+                InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
+                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
                 CoverageKnown = true;
                 break;
             case CoverageEvent c when c.Kind == CoverageEvent.UnitContext:
@@ -1943,9 +1855,9 @@ public sealed class SessionViewModel : ObservableObject
                 // engine's debugging port (docs/09 section 12). Its number is a context index, never a
                 // pid, so it must not be mistaken for the parent. Rows accumulate per context like the
                 // CDP branch above and stand after the parent's, whichever event arrives last.
-                _pageCovered = [.. _pageCovered, .. c.Covered];
-                Covered = [.. _parentCovered, .. _pageCovered];
-                Warnings = [.. _warnings, .. c.WarningKeys.Where(w => !_warnings.Contains(w))];
+                _result.PageCovered = [.. _result.PageCovered, .. c.Covered];
+                Covered = [.. _result.ParentCovered, .. _result.PageCovered];
+                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
                 CoverageKnown = true;
                 break;
             case CoverageEvent c when c.Kind == CoverageEvent.UnitProcess:
@@ -1956,11 +1868,11 @@ public sealed class SessionViewModel : ObservableObject
                 // and again when the session ends, and the first snapshot is taken inside the guard
                 // window, so its counts are the session's first blink (R2-X8) - measured, a probe that
                 // read the clock 25 times showed "×2" in this panel.
-                _parentPid ??= c.Pid;
-                if (c.Pid == _parentPid)
+                _result.ParentPid ??= c.Pid;
+                if (c.Pid == _result.ParentPid)
                 {
-                    _parentCovered = c.Covered.ToList();
-                    Covered = [.. _parentCovered, .. _pageCovered];
+                    _result.ParentCovered = c.Covered.ToList();
+                    Covered = [.. _result.ParentCovered, .. _result.PageCovered];
                     Observed = c.Observed.ToList();
                 }
 
@@ -1972,10 +1884,10 @@ public sealed class SessionViewModel : ObservableObject
                 // (driver_run) and the CDP branch above. A channel can therefore be covered in the parent
                 // and uncovered in a child at once - that is the honest reading, and it is precisely why
                 // the family verdict is partial (Verdict::combine).
-                Uncovered = [.. _uncovered, .. c.Uncovered.Where(u => !_uncovered.Contains(u))];
-                Unobserved = [.. _unobserved, .. c.Unobserved.Where(u => !_unobserved.Contains(u))];
-                InstalledLate = [.. _installedLate, .. c.InstalledLate.Where(u => !_installedLate.Contains(u))];
-                Warnings = [.. _warnings, .. c.WarningKeys.Where(w => !_warnings.Contains(w))];
+                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+                InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
+                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
                 CoverageKnown = true;
                 break;
             case CoverageEvent c:
@@ -1983,9 +1895,9 @@ public sealed class SessionViewModel : ObservableObject
                 // heard of. Its number is neither a pid nor a context index, so it must not become the
                 // parent and its counts have no row to go in. What it says about the session - the
                 // warnings and the gaps - is evidence all the same, and stays (rule 4, rule 6).
-                Uncovered = [.. _uncovered, .. c.Uncovered.Where(u => !_uncovered.Contains(u))];
-                Unobserved = [.. _unobserved, .. c.Unobserved.Where(u => !_unobserved.Contains(u))];
-                Warnings = [.. _warnings, .. c.WarningKeys.Where(w => !_warnings.Contains(w))];
+                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
                 CoverageKnown = true;
                 break;
             default:
@@ -2053,19 +1965,8 @@ public sealed class SessionViewModel : ObservableObject
             // Snapshot the start setup NOW, so history, the summary and the diagnostics block always report
             // what was REQUESTED (rule 4) - neither a later in-flight change nor an edit made after the
             // session ended, while the form is unlocked and the summary is still copyable.
-            _startMomentText = Moment.Canonical;
-            _startMode = SelectedMode;
-            _startTargetPath = TargetPath;
-            _startZone = SelectedZone;
-            _startTargetArgs = _targetArgs;
-            _startWorkingFolder = _workingFolder;
-            _startScaleDuration = _scaleDuration;
-            _startScaleQpc = _scaleQpc;
-            _startKeepBackgroundTimers = _keepBackgroundTimers;
-            _startForce = _forceStart;
-            _startReachEmbedded = _reachEmbedded;
-            _startReachElevated = WantsElevatedEmbedded;
-            _startCaptured = true;
+            var setup = LiveSetup;
+            _started = setup;
             RaisePropertyChanged(nameof(StartedAtPreview));
 
             // Build the plan by reading the target's PE header. Classify a TARGET problem here (RELEASE-007)
@@ -2075,21 +1976,12 @@ public sealed class SessionViewModel : ObservableObject
             //
             // Built OFF the UI thread (R4-N48): it reads the target's header twice and asks three times whether
             // a file beside it exists, and on a share that has gone each of those blocks for as long as the
-            // share takes to fail - measured 21 s for one. The inputs are read here, on this thread, first.
+            // share takes to fail - measured 21 s for one. Its inputs are the setup taken above, on this thread,
+            // and a record nothing can change under the pool thread that reads it.
             SessionPlan plan;
-            var targetPath = TargetPath!;
-            var time = BuildTime();
-            var force = _forceStart;
-            var args = TargetArguments.Split(_targetArgs);
-            var workingFolder = _workingFolder;
-            var embedded = _reachEmbedded;
-            var elevated = _startReachElevated;
-            var keepTimers = _startKeepBackgroundTimers;
             try
             {
-                plan = await Task.Run(
-                    () => SessionPlan.Build(targetPath, time, force, args, workingFolder, embedded, elevated, keepTimers))
-                    .ConfigureAwait(true);
+                plan = await Task.Run(setup.Plan).ConfigureAwait(true);
             }
             catch (InvalidOperationException ex)
             {
@@ -2223,7 +2115,7 @@ public sealed class SessionViewModel : ObservableObject
             // the verdict and coverage already captured still stand and are shown separately.
             SetStatus("status.stopped", SessionStatusKind.Stopped);
         }
-        else if (!IsTerminal(StatusKind))
+        else if (!SessionResult.IsTerminal(StatusKind))
         {
             // No terminal event arrived. Either the idle watchdog fired (the core stopped heartbeating)
             // or the core just closed its stdout on its own (docs/08 section 7). Either way the finally
@@ -2309,11 +2201,11 @@ public sealed class SessionViewModel : ObservableObject
         ProcessCount = 0;
 
         CoverageKnown = false;
-        _parentPid = null;
+        _result.ParentPid = null;
         IsCdp = false;
         Covered = [];
-        _parentCovered = [];
-        _pageCovered = [];
+        _result.ParentCovered = [];
+        _result.PageCovered = [];
         Observed = [];
         Uncovered = [];
         // 🔴 Unobserved was missing from this list, so a second session in the same window kept listing the
@@ -2327,17 +2219,17 @@ public sealed class SessionViewModel : ObservableObject
         Engines = [];
         EnginePagesReached = false;
 
-        _hasTiming = false;
-        _endedSeen = false;
-        _elapsedRealMs = 0;
-        _elapsedFakeMs = 0;
+        _result.HasTiming = false;
+        _result.EndedSeen = false;
+        _result.ElapsedRealMs = 0;
+        _result.ElapsedFakeMs = 0;
         // 🔴 Cleared, not zeroed on screen: "0:00:00" beside a clock is a measurement, and a session that
         // has not reported yet has not measured anything. The tile drops the line instead.
         Fake.Elapsed = string.Empty;
         Real.Elapsed = string.Empty;
-        _fakeEndWall = string.Empty;
-        _vanishReasonKey = string.Empty;
-        _livedMs = 0;
+        _result.FakeEndWall = string.Empty;
+        _result.VanishReasonKey = string.Empty;
+        _result.LivedMs = 0;
         TargetExitCode = null;
         FollowedRows = [];
         LeftRunningRows = [];
@@ -2352,53 +2244,25 @@ public sealed class SessionViewModel : ObservableObject
         HistoryNoteKey = string.Empty;
     }
 
-    /// <summary>
-    /// A covered or observed channel as one line for the copy-summary, its read count folded in as prose so
-    /// it does not read as a speed. The screen shows the same count in its own column of the audit table,
-    /// in the same invariant digits. InvariantCulture keeps the count stable across machines, and
-    /// CDP no longer prefixes a raw context id (P6): two contexts reading one channel differ by their count.
-    /// </summary>
-    private static string FormatReadRow(CoveredChannel channel, Func<string, string> translate)
-    {
-        // A count that stopped at the hook's ceiling is a floor, and says so (R5-WY11).
-        var key = channel.Capped ? "coverage.reads_at_least"
-            : channel.Calls == 1 ? "coverage.reads_one"
-            : "coverage.reads";
-        // Guarded like every other translated template here: a loose file with a bad placeholder falls back
-        // to the default language instead of throwing out of the summary being built (rule 6).
-        return Fmt(translate, key, channel.Channel, channel.Calls);
-    }
+    /// <summary>The setup the form holds right now - what Start takes as the session's setup.</summary>
+    internal SessionSetup LiveSetup => new(
+        _targetPath ?? string.Empty,
+        Moment.Canonical,
+        SelectedZone,
+        SelectedMode,
+        _targetArgs,
+        _workingFolder,
+        _scaleDuration,
+        _scaleQpc,
+        _keepBackgroundTimers,
+        _forceStart,
+        _reachEmbedded,
+        WantsElevatedEmbedded);
 
-    /// <summary>Build the wire time from the inputs. The moment is the local time in the session zone
-    /// (rule 2, chrono-mock 9.5) - the core turns it into UTC and validates it (docs/08 section 5).</summary>
-    internal TimeSpec BuildTime()
-    {
-        var canonical = Moment.Canonical;
-        return new TimeSpec
-        {
-            Moment = new MomentSpec { Kind = "absolute", Local = canonical, TzBiasMin = SelectedZone.BiasMinutes },
-            Mode = SelectedMode.Mode,
-            Multiplier = SelectedMode.Multiplier,
-            ScaleDuration = _scaleDuration,
-            ScaleQpc = _scaleQpc,
-        };
-    }
-
-    /// <summary>The target the session STARTED on - the snapshot, falling back to the live path when no
-    /// session has started (a fresh window, a unit test). Every report reads this rather than
-    /// <see cref="TargetPath"/>, so none of them can name a target chosen after the run.</summary>
-    private string RequestedTargetPath => _startTargetPath ?? _targetPath ?? string.Empty;
-
-    /// <summary>The zone the session STARTED in, with the same fallback as
-    /// <see cref="RequestedTargetPath"/>.</summary>
-    private ZoneOption RequestedZone => _startZone ?? SelectedZone;
-
-    /// <summary>The moment the session STARTED at, with the same fallback. Canonical either way - the live
-    /// value comes from <see cref="MomentField"/>, which only ever holds a canonical string or nothing.</summary>
-    private string RequestedMoment => _startMomentText.Length > 0 ? _startMomentText : Moment.Canonical;
-
-    /// <summary>The mode the session STARTED in, with the same fallback.</summary>
-    private ModeOption RequestedMode => _startMode ?? SelectedMode;
+    /// <summary>The setup the session STARTED with, falling back to the live form when no session has
+    /// started (a fresh window, a unit test). Every report reads this rather than the form, so none of them
+    /// can name a target, a zone or a moment chosen after the run.</summary>
+    private SessionSetup Requested => _started ?? LiveSetup;
 
     /// <summary>
     /// Compose the paste-into-ticket session summary (chrono-mock 7.2, 8.8) in the interface language. It
@@ -2410,126 +2274,7 @@ public sealed class SessionViewModel : ObservableObject
     public string BuildSummary(Func<string, string> translate)
     {
         ArgumentNullException.ThrowIfNull(translate);
-        var sb = new StringBuilder();
-
-        if (!IsReliable)
-        {
-            sb.Append(translate("report.unreliable_banner")).Append("\n\n");
-        }
-
-        sb.Append(translate("report.title")).Append('\n');
-        // The target the session RAN ON, not the one now in the form - see the snapshot fields.
-        sb.Append("  ").Append(translate("report.target")).Append(": ")
-          .Append(Path.GetFileName(RequestedTargetPath)).Append('\n');
-
-        // A session the core never closed says so above the verdict it qualifies (R4-W3), as the CLI report
-        // does: the verdict below is the one from the start, not the session's.
-        if (IsCutShort)
-        {
-            sb.Append("  ").Append(translate("report.cut_short")).Append('\n');
-        }
-
-        // Verdict headline: a vanish is an honest non-effect first, then the family/parent verdict, else none.
-        if (_statusKind == SessionStatusKind.DidNotTakeEffect)
-        {
-            sb.Append("  ").Append(translate("report.verdict")).Append(": ")
-              .Append(translate("report.did_not_take_effect")).Append('\n');
-            if (_vanishReasonKey.Length > 0)
-            {
-                sb.Append("    ")
-                  .Append(Fmt(translate, "report.vanish_detail", translate(_vanishReasonKey), _livedMs))
-                  .Append('\n');
-            }
-        }
-        else if (_verdictKnown)
-        {
-            sb.Append("  ").Append(translate("report.verdict")).Append(": ").Append(translate(VerdictLabelKey));
-            if (IsFamily)
-            {
-                sb.Append("  ").Append(Fmt(translate, "report.processes", _processCount));
-            }
-
-            sb.Append('\n');
-            if (_verdictHasReason)
-            {
-                sb.Append("    ").Append(translate(VerdictReasonKey)).Append('\n');
-            }
-
-            if (_verdictHasMeaning)
-            {
-                sb.Append("    ").Append(translate(VerdictMeaningKey)).Append('\n');
-            }
-        }
-        else
-        {
-            sb.Append("  ").Append(translate("report.verdict")).Append(": ")
-              .Append(translate("report.no_verdict")).Append('\n');
-        }
-
-        // What a refusal could not end, under the verdict it follows from - where the CLI report puts it -
-        // after the caveat that some of it may not have been found at all.
-        if (_refusalIncomplete)
-        {
-            sb.Append("  ").Append(translate("result.refusal_incomplete")).Append('\n');
-        }
-
-        AppendList(sb, translate, "report.left_running", _leftRunningRows, translateItems: false);
-
-        if (_hasTiming)
-        {
-            // Prefer the authoritative end wall from `ended` - fall back to the last heartbeat's fake clock.
-            var fakeWall = _fakeEndWall.Length > 0 ? _fakeEndWall : Fake.Wall;
-            sb.Append("  ").Append(translate("report.session")).Append(": ")
-              .Append(Fmt(translate, "report.session_reached", fakeWall)).Append('\n');
-            sb.Append("    ")
-              .Append(Fmt(translate, "report.elapsed", Seconds(_elapsedRealMs), Seconds(_elapsedFakeMs)))
-              .Append('\n');
-        }
-
-        // The target's own exit code, if the app exited on its own (informational, not a verdict).
-        if (_targetExitCode is int code)
-        {
-            sb.Append("  ").Append(translate("report.target_exit")).Append(' ')
-              .Append(code.ToString(CultureInfo.InvariantCulture)).Append('\n');
-        }
-
-        // What the session went on for after the application closed, under the line that says it closed -
-        // where the CLI report puts it, for the reason FollowedRows gives.
-        AppendList(sb, translate, "report.followed", _followedRows, translateItems: false);
-
-        // Channel names are raw API identifiers (not translated) - warnings are keys the core raised.
-        AppendList(sb, translate, "coverage.covered", _covered.Select(ch => FormatReadRow(ch, translate)).ToList(), translateItems: false);
-        AppendList(sb, translate, "coverage.observed", _observed.Select(ch => FormatReadRow(ch, translate)).ToList(), translateItems: false);
-        AppendList(sb, translate, "coverage.uncovered", _uncovered, translateItems: false);
-        // The channels the session meant to watch and could not: on screen since the audit table, and a
-        // copied report that left them out claimed a watch it was not running (untouchable rule 4).
-        AppendList(sb, translate, "coverage.unobserved", _unobserved, translateItems: false);
-        // The channels hooked only after their module loaded - shown in the in-app audit, so the copied
-        // report must carry them too, or the warning below references a list the reader cannot see (rule 4).
-        AppendList(sb, translate, "coverage.installed_late", _installedLate, translateItems: false);
-        // The processes the hook never got into, where the CLI report puts them: after the channel lists
-        // and before the warnings that talk about them. A copied report that left them out claimed less
-        // than the screen shows and less than the CLI says (untouchable rule 4).
-        AppendUncoveredChildren(sb, translate);
-        // The engines whose pages the session reached, in the same place the CLI report puts them: right
-        // after the processes that stayed on the real clock, because the two lists answer one question
-        // between them - what inside this application ran on which clock.
-        AppendEngines(sb, translate);
-        AppendList(sb, translate, "coverage.warnings", _warnings, translateItems: true);
-        // Cleanup residue the core could not remove (ended.residue_keys) - reported, never hidden (rule 6).
-        AppendList(sb, translate, "report.cleanup", _residueKeys, translateItems: true);
-
-        // The "requested" line is the START request (snapshot) throughout - moment, zone and mode alike.
-        sb.Append("  ")
-          .Append(Fmt(
-              translate,
-              "report.requested",
-              RequestedMoment,
-              RequestedZone.Label,
-              translate(RequestedMode.LabelKey)))
-          .Append('\n');
-
-        return sb.ToString();
+        return SessionReport.Summary(_result, Requested, Fake.Wall, translate);
     }
 
     /// <summary>
@@ -2541,7 +2286,7 @@ public sealed class SessionViewModel : ObservableObject
     /// </summary>
     internal void CaptureDiagnostics(IEnumerable<string> lines, int dropped = 0, int? coreExit = null)
     {
-        if (IsReliable)
+        if (_result.IsReliable)
         {
             return; // a clean works session needs no diagnostics - keep the button and the log out of it
         }
@@ -2561,246 +2306,14 @@ public sealed class SessionViewModel : ObservableObject
     /// the CLI report - it is a technical artifact for a bug report, not interface text (rule 15 governs the
     /// UI - this is data). Pure over the view state, so it is unit tested with a fake line list.</summary>
     internal string BuildDiagnosticsBlock(IEnumerable<string> lines, int dropped = 0, int? coreExit = null)
-    {
-        var mode = RequestedMode;
-        var modeToken = mode.Mode switch { "frozen" => "frozen", "flow" => "flow", _ => $"x{mode.Multiplier ?? 1}" };
+        => SessionReport.Diagnostics(_result, Requested, lines, dropped, coreExit, DateTime.UtcNow);
 
-        var sb = new StringBuilder();
-        sb.Append("Chrono Mock diagnostics\n");
-        sb.Append("  when:      ")
-          .Append(DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)).Append('\n');
-        sb.Append("  status:    ").Append(_statusKind).Append(" (").Append(_statusKey).Append(")\n");
-        // The code the core itself ended with, which is what tells a crash from a kill once the core sent
-        // nothing more (R4-S27). A negative one is an NTSTATUS, so it is shown in hex as well, as the CLI does.
-        if (coreExit is { } code)
-        {
-            sb.Append("  core exit: ").Append(code.ToString(CultureInfo.InvariantCulture));
-            if (code < 0)
-            {
-                sb.Append(" (0x").Append(unchecked((uint)code).ToString("X8", CultureInfo.InvariantCulture)).Append(')');
-            }
-
-            sb.Append('\n');
-        }
-
-        var target = RequestedTargetPath;
-        sb.Append("  target:    ").Append(target.Length > 0 ? target : "(none)").Append('\n');
-        sb.Append("  requested: ").Append(RequestedMoment)
-          .Append(" (zone ").Append(RequestedZone.Label).Append(", mode ").Append(modeToken).Append(")\n");
-
-        sb.Append("  core output:\n");
-        var any = false;
-        foreach (var line in lines)
-        {
-            sb.Append("    ").Append(line).Append('\n');
-            any = true;
-        }
-
-        if (!any)
-        {
-            sb.Append("    (no diagnostic output)\n");
-        }
-
-        // A block that is a TAIL has to say so, and say how much is missing. The line count is capped
-        // so a chatty target cannot grow it without bound, and a reader who takes the tail for the
-        // whole of it draws conclusions from an absence that was never there (rule 6).
-        if (dropped > 0)
-        {
-            sb.Append("    [")
-              .Append(dropped.ToString(CultureInfo.InvariantCulture))
-              .Append(" earlier line(s) dropped - this is the tail of the core's output]\n");
-        }
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// The warnings that undo a works verdict as evidence (R5-D3): a Go program reads its wall clock where
-    /// no hook reaches, and a session in which no process read a substituted clock proves nothing about
-    /// time. The verdict stands, the export gets the banner. Mirrors the CLI's WARNINGS_THAT_UNDO_EVIDENCE,
-    /// and RustConstantMirrorTests holds the two lists together.
-    /// </summary>
-    internal static readonly string[] WarningsThatUndoEvidence =
-        ["runtime.go_wall_clock_unreachable", "coverage.session_clock_never_read"];
-
-    /// <summary>A clean "works" session is the only reliable one - anything else must carry the unreliable
-    /// banner in an export (chrono-mock 8.8), mirroring the CLI's session_is_reliable.</summary>
-    private bool IsReliable => _verdictKind == VerdictKind.Works
-                              && _statusKind is not (SessionStatusKind.DidNotTakeEffect or SessionStatusKind.Error)
-                              && !IsCutShort
-                              && !EvidenceUndoingWarnings.Any();
-
-    /// <summary>The session's warnings that are in <see cref="WarningsThatUndoEvidence"/>, in the order the
-    /// session raised them - one list behind both the copied banner and the caveats on the result card.</summary>
-    private IEnumerable<string> EvidenceUndoingWarnings => _warnings.Where(WarningsThatUndoEvidence.Contains);
-
-    private static string Seconds(long ms) => (ms / 1000.0).ToString("0.0", CultureInfo.InvariantCulture);
-
-    // Fill a translated template safely: a bad translation file falls back to the default language's
-    // template, and to the raw one only when that fails too, instead of taking down the summary being
-    // built. The rule lives in TextFormat, shared with the calculator and the window title (R4-N46).
-    private static string Fmt(Func<string, string> translate, string key, params object[] args)
-        => Localization.TextFormat.Translate(translate, key, args);
-
-    /// <summary>
-    /// The processes the hook never got into, one line per pid the way the CLI report prints them (pid,
-    /// executable, role, the parent that spawned it). The screen groups them by executable because a reader
-    /// scanning a table wants the shape, and the clipboard keeps the pids because a ticket about one runaway
-    /// child wants the fact. A count past the named list is said in words, never left as a mismatch.
-    /// </summary>
-    private void AppendUncoveredChildren(StringBuilder sb, Func<string, string> translate)
-    {
-        if (!HasUncoveredChildren)
-        {
-            return;
-        }
-
-        sb.Append("  ").Append(translate("report.processes_uncovered"))
-          .Append(" (").Append(_uncoveredChildrenTotal).Append("):\n");
-        foreach (var child in _uncoveredChildren)
-        {
-            // Empty like null: a path that ends in a separator names nothing, and the table already reads
-            // an empty name as the unnamed row - the clipboard must not print a blank where it prints words.
-            var image = string.IsNullOrEmpty(child.Image) ? translate("audit.process_unnamed") : child.Image;
-            var line = child.Role is { Length: > 0 } role
-                ? Fmt(translate, "report.process_line_role", child.Pid, image, role, child.ParentPid)
-                : Fmt(translate, "report.process_line", child.Pid, image, child.ParentPid);
-            sb.Append("    - ").Append(line).Append('\n');
-        }
-
-        if (UncoveredChildrenUnnamed > 0)
-        {
-            sb.Append("    - ").Append(Fmt(translate, "report.processes_more", UncoveredChildrenUnnamed)).Append('\n');
-        }
-    }
-
-    /// <summary>
-    /// The web engines the session reached inside the application, one line each, with the pid beside the
-    /// port exactly as the CLI report prints them. The screen leaves the pid out - there is nothing on the
-    /// screen to match it against, since the process table names executables rather than pids - but a
-    /// ticket about one engine wants it, and a clipboard that says less than the CLI would be the same
-    /// report disagreeing with itself.
-    /// </summary>
-    private void AppendEngines(StringBuilder sb, Func<string, string> translate)
-    {
-        if (!HasEngines)
-        {
-            return;
-        }
-
-        sb.Append("  ").Append(translate(_enginePagesReached ? "report.engines_reached" : "report.engines_reached_none")).Append(":\n");
-        for (var i = 0; i < _engines.Count; i++)
-        {
-            // One endpoint once, the same rule the table folds by. The screen deduplicated and this did
-            // not, so an endpoint reported twice drew one row and printed TWO lines - one session
-            // described two ways, which is the disagreement this whole slice exists to remove.
-            if (!IsFirstMention(_engines, i))
-            {
-                continue;
-            }
-
-            var engine = _engines[i];
-            // Whitespace like empty: an engine that named nothing gets the word, never a blank where the
-            // report prints a name. The core sanitises that text but does not trim it.
-            var name = string.IsNullOrWhiteSpace(engine.Browser) ? translate("audit.engine_unnamed") : engine.Browser;
-            sb.Append("    - ").Append(Fmt(translate, "report.engine_line", name, engine.Port, engine.Pid)).Append('\n');
-        }
-    }
-
-    /// <summary>
-    /// Whether the engine at <paramref name="index"/> is the first mention of its endpoint - pid and port
-    /// together, because one port number held by two processes in turn is two engines.
-    /// </summary>
-    /// <remarks>
-    /// The rule is written twice, here and in <see cref="EngineRowsConverter"/>, and that is a cost
-    /// rather than a preference: sharing it would bring the converter's type into this class, which
-    /// stands ON its coupling ceiling (gui/CodeMetricsConfig.txt), and a HashSet would be another type
-    /// again. What keeps the pair from drifting is a test that counts the engines on the screen and in
-    /// the copied summary and requires the two numbers to agree.
-    /// </remarks>
-    private static bool IsFirstMention(IReadOnlyList<ReachedEngine> engines, int index)
-    {
-        for (var earlier = 0; earlier < index; earlier++)
-        {
-            if (engines[earlier].Pid == engines[index].Pid && engines[earlier].Port == engines[index].Port)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>The followed processes as the CLI report spells them (report.rs render_followed): the name and
-    /// the pid, or the pid alone for one the process list could not name - the pid is what a reader looks
-    /// for in the task manager to close a program that keeps the session open.</summary>
-    // Concatenation rather than an interpolated string: the interpolation handler is one more type on a class
-    // that stands on its coupling ceiling (measured: 83 with it, for a line this plain).
-    private static IReadOnlyList<string> FollowedLines(IReadOnlyList<FollowedProcess> followed)
-        => [.. followed.Select(p => string.IsNullOrEmpty(p.Image)
-            ? "pid " + p.Pid.ToString(CultureInfo.InvariantCulture)
-            : p.Image + " (pid " + p.Pid.ToString(CultureInfo.InvariantCulture) + ")")];
-
-    private static void AppendList(
-        StringBuilder sb, Func<string, string> translate, string headerKey,
-        IReadOnlyList<string> items, bool translateItems)
-    {
-        if (items.Count == 0)
-        {
-            return;
-        }
-
-        sb.Append("  ").Append(translate(headerKey)).Append(" (").Append(items.Count).Append("):\n");
-        foreach (var item in items)
-        {
-            sb.Append("    - ").Append(translateItems ? translate(item) : item).Append('\n');
-        }
-    }
-
-    /// <summary>Build a history record from the current setup and the session's final verdict (docs/04
-    /// section 6). Pure over the view state, so it is unit tested - the GUI's own clock is real (only the
-    /// target is faked), so DateTime.UtcNow is the true end time.</summary>
-    internal SessionRecord BuildRecord()
-    {
-        // Record the START setup (snapshot), never an in-flight change and never a later edit (rule 4).
-        // This one is written from the Start finally, BEFORE the form unlocks, so reading live would have
-        // been correct here today - it reads the snapshot anyway, so the record does not depend on WHEN it
-        // happens to be built. The fallback (no session started, e.g. a unit test) is the live value.
-        var mode = RequestedMode;
-
-        return new SessionRecord
-        {
-            TargetPath = RequestedTargetPath,
-            MomentLocal = RequestedMoment,
-            TzBiasMin = RequestedZone.BiasMinutes,
-            Mode = mode.Mode,
-            Multiplier = mode.Multiplier,
-            // Everything else that decides what the session DID, so repeating it repeats the session
-            // rather than a partial copy of it. Same snapshot-with-live-fallback rule as the four above.
-            TargetArgs = _startCaptured ? _startTargetArgs : _targetArgs,
-            WorkingFolder = _startCaptured ? _startWorkingFolder : _workingFolder,
-            ScaleDuration = _startCaptured ? _startScaleDuration : _scaleDuration,
-            ScaleQpc = _startCaptured ? _startScaleQpc : _scaleQpc,
-            KeepBackgroundTimers = _startCaptured ? _startKeepBackgroundTimers : _keepBackgroundTimers,
-            Force = _startCaptured ? _startForce : _forceStart,
-            Embedded = _startCaptured ? _startReachEmbedded : _reachEmbedded,
-            ElevatedEmbedded = _startCaptured ? _startReachElevated : WantsElevatedEmbedded,
-            Verdict = RecordedVerdict(),
-            EndedAtUtc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
-        };
-    }
-
-    // A vanished session could not be audited, so it is recorded as "undetermined" - honest, never a faked
-    // verdict (untouchable rule 4). Otherwise the per-session/family verdict kind maps to its wire string.
-    private string RecordedVerdict() => _statusKind == SessionStatusKind.DidNotTakeEffect || IsCutShort
-        ? "undetermined"
-        : _verdictKind switch
-        {
-            VerdictKind.Works => "works",
-            VerdictKind.Partial => "partial",
-            VerdictKind.Fails => "fails",
-            _ => "undetermined",
-        };
+    /// <summary>Build a history record from the START setup and the session's final verdict (docs/04
+    /// section 6). Written from the Start finally, BEFORE the form unlocks, so reading live would be correct
+    /// here today - it reads the start setup anyway, so the record does not depend on WHEN it happens to be
+    /// built. The GUI's own clock is real (only the target is faked), so DateTime.UtcNow is the true end
+    /// time.</summary>
+    internal SessionRecord BuildRecord() => SessionReport.Record(_result, Requested, DateTime.UtcNow);
 
     /// <summary>Record the just-ended session: prepend it to the panel and persist it. A write failure is
     /// surfaced, never swallowed (rule 6, docs/04 section 7).
@@ -2924,15 +2437,6 @@ public sealed class SessionViewModel : ObservableObject
         RaiseResultChanged();
     }
 
-    private static bool IsTerminal(SessionStatusKind kind) => kind
-        is SessionStatusKind.Ended
-        or SessionStatusKind.Refused
-        or SessionStatusKind.DidNotTakeEffect
-        or SessionStatusKind.CoreStopped
-        or SessionStatusKind.Stopped
-        or SessionStatusKind.CoreUnresponsive
-        or SessionStatusKind.Error;
-
     /// <summary>
     /// True when a heartbeat may still put the session back into "running". Terminal statuses may not,
     /// and neither may <see cref="SessionStatusKind.Stopping"/>: the user has pressed Stop, shutdown is
@@ -2946,7 +2450,7 @@ public sealed class SessionViewModel : ObservableObject
     /// </para>
     /// </summary>
     internal static bool CanReturnToRunning(SessionStatusKind kind) =>
-        !IsTerminal(kind) && kind != SessionStatusKind.Stopping;
+        !SessionResult.IsTerminal(kind) && kind != SessionStatusKind.Stopping;
 
     /// <summary>True when an error event answers one of OUR in-flight commands (jump/set_multiplier),
     /// whose ids run from <see cref="FirstInFlightCommandId"/> up. A start/fatal error instead carries the
@@ -2963,8 +2467,8 @@ public sealed class SessionViewModel : ObservableObject
     /// </remarks>
     private void PublishElapsed()
     {
-        Fake.Elapsed = ClockView.FormatDuration(_elapsedFakeMs);
-        Real.Elapsed = ClockView.FormatDuration(_elapsedRealMs);
+        Fake.Elapsed = ClockView.FormatDuration(_result.ElapsedFakeMs);
+        Real.Elapsed = ClockView.FormatDuration(_result.ElapsedRealMs);
         // The timing facts of the result phase move with the elapsed values, and the headline with the first
         // heartbeat: an error before it is "did not start", after it the verdict stands.
         RaisePropertyChanged(nameof(HasTiming));

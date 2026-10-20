@@ -181,7 +181,7 @@ public class RustConstantMirrorTests
             @"WARNINGS_THAT_UNDO_EVIDENCE: \[&str; \d+\] =\s*\[([^\]]*)\];",
             "WARNINGS_THAT_UNDO_EVIDENCE");
         var rust = Regex.Matches(list, @"""([^""]+)""").Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
-        var window = SessionViewModel.WarningsThatUndoEvidence.Order(StringComparer.Ordinal).ToArray();
+        var window = SessionResult.WarningsThatUndoEvidence.Order(StringComparer.Ordinal).ToArray();
 
         Assert.True(rust.Length > 0, "the guard read no key from the CLI list, which is worse than not reading it");
         Assert.True(
