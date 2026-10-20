@@ -18269,8 +18269,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/CoreSession.cs",
-        "from": "new CoreSession((connect ?? CoreClient.Connect)(plan.CorePath))",
-        "to": "new CoreSession(CoreClient.Connect(plan.CorePath))"
+        "from": "var open = connect ?? CoreClient.Connect;",
+        "to": "Func<string, ICoreConnection> open = CoreClient.Connect;"
       }
     ],
     "runner": "cs",
@@ -20000,6 +20000,244 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.DataFolderTests.An_empty_per_user_root_is_refused_rather_than_made_relative",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY1 the engine starts on the caller's thread",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/OneShotEngine.cs",
+        "from": "await Task.Run(() => StartProcess(process, executable, start), ct).ConfigureAwait(false);",
+        "to": "StartProcess(process, executable, start);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.OneShotEngineTests.The_engine_is_started_off_the_callers_thread",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY1 a question cancelled before it is asked still starts the engine",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/OneShotEngine.cs",
+        "from": "await Task.Run(() => StartProcess(process, executable, start), ct).ConfigureAwait(false);",
+        "to": "await Task.Run(() => StartProcess(process, executable, start)).ConfigureAwait(false);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.OneShotEngineTests.A_question_cancelled_before_it_is_asked_starts_no_engine",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY1 the core is connected on the caller's thread",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/CoreSession.cs",
+        "from": "var session = new CoreSession(await Task.Run(() => open(plan.CorePath)));",
+        "to": "var session = new CoreSession(open(plan.CorePath));"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.The_core_is_connected_off_the_callers_thread",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY1 every choice waits, a click too",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/MomentRequests.cs",
+        "from": "var overAnUnanswered = !_answer.IsCurrent;",
+        "to": "var overAnUnanswered = true;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ScenarioAnswerTests.A_choice_with_nothing_in_flight_asks_at_once",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY1 a run of rows asks for every row",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/MomentRequests.cs",
+        "from": "var overAnUnanswered = !_answer.IsCurrent;",
+        "to": "var overAnUnanswered = false;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ScenarioAnswerTests.Arrowing_down_the_list_asks_for_the_first_row_and_the_one_it_stops_on",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY1 the window waits no time between rows",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/MomentRequests.cs",
+        "from": "private static readonly TimeSpan ChoiceQuiet = TimeSpan.FromMilliseconds(200);",
+        "to": "private static readonly TimeSpan ChoiceQuiet = TimeSpan.FromMilliseconds(0);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ScenarioAnswerTests.Arrowing_through_the_sessions_list_asks_fewer_times_than_the_rows_it_passes",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 every change tells every command",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionCommands.cs",
+        "from": "            if (now != _last)\n",
+        "to": "            if (now != _last || tell is not null)\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionAnnouncementTests.A_heartbeat_that_changes_no_gate_tells_no_command",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 a gate left off the watch",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionCommands.cs",
+        "from": "        Watch(running, _stop.RaiseCanExecuteChanged);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionAnnouncementTests.Every_command_whose_answer_changed_during_a_session_was_told_so",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 the jump field's changes are not read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionCommands.cs",
+        "from": "        session.JumpMoment.PropertyChanged += (_, _) => CheckGates();\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionCommandsTests.Jump_to_refreshes_its_gate_when_the_jump_field_is_typed_into",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 the session's changes are not read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionCommands.cs",
+        "from": "        session.PropertyChanged += (_, _) => CheckGates();\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionCommandsTests.A_command_refreshes_its_gate_when_the_session_changes",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 a list rebuilt with the same items is announced",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/ObservableObject.cs",
+        "from": "        if (field.SequenceEqual(value))\n",
+        "to": "        if (ReferenceEquals(field, value))\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionAnnouncementTests.A_report_that_adds_nothing_to_the_audit_announces_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 a list of the same length is taken as unchanged",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/ObservableObject.cs",
+        "from": "        if (field.SequenceEqual(value))\n",
+        "to": "        if (field.Count == value.Count)\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionViewModelTests.A_later_snapshot_of_the_parent_replaces_its_counts_but_a_child_never_does",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 every heartbeat re-announces the result",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        if (_result.HasTiming)\n        {\n            return;\n        }\n\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionAnnouncementTests.A_heartbeat_after_the_first_announces_only_where_the_fake_clock_got_to",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6c WY4 the first timing is never kept",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        _result.HasTiming = true;\n        RaisePropertyChanged(nameof(HasTiming));",
+        "to": "        RaisePropertyChanged(nameof(HasTiming));"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionAnnouncementTests.A_heartbeat_after_the_first_announces_only_where_the_fake_clock_got_to",
     "match": "method",
     "build": "",
     "notHere": ""
