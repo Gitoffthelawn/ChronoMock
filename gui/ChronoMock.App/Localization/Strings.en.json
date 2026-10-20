@@ -567,6 +567,12 @@
   "report.session": "session",
   "report.session_reached": "fake clock reached {0}",
   "report.elapsed": "real {0}s, fake {1}s",
+  // How long the machine slept (R5-D71), in the session's block beside its other durations. {0} is written like the elapsed lines on the screen.
+  "report.slept": "the computer slept for {0} - the session clock stood still meanwhile",
+  // The browser a Chromium session drove (R5-D44), under the application, where the CLI report names it.
+  "report.browser": "browser",
+  // Every error the core sent, under the verdict, as the CLI report lists them (R5-D71).
+  "report.errors": "errors",
 
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "application exited with code",
@@ -622,6 +628,8 @@
   "result.fact_reached": "Fake clock reached",
   "result.fact_elapsed_fake": "Passed on the fake clock",
   "result.fact_elapsed_real": "Passed in real time",
+  // Shown only when the machine slept during the session (R5-D71). The session clock stood still meanwhile.
+  "result.fact_slept": "Computer slept",
   "result.section_history": "Previous sessions",
   "result.chip_history": "sessions:",
   "result.history_ended": "ended",

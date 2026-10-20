@@ -42,6 +42,9 @@ internal static class SessionReport
         // The target the session RAN ON, not the one now in the form - see SessionSetup.
         sb.Append("  ").Append(translate("report.target")).Append(": ")
           .Append(Path.GetFileName(setup.TargetPath)).Append('\n');
+        // Under the target, where the CLI report names it (R5-D44): a page behaves by its engine, so the
+        // version is part of the evidence.
+        AppendValue(sb, translate, "report.browser", r.Browser);
 
         // A session the core never closed says so above the verdict it qualifies (R4-W3), as the CLI report
         // does: the verdict below is the one from the start, not the session's.
@@ -95,6 +98,10 @@ internal static class SessionReport
         }
 
         AppendList(sb, translate, "report.left_running", r.LeftRunningRows, translateItems: false);
+        // Every error the core sent, under the verdict and the refusal, as the CLI report lists them (R5-D71).
+        // A command it refused while the session ran was on the screen for as long as the session was, and
+        // then nowhere - a speed that never took was not in the report about the session it did not take in.
+        AppendList(sb, translate, "report.errors", r.Errors, translateItems: true);
 
         if (r.HasTiming)
         {
@@ -106,6 +113,8 @@ internal static class SessionReport
               .Append(Fmt(translate, "report.elapsed", Seconds(r.ElapsedRealMs), Seconds(r.ElapsedFakeMs)))
               .Append('\n');
         }
+
+        AppendSleep(sb, r, translate);
 
         // The target's own exit code, if the app exited on its own (informational, not a verdict).
         if (r.TargetExitCode is int code)
@@ -355,6 +364,34 @@ internal static class SessionReport
         }
 
         return true;
+    }
+
+    /// <summary>One labelled line, or nothing when there is no value to name - a line that says "browser:" and
+    /// nothing after it claims a fact it does not have.</summary>
+    private static void AppendValue(StringBuilder sb, Func<string, string> translate, string labelKey, string value)
+    {
+        if (value.Length > 0)
+        {
+            sb.Append("  ").Append(translate(labelKey)).Append(": ").Append(value).Append('\n');
+        }
+    }
+
+    /// <summary>
+    /// How long the machine slept, in the session's block (R5-D71). The CLI says it inside the warning line,
+    /// and the summary's warnings are the window's texts, which carry no number - so the length goes where
+    /// the session's other durations are, written as the screen writes them. A session with no timing still
+    /// gets it, under its own heading, rather than a line hanging under nothing.
+    /// </summary>
+    private static void AppendSleep(StringBuilder sb, SessionResult r, Func<string, string> translate)
+    {
+        if (r.HostSleptMs <= 0)
+        {
+            return;
+        }
+
+        sb.Append(r.HasTiming ? "    " : "  " + translate("report.session") + ": ")
+          .Append(Fmt(translate, "report.slept", ClockView.FormatDuration(r.HostSleptMs)))
+          .Append('\n');
     }
 
     private static void AppendList(

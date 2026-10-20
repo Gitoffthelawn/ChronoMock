@@ -246,6 +246,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The copied session summary says what the CLI report says about errors, sleep and the browser.**
+  Every error the core sent is listed under the verdict - a speed it refused while the session ran was
+  on the screen only while the session lasted. How long the computer slept is in the session's block,
+  and the result screen shows it beside the elapsed times. The browser a Chromium session drove is
+  named under the application. The sleep warning is on the session's warning list as soon as the core
+  notices the sleep, not only once the session ends.
 - **"New session" comes back at the mode the last session started with.** Changing the speed while a
   session ran moved the Mode list with it, so a session started in flow left the next form at x60.
 - **The "Jump to" field of a new session is empty.** It kept the moment typed in the last session,

@@ -133,6 +133,25 @@ public sealed record SessionVerdictEvent : ChronoEvent
     /// application, or a helper that kept the session open. Empty when nothing outlived the target, for a
     /// session that ended while the target ran, and in messages from an older core.</summary>
     [JsonPropertyName("followed")] public IReadOnlyList<FollowedProcess> Followed { get; init; } = [];
+
+    /// <summary>How long the machine slept during the session, in milliseconds (R5-D34) - the session clock
+    /// stood still meanwhile. Zero when it did not sleep, and in messages from an older core.</summary>
+    [JsonPropertyName("host_slept_ms")] public long HostSleptMs { get; init; }
+
+    /// <summary>What the browser of a Chromium session calls itself (R5-D44), from its version answer. Absent
+    /// for a native session, for a browser that did not say, and in messages from an older core.</summary>
+    [JsonPropertyName("browser")] public string? Browser { get; init; }
+}
+
+/// <summary>
+/// The core noticed that the machine slept (R5-D34, docs/01 section 3.0a): the session clock stood still
+/// for <see cref="SleptMs"/>, as during a pause, and the session has slept <see cref="TotalSleptMs"/> in all
+/// so far. Sent when the core notices, which is on its first heartbeat after the machine wakes.
+/// </summary>
+public sealed record HostSleptEvent : ChronoEvent
+{
+    [JsonPropertyName("slept_ms")] public long SleptMs { get; init; }
+    [JsonPropertyName("total_slept_ms")] public long TotalSleptMs { get; init; }
 }
 
 public sealed record EndedEvent : ChronoEvent
@@ -182,6 +201,7 @@ public static class EventParser
             "session_verdict" => Deserialize<SessionVerdictEvent>(line),
             "ended" => Deserialize<EndedEvent>(line),
             "error" => Deserialize<ErrorEvent>(line),
+            "host_slept" => Deserialize<HostSleptEvent>(line),
             _ => null,
         };
     }

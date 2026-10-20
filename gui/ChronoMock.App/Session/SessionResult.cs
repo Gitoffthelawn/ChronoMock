@@ -95,6 +95,53 @@ internal sealed class SessionResult
     internal bool RefusalIncomplete;
     internal IReadOnlyList<string> ResidueKeys = [];
 
+    /// <summary>The warning the core raises when the machine slept during the session, as a list so the panel
+    /// can add it without a branch (<c>Except</c> keeps it from appearing twice).</summary>
+    internal static readonly string[] HostSleptWarning = ["time.host_slept"];
+
+    // What the copied summary says and the panel's own projection does not (R5-D71): every error the core
+    // sent, in order, how long the machine slept, and the browser a Chromium session drove (R5-D44). The CLI
+    // report has said all three since R5/2 and R5/5a, and the window's summary was the same session told
+    // with less.
+    internal IReadOnlyList<string> Errors = [];
+    internal long HostSleptMs;
+    internal string Browser = string.Empty;
+
+    /// <summary>
+    /// Fold what an event says for the report beyond what the panel projects (R5-D71): an error of any kind and
+    /// at any point - one the session went on after, one it ended on, one that came after the end - joins the
+    /// errors list. A sleep raises the slept time, the session verdict settles it and names the browser.
+    /// Returns true for the core's sleep notice, the one fact the panel shows the moment it arrives.
+    /// </summary>
+    internal bool Absorb(ChronoEvent evt)
+    {
+        switch (evt)
+        {
+            case ErrorEvent error:
+                Errors = [.. Errors, error.Key];
+                return false;
+            case HostSleptEvent slept:
+                // The running total, never the one nap: the core sends both, and the total is what the
+                // verdict carries at the end.
+                HostSleptMs = Math.Max(HostSleptMs, slept.TotalSleptMs);
+                return true;
+            case SessionVerdictEvent verdict:
+                HostSleptMs = Math.Max(HostSleptMs, verdict.HostSleptMs);
+                Browser = verdict.Browser ?? string.Empty;
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Forget what <see cref="Absorb"/> gathered, for the next session.</summary>
+    internal void ForgetReportFacts()
+    {
+        Errors = [];
+        HostSleptMs = 0;
+        Browser = string.Empty;
+    }
+
     /// <summary>
     /// The core stopped before it closed the session (R4-W3): no <c>ended</c> reached the panel. A core that
     /// died or went quiet ends on <see cref="SessionStatusKind.CoreStopped"/> or

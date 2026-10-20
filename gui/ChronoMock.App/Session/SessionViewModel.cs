@@ -1728,6 +1728,13 @@ public sealed class SessionViewModel : ObservableObject
 
     public bool HasWarnings => _result.Warnings.Count > 0;
 
+    /// <summary>How long the machine slept during the session, written like the elapsed lines beside it, or
+    /// empty when it did not sleep (R5-D71). The session clock stood still for that long.</summary>
+    public string HostSlept => HasHostSlept ? ClockView.FormatDuration(_result.HostSleptMs) : string.Empty;
+
+    /// <summary>True when the machine slept during the session - the result's fact row shows only then.</summary>
+    public bool HasHostSlept => _result.HostSleptMs > 0;
+
     /// <summary>
     /// Fold one event into the view state. Pure and synchronous (no I/O, no threading) so the mapping is
     /// unit-testable - the live loop marshals each call onto the UI thread. A late <c>state</c> after a
@@ -1735,6 +1742,7 @@ public sealed class SessionViewModel : ObservableObject
     /// </summary>
     public void Apply(ChronoEvent evt)
     {
+        NoteForReport(evt);
         switch (evt)
         {
             case StateEvent s when CanReturnToRunning(StatusKind):
@@ -1857,6 +1865,26 @@ public sealed class SessionViewModel : ObservableObject
             default:
                 // ready and ack do not change the panel.
                 break;
+        }
+    }
+
+    /// <summary>
+    /// What an event adds to the report beyond the panel's projection (<see cref="SessionResult.Absorb"/>,
+    /// R5-D71), and the two things of it the panel shows: the sleep warning, on the list the moment the core
+    /// notices rather than with the verdict at the end, and the slept time on the result.
+    /// </summary>
+    private void NoteForReport(ChronoEvent evt)
+    {
+        var sleptBefore = _result.HostSleptMs;
+        if (_result.Absorb(evt))
+        {
+            Warnings = [.. _result.Warnings, .. SessionResult.HostSleptWarning.Except(_result.Warnings)];
+        }
+
+        if (_result.HostSleptMs != sleptBefore)
+        {
+            RaisePropertyChanged(nameof(HostSlept));
+            RaisePropertyChanged(nameof(HasHostSlept));
         }
     }
 
@@ -2263,6 +2291,9 @@ public sealed class SessionViewModel : ObservableObject
         LeftRunningRows = [];
         RefusalIncomplete = false;
         ResidueKeys = [];
+        _result.ForgetReportFacts();
+        RaisePropertyChanged(nameof(HostSlept));
+        RaisePropertyChanged(nameof(HasHostSlept));
         DiagnosticsText = string.Empty;
         DiagnosticsSavedPath = string.Empty;
         CopyFeedbackKey = string.Empty;

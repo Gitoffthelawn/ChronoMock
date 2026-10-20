@@ -293,17 +293,25 @@
               <HeaderedContentControl.Header>
                 <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource result.fact_elapsed_fake}" />
               </HeaderedContentControl.Header>
-              <TextBlock x:Name="FactElapsedFake" Style="{StaticResource PartLabel}"
-                         FontFamily="{StaticResource FontFamilyMono}"
+              <TextBlock x:Name="FactElapsedFake" Style="{StaticResource PartLabelMono}"
                          Text="{Binding Fake.Elapsed}" />
             </HeaderedContentControl>
             <HeaderedContentControl Style="{StaticResource PartFormRow}">
               <HeaderedContentControl.Header>
                 <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource result.fact_elapsed_real}" />
               </HeaderedContentControl.Header>
-              <TextBlock x:Name="FactElapsedReal" Style="{StaticResource PartLabel}"
-                         FontFamily="{StaticResource FontFamilyMono}"
+              <TextBlock x:Name="FactElapsedReal" Style="{StaticResource PartLabelMono}"
                          Text="{Binding Real.Elapsed}" />
+            </HeaderedContentControl>
+            <!-- How long the machine slept (R5-D71), only when it did: the session clock stood still for that
+                 long, as during a pause (docs/01 section 3.0a). -->
+            <HeaderedContentControl Style="{StaticResource PartFormRow}"
+                                    Visibility="{Binding HasHostSlept, Converter={StaticResource BoolToVis}}">
+              <HeaderedContentControl.Header>
+                <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource result.fact_slept}" />
+              </HeaderedContentControl.Header>
+              <TextBlock x:Name="FactSlept" Style="{StaticResource PartLabelMono}"
+                         Text="{Binding HostSlept}" />
             </HeaderedContentControl>
           </StackPanel>
         </Border>

@@ -108,6 +108,13 @@
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
 
+  <!-- A label holding a time or a duration, in the monospaced face so digits line up when two of them
+       are read against each other - the clock's time, the result's elapsed and slept lines. Named on its
+       third use (rule 7). -->
+  <Style x:Key="PartLabelMono" TargetType="TextBlock" BasedOn="{StaticResource PartLabel}">
+    <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+  </Style>
+
   <!-- A small heading over a group inside a card - the calculator's column and result groups. Named
        because the same three attributes were written out ten times in one view (rule 7: the second
        repetition is a missing name). Caption size in the heading weight and the secondary ink: it
@@ -1238,8 +1245,7 @@
         <TextBlock Style="{StaticResource PartHeading}" Margin="{StaticResource StackGapSm}"
                    HorizontalAlignment="Left"
                    Text="{Binding Date}" />
-        <TextBlock Style="{StaticResource PartLabel}"
-                   FontFamily="{StaticResource FontFamilyMono}"
+        <TextBlock Style="{StaticResource PartLabelMono}"
                    FontSize="{StaticResource FontSizeClock}"
                    FontWeight="{StaticResource FontWeightHeading}"
                    HorizontalAlignment="Left"

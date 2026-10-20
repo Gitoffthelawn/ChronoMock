@@ -30,19 +30,15 @@ public class SummaryParityTests
         ["web engines reached inside the app"] = "report.engines_reached",
         ["warnings"] = "coverage.warnings",
         ["not fully cleaned up"] = "report.cleanup",
+        ["errors"] = "report.errors",
     };
 
     /// <summary>
     /// Sections the CLI report has and the summary knowingly does not, each with why and what makes it go.
-    /// Checked from both ends: an entry the recorded report no longer has comes out. Only shrinks.
+    /// Checked from both ends: an entry the recorded report no longer has comes out. Only shrinks - and it is
+    /// empty since R5/6b, which listed the last one, the errors (R5-D71).
     /// </summary>
-    private static readonly (string Section, string Why)[] KnownCliOnly =
-    [
-        ("errors",
-            "a command the core refused while the session ran. The window shows it on the session screen while "
-            + "it is live (InFlightErrorKey) and the copied summary leaves it out - goes when the summary lists "
-            + "the refused commands under the verdict, as the report does"),
-    ];
+    private static readonly (string Section, string Why)[] KnownCliOnly = [];
 
     private static string Wire(string name) => Path.Combine(TestPaths.RepoRoot(), "tests", "wire", name);
 
@@ -100,6 +96,16 @@ public class SummaryParityTests
         var floors = Under(report, "covered channels").Count(line => line.Contains("(at least ", StringComparison.Ordinal));
         Assert.True(floors >= 1, "the recorded session should have a count at the hook's ceiling");
         Assert.Equal(floors, Listed(summary, "coverage.covered").Count(line => line == "coverage.reads_at_least"));
+
+        // How long the machine slept: the report says it inside its warning line, the summary in the session's
+        // block (R5-D71). The warning alone, which both have, says THAT it slept and not for how long.
+        Assert.Contains(Under(report, "warnings:"), line => line.Contains("the computer slept for ", StringComparison.Ordinal));
+        Assert.Contains(summary, line => line == "    report.slept");
+
+        // Every error the report lists, by the key it closes its line with, is listed in the summary.
+        var errors = Under(report, "errors:").Select(line => line[(line.LastIndexOf('[') + 1)..].TrimEnd(']')).ToList();
+        Assert.True(errors.Count >= 1, "the recorded session should carry an error the core sent while it ran");
+        Assert.Empty(errors.Except(Listed(summary, "report.errors")));
     }
 
     [Fact]

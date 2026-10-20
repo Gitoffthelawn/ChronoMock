@@ -185,6 +185,27 @@ internal static class PhaseStates
     }
 
     /// <summary>
+    /// A works session the machine slept through for eight hours (R5-D71): the warning on the audit, and the
+    /// fact row that says how long the session clock stood still.
+    /// </summary>
+    public static SessionViewModel ResultWorksAfterSleep()
+    {
+        var model = ResultRunning();
+        model.Apply(new HostSleptEvent { V = ProtocolJson.ProtocolVersion, SleptMs = 28_800_000, TotalSleptMs = 28_800_000 });
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "session.family_covered",
+            ProcessCount = 1,
+            WarningKeys = ["time.host_slept"],
+            HostSleptMs = 28_800_000,
+        });
+        model.Apply(Ended());
+        return model;
+    }
+
+    /// <summary>
     /// A session that outlived the program it launched: a launcher, or a script running <c>start app.exe</c>,
     /// ended and left the application running, and the session went on for it (ADR-16). The warning is what
     /// tells the tester why the session lasted longer than the program they chose.

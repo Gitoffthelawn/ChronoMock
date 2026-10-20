@@ -660,6 +660,8 @@
           <TextBlock Text="Section heading" Style="{StaticResource PartHeading}" />
           <TextBlock Text="Label - what a form row is called" Style="{StaticResource PartLabel}"
                      Margin="{StaticResource StackGapSm}" />
+          <TextBlock Text="Mono label - a time or a duration: 1:30:00, 12:00:00, 3.04:56:07"
+                     Style="{StaticResource PartLabelMono}" Margin="{StaticResource StackGapSm}" />
           <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
                      Text="Note - the prose that explains the tool: why a date is suggested, what an option costs, what a warning means. Quieter than a label and exactly as large, because that text used to take two reductions at once and reading it was work." />
           <TextBlock Style="{StaticResource PartErrorNote}" Margin="{StaticResource StackGapSm}"

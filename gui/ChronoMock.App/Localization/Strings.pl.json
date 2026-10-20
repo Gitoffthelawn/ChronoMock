@@ -540,6 +540,10 @@
   "report.session": "sesja",
   "report.session_reached": "fałszywy zegar osiągnął {0}",
   "report.elapsed": "realnie {0}s, fałszywie {1}s",
+  // How long the machine slept, see the English file.
+  "report.slept": "komputer spał przez {0} - zegar sesji w tym czasie stał",
+  "report.browser": "przeglądarka",
+  "report.errors": "błędy",
 
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "aplikacja zakończyła się kodem",
@@ -591,6 +595,7 @@
   "result.fact_reached": "Fałszywy zegar doszedł do",
   "result.fact_elapsed_fake": "Minęło na fałszywym zegarze",
   "result.fact_elapsed_real": "Minęło naprawdę",
+  "result.fact_slept": "Komputer spał",
   "result.section_history": "Poprzednie sesje",
   "result.chip_history": "sesji:",
   "result.history_ended": "zakończona",
