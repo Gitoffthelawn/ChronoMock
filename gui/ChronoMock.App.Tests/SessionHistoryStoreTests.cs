@@ -99,6 +99,60 @@ public sealed class SessionHistoryStoreTests : IDisposable
     public void Load_is_empty_when_no_file_exists()
         => Assert.Empty(new FileSessionHistoryStore(_dir).Load());
 
+    /// <summary>
+    /// R5-D73. Moving an unreadable history aside says where it went, once: the panel opened on one row after a
+    /// downgrade and nothing said the earlier sessions were kept. Reversal probe: forget the path and the first
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void Setting_a_history_aside_says_where_it_went_once()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "sessions.json"), "{ written by a newer build");
+        var store = new FileSessionHistoryStore(_dir);
+
+        store.Append(Record("After"));
+
+        var setAside = store.TakeSetAside();
+        Assert.StartsWith(Path.Combine(Path.GetFullPath(_dir), "sessions.json.unreadable-"), setAside, StringComparison.Ordinal);
+        Assert.Equal("{ written by a newer build", File.ReadAllText(setAside));
+        Assert.Equal(string.Empty, store.TakeSetAside());
+        store.Append(Record("Next"));
+        Assert.Equal(string.Empty, store.TakeSetAside()); // a readable history is not moved, so nothing is said
+    }
+
+    /// <summary>
+    /// R5-D73. A scratch file a killed write left behind is swept by the next write, and only that: one written
+    /// a moment ago may be another write in progress, and a set-aside history is somebody's history (rule 7).
+    /// Reversal probe: skip the sweep and the old scratch file stays.
+    /// </summary>
+    [Fact]
+    public void A_scratch_file_a_killed_write_left_is_swept_and_nothing_else_is()
+    {
+        Directory.CreateDirectory(_dir);
+        string Made(string name, TimeSpan age)
+        {
+            var path = Path.Combine(_dir, name);
+            File.WriteAllText(path, "{}");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow - age);
+            return path;
+        }
+
+        var left = Made("sessions.json.4242.1.tmp", TimeSpan.FromHours(3));
+        var leftMarker = Made(FileSessionHistoryStore.ImportedName + ".4242.tmp", TimeSpan.FromHours(3));
+        var fresh = Made("sessions.json.4243.1.tmp", TimeSpan.FromSeconds(5));
+        var setAside = Made("sessions.json.unreadable-20260101-000000", TimeSpan.FromDays(30));
+        var someoneElses = Made("notes.tmp", TimeSpan.FromDays(30));
+
+        new FileSessionHistoryStore(_dir).Append(Record("Now"));
+
+        Assert.False(File.Exists(left));
+        Assert.False(File.Exists(leftMarker));
+        Assert.True(File.Exists(fresh));
+        Assert.True(File.Exists(setAside));
+        Assert.True(File.Exists(someoneElses));
+    }
+
     private string BesideExe => Path.Combine(_dir, "exe", "history");
 
     private string PerUser => Path.Combine(_dir, "user", "history");

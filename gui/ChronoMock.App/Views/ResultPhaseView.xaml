@@ -346,6 +346,12 @@
             <TextBlock x:Name="HistoryNote" Style="{StaticResource PartNote}"
                        Text="{Binding HistoryNoteKey, Converter={StaticResource KeyToText}}"
                        Visibility="{Binding HasHistoryNote, Converter={StaticResource BoolToVis}}" />
+            <!-- A history this version cannot read, moved aside by this session's record and kept (R5-D73):
+                 where it went, so a list that starts again with one row does not read as sessions lost. -->
+            <TextBlock x:Name="HistorySetAside" Style="{StaticResource PartNote}"
+                       Visibility="{Binding HasHistorySetAside, Converter={StaticResource BoolToVis}}">
+              <Run Text="{DynamicResource history.set_aside}" /><Run Text="{Binding HistorySetAside, StringFormat=' {0}', Mode=OneWay}" />
+            </TextBlock>
 
             <ListBox x:Name="HistoryList"
                      ItemsSource="{Binding History}"

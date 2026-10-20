@@ -262,6 +262,10 @@ public class StateSheetTests
             total += Shows(RenderResult("result-loader-failed", PhaseStates.ResultLoaderFailed()), "target.loader_bad_image");
             total += Shows(RenderResult("result-cut-short", PhaseStates.ResultCutShort()), "result.cut_short");
             total += RenderResult("result-history", PhaseStates.ResultWithHistoryChosen(), "HistorySection").Count;
+            // A record that moved an unreadable history aside, and the note that says where (R5-D73).
+            total += Shows(
+                RenderResult("result-history-set-aside", PhaseStates.ResultWithHistorySetAside(), "HistorySection"),
+                "history.set_aside");
 
             total += RenderedFloor(
                 "result-floor",

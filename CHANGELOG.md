@@ -267,6 +267,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   showed the exception's message and nothing was written. Two different unexpected faults thrown from
   the same place inside .NET are no longer taken for one, and faults past the eighth, which are no
   longer shown, are still written - up to 32 different ones a run, the last saying so.
+- **A history this version cannot read is set aside with a word, and a killed write leaves no file
+  for good.** The history panel says where the earlier history was moved when this version could not
+  read it, instead of starting again with one row and saying nothing. A scratch file left by a write
+  that was killed half-way is removed by the next write once it is ten minutes old. A history that was
+  set aside is never removed.
 - **"New session" comes back at the mode the last session started with.** Changing the speed while a
   session ran moved the Mode list with it, so a session started in flow left the next form at x60.
 - **The "Jump to" field of a new session is empty.** It kept the moment typed in the last session,

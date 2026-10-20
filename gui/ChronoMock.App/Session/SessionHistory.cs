@@ -56,6 +56,10 @@ public interface ISessionHistoryStore
     /// <summary><see cref="Clear"/> off the calling thread, answered like <see cref="AppendAsync"/>.</summary>
     Task<string> ClearAsync() => InBackground(Clear);
 
+    /// <summary>Where the last change moved a history this build cannot read, said once and empty after - for
+    /// the panel's note (R5-D73). A store that never sets anything aside says nothing.</summary>
+    string TakeSetAside() => string.Empty;
+
     /// <summary>
     /// The exception is carried back as a value rather than rethrown: the message belongs on the panel, and
     /// awaiting a faulted Task.Run would wrap it in an AggregateException-shaped rethrow whose type filter is
@@ -351,7 +355,7 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
     /// over that session (R4-N49). Every change to the file goes through here now.
     /// </para>
     /// </summary>
-    private static void UnderGate(Action change)
+    private void UnderGate(Action change)
     {
         using var gate = new Mutex(initiallyOwned: false, WriteMutexName);
         var held = false;
@@ -368,6 +372,12 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
                 held = true;
             }
 
+            // Only with the gate held: then no other instance is between its scratch write and its move.
+            if (held)
+            {
+                SweepLeftScratch();
+            }
+
             change();
         }
         finally
@@ -378,6 +388,55 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
             }
         }
     }
+
+    /// <summary>How old a scratch file has to be before it counts as left behind. A write takes milliseconds and
+    /// its retries end within half a second, so a file this old belongs to no write that is still going on.</summary>
+    internal static readonly TimeSpan ScratchLeftBehind = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Delete the scratch files a write left when its process was killed between writing and moving (R5-D73).
+    /// They carry unique names, so nothing ever wrote over them, and each one stayed for good. Never somebody's
+    /// history: the history is the file the move would have replaced, and it is still there. A set-aside
+    /// history is not a scratch file and is never touched (rule 7). Housekeeping - a failure here changes
+    /// nothing about the write that follows.
+    /// </summary>
+    private void SweepLeftScratch()
+    {
+        try
+        {
+            if (!Directory.Exists(_directory))
+            {
+                return;
+            }
+
+            var leftBefore = DateTime.UtcNow - ScratchLeftBehind;
+            foreach (var scratch in Directory.EnumerateFiles(_directory, "*.tmp"))
+            {
+                var name = Path.GetFileName(scratch);
+                var ours = name.StartsWith(FileName + ".", StringComparison.OrdinalIgnoreCase)
+                           || name.StartsWith(ImportedName + ".", StringComparison.OrdinalIgnoreCase);
+                if (ours && name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)
+                         && File.GetLastWriteTimeUtc(scratch) < leftBefore)
+                {
+                    File.Delete(scratch);
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Left for the next write to try.
+        }
+    }
+
+    /// <summary>Where the last change moved a history this build cannot read, empty when it moved none.</summary>
+    private string _setAside = string.Empty;
+
+    /// <summary>
+    /// Where an append or a clear moved a history this build cannot read (R5-D73), once: empty the next time.
+    /// The move had no word on the panel, which started again with one row, and the reader could not know their
+    /// earlier sessions were kept, or where.
+    /// </summary>
+    public string TakeSetAside() => Interlocked.Exchange(ref _setAside, string.Empty);
 
     private void AppendUnderGate(SessionRecord record)
     {
@@ -416,6 +475,7 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         }
 
         File.Move(FilePath, target);
+        Interlocked.Exchange(ref _setAside, Path.GetFullPath(target));
     }
 
     public void Remove(SessionRecord record) => UnderGate(() =>

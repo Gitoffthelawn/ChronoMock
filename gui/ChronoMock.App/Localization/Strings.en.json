@@ -599,6 +599,8 @@
 
   // Session history (chrono-mock 7.2, 8.8, 11.1 pt 13). Local-only; clicking an entry fills the setup form and never starts a session (untouchable rule 7, docs/04 section 6).
   "history.save_failed": "Could not save to history:",
+  // Followed by the full path of the file the old history was moved to (R5-D73). Said once, by the session whose record moved it.
+  "history.set_aside": "This version could not read the earlier history, so it was moved aside, not deleted:",
   "history.clear_title": "Clear history",
   "history.clear_confirm": "Clear all recorded sessions?",
   "history.clear_undone": "This cannot be undone. The sessions themselves already ended - this removes the records of them.",

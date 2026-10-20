@@ -158,6 +158,38 @@ public class SessionRunTests
         Assert.False(vm.JumpMoment.HasDateError);
     }
 
+    /// <summary>
+    /// R5-D73. A session whose record moved an unreadable history aside says where it went, and the next
+    /// session does not say it again. Reversal probe: drop the read of the store and the note stays empty.
+    /// </summary>
+    [Fact]
+    public async Task A_session_whose_record_set_the_old_history_aside_says_where_it_went()
+    {
+        const string movedTo = @"C:\Users\tester\AppData\Local\ChronoMock\history\sessions.json.unreadable-20261020-180000";
+        var core = new FakeCoreConnection(
+            [FakeCoreConnection.ReadyFor(Target)],
+            command => command is StartCommand
+                ? [Heartbeat, Works, new EndedEvent { V = ProtocolJson.ProtocolVersion, Clean = true }]
+                : []);
+        var vm = ViewModel(new SetAsideHistoryStore(movedTo), core);
+
+        var run = vm.StartAsync();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (vm.StatusKind != SessionStatusKind.Ended && clock.Elapsed < Limit)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        core.End();
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        Assert.Equal((movedTo, true), (vm.HistorySetAside, vm.HasHistorySetAside));
+
+        vm.BeginNewSession();
+
+        Assert.Equal((string.Empty, false), (vm.HistorySetAside, vm.HasHistorySetAside));
+    }
+
     [Fact]
     public async Task A_core_that_refuses_the_handshake_launches_nothing_and_its_words_are_kept()
     {

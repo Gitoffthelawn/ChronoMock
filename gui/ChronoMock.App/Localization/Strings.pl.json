@@ -565,6 +565,7 @@
 
   // Session history (chrono-mock 7.2, 8.8, 11.1 pt 13). Local-only; clicking an entry fills the setup form and never starts a session (untouchable rule 7, docs/04 section 6).
   "history.save_failed": "Nie udało się zapisać do historii:",
+  "history.set_aside": "Ta wersja nie mogła odczytać wcześniejszej historii, więc została odłożona, nie usunięta:",
   "history.clear_title": "Wyczyść historię",
   "history.clear_confirm": "Wyczyścić wszystkie zapisane sesje?",
   "history.clear_undone": "Tej operacji nie można cofnąć. Same sesje już się zakończyły - to usuwa zapisy o nich.",

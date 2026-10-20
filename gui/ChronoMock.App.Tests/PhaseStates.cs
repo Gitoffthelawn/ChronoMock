@@ -185,6 +185,29 @@ internal static class PhaseStates
     }
 
     /// <summary>
+    /// A session whose record moved a history this version cannot read aside (R5-D73), with the history
+    /// section open: the note naming where it went, over the one row the history now starts with. The path is
+    /// as long as a real one under a long account name, which is what the note has to wrap.
+    /// </summary>
+    public static SessionViewModel ResultWithHistorySetAside()
+    {
+        var model = ResultRunning(new SessionViewModel(new SetAsideHistoryStore(
+            @"C:\Users\a.tester.with.a.long.account.name\AppData\Local\ChronoMock\history\sessions.json.unreadable-20261020-180000")));
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "session.family_covered",
+            ProcessCount = 1,
+        });
+        model.Apply(Ended());
+        model.RecordSessionAsync().GetAwaiter().GetResult(); // the store answers at once - no thread to wait for
+        // The record is stamped with the real clock, and a render that moves with it is no baseline.
+        model.History[0] = model.History[0] with { EndedAtUtc = "2026-09-09T20:31:01Z" };
+        return model;
+    }
+
+    /// <summary>
     /// A works session the machine slept through for eight hours (R5-D71): the warning on the audit, and the
     /// fact row that says how long the session clock stood still.
     /// </summary>

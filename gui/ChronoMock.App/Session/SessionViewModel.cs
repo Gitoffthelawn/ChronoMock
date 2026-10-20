@@ -97,6 +97,7 @@ public sealed class SessionViewModel : ObservableObject
     private bool _launched;
     private bool _stopRequested;
     private string _historyError = string.Empty;
+    private string _historySetAside = string.Empty;
     private string _historyNoteKey = string.Empty;
     private SessionRecord? _selectedRecord;
     // The setup the session was started with, taken at Start, so history and the reports record what was
@@ -384,6 +385,18 @@ public sealed class SessionViewModel : ObservableObject
 
     /// <summary>True when a history write failed - the panel shows the reason (rule 6).</summary>
     public bool HasHistoryError => _historyError.Length > 0;
+
+    /// <summary>Where recording this session moved a history this version cannot read, empty when it moved
+    /// none (R5-D73). The move kept the old history (rule 7) and said nothing about it, so the panel opened on
+    /// one row and the reader had no way to know their earlier sessions were kept, or where.</summary>
+    public string HistorySetAside
+    {
+        get => _historySetAside;
+        private set { if (Set(ref _historySetAside, value)) { RaisePropertyChanged(nameof(HasHistorySetAside)); } }
+    }
+
+    /// <summary>True when recording this session set an unreadable history aside - the panel says where.</summary>
+    public bool HasHistorySetAside => _historySetAside.Length > 0;
 
     /// <summary>Translation key for what a history LOAD could not fill in, empty when it filled everything.
     /// Separate from <see cref="HistoryError"/>, which is about a failed write and is rendered after a
@@ -2307,6 +2320,8 @@ public sealed class SessionViewModel : ObservableObject
         // A note about what the last LOAD could not fill belongs to the form the user is about to run, not
         // to the run itself - once they start, they have accepted the form as it stands.
         HistoryNoteKey = string.Empty;
+        // Said about the session that moved the old history, not about the next one.
+        HistorySetAside = string.Empty;
         // The jump target belongs to the session it was typed in (R5-P11). It is read in the zone of the
         // session it is sent to, so a moment left from the last run would jump the next one somewhere nobody
         // asked for. Cleared to the untouched state - an empty field typed out says "the date is empty", and a
@@ -2418,6 +2433,7 @@ public sealed class SessionViewModel : ObservableObject
         }
 
         HistoryError = await _store.AppendAsync(record).ConfigureAwait(true);
+        HistorySetAside = _store.TakeSetAside();
     }
 
     /// <summary>Remove one past session from the panel and the store. Mild and left un-confirmed (zasady/13
