@@ -350,7 +350,7 @@ fn describe_chromium_warning(key: &str) -> &'static str {
         }
         // R5-F9, accepted with the slice before the code (R5-D60), moved in R5/5d.
         "chromium.engine_stamps_real" => {
-            "a page read the time the browser stamps on animation frames and events (requestAnimationFrame, Event.timeStamp, document.timeline) - those stamps run at real speed while performance.now runs at the session speed, so the two disagree"
+            "a page read the time the browser stamps on animation frames and events (requestAnimationFrame, Event.timeStamp, document.timeline.currentTime) - those stamps run at real speed while performance.now runs at the session speed, so the two disagree"
         }
         "chromium.animations_real" => {
             "a page played CSS or Web Animations while the session ran faster - animations play at real speed, so they ran slower than the session clock"

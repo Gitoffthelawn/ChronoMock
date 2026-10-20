@@ -259,6 +259,8 @@ pub(crate) struct Requests {
     animated: BTreeSet<u32>,
     /// How many contexts went away before their shim answered an audit, with their calls (R5-F10).
     unread: usize,
+    /// The connection closed, and the contexts left on the list were counted (CodeRabbit on #129).
+    closed: bool,
     /// The contexts whose audit showed the shim the new-document hook gave them since the caller last
     /// asked ([`Requests::take_confirmed`], R5-F11).
     confirmed: Vec<u32>,
@@ -406,6 +408,19 @@ impl Requests {
     /// How many contexts went away before their shim answered an audit.
     pub(crate) fn unread(&self) -> usize {
         self.unread
+    }
+
+    /// The connection closed with these contexts still on the list - the application or its engine
+    /// ended, and no event says which context went first. One whose shim never answered an audit took
+    /// its calls with it, as one forgotten does (R5-F10, CodeRabbit on #129). Counted once, however
+    /// often the closed connection is polled. An ordinary end of the session is not this: its contexts
+    /// are asked for their last counts and let go.
+    pub(crate) fn connection_closed(&mut self) {
+        if std::mem::replace(&mut self.closed, true) {
+            return;
+        }
+        let left = self.contexts.iter().filter(|c| !c.read).count();
+        self.unread = self.unread.saturating_add(left);
     }
 
     /// The indexes of the contexts that showed their shim since the last call (R5-F11).
@@ -1345,6 +1360,20 @@ mod tests {
         }
         assert_eq!(r.unread(), 2, "B never answered, C answered with no shim");
         assert_eq!(r.contexts().len(), 1, "D is still there, and not counted");
+    }
+
+    /// CodeRabbit on #129: a connection that closes takes the contexts still listed with it. The ones whose
+    /// shim never answered an audit are counted unread, once however often the closed connection is
+    /// polled, and one read once is not.
+    #[test]
+    fn a_closed_connection_counts_the_contexts_it_took_unread_once() {
+        let mut r = requests(vec![worker("A"), worker("B")]);
+        let mut wire = Wire::default();
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "A")[0], audit(0), &mut wire);
+        r.connection_closed();
+        r.connection_closed();
+        assert_eq!(r.unread(), 1, "B, once");
     }
 
     /// R5-F9: an audit that says the context read a time the engine stamps, or played an animation, while

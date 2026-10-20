@@ -10,8 +10,8 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 - **A Chromium session says what its pages did that the fake clock does not reach.** Three new
   warnings, each said only when it happened, in a Chromium session and for the pages of a web engine
-  inside an application alike. `chromium.engine_stamps_real`: a page asked for an animation frame or
-  read `Event.timeStamp` or `document.timeline` while its timers ran faster - the times the browser
+  inside an application alike. `chromium.engine_stamps_real`: a page's animation frame got its stamp, or
+  the page read `Event.timeStamp` or `document.timeline.currentTime`, while its timers ran faster - the times the browser
   stamps on frames and events run at real speed, so they disagree with `performance.now`.
   `chromium.animations_real`: a page played CSS or Web Animations while its timers ran faster, and
   they played at real speed. `chromium.contexts_unread`: pages or workers ended before the audit,

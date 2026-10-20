@@ -416,13 +416,18 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     } catch (e) {}
   }
 
-  /* The engine's own stamps, handed back as the engine gives them (R5-F9): requestAnimationFrame is
-     noticed when the page asks it for a frame, the two attributes when they are read. A wrapped
-     attribute keeps the engine's shape - an accessor, enumerable or not as it was - and one the engine
-     would not let go of is left as it is. */
+  /* The engine's own stamps, handed back as the engine gives them (R5-F9): an animation frame is
+     noticed when the engine hands its stamp to the page's callback - a frame cancelled before it runs
+     gets none (CodeRabbit on #129) - and the two attributes when they are read. The frame's id is the
+     engine's, so cancelAnimationFrame takes it, and what is not a function goes to the engine as it
+     came, to be refused there. A wrapped attribute keeps the engine's shape - an accessor, enumerable
+     or not as it was - and one the engine would not let go of is left as it is. */
   var _raf = globalThis.requestAnimationFrame;
   if (typeof _raf === 'function') {
-    globalThis.requestAnimationFrame = function(cb){ stamped(); return _raf.call(globalThis, cb); };
+    globalThis.requestAnimationFrame = function(cb){
+      if (typeof cb !== 'function') { return _raf.call(globalThis, cb); }
+      return _raf.call(globalThis, function(){ stamped(); return cb.apply(this, arguments); });
+    };
   }
   function stampOn(proto, name){
     var d = null;

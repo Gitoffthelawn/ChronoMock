@@ -513,6 +513,9 @@ impl Attacher {
             Err(e) => {
                 // Kept for the caller, who knows whether the application closed with it (R5-D6).
                 self.closed_because.get_or_insert_with(|| e.to_string());
+                // The contexts still listed went with the connection, and the ones never read with
+                // their calls (R5-F10).
+                self.requests.connection_closed();
                 Pumped::Closed
             }
         }
@@ -1298,6 +1301,34 @@ mod tests {
         assert_eq!((outcome.contexts, outcome.failed), (0, 1), "and it is still one the session could not cover");
         assert!(outcome.seen.is_empty());
         drop(browser.join());
+    }
+
+    /// R5-F10, CodeRabbit on #129: a connection that closes while a context whose audit never answered is
+    /// still listed - the application ended, with no event for its contexts - counts that context unread,
+    /// once, however often the closed connection is polled.
+    #[test]
+    fn a_connection_that_closes_counts_the_contexts_it_took_unread() {
+        let (port, browser) = crate::cdp::fake_browser_holding(move |request| {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap_or("") {
+                "Target.getTargets" => vec![(id, json!({ "targetInfos": [{ "targetId": "W1", "type": "worker" }] }))],
+                "Target.attachToTarget" => vec![(id, json!({ "sessionId": "S1" }))],
+                "Runtime.evaluate" => vec![(id, json!({ "result": { "value": "installed" } }))],
+                _ => vec![(id, json!({}))],
+            }
+        });
+        let ws = crate::cdp::WsClient::connect("127.0.0.1", port, "/", Instant::now() + Duration::from_secs(5)).unwrap();
+        let mut attacher = Attacher::over(cdp::CdpClient::from_ws(ws), port);
+        attacher.set_budgets(Duration::from_millis(20), Duration::from_secs(2));
+        let origin = ShimOrigin { fake0: 0, real0: 0, mult: 1, dur: 1, scheduled: None };
+        let mut next = 0;
+        assert_eq!(attacher.attach_existing(origin, &mut next, Instant::now() + Duration::from_secs(2)).unwrap(), 1);
+        let closed = || Err(io::Error::new(io::ErrorKind::ConnectionReset, "the browser went away"));
+        assert_eq!(attacher.handle(closed(), origin, &mut next), Pumped::Closed);
+        assert_eq!(attacher.handle(closed(), origin, &mut next), Pumped::Closed);
+        let outcome = attacher.into_outcome();
+        drop(browser);
+        assert_eq!((outcome.contexts, outcome.unread), (1, 1), "covered, and gone unread once");
     }
 
     /// CodeRabbit on #89: two pages share one renderer and its zone override, and the protocol does not

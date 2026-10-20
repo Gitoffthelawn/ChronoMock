@@ -747,10 +747,11 @@ fn the_audit_notes_a_hidden_page_and_a_zone_it_did_not_read() {
     );
 }
 
-/// R5-F9, R5-D60: the times the engine stamps itself are noticed, not moved. A page that asks for an
-/// animation frame, or reads an event's `timeStamp` or the document timeline, while its timers run faster
-/// has the fact `stamps` in its audit, and each hands back what the engine gives - the frame callback
-/// itself, the frame's id, the engine's stamp, an accessor shaped as it was. An animation that plays
+/// R5-F9, R5-D60: the times the engine stamps itself are noticed, not moved. A page whose frame callback
+/// is handed its stamp, or that reads an event's `timeStamp` or the document timeline's `currentTime`,
+/// while its timers run faster has the fact `stamps` in its audit - a frame asked for and never run has
+/// none (CodeRabbit on #129) - and each hands back what the engine gives: the frame's id, the stamp and
+/// `this` the callback is called with, an accessor shaped as it was. An animation that plays
 /// while the timers run faster gives `animated`, one that finished does not. Neither is noticed at the
 /// duration rate 1, in a session where only the wall runs fast or one that stands frozen. A frame's facts
 /// are its page's, and the release starts them over.
@@ -778,16 +779,21 @@ fn the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are
         asWindow(globalThis);
         const inner = frame();
         hold(globalThis, inner.g);
-        inner.run('globalThis.requestAnimationFrame = function() { return 7; };');
+        inner.run('globalThis.requestAnimationFrame = function(cb) { cb(1); return 7; };');
         run(SHIM);
         inner.run(SHIM);
         const facts = () => { const c = run(COUNTS); return [c.stamps, c.animated]; };
         const again = (m, d) => { run(RELEASE); globalThis.__chronomock.set(FAKE0, WALL0, m, d, null); };
         check('nothing noticed at install', facts().join() === '0,0', facts());
 
-        const cb = () => {};
-        check('a frame is asked for with the page callback, and its id comes back', requestAnimationFrame(cb) === 41 && frames[0] === cb);
-        check('asking for a frame while the timers run faster is noticed', facts()[0] === 1, facts());
+        let seen = null;
+        const cb = function(t) { seen = [this, t]; };
+        check('a frame is asked for, and the engine id comes back', requestAnimationFrame(cb) === 41);
+        check('asking alone notices nothing - a frame cancelled before it runs gets no stamp', facts()[0] === 0, facts());
+        frames.shift().call(globalThis, 123.5);
+        check('the page callback gets the engine stamp and this', seen !== null && seen[0] === globalThis && seen[1] === 123.5, seen);
+        check('a frame stamp handed over while the timers run faster is noticed', facts()[0] === 1, facts());
+        check('what is not a function goes to the engine as it came', requestAnimationFrame(null) === 41 && frames.pop() === null);
         again(60, 60);
         check('the release starts it over', facts()[0] === 0, facts());
         stall(5);
@@ -801,7 +807,7 @@ fn the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are
 
         for (const [m, d, said] of [[60, 1, 'only the wall fast'], [0, 0, 'frozen']]) {
           again(m, d);
-          requestAnimationFrame(cb); void new Event().timeStamp; void document.timeline.currentTime;
+          requestAnimationFrame(cb); frames.shift()(1); void new Event().timeStamp; void document.timeline.currentTime;
           playing.length = 0; playing.push({ playState: 'running' });
           check('at the duration rate 1 (' + said + ') nothing is noticed', facts().join() === '0,0', facts());
         }

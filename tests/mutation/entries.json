@@ -18138,5 +18138,62 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-5c CR129 a closed connection leaves its unread contexts out",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "                self.requests.connection_closed();\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_connection_that_closes_counts_the_contexts_it_took_unread",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c CR129 a closed connection counts its unread contexts twice",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "        if std::mem::replace(&mut self.closed, true) {\n            return;\n        }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_closed_connection_counts_the_contexts_it_took_unread_once",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c CR129 a frame asked for and never run is noticed",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "      return _raf.call(globalThis, function(){ stamped(); return cb.apply(this, arguments); });",
+        "to": "      stamped(); return _raf.call(globalThis, function(){ return cb.apply(this, arguments); });"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

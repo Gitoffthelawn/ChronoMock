@@ -240,9 +240,10 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
         // is not read as one context (rule 4, R5-P20).
         warnings.push(KEY_CONTEXTS_POOLED.to_string());
     }
-    if facts.contexts_unread {
+    if facts.contexts_unread && !(facts.app_closed && !facts.audited) {
         // The counts are what the audit read, and these contexts were gone before it read them (rule 4,
-        // R5-F10).
+        // R5-F10). An application that closed before any audit already says the counts may be short, for
+        // every context at once.
         warnings.push(KEY_CONTEXTS_UNREAD.to_string());
     }
     if facts.engine_stamps_real {
@@ -522,6 +523,16 @@ mod tests {
                 "chromium.engine_stamps_real",
                 "chromium.animations_real",
             ]
+        );
+        // An application that closed before any audit says it once, for every context.
+        assert_eq!(
+            session_warnings(&SessionFacts { app_closed: true, contexts_unread: true, ..SessionFacts::default() }),
+            vec!["chromium.launched_with_debug_port", "chromium.app_closed_before_audit"]
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { app_closed: true, contexts_unread: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", "chromium.contexts_unread"],
+            "audited once, then closed with contexts never read"
         );
         assert_eq!(
             session_warnings(&SessionFacts { app_closed: true, rate_changed_in_flight: true, ..audited }),
