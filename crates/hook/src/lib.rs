@@ -80,7 +80,7 @@ use chrono_ctl::{
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
     IDX_WFMOEX, IDX_SOAW, IDX_MWFMO, IDX_MWFMOEX, IDX_SWT, IDX_SWTEX, IDX_SETTIMER, IDX_TIMESETEVENT,
     IDX_TPTIMER, IDX_TPTIMEREX, IDX_NTCUP, IDX_CONNECT, IDX_QPC, IDX_TIMEGETTIME, IDX_SCVSRW,
-    IDX_SCVCS, IDX_WOA, IDX_WSAWFME, IDX_QIT, IDX_QITP, IDX_QUITP, bump_absolute_dues, sleep_bias,
+    IDX_SCVCS, IDX_WOA, IDX_WSAWFME, IDX_QIT, IDX_QITP, IDX_QUITP, LATE_CHANNELS, bump_absolute_dues, sleep_bias,
 };
 use chrono_ctl::inject::{self as remote_load, INJECT_TIMEOUT_MS, STILL_ACTIVE_CODE};
 use minhook::{MinHook, MH_STATUS};
@@ -654,13 +654,43 @@ static HOOK_FAILED: AtomicU64 = AtomicU64::new(0);
 /// not touch the Cov until this flag says the store has happened.
 static INSTALL_DONE: AtomicBool = AtomicBool::new(false);
 
-const USER32_LATE: u64 =
-    CHANNELS[IDX_MWFMO].bit | CHANNELS[IDX_MWFMOEX].bit | CHANNELS[IDX_SETTIMER].bit;
-const WINMM_LATE: u64 = CHANNELS[IDX_TIMESETEVENT].bit | CHANNELS[IDX_TIMEGETTIME].bit;
-const WS2_32_LATE: u64 = CHANNELS[IDX_WSAWFME].bit;
+/// The slot a channel's trampoline goes into, whatever function type it holds - so the late channels
+/// stand in one table ([`late_site`]) although each slot has a type of its own (R5-A11).
+trait Trampoline: Sync {
+    fn is_set(&self) -> bool;
+    /// # Safety
+    /// `original` must be the trampoline MinHook made for this slot's function.
+    unsafe fn set_from(&self, original: *mut c_void);
+}
 
-/// Every channel that lives in a module which may show up after `DllMain`.
-const LATE_CHANNELS: u64 = USER32_LATE | WINMM_LATE | WS2_32_LATE;
+impl<T: Copy + Send + Sync> Trampoline for OnceLock<T> {
+    fn is_set(&self) -> bool {
+        self.get().is_some()
+    }
+
+    unsafe fn set_from(&self, original: *mut c_void) {
+        // SAFETY: the caller hands the trampoline for this slot's function type, a function pointer
+        // the size of `*mut c_void`.
+        let _ = self.set(unsafe { std::mem::transmute_copy::<*mut c_void, T>(&original) });
+    }
+}
+
+/// Each channel whose module may arrive after `DllMain`, with its detour and the slot for its
+/// trampoline: the one table the late scan installs from (R5-A11). `None` for every other channel. A
+/// test holds it to [`LATE_CHANNELS`] both ways, so a channel added to user32, winmm or ws2_32 without a
+/// site here fails there instead of being owed for ever.
+fn late_site(idx: usize) -> Option<(*mut c_void, &'static dyn Trampoline)> {
+    let site: (*mut c_void, &'static dyn Trampoline) = match idx {
+        IDX_MWFMO => (h_mwfmo as *const () as *mut c_void, &O_MWFMO),
+        IDX_MWFMOEX => (h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX),
+        IDX_SETTIMER => (h_settimer as *const () as *mut c_void, &O_SETTIMER),
+        IDX_TIMESETEVENT => (h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT),
+        IDX_TIMEGETTIME => (h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME),
+        IDX_WSAWFME => (h_wsawfme as *const () as *mut c_void, &O_WSAWFME),
+        _ => return None,
+    };
+    Some(site)
+}
 
 /// Is there still a channel worth looking for.
 fn late_pending() -> bool {
@@ -701,16 +731,16 @@ unsafe fn pin_module(name: PCSTR) -> Option<HMODULE> { unsafe {
 ///
 /// # Safety
 /// `detour` must be correct for `slot`, and `module` must be a live, pinned module handle.
-unsafe fn late_one<T: Copy>(
+unsafe fn late_one(
     created: &mut Vec<(u64, usize)>,
     module: HMODULE,
     idx: usize,
     detour: *mut c_void,
-    slot: &OnceLock<T>,
+    slot: &dyn Trampoline,
 ) { unsafe {
     let ch = &CHANNELS[idx];
     LATE_TODO.fetch_and(!ch.bit, Ordering::Relaxed);
-    if slot.get().is_some() {
+    if slot.is_set() {
         return; // already installed at DllMain time - nothing owed here
     }
     let Ok(cname) = CString::new(ch.export()) else {
@@ -723,7 +753,7 @@ unsafe fn late_one<T: Copy>(
     };
     match MinHook::create_hook(target as *const () as *mut c_void, detour) {
         Ok(original) => {
-            let _ = slot.set(std::mem::transmute_copy::<*mut c_void, T>(&original));
+            slot.set_from(original);
             created.push((ch.bit, target as *const () as usize));
         }
         Err(e) => {
@@ -756,23 +786,24 @@ unsafe fn late_scan() { unsafe {
 
     let failed_before = HOOK_FAILED.load(Ordering::Relaxed);
     let mut created: Vec<(u64, usize)> = Vec::new();
-    if todo & USER32_LATE != 0
-        && let Some(m) = pin_module(s!("user32.dll"))
-    {
-        late_one(&mut created, m, IDX_MWFMO, h_mwfmo as *const () as *mut c_void, &O_MWFMO);
-        late_one(&mut created, m, IDX_MWFMOEX, h_mwfmoex as *const () as *mut c_void, &O_MWFMOEX);
-        late_one(&mut created, m, IDX_SETTIMER, h_settimer as *const () as *mut c_void, &O_SETTIMER);
-    }
-    if todo & WINMM_LATE != 0
-        && let Some(m) = pin_module(s!("winmm.dll"))
-    {
-        late_one(&mut created, m, IDX_TIMESETEVENT, h_timesetevent as *const () as *mut c_void, &O_TIMESETEVENT);
-        late_one(&mut created, m, IDX_TIMEGETTIME, h_timegettime as *const () as *mut c_void, &O_TIMEGETTIME);
-    }
-    if todo & WS2_32_LATE != 0
-        && let Some(m) = pin_module(s!("ws2_32.dll"))
-    {
-        late_one(&mut created, m, IDX_WSAWFME, h_wsawfme as *const () as *mut c_void, &O_WSAWFME);
+    // Each channel still owed, its module pinned by name and its detour from the one table. A module the
+    // application has not loaded yet leaves its channels owed for the next look.
+    for (idx, ch) in CHANNELS.iter().enumerate() {
+        if todo & ch.bit == 0 {
+            continue;
+        }
+        let Some(dll) = ch.module.late_dll() else { continue };
+        let Some(m) = pin_module(PCSTR(dll.as_ptr())) else { continue };
+        match late_site(idx) {
+            Some((detour, slot)) => late_one(&mut created, m, idx, detour, slot),
+            // A late channel with no site: a test holds this to never, and should it happen the channel
+            // is reported as not covered rather than looked for at every poll for ever.
+            None => {
+                LATE_TODO.fetch_and(!ch.bit, Ordering::Relaxed);
+                HOOK_FAILED.fetch_or(ch.bit, Ordering::Relaxed);
+                log(&format!("[chrono_hook] late: no site for {}", ch.name));
+            }
+        }
     }
 
     // Only what went live may be claimed, and what did not is recorded: a failed detour in a module the
@@ -3276,37 +3307,25 @@ unsafe fn make_hook<T: Copy>(
         | ChannelModule::KernelBaseBehindKernel32
         | ChannelModule::KernelBaseAndKernel32 => k32,
         ChannelModule::Ntdll => ntdll,
-        // user32 may be absent in a console/service target - resolve it here rather than force-load it
-        // (forcing a DLL the target never needed would change its behavior). Absent -> honest partial.
-        // Pinned when present, as the late scan does (R5, P27): a module the target frees later would
-        // take our detour bytes with it while the mask still claims the channel.
-        ChannelModule::User32 => match pin_module(s!("user32.dll")) {
-            Some(h) => h,
-            None => {
-                log(&format!("[chrono_hook] user32 not loaded, skipping: {}", ch.name));
-                return;
+        // user32 may be absent in a console or service target, winmm too, and ws2_32 in a target that
+        // never touches the network - each is resolved here by its name (`ChannelModule::late_dll`) rather
+        // than force-loaded, because forcing a DLL the target never needed would change its behavior.
+        // Absent -> honest partial, and the late scan looks again. Pinned when present, as the late scan
+        // does (R5, P27): a module the target frees later would take our detour bytes with it while the
+        // mask still claims the channel.
+        ChannelModule::User32 | ChannelModule::Winmm | ChannelModule::Ws2_32 => {
+            let pinned = match ch.module.late_dll() {
+                Some(dll) => pin_module(PCSTR(dll.as_ptr())),
+                None => None,
+            };
+            match pinned {
+                Some(h) => h,
+                None => {
+                    log(&format!("[chrono_hook] {:?} not loaded, skipping: {}", ch.module, ch.name));
+                    return;
+                }
             }
-        },
-        // winmm may be absent in a console/service target - resolve it here rather than force-load it
-        // (forcing a DLL the target never needed would change its behavior). Absent -> honest partial.
-        // Pinned when present, for the reason given at user32.
-        ChannelModule::Winmm => match pin_module(s!("winmm.dll")) {
-            Some(h) => h,
-            None => {
-                log(&format!("[chrono_hook] winmm not loaded, skipping: {}", ch.name));
-                return;
-            }
-        },
-        // ws2_32 may be absent in a target that never touches the network - resolve it here rather than
-        // force-load it (forcing a DLL the target never needed would change its behavior). Absent -> honest partial.
-        // Pinned when present, for the reason given at user32.
-        ChannelModule::Ws2_32 => match pin_module(s!("ws2_32.dll")) {
-            Some(h) => h,
-            None => {
-                log(&format!("[chrono_hook] ws2_32 not loaded, skipping: {}", ch.name));
-                return;
-            }
-        },
+        }
         // kernelbase is present in every Win32 process (kernel32 is built on it), so this lookup is
         // not the lazy "maybe absent" case the three above are - it is where the exports actually
         // live. A failure here is a real gap, and the audit reports it as one rather than dropping
@@ -3983,6 +4002,17 @@ pub extern "system" fn DllMain(hinst: HMODULE, reason: u32, _reserved: *mut c_vo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R5-A11: every channel whose module may arrive late has a site in the late table, and the table holds
+    /// nothing else. A channel added to user32, winmm or ws2_32 joins `LATE_CHANNELS` by itself (it is read
+    /// off the channel table), so without a site here it would be owed to the watcher for ever.
+    #[test]
+    fn every_late_channel_has_a_site_and_the_table_holds_only_late_channels() {
+        for (idx, ch) in CHANNELS.iter().enumerate() {
+            assert_eq!(late_site(idx).is_some(), LATE_CHANNELS & ch.bit != 0, "{}", ch.name);
+        }
+        assert_eq!(LATE_CHANNELS.count_ones(), 6, "six channels live in a module that may arrive late");
+    }
 
     /// A block is joined only while its session is alive and is the one that wrote it (R4-D18). Each
     /// refusal is one way the block outlives its session, and the old hook joined in every one of them.

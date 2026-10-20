@@ -288,6 +288,111 @@ fn hook_detours_do_not_allocate_or_panic() {
     );
 }
 
+/// The functions of the hook that may allocate or format, each with why (R5-A11). The scan above stops
+/// at the detour bodies, so a helper a detour calls kept its allocation out of sight - `h_cpw` reaches
+/// `begin_remote_load` and its `vec!` through `inherit_into_child`. Everything else the hook defines
+/// outside its tests is held to the detour's rule. The list only shrinks: an entry that no longer
+/// allocates is red as well.
+const HOOK_MAY_ALLOCATE: &[(&str, &str)] = &[
+    ("DllMain", "the loader's call that runs the install, before a detour is live"),
+    ("install", "installs every detour at DllMain, before one of them is live"),
+    ("make_hook", "creates one detour during the install"),
+    ("make_kernelbase_copy_hook", "creates the detour on kernelbase's copy during the install"),
+    ("kernelbase_side", "follows a kernel32 entry into kernelbase during the install"),
+    ("enable_or_take_back", "switches the detours on during the install"),
+    ("pin_self", "pins the hook's own module during the install"),
+    ("late_scan", "the watcher thread's look for modules that arrived late, outside every detour"),
+    ("late_one", "creates one late detour on the watcher thread"),
+    ("enable_one_late", "switches one late detour on, on the watcher thread"),
+    ("log", "the diagnostic writer of the install and the watcher - no detour calls it, held below"),
+    (
+        "begin_remote_load",
+        "loads the hook into a child the target starts - once per process start, never on a clock read",
+    ),
+    ("inherit_into_debugged_child", "the same, for a child started under a debugger"),
+    ("debugged_child_proc", "the thread that waits on a child started under a debugger"),
+];
+
+/// Every function the hook defines in `text`, with the first and last line of its body. A declaration
+/// without a body (a trait's method) is left out.
+fn hook_functions(text: &str) -> BTreeMap<String, (usize, usize)> {
+    let mut out = BTreeMap::new();
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let mut rest = code_only(line).trim_start();
+        for prefix in ["pub(crate) ", "pub ", "const ", "unsafe ", "extern \"system\" "] {
+            rest = rest.strip_prefix(prefix).unwrap_or(rest);
+        }
+        let Some(after) = rest.strip_prefix("fn ") else {
+            continue;
+        };
+        let name: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let (mut depth, mut seen) = (0i32, false);
+        for (j, l) in lines.iter().enumerate().skip(i) {
+            let code = code_only(l);
+            depth += code.matches('{').count() as i32 - code.matches('}').count() as i32;
+            seen |= code.contains('{');
+            if !seen && code.trim_end().ends_with(';') {
+                break;
+            }
+            if seen && depth == 0 {
+                out.insert(name.clone(), (i, j));
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Whether `code` calls `name` - the name followed by `(`, not as the tail of a longer name or a method.
+fn calls(code: &str, name: &str) -> bool {
+    let call = format!("{name}(");
+    code.match_indices(&call).any(|(at, _)| {
+        code[..at].chars().next_back().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+    })
+}
+
+#[test]
+fn the_hook_allocates_only_where_it_says_why() {
+    let path = repo_root().join("crates/hook/src/lib.rs");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let production = text.find("#[cfg(test)]\nmod tests").map_or(text.as_str(), |cut| &text[..cut]);
+    let functions = hook_functions(production);
+    let lines: Vec<&str> = production.lines().collect();
+    // The canary: a definition rule that found nothing would pass a hook that allocates everywhere.
+    assert!(functions.len() >= 100, "found only {} functions in the hook - the scan went blind", functions.len());
+
+    let allocating: BTreeSet<&str> = functions
+        .iter()
+        .filter(|(_, (start, end))| {
+            lines[*start..=*end].iter().any(|l| DETOUR_FORBIDDEN.iter().any(|bad| code_only(l).contains(bad)))
+        })
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let listed: BTreeSet<&str> = HOOK_MAY_ALLOCATE.iter().map(|(name, _)| *name).collect();
+    let unlisted: Vec<_> = allocating.difference(&listed).collect();
+    assert!(
+        unlisted.is_empty(),
+        "a function of the hook allocates or can panic without saying why - make it not, or list it in \
+         HOOK_MAY_ALLOCATE with the reason it never runs on a clock read: {unlisted:?}"
+    );
+    let stale: Vec<_> = listed.difference(&allocating).collect();
+    assert!(stale.is_empty(), "listed in HOOK_MAY_ALLOCATE and no longer allocating - take it off: {stale:?}");
+
+    // A detour calls none of them, so what they allocate is never on a clock read.
+    let mut reached = Vec::new();
+    for (detour, (start, end)) in functions.iter().filter(|(name, _)| name.starts_with("h_")) {
+        for line in &lines[*start..=*end] {
+            for (name, _) in HOOK_MAY_ALLOCATE {
+                if calls(code_only(line), name) {
+                    reached.push(format!("{detour} calls {name}"));
+                }
+            }
+        }
+    }
+    assert!(reached.is_empty(), "a detour calls a function that allocates: {reached:?}");
+}
+
 // ---------------------------------------------------------------------------------------------
 // H5. The logical core never swallows an error
 // ---------------------------------------------------------------------------------------------
@@ -2145,11 +2250,12 @@ fn hook_fn_body(text: &str, signature: &str) -> Option<String> {
 /// both ran with winmm mapped while `timeGetTime` and `timeSetEvent` were never hooked, and the
 /// report did not carry the channel at all - not covered, not uncovered, absent. `make_hook` resolves
 /// these three modules once, at `DllMain`, and for a runtime that loads later that is too early.
-/// `late_scan` is the second chance, and this checks that every channel which needs one gets one.
+/// `late_scan` is the second chance, and this checks that every channel which needs one gets one: since
+/// R5-A11 the scan installs from one table, `late_site`, so that is where each channel has to be named.
 ///
 /// The failure it is built to catch is a channel ADDED to `CHANNELS` in an optional module and not
-/// added to `late_scan` - which today would be silent twice over, because such a channel is dropped
-/// from the report rather than listed as a gap (untouchable rule 4).
+/// added to the late table - which would be silent twice over, because such a channel is dropped from
+/// the report rather than listed as a gap (untouchable rule 4).
 #[test]
 fn every_optional_module_channel_can_be_installed_late() {
     let root = repo_root();
@@ -2170,8 +2276,8 @@ fn every_optional_module_channel_can_be_installed_late() {
         channels.len()
     );
 
-    let body = hook_fn_body(&hook_src, "unsafe fn late_scan()")
-        .expect("late_scan not found in the hook - late module installation is gone, or renamed");
+    let body = hook_fn_body(&hook_src, "fn late_site(")
+        .expect("late_site not found in the hook - late module installation is gone, or renamed");
 
     let missing: Vec<String> = channels
         .iter()
@@ -2181,8 +2287,8 @@ fn every_optional_module_channel_can_be_installed_late() {
 
     assert!(
         missing.is_empty(),
-        "these channels live in a module the target may load AFTER DllMain, but late_scan never \
-         installs them - they would be missing from the report entirely, not reported as a gap: \
+        "these channels live in a module the target may load AFTER DllMain, but the late table never \
+         names them - they would be missing from the report entirely, not reported as a gap: \
          {missing:?}"
     );
     println!("late-load guard: {} optional-module channels, all reachable", channels.len());
