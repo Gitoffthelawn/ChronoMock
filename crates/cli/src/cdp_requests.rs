@@ -51,6 +51,9 @@ pub(crate) struct CdpContext {
     local_frames: Option<u64>,
     /// How many audits in a row found fewer frames reached than the tree had (R5-D47).
     frames_short: u8,
+    /// Its shim answered an audit at least once, so its calls are in the counts up to that audit. A
+    /// context that goes away before that took all of them with it (R5-F10).
+    read: bool,
 }
 
 impl CdpContext {
@@ -69,6 +72,7 @@ impl CdpContext {
             awaiting: false,
             local_frames: None,
             frames_short: 0,
+            read: false,
         }
     }
 
@@ -248,6 +252,13 @@ pub(crate) struct Requests {
     /// The pages, by index, that had a frame in their process the shim did not reach, audit after audit
     /// (R5-P5, R5-D47).
     frames_unreached: BTreeSet<u32>,
+    /// The contexts, by index, that read a time the engine stamps while their timers ran faster (R5-F9,
+    /// R5-D60).
+    engine_stamps: BTreeSet<u32>,
+    /// The pages, by index, that played an animation while their timers ran faster (R5-F9, R5-D60).
+    animated: BTreeSet<u32>,
+    /// How many contexts went away before their shim answered an audit, with their calls (R5-F10).
+    unread: usize,
     /// The contexts whose audit showed the shim the new-document hook gave them since the caller last
     /// asked ([`Requests::take_confirmed`], R5-F11).
     confirmed: Vec<u32>,
@@ -269,20 +280,24 @@ impl Requests {
     /// Drop a context that went away - a closed window, a recycled worker - with its requests in
     /// flight. They are not counted as missed: a page that is gone has no clock to stand apart. A
     /// reload does not detach its target, so it is not this. A pooled context's counts move to the
-    /// pool's sum. Returns the target ids of what was dropped, empty when nothing was.
+    /// pool's sum, and one whose shim never answered an audit is counted as gone unread (R5-F10).
+    /// Returns the target ids of what was dropped, empty when nothing was.
     pub(crate) fn forget(&mut self, session: &str, target: &str) -> Vec<String> {
         let is_gone = |c: &CdpContext| (!session.is_empty() && c.session_id == session) || (!target.is_empty() && c.target_id == target);
-        let gone: Vec<(String, String, u32, bool)> = self
+        let gone: Vec<(String, String, u32, bool, bool)> = self
             .contexts
             .iter()
             .filter(|c| is_gone(c))
-            .map(|c| (c.session_id.clone(), c.target_id.clone(), c.index, c.pooled))
+            .map(|c| (c.session_id.clone(), c.target_id.clone(), c.index, c.pooled, c.read))
             .collect();
         self.contexts.retain(|c| !is_gone(c));
         self.asked.retain(|_, a| !gone.iter().any(|(s, ..)| s == a.session()));
-        for (_, _, index, pooled) in &gone {
+        for (_, _, index, pooled, read) in &gone {
             if *pooled {
                 fold_into(&mut self.pool_sum, &mut self.counts, *index);
+            }
+            if !read {
+                self.unread = self.unread.saturating_add(1);
             }
         }
         gone.into_iter().map(|(_, target, ..)| target).collect()
@@ -376,6 +391,21 @@ impl Requests {
     /// How many pages had a frame in their process the shim did not reach.
     pub(crate) fn frames_unreached(&self) -> usize {
         self.frames_unreached.len()
+    }
+
+    /// How many contexts read a time the engine stamps while their timers ran faster.
+    pub(crate) fn engine_stamps(&self) -> usize {
+        self.engine_stamps.len()
+    }
+
+    /// How many pages played an animation while their timers ran faster.
+    pub(crate) fn animated(&self) -> usize {
+        self.animated.len()
+    }
+
+    /// How many contexts went away before their shim answered an audit.
+    pub(crate) fn unread(&self) -> usize {
+        self.unread
     }
 
     /// The indexes of the contexts that showed their shim since the last call (R5-F11).
@@ -543,6 +573,12 @@ impl Requests {
                     if read_fact(&reply, "capped") {
                         self.capped.insert(index);
                     }
+                    if read_fact(&reply, "stamps") {
+                        self.engine_stamps.insert(index);
+                    }
+                    if read_fact(&reply, "animated") {
+                        self.animated.insert(index);
+                    }
                     if let Some(i) = at {
                         self.audited(i, &reply);
                     }
@@ -619,6 +655,7 @@ impl Requests {
             return;
         };
         let ctx = &mut self.contexts[i];
+        ctx.read = true;
         if ctx.awaiting {
             ctx.awaiting = false;
             self.confirmed.push(ctx.index);
@@ -705,8 +742,9 @@ fn merge_counts(counts: &mut BTreeMap<(u32, String), u64>, index: u32, ty: &str,
 
 /// Whether a counts reply carries one of the shim's audit facts, each 1 once it happened: `zone` - the
 /// context once read a zone other than the session's - `hidden` - the page was hidden while its timers
-/// ran faster - and `capped` - a timer had to run more often than the engine's 4 ms floor (R5-P6). A
-/// reply without it - a shim from an older build - says nothing.
+/// ran faster - `capped` - a timer had to run more often than the engine's 4 ms floor (R5-P6) -
+/// `stamps` - the page read a time the engine stamps while its timers ran faster - and `animated` - an
+/// animation played while they did (R5-F9). A reply without it - a shim from an older build - says nothing.
 fn read_fact(reply: &Value, fact: &str) -> bool {
     reply["result"]["value"][fact].as_u64().is_some_and(|n| n > 0)
 }
@@ -1283,5 +1321,51 @@ mod tests {
         assert!(wire.sent.iter().all(|(.., params)| params["timezoneId"] == "GMT+05:30"));
         assert!(r.asked.is_empty(), "nothing waits for the zone");
         assert!(r.counts_settled() && r.release_settled());
+    }
+
+    /// One audit of the worker `W`, answered with `counts`.
+    fn worker_round(r: &mut Requests, wire: &mut Wire, counts: Result<Value, ()>) {
+        r.request_counts(wire);
+        let id = *wire.ids(EVALUATE, "W").last().expect("the worker was asked");
+        r.on_reply(id, counts, wire);
+    }
+
+    /// R5-F10: a context whose shim never answered an audit took all its calls with it when it went, and
+    /// is counted unread. One that answered once is in the counts up to that audit and is not counted, an
+    /// answer with no audit in it (no shim there) leaves it unread, and a context still live is not gone.
+    #[test]
+    fn a_context_gone_before_its_first_audit_is_counted_unread() {
+        let mut r = requests(vec![worker("A"), worker("B"), worker("C"), worker("D")]);
+        let mut wire = Wire::default();
+        r.request_counts(&mut wire);
+        r.on_reply(wire.ids(EVALUATE, "A")[0], audit(0), &mut wire);
+        r.on_reply(wire.ids(EVALUATE, "C")[0], Ok(json!({ "result": { "value": null } })), &mut wire);
+        for session in ["A", "B", "C"] {
+            assert!(!r.forget(session, "").is_empty(), "{session} was there to forget");
+        }
+        assert_eq!(r.unread(), 2, "B never answered, C answered with no shim");
+        assert_eq!(r.contexts().len(), 1, "D is still there, and not counted");
+    }
+
+    /// R5-F9: an audit that says the context read a time the engine stamps, or played an animation, while
+    /// its timers ran faster names the context once, and later audits that say nothing do not take it
+    /// back - the shim keeps the fact until the release. A shim of an older build says neither.
+    #[test]
+    fn the_engines_own_stamps_and_animations_are_read_from_the_audit() {
+        let said = |stamps: u64, animated: u64| Ok(json!({ "result": { "value": { "now": 1, "stamps": stamps, "animated": animated } } }));
+        let mut r = requests(vec![worker("W")]);
+        let mut wire = Wire::default();
+        worker_round(&mut r, &mut wire, said(0, 0));
+        assert_eq!((r.engine_stamps(), r.animated()), (0, 0));
+        worker_round(&mut r, &mut wire, said(1, 0));
+        assert_eq!((r.engine_stamps(), r.animated()), (1, 0));
+        worker_round(&mut r, &mut wire, said(1, 1));
+        worker_round(&mut r, &mut wire, said(0, 0));
+        assert_eq!((r.engine_stamps(), r.animated()), (1, 1), "once per context, and kept");
+
+        let mut old = requests(vec![worker("W")]);
+        let mut wire = Wire::default();
+        worker_round(&mut old, &mut wire, audit(0));
+        assert_eq!((old.engine_stamps(), old.animated()), (0, 0), "an older shim says neither");
     }
 }

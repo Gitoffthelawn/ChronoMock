@@ -86,6 +86,8 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     zoneMissed: 0,                  /* 1 once this context has read another zone */
     hiddenFast: 0,                  /* 1 once this page was hidden while its timers ran faster */
     capped: 0,                      /* 1 once a timer had to run more often than the engine's 4 ms floor */
+    stamps: 0,                      /* 1 once the page read a time the engine stamps while timers ran faster */
+    animated: 0,                    /* 1 once an animation played while timers ran faster */
     perfBase: _perf ? _perf() : 0,  /* where performance.now stood when the shim arrived (R4-S16) */
     perfAnchorReal: _perf ? _perf() : 0,
     perfRead: 0,                    /* the real reading behind the last performance.now handed out */
@@ -192,6 +194,23 @@ const SHIM_TEMPLATE: &str = r#"(function(){
   function checkHidden(){
     try { if (typeof document !== 'undefined' && document.hidden && durationRate() > 1) { S.hiddenFast = 1; } } catch (e) {}
   }
+  /* The times the engine stamps itself - the argument of an animation frame callback, an event's
+     timeStamp, the document timeline - are on its own high-resolution clock, at real speed. While the
+     timers run faster they disagree with performance.now (R5-F9). Not moved yet (R5/5d), but noticed for
+     the audit, so the report says so (R5-D58, R5-D60). Once noticed, a read costs one comparison. */
+  function stamped(){ if (!S.stamps && durationRate() > 1) { S.stamps = 1; } }
+  /* Whether an animation plays while the timers run faster: CSS and Web Animations play on the engine's
+     own timeline, at real speed (R5-F9). A finished one that holds its last frame does not play. Looked
+     at on every audit, with the engine's own getAnimations, taken now. A worker has no document. */
+  var _anims = (typeof document !== 'undefined' && typeof document.getAnimations === 'function') ? document.getAnimations : null;
+  function checkAnimated(){
+    if (S.animated || !_anims) { return; }
+    try {
+      if (durationRate() <= 1) { return; }
+      var list = _anims.call(document);
+      for (var i = 0; i < list.length; i++) { if (list[i].playState === 'running') { S.animated = 1; return; } }
+    } catch (e) {}
+  }
 
   var api = {
     set: function(fakeStart, realStart, m, d, scheduled, wallMax, zone){
@@ -209,7 +228,7 @@ const SHIM_TEMPLATE: &str = r#"(function(){
        not take this one's facts and calls for its own (CodeRabbit on #89) - the counts asked with the
        release run first in the same context, and the session keeps the highest count it was told. */
     release: function(){
-      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;
+      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;
       for (var k in S.counts) { S.counts[k] = 0; }
       setHere(0, 0, 1, 1, null);
       eachFrame(function(f){ f.release(); });
@@ -220,7 +239,8 @@ const SHIM_TEMPLATE: &str = r#"(function(){
     audit: function(){
       checkZone();
       checkHidden();
-      var o = { zone: S.zoneMissed, hidden: S.hiddenFast, capped: S.capped, frames: 0 }, k;
+      checkAnimated();
+      var o = { zone: S.zoneMissed, hidden: S.hiddenFast, capped: S.capped, stamps: S.stamps, animated: S.animated, frames: 0 }, k;
       for (k in S.counts) { o[k] = S.counts[k]; }
       eachFrame(function(f){
         var a = f.audit();
@@ -228,6 +248,8 @@ const SHIM_TEMPLATE: &str = r#"(function(){
         o.zone = (o.zone || a.zone) ? 1 : 0;
         o.hidden = (o.hidden || a.hidden) ? 1 : 0;
         o.capped = (o.capped || a.capped) ? 1 : 0;
+        o.stamps = (o.stamps || a.stamps) ? 1 : 0;
+        o.animated = (o.animated || a.animated) ? 1 : 0;
         o.frames += 1 + (a.frames > 0 ? a.frames : 0);
       });
       return o;
@@ -393,6 +415,24 @@ const SHIM_TEMPLATE: &str = r#"(function(){
       Object.defineProperty(performance, 'timeOrigin', { configurable: true, enumerable: true, get: function(){ return fakeNow() - perfNow(); } });
     } catch (e) {}
   }
+
+  /* The engine's own stamps, handed back as the engine gives them (R5-F9): requestAnimationFrame is
+     noticed when the page asks it for a frame, the two attributes when they are read. A wrapped
+     attribute keeps the engine's shape - an accessor, enumerable or not as it was - and one the engine
+     would not let go of is left as it is. */
+  var _raf = globalThis.requestAnimationFrame;
+  if (typeof _raf === 'function') {
+    globalThis.requestAnimationFrame = function(cb){ stamped(); return _raf.call(globalThis, cb); };
+  }
+  function stampOn(proto, name){
+    var d = null;
+    try { d = proto ? Object.getOwnPropertyDescriptor(proto, name) : null; } catch (e) { d = null; }
+    if (!d || typeof d.get !== 'function' || !d.configurable) { return; }
+    var get = d.get;
+    try { Object.defineProperty(proto, name, { configurable: true, enumerable: d.enumerable, get: function(){ stamped(); return get.call(this); } }); } catch (e) {}
+  }
+  stampOn(globalThis.Event && globalThis.Event.prototype, 'timeStamp');
+  stampOn(globalThis.AnimationTimeline && globalThis.AnimationTimeline.prototype, 'currentTime');
 
   try { if (typeof document !== 'undefined' && document.addEventListener) { document.addEventListener('visibilitychange', checkHidden); } } catch (e) {}
   checkZone();

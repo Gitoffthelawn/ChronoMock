@@ -28,8 +28,9 @@ use crate::cdp;
 use crate::cdp_attach::{Attacher, AttacherOutcome, MachineZone, Pumped, ShimOrigin};
 use crate::cdp_requests::ZoneTally;
 use crate::cdp_audit::{
-    KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED, KEY_CONTEXTS_POOLED, KEY_CONTEXT_REACHED_RUNNING, KEY_FRAMES_UNREACHED,
-    KEY_RATE_CHANGE_RUNNING_TIMERS, KEY_TIMER_RATE_CAPPED,
+    KEY_ANIMATIONS_REAL, KEY_BACKGROUND_TIMERS_SLOWED, KEY_CLOCK_MOVE_MISSED, KEY_CONTEXTS_POOLED, KEY_CONTEXTS_UNREAD,
+    KEY_CONTEXT_REACHED_RUNNING, KEY_ENGINE_STAMPS_REAL, KEY_FRAMES_UNREACHED, KEY_RATE_CHANGE_RUNNING_TIMERS,
+    KEY_TIMER_RATE_CAPPED,
 };
 use crate::cdp_clock::{cdp_release_expr, cdp_set_expr, drift_ms, resync_due};
 use crate::cdp_discover::{Discovered, Discovery, Notice};
@@ -325,6 +326,12 @@ pub(crate) struct Outcome {
     timers_capped: usize,
     /// How many pages had a frame in their process the shim did not reach (R5-P5).
     frames_unreached: usize,
+    /// How many pages and workers read a time the engine stamps while their timers ran faster (R5-F9).
+    engine_stamps: usize,
+    /// How many pages played an animation while their timers ran faster (R5-F9).
+    animated: usize,
+    /// How many pages and workers went away before their shim answered an audit (R5-F10).
+    unread: usize,
     /// The engines were started with their slowdown of hidden windows switched off (`Launch`).
     timers_kept: bool,
 }
@@ -378,6 +385,17 @@ impl Outcome {
         }
         if pages && self.frames_unreached > 0 {
             out.push(KEY_FRAMES_UNREACHED.to_string());
+        }
+        // The same facts as in a Chromium session, under the same keys (R5-F10, R5-F9). A page an
+        // engine's timers run faster in is one under --scale-duration only (docs/09 section 12.6).
+        if pages && self.unread > 0 {
+            out.push(KEY_CONTEXTS_UNREAD.to_string());
+        }
+        if pages && self.engine_stamps > 0 {
+            out.push(KEY_ENGINE_STAMPS_REAL.to_string());
+        }
+        if pages && self.animated > 0 {
+            out.push(KEY_ANIMATIONS_REAL.to_string());
         }
         if pages && self.zone_missed > 0 {
             out.push(KEY_ZONE_IS_HOST.to_string());
@@ -855,6 +873,9 @@ impl EmbeddedBridge {
             hidden_fast: 0,
             timers_capped: 0,
             frames_unreached: 0,
+            engine_stamps: 0,
+            animated: 0,
+            unread: 0,
             timers_kept: self.timers_kept,
         };
         let engine_of_port = self.engine_of_port;
@@ -881,6 +902,9 @@ impl EmbeddedBridge {
             outcome.hidden_fast += part.hidden_fast;
             outcome.timers_capped += part.timers_capped;
             outcome.frames_unreached += part.frames_unreached;
+            outcome.engine_stamps += part.engine_stamps;
+            outcome.animated += part.animated;
+            outcome.unread += part.unread;
         }
         outcome
     }
@@ -1041,6 +1065,9 @@ mod tests {
             hidden_fast: 0,
             timers_capped: 0,
             frames_unreached: 0,
+            engine_stamps: 0,
+            animated: 0,
+            unread: 0,
             timers_kept: false,
         }
     }
@@ -1091,6 +1118,23 @@ mod tests {
         };
         assert_eq!(floored_and_framed(&[1]), vec![KEY_DEBUG_PORT_OPEN, KEY_TIMER_RATE_CAPPED, KEY_FRAMES_UNREACHED]);
         assert_eq!(floored_and_framed(&[]), vec![KEY_DEBUG_PORT_OPEN]);
+    }
+
+    /// R5-F9 and R5-F10, the engines' half: a page that read the engine's own stamps or played an animation
+    /// while its timers ran faster, and pages gone before the audit read them, said of an engine's pages
+    /// under the keys a Chromium session uses, each only when it happened, and only with pages.
+    #[test]
+    fn the_engine_time_and_the_unread_pages_are_said_of_an_engines_pages_too() {
+        let with = |seen: &[u32], stamps: usize, animated: usize, unread: usize| {
+            let mut o = outcome(true, seen, 0, false, &[]);
+            (o.engine_stamps, o.animated, o.unread) = (stamps, animated, unread);
+            o.session_warnings(false)
+        };
+        assert_eq!(with(&[1], 0, 0, 0), vec![KEY_DEBUG_PORT_OPEN]);
+        assert_eq!(with(&[1], 0, 0, 2), vec![KEY_DEBUG_PORT_OPEN, KEY_CONTEXTS_UNREAD]);
+        assert_eq!(with(&[1], 1, 0, 0), vec![KEY_DEBUG_PORT_OPEN, KEY_ENGINE_STAMPS_REAL]);
+        assert_eq!(with(&[1], 0, 1, 0), vec![KEY_DEBUG_PORT_OPEN, KEY_ANIMATIONS_REAL]);
+        assert_eq!(with(&[], 1, 1, 1), vec![KEY_DEBUG_PORT_OPEN]);
     }
 
     /// R5-B7, R5-D5: an application that outlives the session keeps the channel's variables, so a web

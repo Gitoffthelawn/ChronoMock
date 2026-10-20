@@ -215,6 +215,12 @@ pub(crate) struct AttacherOutcome {
     pub(crate) timers_capped: usize,
     /// How many pages had a frame in their process the shim did not reach (R5-P5).
     pub(crate) frames_unreached: usize,
+    /// How many contexts read a time the engine stamps while their timers ran faster (R5-F9).
+    pub(crate) engine_stamps: usize,
+    /// How many pages played an animation while their timers ran faster (R5-F9).
+    pub(crate) animated: usize,
+    /// How many contexts went away before their shim answered an audit (R5-F10).
+    pub(crate) unread: usize,
 }
 
 pub(crate) struct Attacher {
@@ -359,6 +365,9 @@ impl Attacher {
         let hidden_fast = self.requests.hidden_fast();
         let timers_capped = self.requests.timers_capped();
         let frames_unreached = self.requests.frames_unreached();
+        let engine_stamps = self.requests.engine_stamps();
+        let animated = self.requests.animated();
+        let unread = self.requests.unread();
         let seen = self.seen();
         let contexts = self.contexts_covered();
         let failed = self.failed();
@@ -374,6 +383,9 @@ impl Attacher {
             hidden_fast,
             timers_capped,
             frames_unreached,
+            engine_stamps,
+            animated,
+            unread,
         }
     }
 

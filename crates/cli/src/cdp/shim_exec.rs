@@ -746,3 +746,78 @@ fn the_audit_notes_a_hidden_page_and_a_zone_it_did_not_read() {
         ",
     );
 }
+
+/// R5-F9, R5-D60: the times the engine stamps itself are noticed, not moved. A page that asks for an
+/// animation frame, or reads an event's `timeStamp` or the document timeline, while its timers run faster
+/// has the fact `stamps` in its audit, and each hands back what the engine gives - the frame callback
+/// itself, the frame's id, the engine's stamp, an accessor shaped as it was. An animation that plays
+/// while the timers run faster gives `animated`, one that finished does not. Neither is noticed at the
+/// duration rate 1, in a session where only the wall runs fast or one that stands frozen. A frame's facts
+/// are its page's, and the release starts them over.
+#[test]
+fn the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are() {
+    let mut vars = numbers();
+    vars.push(("SHIM", shim(60, 60)));
+    vars.push(("RELEASE", js_text(&release_expr())));
+    vars.push(("COUNTS", js_text(COUNTS_EXPR)));
+    run_scenario(
+        "stamps",
+        &vars,
+        r"
+        // The engine's own: a queue of frame callbacks, an event with its stamp, the document timeline,
+        // and the animations the document holds.
+        const frames = [];
+        globalThis.requestAnimationFrame = function(cb) { frames.push(cb); return 41; };
+        globalThis.Event = class Event { get timeStamp() { return env.perf; } };
+        globalThis.AnimationTimeline = class AnimationTimeline { get currentTime() { return env.perf; } };
+        const playing = [];
+        globalThis.document = {
+          scripts: { length: 0 }, hidden: false, addEventListener() {},
+          timeline: new AnimationTimeline(), getAnimations: () => playing.slice(),
+        };
+        asWindow(globalThis);
+        const inner = frame();
+        hold(globalThis, inner.g);
+        inner.run('globalThis.requestAnimationFrame = function() { return 7; };');
+        run(SHIM);
+        inner.run(SHIM);
+        const facts = () => { const c = run(COUNTS); return [c.stamps, c.animated]; };
+        const again = (m, d) => { run(RELEASE); globalThis.__chronomock.set(FAKE0, WALL0, m, d, null); };
+        check('nothing noticed at install', facts().join() === '0,0', facts());
+
+        const cb = () => {};
+        check('a frame is asked for with the page callback, and its id comes back', requestAnimationFrame(cb) === 41 && frames[0] === cb);
+        check('asking for a frame while the timers run faster is noticed', facts()[0] === 1, facts());
+        again(60, 60);
+        check('the release starts it over', facts()[0] === 0, facts());
+        stall(5);
+        check('an event stamp is the engine one', new Event().timeStamp === env.perf);
+        check('and reading it is noticed', facts()[0] === 1, facts());
+        const shape = Object.getOwnPropertyDescriptor(Event.prototype, 'timeStamp');
+        check('the stamp is still an accessor, not enumerable as before', typeof shape.get === 'function' && shape.enumerable === false && shape.configurable === true);
+        again(60, 60);
+        check('the timeline time is the engine one', document.timeline.currentTime === env.perf);
+        check('and reading it is noticed', facts()[0] === 1, facts());
+
+        for (const [m, d, said] of [[60, 1, 'only the wall fast'], [0, 0, 'frozen']]) {
+          again(m, d);
+          requestAnimationFrame(cb); void new Event().timeStamp; void document.timeline.currentTime;
+          playing.length = 0; playing.push({ playState: 'running' });
+          check('at the duration rate 1 (' + said + ') nothing is noticed', facts().join() === '0,0', facts());
+        }
+
+        again(60, 60);
+        playing.length = 0; playing.push({ playState: 'finished' }, { playState: 'paused' });
+        check('an animation that does not play is not noticed', facts()[1] === 0, facts());
+        playing.push({ playState: 'running' });
+        check('one that plays while the timers run faster is', facts()[1] === 1, facts());
+        playing.length = 0;
+        check('and it stays noticed once it stopped', facts()[1] === 1, facts());
+
+        again(60, 60);
+        check('a frame of the page starts clean', facts().join() === '0,0', facts());
+        inner.run('requestAnimationFrame(function() {});');
+        check('a frame that asked for a frame makes it its page fact', facts()[0] === 1, facts());
+        ",
+    );
+}

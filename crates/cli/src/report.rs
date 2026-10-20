@@ -344,6 +344,17 @@ fn describe_chromium_warning(key: &str) -> &'static str {
         "chromium.contexts_pooled" => {
             "the application opened more than 256 web pages and workers - every one of them ran on the session clock, and the ones past the 256th are counted together in the last context row above"
         }
+        // R5-F10, accepted with the slice before the code (R5-D60).
+        "chromium.contexts_unread" => {
+            "some pages or workers ended before the audit could read them (it reads once a second) - what they called is not in the counts"
+        }
+        // R5-F9, accepted with the slice before the code (R5-D60), moved in R5/5d.
+        "chromium.engine_stamps_real" => {
+            "a page read the time the browser stamps on animation frames and events (requestAnimationFrame, Event.timeStamp, document.timeline) - those stamps run at real speed while performance.now runs at the session speed, so the two disagree"
+        }
+        "chromium.animations_real" => {
+            "a page played CSS or Web Animations while the session ran faster - animations play at real speed, so they ran slower than the session clock"
+        }
         _ => "",
     }
 }
