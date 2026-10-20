@@ -473,7 +473,9 @@ mod tests {
     /// One native session that has something to say in every section a session that ran can have: a
     /// parent verdict, a process and a page with every kind of channel list, a heartbeat, a refused speed
     /// change, a family verdict with a child the hook missed, an engine and a followed program, and an end
-    /// with an exit code and something left behind. What a session that never ran says instead (a vanish,
+    /// with an exit code and something left behind. Two variants of what a section holds are in too, because
+    /// the window says them its own way: a count that stopped at the hook's ceiling (the page's) and a sleep
+    /// of the machine, which the report measures in its warning line. What a session that never ran says instead (a vanish,
     /// a refusal, a failed start, a cut) has headlines of its own, so it is not here.
     fn golden_session() -> Vec<Event> {
         let read = |channel: &str, calls| CoveredChannel { channel: channel.into(), calls, capped: false };
@@ -509,7 +511,7 @@ mod tests {
                 v: 1,
                 pid: 1,
                 kind: chrono_proto::UNIT_CONTEXT.into(),
-                covered: vec![read("page Date.now", 5)],
+                covered: vec![CoveredChannel { channel: "page Date.now".into(), calls: 5, capped: true }],
                 observed: Vec::new(),
                 uncovered: Vec::new(),
                 unobserved: Vec::new(),
@@ -530,7 +532,7 @@ mod tests {
                 verdict: "partial".into(),
                 reason_key: "session.family_partial_children".into(),
                 process_count: 3,
-                warning_keys: vec!["wait.timeout_collapsed".into()],
+                warning_keys: vec!["wait.timeout_collapsed".into(), "time.host_slept".into()],
                 uncovered_children: vec![chrono_proto::UncoveredChild {
                     pid: 4300,
                     parent_pid: 4200,
@@ -546,7 +548,7 @@ mod tests {
                     context_count: 1,
                 }],
                 followed: vec![chrono_proto::FollowedProcess { pid: 4500, image: Some("app.exe".into()) }],
-                host_slept_ms: 0,
+                host_slept_ms: 5_400_000,
                 browser: None,
             },
             Event::Ended {

@@ -47,14 +47,60 @@ public class SummaryParityTests
     private static string Wire(string name) => Path.Combine(TestPaths.RepoRoot(), "tests", "wire", name);
 
     /// <summary>The section headings of a CLI report: its lines that start two spaces in with a word, up to the
-    /// colon, or the bracket where the heading explains itself.</summary>
+    /// colon, the bracket where the heading explains itself, or the end of the line - a heading written without
+    /// a colon still reaches the pairing below, which names it, rather than throwing here.</summary>
     private static List<string> Sections(IEnumerable<string> report) =>
     [
         .. report
             .Where(line => line.Length > 2 && line.StartsWith("  ", StringComparison.Ordinal) && char.IsLetter(line[2]))
-            .Select(line => line[2..line.IndexOf(':', StringComparison.Ordinal)])
-            .Select(heading => heading.Split(" (")[0].Trim()),
+            .Select(line => line[2..].Split(':')[0].Split(" (")[0].Trim()),
     ];
+
+    /// <summary>The lines under one section of a CLI report, up to the next heading.</summary>
+    private static List<string> Under(IReadOnlyList<string> report, string section) =>
+    [
+        .. report
+            .SkipWhile(line => !line.StartsWith("  " + section, StringComparison.Ordinal))
+            .Skip(1)
+            .TakeWhile(line => !(line.Length > 2 && line.StartsWith("  ", StringComparison.Ordinal) && char.IsLetter(line[2]))),
+    ];
+
+    /// <summary>The lines a summary list holds under its heading key, without their bullet.</summary>
+    private static List<string> Listed(IReadOnlyList<string> summary, string key) =>
+    [
+        .. summary
+            .SkipWhile(line => !line.StartsWith("  " + key + " (", StringComparison.Ordinal))
+            .Skip(1)
+            .TakeWhile(line => line.StartsWith("    - ", StringComparison.Ordinal))
+            .Select(line => line["    - ".Length..]),
+    ];
+
+    /// <summary>
+    /// The same sections say the same things: every warning the report names, by the key it closes its line
+    /// with, is in the summary's warnings, and a count the report gives as a floor ("at least") is a floor in
+    /// the summary too. Headings alone would pass a summary that kept the section and lost what it says.
+    /// </summary>
+    [Fact]
+    public void What_the_report_says_inside_its_sections_the_summary_says_too()
+    {
+        var report = File.ReadAllLines(Wire("session-report.txt"));
+        var vm = new SessionViewModel();
+        vm.SetTarget(@"C:\apps\app.exe");
+        foreach (var line in File.ReadAllLines(Wire("session.ndjson")))
+        {
+            vm.Apply(EventParser.Parse(line) ?? throw new InvalidOperationException("an event the window does not know: " + line));
+        }
+
+        var summary = vm.BuildSummary(key => key).Split('\n');
+
+        var warned = Under(report, "warnings:").Select(line => line[(line.LastIndexOf('(') + 1)..].TrimEnd(')')).ToList();
+        Assert.True(warned.Count >= 2, $"read {warned.Count} warnings - the recorded session should carry two");
+        Assert.Empty(warned.Except(Listed(summary, "coverage.warnings")));
+
+        var floors = Under(report, "covered channels").Count(line => line.Contains("(at least ", StringComparison.Ordinal));
+        Assert.True(floors >= 1, "the recorded session should have a count at the hook's ceiling");
+        Assert.Equal(floors, Listed(summary, "coverage.covered").Count(line => line == "coverage.reads_at_least"));
+    }
 
     [Fact]
     public void Every_section_of_the_cli_report_has_its_line_in_the_copied_summary()

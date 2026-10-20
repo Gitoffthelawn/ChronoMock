@@ -99,6 +99,38 @@ public class SessionRunTests
     }
 
     /// <summary>
+    /// A speed change pressed just as the core went away - a Stop disposing it, or the core's own exit - is let
+    /// go quietly: the session's end is what the event stream says next, not a failure of the button
+    /// (<see cref="CoreSession.IsGoneAway"/>). This is the race that once popped a message box after an
+    /// ordinary Stop, reachable here because the fake core throws on a send the way the real one does.
+    /// </summary>
+    [Fact]
+    public async Task A_speed_change_sent_to_a_core_that_is_already_gone_is_let_go_quietly()
+    {
+        var store = new InMemorySessionHistoryStore();
+        var core = new FakeCoreConnection(
+            [FakeCoreConnection.ReadyFor(Target)], command => command is StartCommand ? [Heartbeat, Works] : []);
+        var vm = ViewModel(store, core);
+
+        var run = vm.StartAsync();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!vm.IsRunning && clock.Elapsed < Limit)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(vm.IsRunning, $"the session never ran ({vm.StatusKey}: {vm.LastError})");
+        core.GoAway();
+        var pressed = Record.Exception(() => vm.SendMultiplier(60));
+        core.End();
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        Assert.Null(pressed);
+        Assert.IsType<StartCommand>(Assert.Single(core.Sent)); // the speed change never reached a core
+        Assert.Equal(SessionStatusKind.CoreStopped, vm.StatusKind); // the stream, not the button, ended it
+    }
+
+    /// <summary>
     /// The close of R4-S24 without a real core: a window closed during a running session stops it, records it
     /// and lets the core go before the close completes. The core here never sends <c>ended</c>, so the record
     /// says what a session cut short is (R4-W3).

@@ -9,9 +9,9 @@ Chrono Mock - session report
   exited:   the target closed itself with code 3
   followed: the target had started these, and the session went on for them:
             - app.exe (pid 4500)
-  covered channels (substituted, with call counts, 17 calls in all):
+  covered channels (substituted, with call counts, at least 17 calls in all):
             - pid 4200: GetSystemTimePreciseAsFileTime (12 calls)
-            - context 1: page Date.now (5 calls)
+            - context 1: page Date.now (at least 5 calls)
   observed channels (hooked but left real):
             - pid 4200: QueryPerformanceCounter (3 calls)
   uncovered channels (queried but not covered):
@@ -27,5 +27,6 @@ Chrono Mock - session report
             - Engine/1.0 on port 9333 (pid 4400)
   warnings:
             - some waits were too short to divide by the full speed factor and ran at this tool's shortest step (1 ms) instead - that part of the application did not accelerate (wait.timeout_collapsed)
+            - the computer slept for 1 h 30 min during the session - the session clock stood still while it slept, as during a pause (sleep is never multiplied by the speed factor) (time.host_slept)
   not fully cleaned up:
             - cdp.profile_left

@@ -14,6 +14,7 @@ internal sealed class FakeCoreConnection : ICoreConnection
     private readonly Func<Command, IEnumerable<ChronoEvent>> _answer;
     private readonly Lock _gate = new();
     private readonly List<Command> _sent = [];
+    private bool _gone;
 
     internal FakeCoreConnection(
         IEnumerable<ChronoEvent> greeting, Func<Command, IEnumerable<ChronoEvent>>? answer = null, params string[] stderr)
@@ -67,10 +68,18 @@ internal sealed class FakeCoreConnection : ICoreConnection
         return this;
     };
 
+    /// <summary>Writes the command, or throws as <see cref="CoreClient.Send"/> does once the core is gone: let
+    /// go by the session, or gone on its own (<see cref="GoAway"/>) - the race an in-flight command meets when a
+    /// Stop or the core's own exit gets there first.</summary>
     public void Send(Command command)
     {
         lock (_gate)
         {
+            if (_gone || LetGo)
+            {
+                throw new ObjectDisposedException(nameof(FakeCoreConnection));
+            }
+
             _sent.Add(command);
         }
 
@@ -82,6 +91,15 @@ internal sealed class FakeCoreConnection : ICoreConnection
 
     /// <summary>The core closes its stdout, as it does once it has exited.</summary>
     internal void End() => _events.Writer.TryComplete();
+
+    /// <summary>The core is gone for a command sent now, while its last events are still on their way.</summary>
+    internal void GoAway()
+    {
+        lock (_gate)
+        {
+            _gone = true;
+        }
+    }
 
     public ValueTask DisposeAsync()
     {

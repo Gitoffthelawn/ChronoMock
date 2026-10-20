@@ -18385,5 +18385,56 @@
     "match": "class",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-9b CR130 the summary loses a warning only the family verdict raised",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                    .. sv.WarningKeys.Where(w => w != LeftBehindKey).Except(_result.Warnings),\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.What_the_report_says_inside_its_sections_the_summary_says_too",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b CR130 a count at the ceiling is copied as a plain count",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        var key = channel.Capped ? \"coverage.reads_at_least\"",
+        "to": "        var key = channel.Calls < 0 ? \"coverage.reads_at_least\""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.What_the_report_says_inside_its_sections_the_summary_says_too",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b CR130 a speed change sent to a gone core escapes the session",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/CoreSession.cs",
+        "from": "        error is IOException or ObjectDisposedException or InvalidOperationException;",
+        "to": "        error is IOException;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_speed_change_sent_to_a_core_that_is_already_gone_is_let_go_quietly",
+    "match": "method",
+    "build": "",
+    "notHere": ""
   }
 ]
