@@ -29,6 +29,30 @@ public class MomentFieldTests
     public void An_invalid_date_has_no_selected_date()
         => Assert.Null(new MomentField { DateText = "nope" }.SelectedDate);
 
+    /// <summary>R5-P11: a cleared field reads exactly as a field nobody has touched - no message - while a date
+    /// typed out to nothing says it is empty. The second is what an empty date text gives, so the clear cannot
+    /// be that.</summary>
+    [Fact]
+    public void A_cleared_field_reads_as_untouched_and_not_as_an_empty_date()
+    {
+        var untouched = new MomentField();
+        var cleared = new MomentField { DateText = "2038-13-45", TimeText = "25:00" };
+        Assert.True(cleared.HasError);
+        var raised = new List<string?>();
+        cleared.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        cleared.Clear();
+
+        Assert.Equal(
+            (untouched.DateText, untouched.TimeText, untouched.IsValid, untouched.Canonical, untouched.ActiveErrorKey, untouched.HasDateError),
+            (cleared.DateText, cleared.TimeText, cleared.IsValid, cleared.Canonical, cleared.ActiveErrorKey, cleared.HasDateError));
+        Assert.Contains(nameof(MomentField.DateText), raised);
+        Assert.Contains(nameof(MomentField.ActiveErrorKey), raised);
+        var typedOut = new MomentField { DateText = "x" };
+        typedOut.DateText = string.Empty;
+        Assert.Equal("moment.date_empty", typedOut.ActiveErrorKey);
+    }
+
     [Fact]
     public void Load_canonical_splits_into_the_two_fields_and_validates()
     {

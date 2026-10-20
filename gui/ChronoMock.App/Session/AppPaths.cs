@@ -79,6 +79,13 @@ internal static class AppPaths
         () => IsPortable ? EnginePaths.Portable(AppContext.BaseDirectory) : EnginePaths.Repo(DevPaths.RepoRoot()),
         PresetsDir);
 
+    /// <summary>The calendar catalogue as the engine reads it (<c>chrono calendars</c>, R5-P12): the same core the
+    /// calculator asks, pointed at the <c>calendars</c> folder beside <see cref="PresetsDir"/> - the one
+    /// <c>calc --calendar</c> reads from in both layouts.</summary>
+    public static CalendarCatalogueClient CalendarCatalogue => new(
+        () => IsPortable ? EnginePaths.Portable(AppContext.BaseDirectory) : EnginePaths.Repo(DevPaths.RepoRoot()),
+        Path.Combine(DataRoot, "calendars"));
+
     /// <summary>Client for the component register the About window shows, from the same core as the rest.</summary>
     public static LicenseClient LicenceClient => IsPortable
         ? LicenseClient.ForPortable(AppContext.BaseDirectory)

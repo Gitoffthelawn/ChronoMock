@@ -124,10 +124,21 @@ public sealed class PresetCatalogueClient(Func<string> chronoPath, string preset
             throw new CalcException("the engine gave no preset catalogue", 0);
         }
 
-        return catalogue.Schema == PresetCatalogue.SupportedSchema
-            ? catalogue
-            : throw new CalcException(
+        if (catalogue.Schema != PresetCatalogue.SupportedSchema)
+        {
+            throw new CalcException(
                 $"the engine answered with catalogue schema '{catalogue.Schema}', and this window reads {PresetCatalogue.SupportedSchema}",
                 0);
+        }
+
+        // The lists themselves, for the reason CalendarCatalogueClient.Parse gives: a missing list arrived as
+        // null and failed later where nothing catches it, leaving the scenario lists on "reading".
+        if (catalogue.Presets is null || catalogue.Refused is null
+            || catalogue.Presets.Any(p => p is null || string.IsNullOrEmpty(p.Id)))
+        {
+            throw new CalcException("the engine's preset catalogue is incomplete", 0);
+        }
+
+        return catalogue;
     }
 }

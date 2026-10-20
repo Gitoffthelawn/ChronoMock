@@ -8,6 +8,7 @@
 //!     and speaks the machine protocol (ADR-6) to it over stdio.
 //!   * `chrono calc ...` - the date calculator ([`calc`]), the product's second half.
 //!   * `chrono presets` - the preset catalogue as both of those read it ([`preset_catalogue`]).
+//!   * `chrono calendars` - the calendar catalogue as the calculator reads it ([`calendar_catalogue`]).
 //!   * `chrono __core` - the hidden core mode ([`core`]). Reads commands, drives the
 //!     mechanism layer, emits protocol events on stdout.
 //!   * `chrono __cdp-*` - hidden diagnostic probes for the Chromium path ([`cdp_probe`]).
@@ -21,6 +22,8 @@
 mod calc;
 /// Reading a shipped calendar catalogue and validating it.
 mod calendar;
+/// `chrono calendars` - the calendar catalogue every surface reads calendars through.
+mod calendar_catalogue;
 /// The Chromium/Electron substitution mechanism (CDP faketime), a parallel path to the native core.
 mod cdp;
 /// What a Chromium session covered, and the verdict that follows from it.
@@ -89,10 +92,11 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let code = match args.get(1).map(String::as_str) {
         Some("__core") => core_mode(),
-        Some(command @ ("run" | "calc" | "presets")) if asks_for_help(&args[2..]) => print_help_for(command),
+        Some(command @ ("run" | "calc" | "presets" | "calendars")) if asks_for_help(&args[2..]) => print_help_for(command),
         Some("run") => driver_run(&args[2..]),
         Some("calc") => calc_run(&args[2..]),
         Some("presets") => preset_catalogue::presets_run(&args[2..]),
+        Some("calendars") => calendar_catalogue::calendars_run(&args[2..]),
         Some("__cdp-probe") => cdp_probe(&args[2..]),
         Some("__cdp-launch") => cdp_launch_probe(&args[2..]),
         Some("__cdp-shim") => cdp_shim_probe(&args[2..]),

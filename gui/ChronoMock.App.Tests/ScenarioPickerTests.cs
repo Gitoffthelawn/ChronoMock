@@ -71,7 +71,10 @@ public class ScenarioPickerTests
         Assert.Contains(picker.Visible, s => s.DisplayName == wanted);
         Assert.All(
             picker.Visible,
-            s => Assert.Contains(wanted, s.DisplayName, StringComparison.CurrentCultureIgnoreCase));
+            s => Assert.True(
+                s.DisplayName.Contains(wanted, StringComparison.CurrentCultureIgnoreCase)
+                || s.DisplayExplains.Contains(wanted, StringComparison.CurrentCultureIgnoreCase),
+                $"{s.DisplayName} does not answer '{wanted}'"));
     }
 
     [Fact]
@@ -200,10 +203,12 @@ public class ScenarioPickerTests
     }
 
     /// <summary>
-    /// A row that matched on text the reader cannot see is a result they cannot account for.
+    /// R5-D67: the line under the name is on the row in full, so a match on it is one the reader can see - and
+    /// the session's list now answers a word from it the way the calculator's always did. It used to read the
+    /// name alone, from when its row showed nothing else.
     /// </summary>
     [Fact]
-    public async Task The_filter_reads_the_name_and_never_the_explanation()
+    public async Task The_filter_reads_the_name_and_the_line_under_it()
     {
         var picker = await Loaded();
         var withExplanation = picker.Visible.First(s => s.DisplayExplains.Length > 0);
@@ -219,6 +224,6 @@ public class ScenarioPickerTests
 
         picker.Filter = wordFromTheExplanationAlone!;
 
-        Assert.DoesNotContain(picker.Visible, s => s.Id == withExplanation.Id);
+        Assert.Contains(picker.Visible, s => s.Id == withExplanation.Id);
     }
 }

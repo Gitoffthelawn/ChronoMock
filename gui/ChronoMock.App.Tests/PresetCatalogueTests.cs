@@ -35,6 +35,21 @@ public class PresetCatalogueTests
         Assert.All(catalogue.Refused, r => Assert.False(string.IsNullOrWhiteSpace(r.Reason)));
     }
 
+    /// <summary>An answer missing a list or holding a preset without an id is refused as unreadable - it used to
+    /// arrive as nulls and fail where nothing catches it, leaving both scenario lists on "reading" (found with
+    /// the review of #132, the same hole as the calendar catalogue's).</summary>
+    [Theory]
+    [InlineData("""{ "schema": "chronomock.presets/1" }""")]
+    [InlineData("""{ "schema": "chronomock.presets/1", "presets": null, "refused": [] }""")]
+    [InlineData("""{ "schema": "chronomock.presets/1", "presets": [], "refused": null }""")]
+    [InlineData("""{ "schema": "chronomock.presets/1", "presets": [ null ], "refused": [] }""")]
+    public void An_incomplete_answer_is_refused_as_unreadable(string json)
+    {
+        var e = Assert.Throws<CalcException>(() => PresetCatalogueClient.Parse(json));
+
+        Assert.Contains("incomplete", e.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Every preset the engine lists - shipped and odd - fills the builder with words the builder has an
     /// option for, once its parameters have values. A word the builder did not know would leave a step on
@@ -372,5 +387,5 @@ public class PresetCatalogueTests
     [InlineData("Payment due", "N business days out", "quarter", false)]
     public void The_filter_matches_name_or_explains_case_insensitively(
         string name, string explains, string filter, bool expected)
-        => Assert.Equal(expected, CalculatorViewModel.PresetMatchesFilter(name, explains, filter));
+        => Assert.Equal(expected, ScenarioFilter.Matches(name, explains, filter));
 }

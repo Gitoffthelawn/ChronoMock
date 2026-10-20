@@ -42,6 +42,8 @@
   "scenario.left_out_after": "- run chrono presets to see why.",
   "presets.err.folder_missing": "The preset folder is missing - the installation may be incomplete. Extract the package again.",
   "presets.err.folder_unreadable": "The preset folder could not be read - check that Windows lets this account open it.",
+  "calendars.err.folder_missing": "The calendar folder is missing - the installation may be incomplete. Extract the package again.",
+  "calendars.err.folder_unreadable": "The calendar folder could not be read - check that Windows lets this account open it.",
 
   // The rebuilt setup screen: one thing always visible and the rest folded away behind a header that keeps
   // saying what is set inside it. The chips are deliberately short - they sit in a section header beside a
@@ -684,10 +686,11 @@
 
   // Date calculator (chrono-mock 7.3). Slice G1 is the layout shell; more keys arrive with the wiring.
   "calc.presets_header": "Scenarios",
-  "calc.filter_placeholder": "Search scenarios",
   "calc.preset_note": "A scenario is a starting point - not a certificate that your test is complete.",
   "calc.preset_params_header": "Parameters",
   "calc.preset_needs_params": "Fill in the parameters above to compute this scenario.",
+  "calc.preset_calendar_missing": "This scenario counts working days on the calendar \"{0}\", which this installation does not have. Add its file to the calendars folder to use it.",
+  "calc.preset_calendar_unchecked": "This scenario counts working days on the calendar \"{0}\", and the list of calendars could not be read, so it is not computed.",
   "calc.build_header": "Build a date",
   "calc.start_point": "Start from",
   "calc.base_zone": "Time zone",
@@ -742,6 +745,7 @@
   "calc.cal.us_banking": "US banking",
   "calc.cal.us_federal": "US federal",
   "calc.cal.pl": "Poland",
+  "calc.cal.unreadable": "Could not read the calendars: {0}",
 
   // The engine writes its refusals for the command line, so its own sentence here names a flag
   // ("pass --calendar") that this screen cannot pass. Said instead as the control that fixes it, and

@@ -8,6 +8,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **`chrono calendars` lists the calendars the calculator can count in**, the way `chrono presets`
+  lists the presets: every calendar file `--calendar` reads, with its country and its own name, and
+  every file it would refuse, with the reason. `--dir` reads another folder, `--json` answers in
+  `chronomock.calendars/1`. The window's calculator now offers the calendars this command lists,
+  so a calendar added as a data file can be picked there too.
 - **A Chromium session says what its pages did that the fake clock does not reach.** Three new
   warnings, each said only when it happened, in a Chromium session and for the pages of a web engine
   inside an application alike. `chromium.engine_stamps_real`: a page's animation frame got its stamp, or
@@ -79,6 +84,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **Both scenario lists search the same way.** A word typed into the session's scenario search now
+  finds a scenario by the line that says what it tests, as the calculator's search always did - both
+  lines are shown on every row. The calculator's search box is the session's: it has the clear button,
+  Enter chooses the first scenario left, and a search that leaves nothing says so in the list's place.
+  The scenario chosen in the calculator stays marked while it still matches, and is marked again when
+  a search that hid it is cleared, with its parameters as they were typed.
 - **A `jump` to an absolute moment that names no moment gets the same answer on both mechanisms.** A
   protocol client that sent `{"kind":"absolute"}` without `local` was told `moment.invalid` by a
   Chromium session, while a native session read the missing moment as an empty one and, when the same
@@ -235,6 +246,19 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **"New session" comes back at the mode the last session started with.** Changing the speed while a
+  session ran moved the Mode list with it, so a session started in flow left the next form at x60.
+- **The "Jump to" field of a new session is empty.** It kept the moment typed in the last session,
+  ready to jump the new one there.
+- **A calculator answer counted from "Today" or "Now" is brought up to date before it is used.** It
+  was computed once, so a "Today + 30 days" left open overnight went to the substitution panel and
+  the clipboard as yesterday's answer. Showing the calculator again, "Use this date" and Copy now ask
+  again when the day (Today) or the second (Now) has moved on, and wait for the new answer.
+- **A calculator scenario that counts in a calendar this installation does not have is no longer
+  computed in another one.** The window kept the calendar picked before, so a scenario for a market
+  with no calendar here counted its business days in another country's, without a word. It now says
+  which calendar the scenario needs and computes nothing. When the list of calendars cannot be read,
+  the calendar field says why and offers no calendar.
 - **A timer or a delay whose absolute due the session's clock has already passed fires at once.**
   `SetWaitableTimer`, `SetWaitableTimerEx`, `SetThreadpoolTimer` and `SetThreadpoolTimerEx` got the
   shortest relative due for it, which Windows fires only at the next tick of the system timer - up to

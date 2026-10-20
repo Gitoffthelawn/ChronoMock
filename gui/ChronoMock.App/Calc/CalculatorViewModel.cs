@@ -69,10 +69,45 @@ public sealed record NearestTargetOption(string Token, string LabelKey)
     public string DisplayText => TranslationKeyConverter.Resolve(LabelKey);
 }
 
-/// <summary>A calendar option: the id passed to <c>--calendar</c> (null = omit it) plus its translation key.</summary>
+/// <summary>
+/// A calendar option: the id passed to <c>--calendar</c> (null = omit it) plus its label. The label is a
+/// translation key for a calendar this window ships a text for, and for any other the calendar file's own
+/// English name, or its id when the file names none (R5-D66) - shown as written, because a key the window
+/// does not know is shown as itself (<see cref="TranslationKeyConverter.Resolve"/>).
+/// </summary>
 public sealed record CalendarOption(string? Id, string LabelKey)
 {
+    // The calendars this window has a text of its own for - the ones it ships. Texts, not a list of what
+    // exists: what exists is the engine's answer (chrono calendars, R5-P12).
+    private static readonly (string Id, string LabelKey)[] ShippedLabels =
+    [
+        ("us-banking", "calc.cal.us_banking"),
+        ("us-federal", "calc.cal.us_federal"),
+        ("pl", "calc.cal.pl"),
+    ];
+
     public string DisplayText => TranslationKeyConverter.Resolve(LabelKey);
+
+    /// <summary>No calendar - the option every list starts with.</summary>
+    public static CalendarOption None { get; } = new(null, "calc.cal.none");
+
+    /// <summary>The list before the engine has answered, and with no engine to ask (a test): no calendar,
+    /// then the calendars this window ships.</summary>
+    public static IReadOnlyList<CalendarOption> Shipped { get; } =
+        [None, .. ShippedLabels.Select(s => new CalendarOption(s.Id, s.LabelKey))];
+
+    /// <summary>The option for a calendar the engine listed.</summary>
+    public static CalendarOption From(CatalogueCalendar calendar)
+    {
+        ArgumentNullException.ThrowIfNull(calendar);
+        var label = ShippedLabels.Where(s => SameId(s.Id, calendar.Id)).Select(s => s.LabelKey).FirstOrDefault()
+            ?? (string.IsNullOrWhiteSpace(calendar.Name?.En) ? calendar.Id : calendar.Name.En);
+        return new CalendarOption(calendar.Id, label);
+    }
+
+    /// <summary>Whether two calendar ids name the same calendar - without case, the way the engine finds its
+    /// file on Windows (<c>--calendar PL</c> counts in <c>pl.json</c>).</summary>
+    public static bool SameId(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -317,6 +352,12 @@ public sealed class ParamInputViewModel : ObservableObject
     /// <summary>The choices of a variant parameter, as the catalogue lists them.</summary>
     public IReadOnlyList<VariantOption> VariantOptions { get; }
 
+    /// <summary>Raised once for each change of the value - the date, the amount, the unit or the choice - and
+    /// for nothing else (R5-WY5). The builder resolved the preset again on EVERY property this raised, and a
+    /// date raises two (its text and the calendar's day), so each keystroke in a date resolved twice. A list
+    /// of property names kept by the builder instead would miss the next value property in silence.</summary>
+    public event EventHandler? ValueChanged;
+
     public string DateText
     {
         get => _dateText;
@@ -325,6 +366,7 @@ public sealed class ParamInputViewModel : ObservableObject
             if (Set(ref _dateText, value))
             {
                 RaisePropertyChanged(nameof(SelectedDate));
+                ValueChanged?.Invoke(this, EventArgs.Empty);
             }
         }
     }
@@ -349,9 +391,17 @@ public sealed class ParamInputViewModel : ObservableObject
         }
     }
 
-    public string Amount { get => _amount; set => Set(ref _amount, value); }
-    public UnitOption Unit { get => _unit; set => Set(ref _unit, value); }
-    public VariantOption? Variant { get => _variant; set => Set(ref _variant, value); }
+    public string Amount { get => _amount; set => SetValue(ref _amount, value); }
+    public UnitOption Unit { get => _unit; set => SetValue(ref _unit, value); }
+    public VariantOption? Variant { get => _variant; set => SetValue(ref _variant, value); }
+
+    private void SetValue<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+    {
+        if (Set(ref field, value, name))
+        {
+            ValueChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     /// <summary>The parameter id, used to build the value map.</summary>
     public string Id => Param.Id;
@@ -437,11 +487,18 @@ public sealed class CalculatorViewModel : ObservableObject
     private readonly ICalcEngine _client;
     private readonly PresetLibrary? _presets;
     private IReadOnlyList<PresetItemViewModel> _allPresets = [];
+    private IReadOnlyList<PresetItemViewModel> _visiblePresets = [];
     private PresetItemViewModel? _selectedPreset;
     private string _presetFilter = string.Empty;
     private bool _unpacking;
     private bool _hasActivePreset;
     private string _activeNoteKey = string.Empty;
+    private string _activeNoteArgument = string.Empty;
+    private readonly CalendarChoices _calendarChoices;
+    private Task _calendarsRead = Task.CompletedTask;
+    private readonly AnswerClock _clock;
+    // What the clock contributed to the question the last answer was asked for (see ClockStamp).
+    private string _askedClock = string.Empty;
     private bool _hasParamInputs;
     private string _activePresetName = string.Empty;
     private string _activePresetExplains = string.Empty;
@@ -494,10 +551,21 @@ public sealed class CalculatorViewModel : ObservableObject
 
     private readonly Debounce _recomputeDebounce = new(EditDebounce);
 
-    public CalculatorViewModel(ICalcEngine client, PresetLibrary? presets = null)
+    public CalculatorViewModel(
+        ICalcEngine client, PresetLibrary? presets = null, CalendarChoices? calendars = null, AnswerClock? clock = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _presets = presets;
+        _calendarChoices = calendars ?? new CalendarChoices(null);
+        _calendarChoices.PropertyChanged += OnCalendarChoicesChanged;
+        _clock = clock ?? AnswerClock.System;
+        ChooseFirstPreset = new RelayCommand(() =>
+        {
+            if (_visiblePresets.Count > 0)
+            {
+                SelectedPreset = _visiblePresets[0];
+            }
+        });
         _result.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsResultStale));
 
         // 🔴 Three kinds on screen, not four. "Specific instant (UTC)" was a fourth entry that meant
@@ -552,14 +620,7 @@ public sealed class CalculatorViewModel : ObservableObject
             new NearestTargetOption("next-leap-day", "calc.nearest.leap"),
         ];
 
-        Calendars =
-        [
-            new CalendarOption(null, "calc.cal.none"),
-            new CalendarOption("us-banking", "calc.cal.us_banking"),
-            new CalendarOption("us-federal", "calc.cal.us_federal"),
-            new CalendarOption("pl", "calc.cal.pl"),
-        ];
-        _calendar = Calendars[0];
+        _calendar = CalendarOption.None;
 
         // Host first and selected, so opening the calculator computes exactly what it computed before this
         // picker existed. Built once here rather than cached statically, so the host label is read at the
@@ -578,7 +639,17 @@ public sealed class CalculatorViewModel : ObservableObject
     public IReadOnlyList<UnitOption> Units { get; }
     public IReadOnlyList<SnapTargetOption> SnapTargets { get; }
     public IReadOnlyList<NearestTargetOption> NearestTargets { get; }
-    public IReadOnlyList<CalendarOption> Calendars { get; }
+
+    /// <summary>The calendars a business-day step can count in: no calendar, then the engine's list
+    /// (<c>chrono calendars</c>, R5-P12) - the shipped ones until it has answered, and with no engine to ask.
+    /// </summary>
+    public IReadOnlyList<CalendarOption> Calendars => _calendarChoices.Options;
+
+    /// <summary>Why the list of calendars could not be read, in the interface language, under the calendar
+    /// field - empty when it was read.</summary>
+    public string CalendarError => _calendarChoices.Error;
+
+    public bool HasCalendarError => _calendarChoices.HasError;
 
     public ObservableCollection<StepViewModel> Steps { get; } = [];
 
@@ -589,8 +660,22 @@ public sealed class CalculatorViewModel : ObservableObject
     /// <summary>The output formats, each a label plus value, with a copy affordance in the view.</summary>
     public ObservableCollection<FormatRow> Formats { get; } = [];
 
-    /// <summary>The calculator presets, filtered to this module and the current text filter (7.3).</summary>
-    public ObservableCollection<PresetItemViewModel> Presets { get; } = [];
+    /// <summary>The calculator presets, filtered to this module and the current text filter (7.3). Replaced
+    /// whole when the filter changes, never emptied and refilled row by row (R5-U7): a list cleared under the
+    /// chosen row loses it at every keystroke, though the row still matches.</summary>
+    public IReadOnlyList<PresetItemViewModel> Presets { get => _visiblePresets; private set => Set(ref _visiblePresets, value); }
+
+    /// <summary>Whether the filter left nothing of a list that has presets - said in the list's place, as the
+    /// session's list says it, so an empty well never reads as an empty catalogue.</summary>
+    public bool HasNoPresetMatches => _allPresets.Count > 0 && _visiblePresets.Count == 0;
+
+    /// <summary>Whether the list itself is shown: read, and with rows left by the search. An empty list was a
+    /// thin bordered strip over the sentence that says why it is empty.</summary>
+    public bool ShowsPresetRows => PresetStatus.ShowsList && _visiblePresets.Count > 0;
+
+    /// <summary>Choose the first preset the filter left standing - the search box binds this to Enter, as the
+    /// session's does.</summary>
+    public System.Windows.Input.ICommand ChooseFirstPreset { get; }
 
     /// <summary>The preset chosen in the list. Setting it to a real item fills the builder from that preset
     /// (fill-on-select), which is now the only way a preset reaches the builder, so the list reads like the
@@ -615,10 +700,12 @@ public sealed class CalculatorViewModel : ObservableObject
 
     /// <summary>
     /// The note under the active preset's name, as a translation key, empty when the preset filled the
-    /// builder: <c>calc.preset_needs_params</c> while a parameter has no value, or <c>scenario.unsupported</c>
-    /// when the preset is in a shape this window cannot represent. The second is a defence - the catalogue
-    /// lists only what the engine accepts - and it used to read "fill in the parameters below" too, over a
-    /// preset with no parameters to fill (R4-S22, owner's decision D3).
+    /// builder: <c>calc.preset_needs_params</c> while a parameter has no value, <c>scenario.unsupported</c>
+    /// when the preset is in a shape this window cannot represent, and since R5/6a
+    /// <c>calc.preset_calendar_missing</c> or <c>calc.preset_calendar_unchecked</c> when it counts in a
+    /// calendar that is not on the engine's list, or when that list could not be read. The second is a
+    /// defence - the catalogue lists only what the engine accepts - and it used to read "fill in the
+    /// parameters below" too, over a preset with no parameters to fill (R4-S22, owner's decision D3).
     /// </summary>
     public string ActiveNoteKey
     {
@@ -628,11 +715,18 @@ public sealed class CalculatorViewModel : ObservableObject
             if (Set(ref _activeNoteKey, value))
             {
                 RaisePropertyChanged(nameof(HasActiveNote));
+                RaisePropertyChanged(nameof(ActiveNoteText));
             }
         }
     }
 
     public bool HasActiveNote => _activeNoteKey.Length > 0;
+
+    /// <summary>The note as the reader sees it: <see cref="ActiveNoteKey"/> in the interface language, filled
+    /// with the calendar id a calendar note names.</summary>
+    public string ActiveNoteText => _activeNoteKey.Length == 0
+        ? string.Empty
+        : TextFormat.Translate(Tr, _activeNoteKey, _activeNoteArgument);
 
     /// <summary>The active preset's localized name (data locale).</summary>
     public string ActivePresetName { get => _activePresetName; private set => Set(ref _activePresetName, value); }
@@ -731,7 +825,7 @@ public sealed class CalculatorViewModel : ObservableObject
         _baseKind.Kind, Base.Canonical, Steps.Select(s => s.ToArgs()), _calendar.Id, _customFormatMask,
         BaseZoneOffset);
 
-    /// <summary>Free-text filter over the preset list (matches the name or the "what it tests" line).</summary>
+    /// <summary>Free-text filter over the preset list - the rule every scenario list shares (<see cref="ScenarioFilter"/>).</summary>
     public string PresetFilter
     {
         get => _presetFilter;
@@ -894,6 +988,7 @@ public sealed class CalculatorViewModel : ObservableObject
         _sendingToSubstitution = true;
         try
         {
+            AskAgainIfTheClockMoved();
             if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)
             {
                 UseInSubstitutionRequested?.Invoke(_resultMomentLocal, _resultZoneBias);
@@ -914,8 +1009,34 @@ public sealed class CalculatorViewModel : ObservableObject
     public async Task<string?> CopyValueAsync(FormatRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
+        AskAgainIfTheClockMoved();
         return await _result.WhenCurrentAsync(ActionWait) && row.HasValue ? row.Value : null;
     }
+
+    /// <summary>
+    /// Ask again when the answer on screen was computed for a clock that has moved on (R5-P13): a Today base
+    /// past midnight in its zone, a Now base past the second it was read at. Nothing in the builder changes
+    /// when time passes, so the answer counted as current - a "Today + 30 d" from yesterday went to the
+    /// substitution panel and the clipboard as today's. Asked when the screen is shown again and before
+    /// either of those, which then wait for the new answer as they wait for any other. A specific date never
+    /// moves with the clock, and a screen showing no result (a scenario waiting for its parameters) has none
+    /// to bring up to date.
+    /// </summary>
+    private void AskAgainIfTheClockMoved()
+    {
+        if (HasResult && _baseKind.Kind is (BaseKind.Today or BaseKind.Now) && ClockStamp() != _askedClock)
+        {
+            _result.Ask();
+            _ = AskForTheMovedClockAsync();
+        }
+    }
+
+    // Not through the debounce: the clock moving is not an edit, so there is no burst to absorb, and the
+    // press that asked waits for this very answer.
+    private Task AskForTheMovedClockAsync() => RecomputeAsync();
+
+    /// <summary>What the clock contributes to the answer for the base as it stands (<see cref="AnswerClock"/>).</summary>
+    private string ClockStamp() => _clock.Stamp(_baseKind.Kind, _baseZone);
 
     /// <summary>Add a step (defaults to shift) and wire its edits to a recompute.</summary>
     public void AddStep()
@@ -942,6 +1063,7 @@ public sealed class CalculatorViewModel : ObservableObject
     {
         _result.Abandon();
         Analysis.Abandon();
+        _calendarChoices.Abandon();
     }
 
     /// <summary>Compute once when the screen is first shown (never from the constructor, so building the
@@ -950,14 +1072,47 @@ public sealed class CalculatorViewModel : ObservableObject
     {
         if (_computedOnce)
         {
+            AskAgainIfTheClockMoved();
             return Task.CompletedTask;
         }
 
         _computedOnce = true;
+        // Both catalogues at once, and the scenario list ready only when both are: a scenario that counts in
+        // a calendar is judged against the engine's list, so it cannot be picked before that list is known.
+        _calendarsRead = _calendarChoices.LoadAsync();
         _ = LoadPresetsAsync();
         Analysis.Start(); // the reverse-analysis strip is live from the start (its default example)
         _result.Ask();
         return RecomputeAsync();
+    }
+
+    // The engine's list replaced the one the picker showed: the calendar picked so far stays picked when it is
+    // listed, and gives way to "no calendar" when it is not.
+    private void OnCalendarChoicesChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CalendarChoices.Error))
+        {
+            RaisePropertyChanged(nameof(CalendarError));
+            RaisePropertyChanged(nameof(HasCalendarError));
+            return;
+        }
+
+        if (e.PropertyName != nameof(CalendarChoices.Options))
+        {
+            return;
+        }
+
+        var kept = _calendarChoices.Find(_calendar.Id);
+        var moved = !CalendarOption.SameId(kept.Id, _calendar.Id);
+        _calendar = kept;
+        RaisePropertyChanged(nameof(Calendars));
+        // Raised even when the option is equal to the one held: the list is new, and the picker has to find
+        // its selection in it again.
+        RaisePropertyChanged(nameof(SelectedCalendar));
+        if (moved)
+        {
+            TriggerRecompute();
+        }
     }
 
     /// <summary>Where the scenario list stands - reading, failed, empty, or read with files left out.</summary>
@@ -1002,30 +1157,27 @@ public sealed class CalculatorViewModel : ObservableObject
             .Select(p => new PresetItemViewModel(p, culture))
             .OrderBy(p => p.DisplayName, StringComparer.InvariantCulture)
             .ToList();
+        await _calendarsRead; // never throws - a list that could not be read is said, not thrown
         PresetStatus.Ready(_allPresets.Count, catalogue.Refused);
         ApplyPresetFilter();
     }
 
     private void ApplyPresetFilter()
     {
-        Presets.Clear();
-        foreach (var preset in _allPresets)
-        {
-            if (PresetMatchesFilter(preset.DisplayName, preset.DisplayExplains, _presetFilter))
-            {
-                Presets.Add(preset);
-            }
-        }
-    }
+        Presets = [.. _allPresets.Where(p => ScenarioFilter.Matches(p.DisplayName, p.DisplayExplains, _presetFilter))];
+        RaisePropertyChanged(nameof(HasNoPresetMatches));
+        RaisePropertyChanged(nameof(ShowsPresetRows));
 
-    /// <summary>Whether a preset with this name and "what it tests" line survives the filter: an empty
-    /// filter keeps everything, otherwise it matches either field case-insensitively. Pure and unit-tested.</summary>
-    public static bool PresetMatchesFilter(string name, string explains, string filter)
-    {
-        var f = filter.Trim();
-        return f.Length == 0
-            || name.Contains(f, StringComparison.CurrentCultureIgnoreCase)
-            || explains.Contains(f, StringComparison.CurrentCultureIgnoreCase);
+        // The row of the preset the builder still holds is chosen again when the filter shows it again. A
+        // filter that hid it took the list's selection with it (the builder keeps the preset, see
+        // SelectedPreset), and without this the row came back unmarked - and a press on it filled the
+        // parameters again from their defaults, over what the tester had typed. Set without applying.
+        if (HasActivePreset && _selectedPreset is null
+            && _visiblePresets.FirstOrDefault(p => ReferenceEquals(p.Info, _activePreset)) is { } shown)
+        {
+            _selectedPreset = shown;
+            RaisePropertyChanged(nameof(SelectedPreset));
+        }
     }
 
     private void TriggerRecompute()
@@ -1072,14 +1224,14 @@ public sealed class CalculatorViewModel : ObservableObject
         foreach (var param in preset.Parameters)
         {
             var input = new ParamInputViewModel(param, Units, culture);
-            input.PropertyChanged += OnParamChanged;
+            input.ValueChanged += OnParamChanged;
             ParamInputs.Add(input);
         }
 
         HasParamInputs = ParamInputs.Count > 0;
     }
 
-    private void OnParamChanged(object? sender, PropertyChangedEventArgs e) => ResolveActivePreset();
+    private void OnParamChanged(object? sender, EventArgs e) => ResolveActivePreset();
 
     // Gather the parameter inputs and fill the builder from the preset's moment. A missing date leaves the
     // inputs shown with the honest note and does not fill a wrong moment (rule 6).
@@ -1094,6 +1246,17 @@ public sealed class CalculatorViewModel : ObservableObject
         _result.Ask();
 
         var culture = LocalizationService.CurrentCulture;
+
+        // A scenario that counts in a calendar the engine does not list is not computed at all (R5-P12): the
+        // builder used to keep whatever calendar was picked before, so a market with no calendar here counted
+        // its business days in another country's, with no word anywhere. When the list itself could not be
+        // read, that is what the note says - "not installed" would be a claim nobody checked.
+        if (preset.Calendar is { } wanted && !_calendarChoices.Lists(wanted))
+        {
+            var noteKey = HasCalendarError ? "calc.preset_calendar_unchecked" : "calc.preset_calendar_missing";
+            ShowWithoutResult(preset, culture, noteKey, wanted);
+            return;
+        }
         var values = new Dictionary<string, ParamValue>();
         foreach (var input in ParamInputs)
         {
@@ -1169,7 +1332,7 @@ public sealed class CalculatorViewModel : ObservableObject
     {
         foreach (var input in ParamInputs)
         {
-            input.PropertyChanged -= OnParamChanged;
+            input.ValueChanged -= OnParamChanged;
         }
 
         ParamInputs.Clear();
@@ -1179,11 +1342,12 @@ public sealed class CalculatorViewModel : ObservableObject
     /// <summary>Select the calendar a regional preset implies (docs/05 3.5), so a market preset computes
     /// without the user first picking one - the calendar the engine names for the preset's market, the same
     /// one `calc --preset` and `run --preset` count in. A preset with no market leaves the calendar as it is.</summary>
+    // The calendar was checked against the engine's list before the builder was filled, so it is on it.
     private void ApplyMarketCalendar(string? calendarId)
     {
         if (calendarId is not null)
         {
-            SelectedCalendar = Calendars.FirstOrDefault(c => c.Id == calendarId) ?? _calendar;
+            SelectedCalendar = _calendarChoices.Find(calendarId);
         }
     }
 
@@ -1227,18 +1391,20 @@ public sealed class CalculatorViewModel : ObservableObject
     /// result under this preset.
     /// </para>
     /// </summary>
-    private void ShowWithoutResult(PresetInfo preset, string culture, string noteKey)
+    private void ShowWithoutResult(PresetInfo preset, string culture, string noteKey, string noteArgument = "")
     {
-        ShowActivePreset(preset, culture, noteKey);
+        ShowActivePreset(preset, culture, noteKey, noteArgument);
         _result.Settle();
         ClearResult();
     }
 
-    private void ShowActivePreset(PresetInfo preset, string culture, string noteKey)
+    private void ShowActivePreset(PresetInfo preset, string culture, string noteKey, string noteArgument = "")
     {
         ActivePresetName = preset.LocalizedName(culture);
         ActivePresetExplains = preset.LocalizedExplains(culture);
+        _activeNoteArgument = noteArgument;
         ActiveNoteKey = noteKey;
+        RaisePropertyChanged(nameof(ActiveNoteText));
         HasActivePreset = true;
     }
 
@@ -1323,9 +1489,16 @@ public sealed class CalculatorViewModel : ObservableObject
         // MomentInput shows the precise inline reason, and the result is cleared rather than left stale
         // (rule 6). Today and Now carry no base text, so they always compute. The arguments are built
         // inside the run, so a throw there is answered like any other failure.
-        async token => IsSpecificBase && !Base.IsValid
-            ? null
-            : await _client.EvaluateAsync(BuildCurrentArgs(), token),
+        async token =>
+        {
+            if (IsSpecificBase && !Base.IsValid)
+            {
+                return null;
+            }
+
+            _askedClock = ClockStamp();
+            return await _client.EvaluateAsync(BuildCurrentArgs(), token);
+        },
         result =>
         {
             if (result is null)

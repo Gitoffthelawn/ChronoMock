@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use chrono_core::calc::{Base, CivilDateTime, Step, Unit};
 use serde::Serialize;
 
-use crate::calendar::{find_catalogue_dir, is_valid_catalogue_id};
+use crate::calendar::{find_catalogue_dir, is_valid_catalogue_id, parse_catalogue_args};
 use crate::grammar::{nearest_code, sign_code, snap_code, unit_code};
 use crate::output::{diag, out, outln};
 use crate::preset::{
@@ -317,35 +317,11 @@ fn canonical_parameter(p: &Parameter) -> ParameterJson {
     }
 }
 
-/// What `chrono presets` was asked for.
-#[derive(Debug, PartialEq, Eq)]
-struct PresetsArgs {
-    dir: Option<PathBuf>,
-    json: bool,
-}
-
-fn parse_presets_args(args: &[String]) -> Result<PresetsArgs, String> {
-    let mut parsed = PresetsArgs { dir: None, json: false };
-    let mut words = args.iter();
-    while let Some(word) = words.next() {
-        match word.as_str() {
-            "--json" if !parsed.json => parsed.json = true,
-            "--dir" if parsed.dir.is_none() => {
-                let value = words.next().filter(|v| !v.starts_with("--")).ok_or("--dir needs a folder")?;
-                parsed.dir = Some(PathBuf::from(value));
-            }
-            "--json" | "--dir" => return Err(format!("{word} given twice")),
-            other => return Err(format!("unknown argument '{other}' for presets")),
-        }
-    }
-    Ok(parsed)
-}
-
 /// `chrono presets [--dir <folder>] [--json]`. Exit 0 when the folder was read, whatever it held - a
 /// refused file is part of the answer. Exit 1 for a bad argument or a folder that is missing or cannot
 /// be read.
 pub(crate) fn presets_run(args: &[String]) -> i32 {
-    let parsed = match parse_presets_args(args) {
+    let parsed = match parse_catalogue_args("presets", args) {
         Ok(parsed) => parsed,
         Err(e) => {
             diag!("chrono presets: {e}");
@@ -579,16 +555,15 @@ mod tests {
 
     #[test]
     fn presets_takes_a_folder_and_json_once_each() {
-        assert_eq!(parse_presets_args(&[]).unwrap(), PresetsArgs { dir: None, json: false });
-        assert_eq!(
-            parse_presets_args(&words(&["--dir", "x", "--json"])).unwrap(),
-            PresetsArgs { dir: Some(PathBuf::from("x")), json: true }
-        );
-        assert!(parse_presets_args(&words(&["--dir"])).is_err());
-        assert!(parse_presets_args(&words(&["--dir", "--json"])).is_err(), "a flag is not a folder");
-        assert!(parse_presets_args(&words(&["--json", "--json"])).is_err());
-        assert!(parse_presets_args(&words(&["--dir", "a", "--dir", "b"])).is_err());
-        assert!(parse_presets_args(&words(&["--preset"])).is_err());
+        use crate::calendar::CatalogueArgs;
+        let parse = |list: &[&str]| parse_catalogue_args("presets", &words(list));
+        assert_eq!(parse(&[]).unwrap(), CatalogueArgs { dir: None, json: false });
+        assert_eq!(parse(&["--dir", "x", "--json"]).unwrap(), CatalogueArgs { dir: Some(PathBuf::from("x")), json: true });
+        assert!(parse(&["--dir"]).is_err());
+        assert!(parse(&["--dir", "--json"]).is_err(), "a flag is not a folder");
+        assert!(parse(&["--json", "--json"]).is_err());
+        assert!(parse(&["--dir", "a", "--dir", "b"]).is_err());
+        assert_eq!(parse(&["--preset"]).unwrap_err(), "unknown argument '--preset' for presets");
     }
 
     mod properties {

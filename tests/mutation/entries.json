@@ -7054,8 +7054,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalcErrorText.cs",
-        "from": "    private static readonly string[] Families = [\"calc.\", \"presets.\"];",
-        "to": "    private static readonly string[] Families = [\"calc.\"];"
+        "from": "    private static readonly string[] Families = [\"calc.\", \"presets.\", \"calendars.\"];",
+        "to": "    private static readonly string[] Families = [\"calc.\", \"calendars.\"];"
       }
     ],
     "runner": "cs",
@@ -7071,8 +7071,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalcErrorText.cs",
-        "from": "    private static readonly string[] Prefixes = [\"chrono calc: \", \"chrono presets: \", \"chrono: \"];",
-        "to": "    private static readonly string[] Prefixes = [\"chrono calc: \", \"chrono: \"];"
+        "from": "    private static readonly string[] Prefixes = [\"chrono calc: \", \"chrono presets: \", \"chrono calendars: \", \"chrono: \"];",
+        "to": "    private static readonly string[] Prefixes = [\"chrono calc: \", \"chrono calendars: \", \"chrono: \"];"
       }
     ],
     "runner": "cs",
@@ -18957,6 +18957,455 @@
     ],
     "test": "preset::tests::a_preset_is_taken_onto_a_surface_and_filled_the_same_way_for_both",
     "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 a file --calendar refuses is listed",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar_catalogue.rs",
+        "from": "        Err(reason) => Err(RefusedJson { file, id: Some(stem), reason }),",
+        "to": "        Err(_) => Ok(CalendarEntryJson { file, id: stem, country: String::new(), name: None }),"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar_catalogue::tests::a_calendar_is_listed_exactly_when_calendar_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 a title is read without the checks --calendar makes",
+    "edits": [
+      {
+        "file": "crates/cli/src/calendar.rs",
+        "from": "    let (_, text) = read_calendar_at(path, id)?;",
+        "to": "    let _ = id; let text = read_catalogue_file(path)?;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "calendar_catalogue::tests::a_calendar_is_listed_exactly_when_calendar_takes_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 the calendar catalogue's keys are not scanned",
+    "edits": [
+      {
+        "file": "crates/cli/tests/wire_keys.rs",
+        "from": "const ENGINE_KEY_FAMILIES: [&str; 3] = [\"(calc.\", \"(presets.\", \"(calendars.\"];",
+        "to": "const ENGINE_KEY_FAMILIES: [&str; 3] = [\"(calc.\", \"(presets.\", \"(presets.\"];"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "wire_keys"
+    ],
+    "test": "every_translation_is_reached_by_the_window_or_the_core",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 a scenario whose calendar is not listed is still filled",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            ShowWithoutResult(preset, culture, noteKey, wanted);\n            return;",
+        "to": "            ShowWithoutResult(preset, culture, noteKey, wanted);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.A_scenario_counting_in_a_calendar_that_is_not_listed_is_not_computed",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 an unread list is said as a missing calendar",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            var noteKey = HasCalendarError ? \"calc.preset_calendar_unchecked\" : \"calc.preset_calendar_missing\";",
+        "to": "            var noteKey = \"calc.preset_calendar_missing\";"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.A_list_that_could_not_be_read_leaves_no_calendar_and_says_why",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 an unread list goes on offering the shipped calendars",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalendarChoices.cs",
+        "from": "            Options = [CalendarOption.None];",
+        "to": "            _ = Options;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.A_list_that_could_not_be_read_leaves_no_calendar_and_says_why",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 the window keeps its own list",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalendarChoices.cs",
+        "from": "            Options = [CalendarOption.None, .. catalogue.Calendars.Select(CalendarOption.From)];",
+        "to": "            _ = catalogue;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.The_calculator_offers_what_the_engine_lists_under_the_windows_texts_or_the_files_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 a shipped calendar is named by its file",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        var label = ShippedLabels.Where(s => SameId(s.Id, calendar.Id)).Select(s => s.LabelKey).FirstOrDefault()",
+        "to": "        var label = ShippedLabels.Where(s => s.Id.Length < 0).Select(s => s.LabelKey).FirstOrDefault()"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.The_calculator_offers_what_the_engine_lists_under_the_windows_texts_or_the_files_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P12 the calendar picked before the list is dropped",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        var kept = _calendarChoices.Find(_calendar.Id);",
+        "to": "        var kept = CalendarOption.None;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.A_calendar_picked_before_the_list_arrives_stays_picked_only_if_listed",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P10 the new form keeps the live speed",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "            SelectedMode = started.Mode;",
+        "to": "            _ = started;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_new_session_comes_back_at_the_mode_the_last_one_started_with",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P11 the jump field keeps the last session's moment",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        JumpMoment.Clear();",
+        "to": "        _ = JumpMoment;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_new_session_starts_with_an_untouched_jump_field",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P11 a cleared field says the date is empty",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/MomentField.cs",
+        "from": "        Show(new MomentResult(false, string.Empty, MomentPart.None, string.Empty));",
+        "to": "        Recompute();"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.MomentFieldTests.A_cleared_field_reads_as_untouched_and_not_as_an_empty_date",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P13 Use does not look at the clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            AskAgainIfTheClockMoved();\n            if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)",
+        "to": "            if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorClockTests.A_today_answer_is_asked_again_once_the_day_has_turned",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P13 Copy does not look at the clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        AskAgainIfTheClockMoved();\n        return await _result.WhenCurrentAsync(ActionWait) && row.HasValue ? row.Value : null;",
+        "to": "        return await _result.WhenCurrentAsync(ActionWait) && row.HasValue ? row.Value : null;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorClockTests.A_now_answer_is_asked_again_before_it_is_copied",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P13 showing the screen again does not look at the clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        if (_computedOnce)\n        {\n            AskAgainIfTheClockMoved();\n",
+        "to": "        if (_computedOnce)\n        {\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorClockTests.Showing_the_screen_again_asks_only_for_an_answer_the_clock_moved_past",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P13 a question does not note its clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            _askedClock = ClockStamp();",
+        "to": "            _ = ClockStamp();"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorClockTests.A_today_answer_is_asked_again_once_the_day_has_turned",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a P13 a fixed zone's day is read in UTC",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/AnswerClock.cs",
+        "from": "                    : now.UtcDateTime.AddMinutes(-zone.BiasMinutes))",
+        "to": "                    : now.UtcDateTime)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorClockTests.A_today_answer_in_a_fixed_zone_turns_at_that_zones_midnight",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a U7 a scenario the search hid comes back unmarked",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            _selectedPreset = shown;\n            RaisePropertyChanged(nameof(SelectedPreset));",
+        "to": "            _ = shown;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorPresetFilterTests.A_scenario_hidden_by_the_search_comes_back_chosen_with_its_parameters_as_typed",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a U7 an emptied list stays a strip",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "    public bool ShowsPresetRows => PresetStatus.ShowsList && _visiblePresets.Count > 0;",
+        "to": "    public bool ShowsPresetRows => PresetStatus.ShowsList;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorPresetFilterTests.A_scenario_hidden_by_the_search_comes_back_chosen_with_its_parameters_as_typed",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a U7 Enter chooses nothing",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "                SelectedPreset = _visiblePresets[0];",
+        "to": "                _ = _visiblePresets[0];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorPresetFilterTests.Enter_chooses_the_first_scenario_the_search_left_standing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a U7 the session's search reads the name alone",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/ScenarioPicker.cs",
+        "from": "        => ScenarioFilter.Matches(scenario.DisplayName, scenario.DisplayExplains, needle);",
+        "to": "        => ScenarioFilter.Matches(scenario.DisplayName, string.Empty, needle);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ScenarioPickerTests.The_filter_reads_the_name_and_the_line_under_it",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a WY5 the calendar's day is said as a change too",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "                RaisePropertyChanged(nameof(SelectedDate));\n                ValueChanged?.Invoke(this, EventArgs.Empty);",
+        "to": "                RaisePropertyChanged(nameof(SelectedDate));\n                ValueChanged?.Invoke(this, EventArgs.Empty);\n                ValueChanged?.Invoke(this, EventArgs.Empty);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ParamInputTests.Each_change_of_the_value_is_said_once_and_nothing_else_is",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a WY5 a parameter edit resolves nothing",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            input.ValueChanged += OnParamChanged;",
+        "to": "            _ = input;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorDebounceTests.Typing_a_preset_parameter_costs_one_evaluation_not_one_per_keystroke",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a CR132 an incomplete calendar answer is read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/CalendarCatalogue.cs",
+        "from": "            throw new CalcException(\"the engine's calendar catalogue is incomplete\", 0);",
+        "to": "            return catalogue;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalendarCatalogueTests.An_incomplete_answer_is_refused_as_unreadable",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a CR132 an incomplete preset answer is read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/PresetCatalogue.cs",
+        "from": "            throw new CalcException(\"the engine's preset catalogue is incomplete\", 0);",
+        "to": "            return catalogue;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.PresetCatalogueTests.An_incomplete_answer_is_refused_as_unreadable",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6a CR132 the debounce scan loses the clock's line",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App.Tests/CalculatorDebounceTests.cs",
+        "from": "            .SelectMany(file => File.ReadAllLines(Path.Combine(TestPaths.AppDirectory(), \"Calc\", file)))",
+        "to": "            .SelectMany(file => File.ReadAllLines(Path.Combine(TestPaths.AppDirectory(), \"Calc\", file)).Where(l => !l.Contains(\"AskForTheMovedClockAsync() =>\", StringComparison.Ordinal)))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorDebounceTests.Every_live_recompute_goes_through_the_debounce",
+    "match": "method",
     "build": "",
     "notHere": ""
   }

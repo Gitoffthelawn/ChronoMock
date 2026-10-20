@@ -350,10 +350,70 @@ pub(crate) fn load_calendar(id: &str) -> Result<chrono_core::calendar::Calendar,
 /// Load and validate the calendar file at `path`, found as `id`. Apart from the lookup, so a caller
 /// can tell a calendar that is not there from one that is there and cannot be used (R5-D5, item 2).
 pub(crate) fn load_calendar_at(path: &std::path::Path, id: &str) -> Result<chrono_core::calendar::Calendar, String> {
+    read_calendar_at(path, id).map(|(calendar, _)| calendar)
+}
+
+/// What a person knows a calendar by, and counting has no use for: the country it is for and its own
+/// name, in English and in the country's language. The calendar catalogue lists it (`chrono calendars`,
+/// R5-D50). A file may leave the name out (docs/04 section 5), and a surface then shows the id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CalendarTitle {
+    pub(crate) country: String,
+    pub(crate) name: Option<(String, String)>,
+}
+
+// The title, read from a text the strict reader has already accepted, so this one names its two fields
+// and nothing else - every other word of the file has been judged by `CalendarDto`.
+#[derive(Deserialize)]
+#[serde(expecting = "a calendar - an object with schema, id, country, weekend, observed, valid_from, law_as_of, source and holidays")]
+struct TitleDto {
+    country: String,
+    #[serde(default)]
+    name: Option<NameDto>,
+}
+
+/// The title of the calendar file at `path`, found as `id`, or the refusal `--calendar` gives for the
+/// same file. Through the reader [`load_calendar_at`] uses, one read of the file, so a calendar has a
+/// title here exactly when `calc --calendar <id>` can count in it.
+pub(crate) fn calendar_title_at(path: &std::path::Path, id: &str) -> Result<CalendarTitle, String> {
+    let (_, text) = read_calendar_at(path, id)?;
+    let title: TitleDto =
+        from_object(&text).map_err(|e| format!("{} (in {})", json_refusal("calendar", &e), path.display()))?;
+    Ok(CalendarTitle { country: title.country, name: title.name.map(|name| (name.en, name.local)) })
+}
+
+/// Read, validate and match the id of the calendar file at `path`, keeping the text it was read from.
+fn read_calendar_at(path: &std::path::Path, id: &str) -> Result<(chrono_core::calendar::Calendar, String), String> {
     let text = read_catalogue_file(path)?;
     let calendar = calendar_from_text(&text).map_err(|e| format!("{e} (in {})", path.display()))?;
     check_declared_id("calendar", path, &calendar.id, id)?;
-    Ok(calendar)
+    Ok((calendar, text))
+}
+
+/// What a catalogue command (`chrono presets`, `chrono calendars`) was asked for: a folder to read in
+/// place of the one its lookup reads, and whether to answer in JSON.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CatalogueArgs {
+    pub(crate) dir: Option<std::path::PathBuf>,
+    pub(crate) json: bool,
+}
+
+/// The words after a catalogue command, each flag at most once. `command` names it in a refusal.
+pub(crate) fn parse_catalogue_args(command: &str, args: &[String]) -> Result<CatalogueArgs, String> {
+    let mut parsed = CatalogueArgs { dir: None, json: false };
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--json" if !parsed.json => parsed.json = true,
+            "--dir" if parsed.dir.is_none() => {
+                let value = words.next().filter(|v| !v.starts_with("--")).ok_or("--dir needs a folder")?;
+                parsed.dir = Some(std::path::PathBuf::from(value));
+            }
+            "--json" | "--dir" => return Err(format!("{word} given twice")),
+            other => return Err(format!("unknown argument '{other}' for {command}")),
+        }
+    }
+    Ok(parsed)
 }
 
 /// Refuse a catalogue file whose `id` is not the name it was found by (R4-N37, the owner's decision

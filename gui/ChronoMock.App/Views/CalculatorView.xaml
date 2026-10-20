@@ -71,9 +71,13 @@
             <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
           <TextBlock Style="{StaticResource PartGroupHeading}" Grid.Row="0" Text="{DynamicResource calc.presets_header}" Margin="{StaticResource SpaceXs}" />
-          <TextBox Grid.Row="1" x:Name="PresetFilterBox" Margin="{StaticResource SpaceXs}"
-                   Text="{Binding PresetFilter, UpdateSourceTrigger=PropertyChanged}"
-                   app:PartState.Placeholder="{DynamicResource calc.filter_placeholder}" />
+          <!-- The session list's search box (GUI rule 2, R5-U7): the same field, the same clear button, and Enter
+               chooses the first scenario left standing. It was a plain text box with none of that. -->
+          <controls:SearchBox Grid.Row="1" Margin="{StaticResource SpaceXs}"
+                              Text="{Binding PresetFilter, UpdateSourceTrigger=PropertyChanged}"
+                              Placeholder="{DynamicResource scenario.filter_placeholder}"
+                              ClearHint="{DynamicResource scenario.clear_filter}"
+                              SubmitCommand="{Binding ChooseFirstPreset}" />
           <!-- 🔴 A ListBox with the SHARED ScenarioRow, so the preset list reads exactly like the
                scenario list in the setup phase (GUI rules 2 and 5) - it used to be a stack of heavy
                buttons. Selecting a row fills the builder through SelectedPreset (fill-on-select is safe:
@@ -90,13 +94,19 @@
             <controls:CatalogueStatusView DataContext="{Binding PresetStatus}" VerticalAlignment="Top"
                                           Margin="{StaticResource SpaceXs}" />
             <ListBox x:Name="PresetList" ItemsSource="{Binding Presets}"
-                     Visibility="{Binding PresetStatus.ShowsList, Converter={StaticResource BoolToVis}}"
+                     Visibility="{Binding ShowsPresetRows, Converter={StaticResource BoolToVis}}"
                      SelectedItem="{Binding SelectedPreset}"
                      ItemTemplate="{StaticResource ScenarioRow}"
                      ItemContainerStyle="{StaticResource ScenarioRowContainer}"
                      VerticalAlignment="Top" Height="Auto"
                      MaxHeight="{Binding ActualHeight, ElementName=ListArea}"
                      Margin="{StaticResource SpaceXs}" />
+            <!-- In the list's place when the search left nothing, as under the session's search box: the screen
+                 answers by speaking, not by an empty strip. -->
+            <TextBlock Style="{StaticResource PartNote}" Margin="{StaticResource SpaceMd}"
+                       HorizontalAlignment="Center" VerticalAlignment="Top"
+                       Text="{DynamicResource scenario.no_matches}"
+                       Visibility="{Binding HasNoPresetMatches, Converter={StaticResource BoolToVis}}" />
           </Grid>
           <!-- How many preset files the engine left out (R4/18, D2) - the same part as under the panel's list. -->
           <controls:CatalogueLeftOutNote Grid.Row="3" DataContext="{Binding PresetStatus}" Margin="{StaticResource SpaceXs}" />
@@ -246,6 +256,11 @@
                       Style="{StaticResource LabelKeyCombo}" ToolTip="{DynamicResource tip.calc_calendar}"
                       app:PartState.HasError="{Binding CalendarMissing}"
                       AutomationProperties.Name="{DynamicResource calc.field_calendar}" />
+            <!-- Why the list holds only "no calendar": the engine could not say which calendars there are
+                 (R5-P12). Below the field, like the start point's message, so it never shifts the row. -->
+            <TextBlock Style="{StaticResource PartFieldMessage}" Margin="{StaticResource StackGapSm}"
+                       Text="{Binding CalendarError}"
+                       Visibility="{Binding HasCalendarError, Converter={StaticResource BoolToVis}}" />
 
             <!-- The reverse tool lives here now, under the builder, so the middle column carries both ways
                  of naming a moment - build one up, or read a pasted one - instead of a short form standing
@@ -375,9 +390,10 @@
                   </controls:TextNamedItems>
                 </StackPanel>
 
-                <!-- "Fill in the parameters" while one has no value, or - a defence after R4/18 - that the
-                     preset is in a shape this build cannot read. One line, keyed by the view model. -->
-                <TextBlock Text="{Binding ActiveNoteKey, Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
+                <!-- "Fill in the parameters" while one has no value, that the calendar the preset counts in
+                     is not here (R5-P12), or - a defence after R4/18 - that the preset is in a shape this
+                     build cannot read. One line, composed by the view model with the calendar it names. -->
+                <TextBlock Text="{Binding ActiveNoteText}" TextWrapping="Wrap"
                            Margin="{StaticResource StackGapSm}"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}"
                            Visibility="{Binding HasActiveNote, Converter={StaticResource BoolToVis}}" />

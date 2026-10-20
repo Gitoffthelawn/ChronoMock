@@ -23,7 +23,7 @@ public partial class MainWindow : FluentWindow
 
         // The calculator is a client of the same engine (ADR-6), with the calendars from the portable install
         // beside the exe or from the cargo outputs in a dev checkout - the layout seam lives in AppPaths.
-        _calculator = new(AppPaths.CalcClient, _presets);
+        _calculator = new(AppPaths.CalcClient, _presets, new CalendarChoices(AppPaths.CalendarCatalogue));
         InitializeComponent();
         DataContext = _session;
         CalculatorContainer.DataContext = _calculator;

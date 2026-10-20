@@ -454,9 +454,10 @@ public class StateSheetTests
         {
             var total = 0;
 
-            async Task<CalculatorView> Calculator(PresetLibrary library)
+            async Task<CalculatorView> Calculator(PresetLibrary library, ICalendarSource? calendars = null)
             {
-                var vm = new CalculatorViewModel(new FakeCalcEngine(CalculatorSheetEngine.Answer), library);
+                var vm = new CalculatorViewModel(
+                    new FakeCalcEngine(CalculatorSheetEngine.Answer), library, new CalendarChoices(calendars));
                 var view = new CalculatorView { DataContext = vm };
                 await vm.EnsureComputedAsync();
                 return view;
@@ -470,11 +471,38 @@ public class StateSheetTests
             var leftOut = await Calculator(TestCatalogues.Library(TestCatalogues.ShippedWithFilesLeftOut()));
             total += Rendered("calculator-presets-left-out", leftOut);
 
+            // R5-U7: the session's search box over the list, and what it says in the list's place when the
+            // search left nothing.
+            var searched = await Calculator(TestCatalogues.Library(TestCatalogues.Shipped()));
+            ((CalculatorViewModel)searched.DataContext).PresetFilter = "no scenario is called this";
+            total += Rendered("calculator-presets-no-matches", searched);
+
             var waiting = await Calculator(TestCatalogues.Library(TestCatalogues.TestCatalogue()));
             var model = (CalculatorViewModel)waiting.DataContext;
             model.SelectedPreset = model.Presets.Single(p => p.Info.Id == "params-without-defaults");
             total += Rendered("calculator-preset-without-defaults", waiting);
+
+            // R5-P12: a scenario that counts in a calendar the engine does not list, and the same scenario when
+            // the list could not be read at all - the field then says why.
+            var shippedCalendars = TestCatalogues.ShippedCalendars();
+            var withoutBanking = new CalendarCatalogue(
+                CalendarCatalogue.SupportedSchema, [.. shippedCalendars.Calendars.Where(c => c.Id != "us-banking")], []);
+            var missing = await Calculator(TestCatalogues.Library(TestCatalogues.Shipped()), new FakeCalendarSource(withoutBanking));
+            Pick(missing, "payment-due-business-days");
+            total += Rendered("calculator-preset-calendar-missing", missing);
+
+            var unreadable = await Calculator(
+                TestCatalogues.Library(TestCatalogues.Shipped()),
+                FakeCalendarSource.Failing("chrono calendars: no calendar folder (looked in C:\\Chrono Mock\\calendars) (calendars.folder_missing)"));
+            Pick(unreadable, "payment-due-business-days");
+            total += Rendered("calculator-calendars-unreadable", unreadable);
             return total;
+
+            static void Pick(CalculatorView view, string id)
+            {
+                var vm = (CalculatorViewModel)view.DataContext;
+                vm.SelectedPreset = vm.Presets.Single(p => p.Info.Id == id);
+            }
         });
 
         Assert.True(written > 0);
