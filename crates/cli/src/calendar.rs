@@ -365,6 +365,7 @@ pub(crate) struct CalendarTitle {
 // The title, read from a text the strict reader has already accepted, so this one names its two fields
 // and nothing else - every other word of the file has been judged by `CalendarDto`.
 #[derive(Deserialize)]
+#[serde(expecting = "a calendar - an object with schema, id, country, weekend, observed, valid_from, law_as_of, source and holidays")]
 struct TitleDto {
     country: String,
     #[serde(default)]
