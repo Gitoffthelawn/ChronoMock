@@ -157,6 +157,11 @@ public class CalculatorDebounceTests
             "_ = AnalyzeAsync();",
             "the reverse-analysis strip's own first reveal (ReverseAnalysisViewModel.Start), on the same reasoning"
         ),
+        (
+            "AskForTheMovedClockAsync() => RecomputeAsync();",
+            "an answer the clock moved past (R5-P13). The clock moving is not an edit, so there is no burst to " +
+            "absorb, and the press that asked - Use, Copy, or showing the screen again - waits for this answer"
+        ),
     ];
 
     [Fact]

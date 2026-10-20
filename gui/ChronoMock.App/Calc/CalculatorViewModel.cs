@@ -483,6 +483,9 @@ public sealed class CalculatorViewModel : ObservableObject
     private Task _calendarsRead = Task.CompletedTask;
     private IReadOnlyList<CalendarOption> _calendars = CalendarOption.Shipped;
     private string _calendarError = string.Empty;
+    private readonly TimeProvider _clock;
+    // What the clock contributed to the question the last answer was asked for (see ClockStamp).
+    private string _askedClock = string.Empty;
     private bool _hasParamInputs;
     private string _activePresetName = string.Empty;
     private string _activePresetExplains = string.Empty;
@@ -535,11 +538,13 @@ public sealed class CalculatorViewModel : ObservableObject
 
     private readonly Debounce _recomputeDebounce = new(EditDebounce);
 
-    public CalculatorViewModel(ICalcEngine client, PresetLibrary? presets = null, ICalendarSource? calendars = null)
+    public CalculatorViewModel(
+        ICalcEngine client, PresetLibrary? presets = null, ICalendarSource? calendars = null, TimeProvider? clock = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _presets = presets;
         _calendarSource = calendars;
+        _clock = clock ?? TimeProvider.System;
         _result.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsResultStale));
 
         // 🔴 Three kinds on screen, not four. "Specific instant (UTC)" was a fourth entry that meant
@@ -958,6 +963,7 @@ public sealed class CalculatorViewModel : ObservableObject
         _sendingToSubstitution = true;
         try
         {
+            AskAgainIfTheClockMoved();
             if (await _result.WhenCurrentAsync(ActionWait) && CanUseInSubstitution)
             {
                 UseInSubstitutionRequested?.Invoke(_resultMomentLocal, _resultZoneBias);
@@ -978,7 +984,47 @@ public sealed class CalculatorViewModel : ObservableObject
     public async Task<string?> CopyValueAsync(FormatRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
+        AskAgainIfTheClockMoved();
         return await _result.WhenCurrentAsync(ActionWait) && row.HasValue ? row.Value : null;
+    }
+
+    /// <summary>
+    /// Ask again when the answer on screen was computed for a clock that has moved on (R5-P13): a Today base
+    /// past midnight in its zone, a Now base past the second it was read at. Nothing in the builder changes
+    /// when time passes, so the answer counted as current - a "Today + 30 d" from yesterday went to the
+    /// substitution panel and the clipboard as today's. Asked when the screen is shown again and before
+    /// either of those, which then wait for the new answer as they wait for any other. A specific date never
+    /// moves with the clock, and a screen showing no result (a scenario waiting for its parameters) has none
+    /// to bring up to date.
+    /// </summary>
+    private void AskAgainIfTheClockMoved()
+    {
+        if (HasResult && _baseKind.Kind is (BaseKind.Today or BaseKind.Now) && ClockStamp() != _askedClock)
+        {
+            _result.Ask();
+            _ = AskForTheMovedClockAsync();
+        }
+    }
+
+    // Not through the debounce: the clock moving is not an edit, so there is no burst to absorb, and the
+    // press that asked waits for this very answer.
+    private Task AskForTheMovedClockAsync() => RecomputeAsync();
+
+    /// <summary>What the clock contributes to the answer for the base as it stands: the civil day in the base
+    /// zone for Today (the machine's own zone through its rules, as the engine reads it when no zone is
+    /// sent), the second for Now, and nothing for a specific date.</summary>
+    private string ClockStamp()
+    {
+        var now = _clock.GetUtcNow();
+        return _baseKind.Kind switch
+        {
+            BaseKind.Today => (_baseZone.IsHost
+                    ? TimeZoneInfo.ConvertTime(now, _clock.LocalTimeZone).DateTime
+                    : now.UtcDateTime.AddMinutes(-_baseZone.BiasMinutes))
+                .ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            BaseKind.Now => now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
+            _ => string.Empty,
+        };
     }
 
     /// <summary>Add a step (defaults to shift) and wire its edits to a recompute.</summary>
@@ -1015,6 +1061,7 @@ public sealed class CalculatorViewModel : ObservableObject
     {
         if (_computedOnce)
         {
+            AskAgainIfTheClockMoved();
             return Task.CompletedTask;
         }
 
@@ -1450,9 +1497,16 @@ public sealed class CalculatorViewModel : ObservableObject
         // MomentInput shows the precise inline reason, and the result is cleared rather than left stale
         // (rule 6). Today and Now carry no base text, so they always compute. The arguments are built
         // inside the run, so a throw there is answered like any other failure.
-        async token => IsSpecificBase && !Base.IsValid
-            ? null
-            : await _client.EvaluateAsync(BuildCurrentArgs(), token),
+        async token =>
+        {
+            if (IsSpecificBase && !Base.IsValid)
+            {
+                return null;
+            }
+
+            _askedClock = ClockStamp();
+            return await _client.EvaluateAsync(BuildCurrentArgs(), token);
+        },
         result =>
         {
             if (result is null)

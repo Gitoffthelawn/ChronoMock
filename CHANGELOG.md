@@ -244,6 +244,10 @@ Notable changes to Chrono Mock, newest first. The format follows
   session ran moved the Mode list with it, so a session started in flow left the next form at x60.
 - **The "Jump to" field of a new session is empty.** It kept the moment typed in the last session,
   ready to jump the new one there.
+- **A calculator answer counted from "Today" or "Now" is brought up to date before it is used.** It
+  was computed once, so a "Today + 30 days" left open overnight went to the substitution panel and
+  the clipboard as yesterday's answer. Showing the calculator again, "Use this date" and Copy now ask
+  again when the day (Today) or the second (Now) has moved on, and wait for the new answer.
 - **A calculator scenario that counts in a calendar this installation does not have is no longer
   computed in another one.** The window kept the calendar picked before, so a scenario for a market
   with no calendar here counted its business days in another country's, without a word. It now says
