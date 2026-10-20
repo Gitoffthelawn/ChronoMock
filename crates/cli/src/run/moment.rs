@@ -15,8 +15,7 @@ use crate::cli::print_usage;
 use crate::grammar::parse_shift;
 use crate::output::diag;
 use crate::preset::{
-    load_market_calendar, load_preset, parameter_provenance, preset_targets_substitution,
-    read_target_creation_date, resolve_moment, resolve_parameters,
+    load_for, load_market_calendar, parameter_provenance, read_target_creation_date, PresetRefusal, Surface,
 };
 
 /// Where the session's moment and mode came from. The wire carries only the resolved absolute
@@ -69,65 +68,50 @@ pub(super) fn resolve_time_spec(ra: &RunArgs, now_bias: i32) -> Result<ResolvedT
     // A preset is resolved driver-side here - the same way a relative --at is - so the core still
     // receives an absolute moment and a plain mode, and never learns that a preset existed.
     let decided = if let Some(pid) = &ra.preset {
-        match load_preset(pid) {
-            Ok(p) => {
-                // The substitution surface honours applies_to: a calculator-only preset is not a
-                // substitution question. Refuse it rather than run a moment nobody asked to run.
-                if !preset_targets_substitution(&p.applies_to) {
-                    diag!(
-                        "chrono: preset '{}' targets {}, not substitution (preset.not_for_substitution)",
-                        p.id, p.applies_to
-                    );
-                    return Err(1);
-                }
-                // Resolve parameters (--param, then the target's file date for a
-                // target_file_creation hint), then substitute them into the moment. A non-parametric
-                // preset resolves to an empty map and an unchanged moment.
-                // The target file's date, read in the SESSION's zone: a creation time near midnight
-                // resolves to a different calendar day in UTC than on the host, and that day is what a
-                // trial preset counts from.
-                let target_date = read_target_creation_date(&ra.target, Some(now_bias));
-                let values = match resolve_parameters(&p.parameters, &ra.params, target_date) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        diag!("chrono: {}", e.message());
-                        return Err(e.exit_code());
-                    }
-                };
-                // What the preset was filled with, read while the declarations and the values are
-                // both in hand. A dry run prints it, because "which date is this trial counting
-                // from" is exactly the question a resolved absolute moment does not answer.
-                let provenance = parameter_provenance(&p.parameters, &ra.params, &values);
-                let mut moment = match resolve_moment(p.moment, &values) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        diag!("chrono: {}", e.message());
-                        return Err(e.exit_code());
-                    }
-                };
-                back_in_session_zone(&mut moment, now_bias);
-                let now = match resolve_now_civil(Some(now_bias)) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        diag!("chrono: cannot resolve current time: {e}");
-                        return Err(3);
-                    }
-                };
-                Decided {
-                    at: Some(eval_preset_moment(&p.id, p.market.as_deref(), &moment, now, now_bias)?),
-                    mode: p.time_mode.mode,
-                    multiplier: p.time_mode.multiplier,
-                    scale_duration: p.time_mode.scale_duration,
-                    // The zone the moment was computed in travels with it: a preset moment paired
-                    // with a bias of 0 would land an offset away from the instant it names.
-                    session_bias: Some(now_bias),
-                    origin: TimeOrigin::Preset { id: p.id.clone(), parameters: provenance },
-                }
-            }
-            Err(e) => {
+        let p = match load_for(pid, Surface::Substitution) {
+            Ok(p) => p,
+            Err(PresetRefusal::Unreadable(e)) => {
                 diag!("chrono: {}", e.message());
                 return Err(e.exit_code());
             }
+            // A calculator-only preset is not a substitution question. Refused rather than run a moment
+            // nobody asked to run.
+            Err(PresetRefusal::NotForSurface { id, applies_to }) => {
+                diag!("chrono: preset '{id}' targets {applies_to}, not substitution (preset.not_for_substitution)");
+                return Err(1);
+            }
+        };
+        // The target file's date, read in the SESSION's zone: a creation time near midnight resolves to a
+        // different calendar day in UTC than on the host, and that day is what a trial preset counts from.
+        let target_date = read_target_creation_date(&ra.target, Some(now_bias));
+        let (values, mut moment) = match p.fill(&ra.params, target_date) {
+            Ok(filled) => filled,
+            Err((e, _)) => {
+                diag!("chrono: {}", e.message());
+                return Err(e.exit_code());
+            }
+        };
+        // What the preset was filled with, read while the declarations and the values are both in hand.
+        // A dry run prints it, because "which date is this trial counting from" is exactly the question a
+        // resolved absolute moment does not answer.
+        let provenance = parameter_provenance(&p.parameters, &ra.params, &values);
+        back_in_session_zone(&mut moment, now_bias);
+        let now = match resolve_now_civil(Some(now_bias)) {
+            Ok(n) => n,
+            Err(e) => {
+                diag!("chrono: cannot resolve current time: {e}");
+                return Err(3);
+            }
+        };
+        Decided {
+            at: Some(eval_preset_moment(&p.id, p.market.as_deref(), &moment, now, now_bias)?),
+            mode: p.time_mode.mode,
+            multiplier: p.time_mode.multiplier,
+            scale_duration: p.time_mode.scale_duration,
+            // The zone the moment was computed in travels with it: a preset moment paired with a bias of
+            // 0 would land an offset away from the instant it names.
+            session_bias: Some(now_bias),
+            origin: TimeOrigin::Preset { id: p.id.clone(), parameters: provenance },
         }
     } else {
         // Resolve a relative --at (now + delta) to an absolute moment before we spawn. With no --at at
