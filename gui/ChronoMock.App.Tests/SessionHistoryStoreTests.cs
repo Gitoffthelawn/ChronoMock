@@ -99,6 +99,92 @@ public sealed class SessionHistoryStoreTests : IDisposable
     public void Load_is_empty_when_no_file_exists()
         => Assert.Empty(new FileSessionHistoryStore(_dir).Load());
 
+    private string BesideExe => Path.Combine(_dir, "exe", "history");
+
+    private string PerUser => Path.Combine(_dir, "user", "history");
+
+    /// <summary>
+    /// R5-D72. The history an older build of a portable copy kept beside its executable is read into the
+    /// per-user one once, in the order the sessions ended, and the old file is left exactly as it was (rule 7).
+    /// Reading again adds nothing. Reversal probes: skip the import and the old session is missing, read it on
+    /// every load and the second load holds it twice.
+    /// </summary>
+    [Fact]
+    public void A_history_beside_the_executable_is_read_in_once_and_left_where_it_is()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Old") with { EndedAtUtc = "2026-08-01T09:00:00Z" });
+        new FileSessionHistoryStore(PerUser).Append(Record("New") with { EndedAtUtc = "2026-08-25T09:00:00Z" });
+        var oldFile = Path.Combine(BesideExe, "sessions.json");
+        var before = File.ReadAllBytes(oldFile);
+
+        var loaded = new FileSessionHistoryStore(PerUser, BesideExe).Load();
+        var again = new FileSessionHistoryStore(PerUser, BesideExe).Load();
+
+        Assert.Equal(["Old.exe", "New.exe"], loaded.Select(r => r.TargetName));
+        Assert.Equal(2, again.Count);
+        Assert.Equal(before, File.ReadAllBytes(oldFile));
+        Assert.Equal(
+            [Path.GetFullPath(oldFile)],
+            File.ReadAllLines(Path.Combine(PerUser, FileSessionHistoryStore.ImportedName)));
+        Assert.Empty(Directory.GetFiles(PerUser, "*.tmp"));
+    }
+
+    /// <summary>A history cleared after the import stays cleared - the old file is not read in again.</summary>
+    [Fact]
+    public void A_cleared_history_does_not_come_back_from_beside_the_executable()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Old"));
+        var store = new FileSessionHistoryStore(PerUser, BesideExe);
+        Assert.Single(store.Load()); // read in - not vacuous
+
+        store.Clear();
+
+        Assert.Empty(new FileSessionHistoryStore(PerUser, BesideExe).Load());
+    }
+
+    /// <summary>A session in both histories - a history folder copied along with the program - is kept once.</summary>
+    [Fact]
+    public void A_session_in_both_histories_is_kept_once()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Both"));
+        new FileSessionHistoryStore(PerUser).Append(Record("Both"));
+
+        Assert.Single(new FileSessionHistoryStore(PerUser, BesideExe).Load());
+    }
+
+    /// <summary>
+    /// An old history this build cannot read is not merged and not marked: nothing of it can be shown, the
+    /// file is left as it was, and a later build that can read it still gets the chance.
+    /// </summary>
+    [Fact]
+    public void An_old_history_this_build_cannot_read_is_left_unmerged_and_unmarked()
+    {
+        Directory.CreateDirectory(BesideExe);
+        File.WriteAllText(Path.Combine(BesideExe, "sessions.json"), "{ not json");
+        new FileSessionHistoryStore(PerUser).Append(Record("New"));
+
+        var loaded = new FileSessionHistoryStore(PerUser, BesideExe).Load();
+
+        Assert.Equal(["New.exe"], loaded.Select(r => r.TargetName));
+        Assert.Equal("{ not json", File.ReadAllText(Path.Combine(BesideExe, "sessions.json")));
+        Assert.False(File.Exists(Path.Combine(PerUser, FileSessionHistoryStore.ImportedName)));
+    }
+
+    /// <summary>An old history with no sessions marks itself read even though there is nothing to write - and
+    /// the per-user folder is made for the mark, so it is not tried again on every start.</summary>
+    [Fact]
+    public void An_empty_old_history_is_marked_read_in_a_folder_made_for_it()
+    {
+        var old = new FileSessionHistoryStore(BesideExe);
+        old.Append(Record("Gone"));
+        old.Clear();
+        Directory.CreateDirectory(BesideExe);
+        File.WriteAllText(Path.Combine(BesideExe, "sessions.json"), """{ "schema": 1, "stability": "unstable", "sessions": [] }""");
+
+        Assert.Empty(new FileSessionHistoryStore(PerUser, BesideExe).Load());
+        Assert.True(File.Exists(Path.Combine(PerUser, FileSessionHistoryStore.ImportedName)));
+    }
+
     [Fact]
     public void Load_is_empty_and_keeps_the_file_when_it_is_corrupt()
     {

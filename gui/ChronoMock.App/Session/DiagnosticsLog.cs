@@ -3,7 +3,7 @@ using System.IO; // The WPF SDK trims System.IO from implicit usings (Path colli
 
 namespace ChronoMock.App;
 
-/// <summary>Limit on the diagnostics logs kept beside the app - a support aid, not an archive.</summary>
+/// <summary>Limit on the diagnostics logs the app keeps - a support aid, not an archive.</summary>
 public static class DiagnosticsLogLimits
 {
     /// <summary>The most recent diagnostics files kept - older ones are pruned on write.</summary>
@@ -31,12 +31,11 @@ public sealed class NoOpDiagnosticsLog : IDiagnosticsLog
 }
 
 /// <summary>
-/// File log: writes one timestamped file per problem session into a logs/ folder beside the executable
-/// (portable layout), falling back to a per-user writable folder when the exe folder is read-only, and
-/// always in the per-user folder when the installer put the copy there - the same choice the history store
-/// makes. Best-effort: a write
-/// failure returns null rather than throwing, because the diagnostics are also kept in memory for the
-/// Copy-diagnostics button.
+/// File log: writes one timestamped file per problem session into the per-user <c>logs</c> folder, in every
+/// copy - the folder the history store uses too (R5-D72). A log carries the target's path and the core's
+/// output, which is no more anybody else's business than the history. Logs an older portable build wrote
+/// beside its executable stay where they are. Best-effort: a write failure returns null rather than throwing,
+/// because the diagnostics are also kept in memory for the Copy-diagnostics button.
 /// </summary>
 public sealed class FileDiagnosticsLog : IDiagnosticsLog
 {
@@ -44,9 +43,7 @@ public sealed class FileDiagnosticsLog : IDiagnosticsLog
 
     internal FileDiagnosticsLog(string directory) => _directory = directory;
 
-    /// <summary>The log for the running app: a logs/ folder next to the executable of a portable copy, or a
-    /// per-user folder when that is read-only and always for an installed copy (the same choice as
-    /// <see cref="FileSessionHistoryStore.ForApp"/>, made in <see cref="WritableFolder.Choose"/>).</summary>
+    /// <summary>The log for the running app: the per-user <c>logs</c> folder (<see cref="WritableFolder"/>).</summary>
     public static FileDiagnosticsLog ForApp() => new(WritableFolder.ForApp("logs"));
 
     /// <summary>How many names one save tries before it gives up - the stamp, then the stamp with a suffix.</summary>

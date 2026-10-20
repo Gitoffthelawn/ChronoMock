@@ -455,15 +455,19 @@ fn the_signing_asks_for_the_installer_before_the_card_and_signs_it_like_the_prog
     }
 }
 
-/// The window keeps nothing of its own in a folder the installer put it in. The choice itself is tested in
-/// C# (DataFolderTests). What a unit test cannot see is a store that stops asking it, so the calls are held
-/// here: both stores go through the one choice, and the choice is told whether the copy is installed.
+/// The window keeps nothing of its own in the folder it runs from, a folder the installer put it in included
+/// (R5-D4, R5-D72). The answer itself is tested in C# (DataFolderTests). What a unit test cannot see is a store
+/// that stops asking it, so the calls are held here: both stores go through the one per-user answer, which
+/// never reads the executable's folder, and the one thing read from beside the executable - an older build's
+/// history, read in once - is never looked for beside an installed copy.
 #[test]
-fn the_window_keeps_nothing_of_its_own_in_an_installed_folder() {
+fn the_window_keeps_nothing_of_its_own_in_the_folder_it_runs_from() {
     let folder = without_line_comments(&read("gui/ChronoMock.App/Session/WritableFolder.cs"), "//");
-    assert!(folder.contains("AppPaths.IsInstalled,"), "WritableFolder.ForApp no longer tells the choice whether the copy is installed");
+    assert!(folder.contains("SpecialFolder.LocalApplicationData"), "WritableFolder.ForApp no longer answers the per-user folder");
+    assert!(!folder.contains("BaseDirectory"), "WritableFolder answers a folder beside the executable again");
     let history = without_line_comments(&read("gui/ChronoMock.App/Session/SessionHistory.cs"), "//");
     assert!(history.contains("WritableFolder.ForApp(\"history\")"), "the history store chooses its folder some other way");
+    assert!(history.contains("AppPaths.IsInstalled ? null"), "the history store looks for an old history beside an installed copy");
     let log = without_line_comments(&read("gui/ChronoMock.App/Session/DiagnosticsLog.cs"), "//");
     assert!(log.contains("WritableFolder.ForApp(\"logs\")"), "the diagnostics log chooses its folder some other way");
 }

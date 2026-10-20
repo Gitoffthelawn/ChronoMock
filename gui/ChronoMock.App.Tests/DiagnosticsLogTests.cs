@@ -74,22 +74,4 @@ public sealed class DiagnosticsLogTests : IDisposable
         Assert.Equal("the other instance", File.ReadAllText(theirs));
         Assert.Equal("this instance", File.ReadAllText(ours));
     }
-
-    /// <summary>
-    /// R4-N49: the writability probe had one fixed name, so an instance starting while another held it open
-    /// decided the folder was read-only and took the per-user one - two instances, two histories. Measured
-    /// here as the folder answering writable while the old name is held, and the probe leaving nothing.
-    /// </summary>
-    [Fact]
-    public void A_folder_answers_writable_while_another_instance_holds_the_old_probe_name()
-    {
-        Directory.CreateDirectory(_dir);
-        var oldName = Path.Combine(_dir, ".write-probe");
-        using (new FileStream(oldName, FileMode.Create, FileAccess.Write, FileShare.None))
-        {
-            Assert.True(WritableFolder.IsWritable(_dir));
-        }
-
-        Assert.Equal([oldName], Directory.GetFiles(_dir, ".write-probe*"));
-    }
 }

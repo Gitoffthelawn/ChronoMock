@@ -44,11 +44,12 @@ internal static class AppPaths
     internal const string InstalledMarker = "installed.txt";
 
     /// <summary>
-    /// Whether this copy was put here by the Windows installer, which owns the folder - so the window keeps
-    /// nothing of its own in it (<see cref="WritableFolder.Choose"/>). The installer is built from the signed
+    /// Whether this copy was put here by the Windows installer, which owns the folder. Every copy keeps its own
+    /// files in the per-user folder now (<see cref="WritableFolder.ForApp"/>), so what this still decides is
+    /// whether there can be an older history beside the executable to read in once - an installed copy never
+    /// kept one there (<see cref="FileSessionHistoryStore.ForApp"/>). The installer is built from the signed
     /// portable package, so the build cannot say so: a second build would be a second set of files to sign. The
-    /// installer adds one file instead. Without it the copy is portable, which is the behaviour every copy had
-    /// before, so a lost marker costs a history in the old place and nothing worse. Read once, like the layout.
+    /// installer adds one file instead. Read once, like the layout.
     /// </summary>
     internal static bool IsInstalled { get; } = IsInstalledLayout(IsPortable, AppContext.BaseDirectory);
 

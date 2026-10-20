@@ -97,14 +97,18 @@ public sealed class InMemorySessionHistoryStore : ISessionHistoryStore
 }
 
 /// <summary>
-/// File store: one JSON file per the portable layout (history/sessions.json next to the executable,
-/// docs/04 section 7). The file wraps the records with a schema and an "unstable" marker while the shape
-/// is not frozen - history is local-only, so its shape is not an exchange contract (docs/04 row 27).
+/// File store: one JSON file, <c>history/sessions.json</c> in the per-user folder (docs/04 section 7). The file
+/// wraps the records with a schema and an "unstable" marker while the shape is not frozen - history is
+/// local-only, so its shape is not an exchange contract (docs/04 row 27).
 /// </summary>
 public sealed class FileSessionHistoryStore : ISessionHistoryStore
 {
     private const int Schema = 1;
     private const string FileName = "sessions.json";
+
+    /// <summary>The file in the per-user history folder that lists the histories already read in from beside
+    /// an executable, one full path a line (R5-D72).</summary>
+    internal const string ImportedName = "imported-from.txt";
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -114,12 +118,24 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
 
     private readonly string _directory;
 
-    public FileSessionHistoryStore(string directory) => _directory = directory;
+    /// <summary>Where an older build of this copy kept its history, to read in once, or null.</summary>
+    private readonly string? _besideExe;
 
-    /// <summary>The store for the running app: a history folder next to the executable of a portable copy, or
-    /// the per-user one when that location is read-only (a USB stick) and always for an installed copy, so the
-    /// log still saves instead of every session reporting a write error (<see cref="WritableFolder.Choose"/>).</summary>
-    public static FileSessionHistoryStore ForApp() => new(WritableFolder.ForApp("history"));
+    /// <param name="directory">The folder the history lives in.</param>
+    /// <param name="besideExe">A folder an older build kept its history in, beside its executable, read into
+    /// this one once (R5-D72), or null when there can be none.</param>
+    public FileSessionHistoryStore(string directory, string? besideExe = null)
+    {
+        _directory = directory;
+        _besideExe = besideExe;
+    }
+
+    /// <summary>The store for the running app: the per-user history folder, in every copy (R5-D4,
+    /// <see cref="WritableFolder"/>). A portable copy reads in the history its older builds kept beside the
+    /// executable, once - an installed copy never kept one there.</summary>
+    public static FileSessionHistoryStore ForApp() => new(
+        WritableFolder.ForApp("history"),
+        AppPaths.IsInstalled ? null : Path.Combine(AppContext.BaseDirectory, "history"));
 
     private string FilePath => Path.Combine(_directory, FileName);
 
@@ -138,6 +154,7 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
     /// </summary>
     public IReadOnlyList<SessionRecord> Load()
     {
+        ImportBesideExeOnce();
         try
         {
             return ReadFile(out _);
@@ -145,6 +162,87 @@ public sealed class FileSessionHistoryStore : ISessionHistoryStore
         catch (IOException)
         {
             return [];
+        }
+    }
+
+    /// <summary>
+    /// Read the history an older build kept beside the executable into this one, once (R5-D72) - the history
+    /// moved to the per-user folder, and a tester who upgraded a portable copy would otherwise find their
+    /// sessions gone. The old file is left exactly where it is (rule 7) and its path goes into
+    /// <see cref="ImportedName"/>, so it is never read in twice and a cleared history does not come back.
+    /// <para>
+    /// Best-effort: a failure leaves the list unmarked, so the next start tries again, and never stops this
+    /// one. A history either side that this build cannot read is not merged - into or out of - and not marked.
+    /// </para>
+    /// </summary>
+    private void ImportBesideExeOnce()
+    {
+        if (_besideExe is null
+            || string.Equals(Path.GetFullPath(_besideExe), Path.GetFullPath(_directory), StringComparison.OrdinalIgnoreCase)
+            || !File.Exists(Path.Combine(_besideExe, FileName)))
+        {
+            return;
+        }
+
+        try
+        {
+            UnderGate(() => ImportUnderGate(new FileSessionHistoryStore(_besideExe)));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Left unmarked - the next start tries again, and the old file is untouched either way.
+        }
+    }
+
+    private void ImportUnderGate(FileSessionHistoryStore old)
+    {
+        var marker = Path.Combine(_directory, ImportedName);
+        var source = Path.GetFullPath(old.FilePath);
+        var done = File.Exists(marker) ? File.ReadAllLines(marker) : [];
+        if (done.Contains(source, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var theirs = old.ReadFile(out var theirsUnreadable);
+        var ours = ReadFile(out var oursUnreadable);
+        if (theirsUnreadable || oursUnreadable)
+        {
+            return;
+        }
+
+        if (theirs.Count > 0)
+        {
+            // Oldest first, as the file keeps them, and a session in both - a history folder copied along with
+            // the program - once.
+            Write([.. ours.Concat(theirs)
+                .DistinctBy(r => (r.EndedAtUtc, r.TargetPath, r.MomentLocal))
+                .OrderBy(r => r.EndedAtUtc, StringComparer.Ordinal)
+                .TakeLast(SessionHistoryLimits.Max)]);
+        }
+
+        // Created here too: an old history with no sessions in it writes nothing above, and without the folder
+        // the marker would fail on every start and the import be tried for good.
+        Directory.CreateDirectory(_directory);
+        var temp = $"{marker}.{Environment.ProcessId}.tmp";
+        try
+        {
+            File.WriteAllLines(temp, [.. done, source]);
+            File.Move(temp, marker, overwrite: true);
+        }
+        catch
+        {
+            // A scratch file, never left behind on a failed write - and a delete that fails as well does not
+            // take the place of the failure being reported.
+            try
+            {
+                File.Delete(temp);
+            }
+            catch (IOException)
+            {
+            }
+
+            throw;
         }
     }
 

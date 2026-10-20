@@ -4,8 +4,8 @@ using ChronoMock.App;
 namespace ChronoMock.App.Tests;
 
 /// <summary>
-/// Where the window keeps its own files - the history and the diagnostics log ask the same question
-/// (<see cref="WritableFolder.Choose"/>) - and how it knows the installer put it where it is.
+/// Where the window keeps its own files - the history and the diagnostics log take the same answer
+/// (<see cref="WritableFolder.ForApp"/>) - and how it knows the installer put it where it is.
 /// </summary>
 public sealed class DataFolderTests : IDisposable
 {
@@ -20,44 +20,21 @@ public sealed class DataFolderTests : IDisposable
         }
     }
 
-    [Theory]
-    [InlineData("history")]
-    [InlineData("logs")]
-    public void A_portable_copy_keeps_its_files_beside_the_executable_when_that_folder_takes_a_write(string name)
-        => Assert.Equal(
-            Path.Combine(@"X:\exe", name),
-            WritableFolder.Choose(name, @"X:\exe", @"Y:\user", installed: false, _ => true));
-
-    [Theory]
-    [InlineData("history")]
-    [InlineData("logs")]
-    public void A_portable_copy_on_a_read_only_medium_keeps_them_in_the_per_user_folder(string name)
-        // A USB stick or a read-only share cannot hold them next to the exe, so they go to a per-user location
-        // instead of every session reporting a write error.
-        => Assert.Equal(
-            Path.Combine(@"Y:\user", "ChronoMock", name),
-            WritableFolder.Choose(name, @"X:\exe", @"Y:\user", installed: false, _ => false));
-
     /// <summary>
-    /// An installed copy running as administrator found Program Files writable and kept its history there,
-    /// beside the one the same person's ordinary window keeps. It must not even ask: the probe creates the
-    /// folder it asks about, and the uninstaller removes only what it installed.
+    /// R5-D4, R5-D72. Every copy keeps its history and logs in the per-user folder, the portable one too: beside
+    /// the executable of a copy on a shared folder they were everybody's sessions, with the arguments each was
+    /// started with, in one file anyone with the folder could read. Reversal probe: answer the folder beside
+    /// the executable again and the running window's folder is not the per-user one.
     /// </summary>
     [Theory]
     [InlineData("history")]
     [InlineData("logs")]
-    public void An_installed_copy_keeps_them_in_the_per_user_folder_without_asking_the_install_folder(string name)
+    public void Every_copy_keeps_its_files_in_the_per_user_folder(string name)
     {
-        var asked = new List<string>();
-
-        var chosen = WritableFolder.Choose(name, @"X:\exe", @"Y:\user", installed: true, dir =>
-        {
-            asked.Add(dir);
-            return true;
-        });
-
-        Assert.Equal(Path.Combine(@"Y:\user", "ChronoMock", name), chosen);
-        Assert.Empty(asked);
+        Assert.Equal(Path.Combine(@"Y:\user", "ChronoMock", name), WritableFolder.In(@"Y:\user", name));
+        Assert.Equal(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", name),
+            WritableFolder.ForApp(name));
     }
 
     [Fact]

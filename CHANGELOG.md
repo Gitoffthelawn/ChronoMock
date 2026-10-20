@@ -84,6 +84,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A portable copy keeps its session history and diagnostics logs in `%LOCALAPPDATA%\ChronoMock`,**
+  as an installed copy already did. Beside the program, on a shared folder or a stick passed round,
+  they held everybody's sessions - the applications tested and the arguments they were started with -
+  where anyone with the folder could read them. The history an older version kept beside the program is
+  read in once, when this version first starts, and left where it is. Older diagnostics logs beside
+  the program stay there.
 - **Both scenario lists search the same way.** A word typed into the session's scenario search now
   finds a scenario by the line that says what it tests, as the calculator's search always did - both
   lines are shown on every row. The calculator's search box is the session's: it has the clear button,
