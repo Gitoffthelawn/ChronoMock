@@ -32,7 +32,7 @@ use moment::resolve_time_spec;
 use crate::cdp;
 use crate::cli::print_usage;
 use crate::output::{diag, out, outln};
-use crate::report::{arguments_line, mode_label, render_evidence, render_report, EvidenceParams, RunFacts};
+use crate::report::{arguments_line, mode_label, render_evidence, render_report, CutShort, EvidenceParams, RunFacts};
 use crate::wire::{read_line_bytes, LineRead};
 use crate::zone::{format_bias, now_filetime_utc, session_zone_default};
 /// How long `chrono run` waits for ANY event from the core before calling it hung.
@@ -261,7 +261,7 @@ pub(crate) fn driver_run(argv: &[String]) -> i32 {
         // Whether the run was cut short, and by what. It has to travel INTO the report rather than be
         // printed beside it, because the report is also written to the evidence file, and that file is
         // the one a tester cites (untouchable rule 4).
-        timed_out.or(core_lost.then_some("core_lost")),
+        timed_out.map(DriverLimit::cut_short).or(core_lost.then_some(CutShort::CoreLost)),
     );
     let evidence_written = match &ra.report {
         None => true,
@@ -357,7 +357,7 @@ fn no_verdict_notice(core_code: Option<i32>) -> String {
 /// did, how many lines on the core's output were not events, and what the first of those looked like.
 struct Streamed {
     collected: Collector,
-    timed_out: Option<&'static str>,
+    timed_out: Option<DriverLimit>,
     skipped: u64,
     first_skipped: Option<String>,
 }
@@ -569,6 +569,26 @@ struct ReadClock {
     timeout: Option<Duration>,
 }
 
+/// The two limits the driver itself enforces on a read (R5-A9). Which one ran out decides only what is
+/// said - both stop the core, and the run exits 6 with no verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DriverLimit {
+    /// `--timeout` passed.
+    Timeout,
+    /// No event for `DRIVER_IDLE_TIMEOUT_SECS`.
+    Idle,
+}
+
+impl DriverLimit {
+    /// The same limit as the report says it.
+    fn cut_short(self) -> CutShort {
+        match self {
+            DriverLimit::Timeout => CutShort::Timeout,
+            DriverLimit::Idle => CutShort::Idle,
+        }
+    }
+}
+
 /// How long the driver drains the core's output once the core is gone.
 const DRAIN_AFTER_CORE: Duration = Duration::from_millis(200);
 
@@ -600,10 +620,10 @@ impl ReadClock {
     }
 
     /// Which limit a wait that ran out hit: `--timeout` when it has passed, the idle limit otherwise.
-    fn which_limit(&self) -> &'static str {
+    fn which_limit(&self) -> DriverLimit {
         match self.timeout {
-            Some(t) if self.started.elapsed() >= t => "timeout",
-            _ => "idle",
+            Some(t) if self.started.elapsed() >= t => DriverLimit::Timeout,
+            _ => DriverLimit::Idle,
         }
     }
 }
@@ -644,7 +664,7 @@ impl Heartbeats {
 ///
 /// Lifted out of `driver_run` so the pinned complexity ceiling stays where it is (clippy.toml), which
 /// is the ceiling working rather than a nuisance.
-fn report_cut_short(which: &str, timeout_secs: Option<u64>, caller_waits_on_target: bool) -> i32 {
+fn report_cut_short(which: DriverLimit, timeout_secs: Option<u64>, caller_waits_on_target: bool) -> i32 {
     for line in cut_short_notice(which, timeout_secs, caller_waits_on_target) {
         diag!("{line}");
     }
@@ -653,13 +673,13 @@ fn report_cut_short(which: &str, timeout_secs: Option<u64>, caller_waits_on_targ
 
 /// The lines `report_cut_short` prints. Which limit ran out decides only the first - both mean the
 /// same thing, that there is no verdict to report.
-fn cut_short_notice(which: &str, timeout_secs: Option<u64>, caller_waits_on_target: bool) -> Vec<String> {
+fn cut_short_notice(which: DriverLimit, timeout_secs: Option<u64>, caller_waits_on_target: bool) -> Vec<String> {
     let mut lines = vec![match which {
-        "timeout" => format!(
+        DriverLimit::Timeout => format!(
             "chrono: gave up after the --timeout of {}s - the core was stopped, so this run has no verdict",
             timeout_secs.unwrap_or(0)
         ),
-        _ => format!(
+        DriverLimit::Idle => format!(
             "chrono: the core sent no event for {DRIVER_IDLE_TIMEOUT_SECS}s and was stopped - this run has no verdict"
         ),
     }];
@@ -936,8 +956,8 @@ mod tests {
 
         let late = ReadClock { started: now - Duration::from_secs(6), last_event: now, core_gone_at: None, timeout: Some(Duration::from_secs(5)) };
         assert_eq!(late.budget(), Duration::ZERO);
-        assert_eq!(late.which_limit(), "timeout");
-        assert_eq!(quiet.which_limit(), "idle");
+        assert_eq!(late.which_limit(), DriverLimit::Timeout);
+        assert_eq!(quiet.which_limit(), DriverLimit::Idle);
     }
 
     /// The run says the target holds its stderr only where it does (R4/5 review round): a target given
@@ -960,13 +980,13 @@ mod tests {
     /// that a reader of that stream may wait for it (R4/5 review round).
     #[test]
     fn a_run_cut_short_says_a_reader_of_stderr_may_wait_for_the_target() {
-        let held = cut_short_notice("timeout", Some(5), true);
+        let held = cut_short_notice(DriverLimit::Timeout, Some(5), true);
         assert!(held[0].contains("--timeout of 5s"), "{held:?}");
         assert!(held[1].contains("may still be running, so close it yourself"), "{held:?}");
         assert!(held[2].starts_with("chrono: if it is, it still writes to this command's standard error"), "{held:?}");
         assert_eq!(held.len(), 3);
 
-        let not_held = cut_short_notice("idle", None, false);
+        let not_held = cut_short_notice(DriverLimit::Idle, None, false);
         assert!(not_held[0].contains("sent no event for"), "{not_held:?}");
         assert_eq!(not_held.len(), 2, "no word about stderr when the target was not given it: {not_held:?}");
     }
@@ -976,7 +996,7 @@ mod tests {
     /// session clock for it - it did, and it was false.
     #[test]
     fn the_app_that_outlives_the_core_is_not_said_to_run_on_the_session_clock() {
-        for line in cut_short_notice("idle", None, true).iter().chain(core_lost_notice(Some(1), true).iter()) {
+        for line in cut_short_notice(DriverLimit::Idle, None, true).iter().chain(core_lost_notice(Some(1), true).iter()) {
             assert!(!line.contains("session clock"), "{line}");
         }
     }
