@@ -7,12 +7,12 @@
 use std::cell::Cell;
 
 use chrono_core::TimeMode;
-use chrono_proto::{Clock, Event, MomentKind, MomentSpec, TimeSpec, PROTOCOL_VERSION};
+use chrono_proto::{Clock, Event, TimeSpec, PROTOCOL_VERSION};
 
 use crate::cdp::{self, ScheduledRate};
 use crate::cdp_attach::ShimOrigin;
 use crate::events::{jump_error_key, moment_error_key, start_time_mode};
-use crate::grammar::parse_shift;
+use crate::session_commands::JumpTo;
 use crate::zone::{epoch_ms_to_wall, moment_epoch_ms, now_epoch_ms, FT_UNIX_EPOCH, WALL_MAX_MS, WALL_MIN_MS};
 
 /// How long after it is asked for a rate change takes effect - on the panel and in every page at one
@@ -430,23 +430,19 @@ pub(crate) fn cdp_release_expr() -> String {
 /// mechanism. The built-in clients always name the session zone, so neither of them saw it.
 ///
 /// A relative jump went through the civil text of the fake wall, which has whole seconds, and lost up
-/// to 999 ms of it at every jump (R5-P19). It now steps on FILETIME as the native session does. A kind
-/// of moment neither mechanism knows is refused alike (`moment.unsupported_kind`, R5-P18) - it was
-/// read here as absolute.
-pub(crate) fn cdp_resolve_jump(clock: &CdpClock, to: &MomentSpec, now: i64) -> Result<i64, &'static str> {
-    match to.kind {
-        MomentKind::Relative => {
-            let delta = to.delta.as_deref().ok_or("moment.invalid")?;
-            let step = parse_shift(delta).map_err(|_| "moment.invalid")?;
+/// to 999 ms of it at every jump (R5-P19). It now steps on FILETIME as the native session does. The
+/// target arrives read (`session_commands::read_jump`), so a kind of moment neither mechanism knows is
+/// refused before this, alike on both paths (R5-P18) - it used to be read here as absolute.
+pub(crate) fn cdp_jump_target(clock: &CdpClock, to: &JumpTo<'_>, now: i64) -> Result<i64, &'static str> {
+    match to {
+        JumpTo::Step(step) => {
             let fake_ft = epoch_ms_to_filetime(clock.fake_wall_ms(now));
-            let target = chrono_core::calc::step_target(fake_ft, clock.bias, &step).map_err(jump_error_key)?;
+            let target = chrono_core::calc::step_target(fake_ft, clock.bias, step).map_err(jump_error_key)?;
             Ok(filetime_to_epoch_ms(target))
         }
-        MomentKind::Absolute => {
-            let local = to.local.as_deref().ok_or("moment.invalid")?;
-            moment_epoch_ms(local, to.tz_bias_min.unwrap_or(clock.bias)).map_err(|e| moment_error_key(&e))
+        JumpTo::At { local, bias } => {
+            moment_epoch_ms(local, bias.unwrap_or(clock.bias)).map_err(|e| moment_error_key(&e))
         }
-        MomentKind::Unknown => Err("moment.unsupported_kind"),
     }
 }
 
@@ -458,7 +454,8 @@ fn epoch_ms_to_filetime(ms: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono_proto::TimeModeKind;
+    use crate::session_commands::read_jump;
+    use chrono_proto::{MomentKind, MomentSpec, TimeModeKind};
 
     fn origin(fake0: i64, real0: i64, mult: i64) -> ShimOrigin {
         ShimOrigin { fake0, real0, mult, dur: mult, scheduled: None }
@@ -797,6 +794,11 @@ mod tests {
             tz_bias_min: bias,
             delta: delta.map(str::to_string),
         }
+    }
+
+    /// A jump as a session takes it: read off the wire, then resolved on this clock.
+    fn cdp_resolve_jump(clock: &CdpClock, to: &MomentSpec, now: i64) -> Result<i64, &'static str> {
+        cdp_jump_target(clock, &read_jump(to)?, now)
     }
 
     /// R4-S9 and R4-S7 on the Chromium jump: no zone means the session zone, a named zone is kept,

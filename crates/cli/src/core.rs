@@ -18,8 +18,8 @@ use chrono_core::{
 };
 use chrono_mech::{FamilyMember, UncoveredChild};
 use chrono_proto::{
-    parse_command, Command, Event, FollowedProcess, MomentKind, MomentSpec, ReachedEngine, TargetConsole,
-    TargetSpec, TimeSpec, PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
+    parse_command, Command, Event, FollowedProcess, ReachedEngine, TargetConsole, TargetSpec, TimeSpec,
+    PROTOCOL_VERSION, UNCOVERED_CHILDREN_WIRE_MAX,
 };
 
 use crate::cdp;
@@ -31,15 +31,14 @@ use crate::cli::{this_bitness, CORE_VERSION};
 use crate::embedded::{is_renderer_role, is_web_engine_subprocess, role_from_command_line};
 use crate::embedded_bridge::{reconcile_engine_warnings, EmbeddedBridge, Launch, KEY_REGISTRY_ARGUMENTS_HIDDEN};
 use crate::events::{
-    command_id, emit, emit_coverage, ended_clean, jump_error_key, moment_error_key, reported_sleep_ms,
-    sleep_to_announce, start_time_mode, state_event, state_event_from, unsupported_command, KEY_HOST_SLEPT,
-    SLEPT_REPORTED_MS,
+    emit, emit_coverage, ended_clean, error_event, jump_error_key, moment_error_key, reported_sleep_ms,
+    sleep_to_announce, start_time_mode, state_event, state_event_from, KEY_HOST_SLEPT, SLEPT_REPORTED_MS,
 };
-use crate::grammar::parse_shift;
 use crate::output::diag;
 use crate::pe::is_windowed_program;
 use crate::policy_session::{PolicySession, KEY_LEFT};
 use crate::report::detect_runtime_warnings;
+use crate::session_commands::{apply_command, JumpTo, SessionClock};
 use crate::wire::{read_protocol_line, spawn_command_reader};
 pub(crate) fn core_mode() -> i32 {
     // Handshake first - before reading any command - so a client can verify `protocol` and
@@ -59,13 +58,7 @@ pub(crate) fn core_mode() -> i32 {
     let Start { id: start_id, target, time, force } = match read_start(&mut reader) {
         Ok(start) => start,
         Err(refusal) => {
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: refusal.id,
-                code: 1,
-                key: refusal.key.into(),
-                origin: "core".into(),
-            });
+            emit(&error_event(refusal.id, 1, refusal.key, "core"));
             if refusal.needs_ended {
                 emit(&ended_clean());
             }
@@ -86,13 +79,7 @@ pub(crate) fn core_mode() -> i32 {
     let hook = match hook_dll_path() {
         Some(p) => p,
         None => {
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: Some(start_id),
-                code: 3,
-                key: "core.hook_dll_missing".into(),
-                origin: "core".into(),
-            });
+            emit(&error_event(Some(start_id), 3, "core.hook_dll_missing", "core"));
             // Human-side detail on stderr (never on the protocol stdout), naming the folder we looked
             // in. For a portable tool unpacked anywhere, WHERE we looked is the actionable half.
             let looked_in = std::env::current_exe()
@@ -108,13 +95,7 @@ pub(crate) fn core_mode() -> i32 {
     let spec = match build_spec(&time) {
         Ok(s) => s,
         Err((code, key)) => {
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: Some(start_id),
-                code,
-                key: key.into(),
-                origin: "core".into(),
-            });
+            emit(&error_event(Some(start_id), code, key, "core"));
             emit(&ended_clean());
             return code;
         }
@@ -234,13 +215,7 @@ pub(crate) fn core_mode() -> i32 {
         }
         Err(e) => {
             let (code, key, origin, detail) = map_prepare_error(e);
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: Some(start_id),
-                code,
-                key: key.into(),
-                origin: origin.into(),
-            });
+            emit(&error_event(Some(start_id), code, key, origin));
             // Human-side detail on stderr (never on the protocol stdout).
             diag!("chrono core: {detail}");
             emit(&policy.ended_before_running());
@@ -518,7 +493,7 @@ pub(crate) fn run_session(
         match rx.recv_timeout(wait) {
             Ok(Command::End { .. }) => break,
             Ok(cmd) => {
-                if apply_command(&mut session, &mut bridge, cmd) {
+                if apply_command(&mut NativeClock { session: &mut session, bridge: &mut bridge }, cmd) {
                     ledger.note_clock_moved(session.absolute_dues_total());
                 }
             }
@@ -569,85 +544,38 @@ pub(crate) fn run_session(
     close_session(session, ledger, bridge, policy, target_exit)
 }
 
-/// Act on one command that arrived mid-session.
-///
-/// `end` never reaches here. Whether the loop keeps running is the loop's business rather than a
-/// command's effect on the session, so that one arm stays where the decision is made. Everything
-/// else is answered: a command this state cannot act on gets `unsupported` WITH its id, so a client
-/// waiting on `ack` learns the outcome instead of waiting for ever.
-///
-/// Answers whether the command moved the session clock - a jump or a speed change that was applied - so the
-/// loop can note what was pending when it moved (`SessionLedger::note_clock_moved`, R5-D2).
-pub(crate) fn apply_command(session: &mut chrono_mech::Session, bridge: &mut EmbeddedBridge, cmd: Command) -> bool {
-    match cmd {
-        Command::Query { id, .. } => {
-            emit(&state_event(session));
-            emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-            false
-        }
-        Command::SetMultiplier { id, multiplier, .. } => {
-            // Bounded here as well as at start: a rate change in flight reaches the same anchor
-            // arithmetic, so an unchecked one walks the clock out of range (or backwards) just as
-            // effectively (R2-K2, R2-K3). Rejecting ONE command never ends the session - the
-            // session keeps running at the rate it had, and the client is told why (rule 6).
-            if chrono_core::multiplier_in_range(multiplier) {
-                session.set_multiplier(multiplier);
-                // The host first (it is the source of truth), then its new clock to the pages.
-                bridge.set_multiplier(host_origin(session, bridge.scale_duration()));
-                emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-                emit(&state_event(session));
-                true
-            } else {
-                emit(&Event::Error {
-                    v: PROTOCOL_VERSION,
-                    id: Some(id),
-                    code: 1,
-                    key: "time.bad_multiplier".into(),
-                    origin: "core".into(),
-                });
-                false
+/// The native session's clock, as the commands see it (R5-A3): the hooked family's clock, with the
+/// pages of an engine inside the application put on it after every move (docs/09 section 12). Every
+/// applied move is noted, for the timers that were pending when the clock moved (R5-D2).
+struct NativeClock<'a> {
+    session: &'a mut chrono_mech::Session,
+    bridge: &'a mut EmbeddedBridge,
+}
+
+impl SessionClock for NativeClock<'_> {
+    fn state_event(&self) -> Event {
+        state_event(self.session)
+    }
+
+    fn set_multiplier(&mut self, multiplier: i64) -> bool {
+        self.session.set_multiplier(multiplier);
+        // The host first (it is the source of truth), then its new clock to the pages.
+        self.bridge.set_multiplier(host_origin(self.session, self.bridge.scale_duration()));
+        true
+    }
+
+    /// A step resolves in the mechanism, which re-anchors under one clock read. A moment goes through
+    /// the gate a start goes through.
+    fn jump(&mut self, to: &JumpTo<'_>) -> Result<bool, &'static str> {
+        match to {
+            JumpTo::Step(step) => self.session.jump_step(step).map_err(jump_error_key)?,
+            JumpTo::At { local, bias } => {
+                let at = moment_at(local, *bias, self.session.tz_bias())?;
+                self.session.jump(at);
             }
         }
-        Command::Jump { id, to, .. } => {
-            // Relative jump (current fake + one step) resolves in the core through the SHARED
-            // evaluator, so `jump` accepts the same calendar units as calc and `--at`. The core
-            // alone knows the live fake clock. Absolute resolves through moment_from_spec. Both
-            // re-anchor under one clock read.
-            let resolved: Result<(), &str> = if to.kind == MomentKind::Relative {
-                match to.delta.as_deref() {
-                    Some(d) => match parse_shift(d) {
-                        Ok(step) => session.jump_step(&step).map_err(jump_error_key),
-                        Err(_) => Err("moment.invalid"),
-                    },
-                    None => Err("moment.invalid"),
-                }
-            } else {
-                moment_from_spec(&to, session.tz_bias()).map(|ft| session.jump(ft))
-            };
-            match resolved {
-                Ok(()) => {
-                    bridge.jump(host_origin(session, bridge.scale_duration()));
-                    emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-                    emit(&state_event(session));
-                    true
-                }
-                Err(key) => {
-                    emit(&Event::Error {
-                        v: PROTOCOL_VERSION,
-                        id: Some(id),
-                        code: 1,
-                        key: key.into(),
-                        origin: "core".into(),
-                    });
-                    false
-                }
-            }
-        }
-        // Same as the CDP loop: a command this state does not act on is answered, not dropped.
-        other => {
-            emit(&unsupported_command(command_id(&other)));
-            false
-        }
+        self.bridge.jump(host_origin(self.session, self.bridge.scale_duration()));
+        Ok(true)
     }
 }
 
@@ -1112,24 +1040,16 @@ pub(crate) fn every_renderer_reached(children: &[UncoveredChild], engines: &[Rea
         .all(|c| engines.iter().any(|e| e.pid == c.parent_pid && e.context_count > 0))
 }
 
-/// Resolve an absolute jump target to a UTC FILETIME, through the same gate a start goes through.
+/// Resolve a jump's moment to a UTC FILETIME, through the same gate a start goes through.
 ///
 /// A target that names no zone is read in the SESSION zone (`session_bias`), like every other moment
 /// of the session. It was read as UTC, against the documentation of `Moment`, so a client that left
 /// the field out landed the clock an offset away from the time it asked for (R4-S9) - the error the
 /// driver's own `--jump-after` had been fixed for. One that names a zone keeps it: the moment is read
 /// there and the session zone does not change.
-pub(crate) fn moment_from_spec(spec: &MomentSpec, session_bias: i32) -> Result<i64, &'static str> {
-    match spec.kind {
-        MomentKind::Absolute => {
-            let m = Moment {
-                local: spec.local.clone().unwrap_or_default(),
-                tz_bias_min: Some(spec.tz_bias_min.unwrap_or(session_bias)),
-            };
-            chrono_core::session_instant(&m).map(|(ft, _)| ft).map_err(|e| moment_error_key(&e))
-        }
-        MomentKind::Relative | MomentKind::Unknown => Err("moment.unsupported_kind"),
-    }
+fn moment_at(local: &str, bias: Option<i32>, session_bias: i32) -> Result<i64, &'static str> {
+    let m = Moment { local: local.to_string(), tz_bias_min: Some(bias.unwrap_or(session_bias)) };
+    chrono_core::session_instant(&m).map(|(ft, _)| ft).map_err(|e| moment_error_key(&e))
 }
 
 /// The hook DLL sits next to the executable (same target dir, matching bitness).
@@ -1247,7 +1167,7 @@ pub(crate) fn map_prepare_error(e: chrono_mech::PrepareError) -> (i32, &'static 
 mod tests {
     use super::*;
     use crate::testutil::unique_temp_dir;
-    use chrono_proto::TimeModeKind;
+    use chrono_proto::{MomentKind, MomentSpec, TimeModeKind};
 
     /// R5-P1, R5-D34. A sleep of the machine reaches the log once, when it is at least a second long, and
     /// each later one on its own - never the same sleep twice, never a resume of a fraction of a second.
@@ -1434,14 +1354,14 @@ mod tests {
             tz_bias_min: Some(-120),
         })
         .unwrap();
-        assert_eq!(moment_from_spec(&moment_spec("2030-06-15T12:00:00", None), -120), Ok(east2));
+        assert_eq!(moment_at("2030-06-15T12:00:00", None, -120), Ok(east2));
         assert_eq!(
-            moment_from_spec(&moment_spec("2030-06-15T12:00:00", Some(0)), -120),
+            moment_at("2030-06-15T12:00:00", Some(0), -120),
             Ok(east2 + 120 * 60 * 10_000_000),
             "a zone named on the jump is the one it is read in"
         );
-        assert_eq!(moment_from_spec(&moment_spec("2030-06-15T12:00:00", Some(-900)), 0), Err("time.bad_zone"));
-        assert_eq!(moment_from_spec(&moment_spec("1000-01-01T00:00:00", None), 0), Err("moment.out_of_range"));
+        assert_eq!(moment_at("2030-06-15T12:00:00", Some(-900), 0), Err("time.bad_zone"));
+        assert_eq!(moment_at("1000-01-01T00:00:00", None, 0), Err("moment.out_of_range"));
     }
 
     #[test]

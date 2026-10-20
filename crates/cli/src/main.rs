@@ -66,6 +66,8 @@ mod run;
 /// What the random properties share - edges, a deadline, the weekly canary.
 #[cfg(test)]
 mod search;
+/// The commands a running session takes, answered once for the native and the Chromium session.
+mod session_commands;
 /// Test-only helpers shared by more than one module.
 #[cfg(test)]
 mod testutil;

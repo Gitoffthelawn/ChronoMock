@@ -464,6 +464,29 @@ fn every_wire_key_has_a_gloss_in_the_cli_report() {
 
 /// The scan reads a key wherever it is quoted, including inside a raw string that holds JSON - the
 /// shape that hid `proto.serialize_failed` - and still refuses text that is not a key.
+/// The `error` event is built in one function, `events::error_event` (R5-A3). Sixteen hand-built copies
+/// had to agree on the version, the field names and the origin, and the two sessions' copies of the
+/// command answers had already drifted apart once (R5-P18, R5-P19). A construction is the variant
+/// with its `v:` field - a match on the variant names no `v:` and is left alone, and so is a test.
+#[test]
+fn an_error_event_is_built_in_one_place() {
+    let root = repo_root();
+    let mut built = Vec::new();
+    for path in rust_sources_under(&root.join("crates/cli/src")) {
+        let flat = production_source(&path).split_whitespace().collect::<Vec<_>>().join(" ");
+        let count = flat.matches("Event::Error { v:").count();
+        if count > 0 {
+            let name = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+            built.push((name, count));
+        }
+    }
+    assert_eq!(
+        built,
+        [("crates/cli/src/events.rs".to_string(), 1)],
+        "an error event is built by hand outside events::error_event - build it there, so its shape has one place"
+    );
+}
+
 #[test]
 fn the_key_scan_reads_keys_inside_raw_json_strings() {
     let raw = r###"r#"{"type":"error","v":1,"key":"proto.serialize_failed","origin":"proto"}"#,"###;

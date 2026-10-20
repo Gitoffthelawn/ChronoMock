@@ -7,9 +7,9 @@
 use std::io::BufRead;
 use std::sync::mpsc;
 
-use chrono_proto::{parse_command, Command, Event, PROTOCOL_VERSION};
+use chrono_proto::{parse_command, Command, Event};
 
-use crate::events::emit;
+use crate::events::{emit, error_event};
 
 /// The largest NDJSON line either side of the protocol will read, in bytes.
 ///
@@ -166,13 +166,7 @@ where
                 // forbidden (rule 6): say which of the two happened before going, so the reader
                 // looks at what they sent rather than at the core.
                 Err(e) => {
-                    sink(&Event::Error {
-                        v: PROTOCOL_VERSION,
-                        id: None,
-                        code: 1,
-                        key: stream_error_key(&e).into(),
-                        origin: "core".into(),
-                    });
+                    sink(&error_event(None, 1, stream_error_key(&e), "core"));
                     break;
                 }
                 Ok(_) => match parse_command(line.trim_end()) {
@@ -181,13 +175,7 @@ where
                             break;
                         }
                     }
-                    Err(_) => sink(&Event::Error {
-                        v: PROTOCOL_VERSION,
-                        id: None,
-                        code: 1,
-                        key: "protocol.bad_command_ignored".into(),
-                        origin: "core".into(),
-                    }),
+                    Err(_) => sink(&error_event(None, 1, "protocol.bad_command_ignored", "core")),
                 },
             }
         }
@@ -198,6 +186,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono_proto::PROTOCOL_VERSION;
 
     /// The protocol line was the only input channel in this tool without a bound, so a writer that
     /// never sent a newline grew the reader's buffer as long as it liked.

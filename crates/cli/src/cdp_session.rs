@@ -20,12 +20,12 @@ use crate::cdp;
 use crate::output::diag;
 use crate::zone::{epoch_ms_to_wall, now_epoch_ms};
 use crate::events::{
-    command_id, emit, ended_after_launch, ended_clean, reported_sleep_ms, sleep_to_announce, unsupported_command,
-    SLEPT_REPORTED_MS,
+    emit, ended_after_launch, ended_clean, error_event, reported_sleep_ms, sleep_to_announce, SLEPT_REPORTED_MS,
 };
 use crate::wire::spawn_command_reader;
 use crate::cdp_attach::{Attacher, Pumped, END_WAIT};
-use crate::cdp_clock::{cdp_resolve_jump, cdp_schedule_expr, cdp_set_expr, resync_due, CdpClock, HostAxis};
+use crate::cdp_clock::{cdp_jump_target, cdp_schedule_expr, cdp_set_expr, resync_due, CdpClock, HostAxis};
+use crate::session_commands::{apply_command, JumpTo, SessionClock};
 use crate::cdp_audit::{
     covered_channels, coverage_events, cdp_verdict, session_warnings,
     verdict_keys, SessionFacts,
@@ -62,13 +62,7 @@ pub(crate) fn cdp_session(start_id: u64, target: TargetSpec, time: TimeSpec, rea
     let mut clock = match CdpClock::from_time_spec(&time, real_start_ms) {
         Ok(c) => c,
         Err(key) => {
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: Some(start_id),
-                code: 1,
-                key: key.into(),
-                origin: "core".into(),
-            });
+            emit(&error_event(Some(start_id), 1, key, "core"));
             emit(&ended_clean());
             return 1;
         }
@@ -93,13 +87,7 @@ pub(crate) fn cdp_session(start_id: u64, target: TargetSpec, time: TimeSpec, rea
     }) {
         Ok(l) => l,
         Err(e) => {
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: Some(start_id),
-                code: 2,
-                key: "target.launch_failed".into(),
-                origin: "mechanism".into(),
-            });
+            emit(&error_event(Some(start_id), 2, "target.launch_failed", "mechanism"));
             diag!("chrono core: {e}");
             // A browser that never opened its port was ended and its profile removed before this - what
             // could not be removed is said, not covered by a `clean: true` (R5-Z1).
@@ -125,13 +113,7 @@ pub(crate) fn cdp_session(start_id: u64, target: TargetSpec, time: TimeSpec, rea
         Ok(a) => a,
         Err(e) => {
             let residue = launched.shutdown_with_residue();
-            emit(&Event::Error {
-                v: PROTOCOL_VERSION,
-                id: Some(start_id),
-                code: 2,
-                key: "target.attach_failed".into(),
-                origin: "mechanism".into(),
-            });
+            emit(&error_event(Some(start_id), 2, "target.attach_failed", "mechanism"));
             diag!("chrono core: cannot attach over CDP: {e}");
             emit(&ended_after_launch(residue));
             return 2;
@@ -171,7 +153,10 @@ pub(crate) fn cdp_session(start_id: u64, target: TargetSpec, time: TimeSpec, rea
             match rx.try_recv() {
                 Ok(Command::End { .. }) => break 'session,
                 Ok(command) => {
-                    let moved = apply_command(command, &mut clock, &mut attacher, &mut next_index, &mut watch);
+                    let moved = apply_command(
+                        &mut CdpCommandClock { clock: &mut clock, attacher: &mut attacher, next_index: &mut next_index, watch: &mut watch },
+                        command,
+                    );
                     rate_changed_in_flight |= moved;
                     beat(&clock, &mut deadline, heartbeat, watch.now());
                 }
@@ -342,66 +327,45 @@ impl WallWatch {
     }
 }
 
-/// Answer one command that arrived mid-session (`end` is the loop's own business). Returns whether
-/// it changed the rate under a live context, for the end report's note about timers that were already
-/// running.
-fn apply_command(command: Command, clock: &mut CdpClock, attacher: &mut Attacher, next_index: &mut u32, watch: &mut WallWatch) -> bool {
-    match command {
-        Command::Query { id, .. } => {
-            emit(&clock.state_event_at(watch.now()));
-            emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-            false
-        }
-        Command::SetMultiplier { id, multiplier, .. } => {
-            // Schedule the new rate for one instant shortly ahead, on the panel and in every context
-            // alike, so a page takes it over from its own segment at the panel's moment and its wall
-            // never steps at the change (R4-S17). From that instant Date.now/new Date/performance.now
-            // and new timers run at the new rate - only an already-queued setInterval keeps its old
-            // cadence, which the end report warns about (rule 4).
-            if !chrono_core::multiplier_in_range(multiplier) {
-                emit(&command_error(id, "time.bad_multiplier"));
-                return false;
-            }
-            // A change with no context to feel it leaves no timer at the old rate, so it is no caveat
-            // for the report (R5-P19) - one attached later takes the new rate from its start.
-            let felt = !attacher.contexts().is_empty();
-            let next = clock.set_multiplier_at(multiplier, watch.now());
-            // The instant on the system clock the pages read (R5-F6).
-            attacher.move_clock(&cdp_schedule_expr(clock.for_pages(next)), clock.shim_origin(), next_index);
-            watch.pushed(clock);
-            emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-            emit(&clock.state_event_at(watch.now()));
-            felt
-        }
-        Command::Jump { id, to, .. } => {
-            // Move the wall to a new fake instant (absolute, or a relative delta on the current fake
-            // time), leaving the duration axis untouched (rule 3). A bad moment is an honest error,
-            // never a silent no-op (rule 6).
-            let now = watch.now();
-            match cdp_resolve_jump(clock, &to, now) {
-                Ok(new_fake) => {
-                    clock.jump_to_at(new_fake, now);
-                    attacher.move_clock(&cdp_set_expr(clock.shim_origin()), clock.shim_origin(), next_index);
-                    watch.pushed(clock);
-                    emit(&Event::Ack { v: PROTOCOL_VERSION, id });
-                    emit(&clock.state_event_at(watch.now()));
-                }
-                Err(key) => emit(&command_error(id, key)),
-            }
-            false
-        }
-        // A command this loop does not handle here (a second `start`, say). Answered rather than
-        // dropped, and with the id, so a client waiting on `ack` learns the outcome.
-        other => {
-            emit(&unsupported_command(command_id(&other)));
-            false
-        }
-    }
+/// The Chromium session's clock, as the commands see it (R5-A3): the panel's clock, with every context
+/// given the move. What its loop notes is a rate changed under a live context, for the report's line
+/// about timers already running at the old rate - a jump moves the wall alone and leaves no such timer.
+struct CdpCommandClock<'a> {
+    clock: &'a mut CdpClock,
+    attacher: &'a mut Attacher,
+    next_index: &'a mut u32,
+    watch: &'a mut WallWatch,
 }
 
-/// The honest error for a command that could not be applied (rule 6).
-fn command_error(id: u64, key: &str) -> Event {
-    Event::Error { v: PROTOCOL_VERSION, id: Some(id), code: 1, key: key.into(), origin: "core".into() }
+impl SessionClock for CdpCommandClock<'_> {
+    fn state_event(&self) -> Event {
+        self.clock.state_event_at(self.watch.now())
+    }
+
+    /// The new rate is scheduled for one instant shortly ahead, on the panel and in every context
+    /// alike, so a page takes it over from its own segment at the panel's moment and its wall never
+    /// steps at the change (R4-S17). From that instant Date.now, new Date, performance.now and new
+    /// timers run at the new rate - only an already-queued setInterval keeps its old cadence, which the
+    /// end report warns about (rule 4).
+    fn set_multiplier(&mut self, multiplier: i64) -> bool {
+        // A change with no context to feel it leaves no timer at the old rate, so it is no caveat for
+        // the report (R5-P19) - one attached later takes the new rate from its start.
+        let felt = !self.attacher.contexts().is_empty();
+        let next = self.clock.set_multiplier_at(multiplier, self.watch.now());
+        // The instant on the system clock the pages read (R5-F6).
+        self.attacher.move_clock(&cdp_schedule_expr(self.clock.for_pages(next)), self.clock.shim_origin(), self.next_index);
+        self.watch.pushed(self.clock);
+        felt
+    }
+
+    fn jump(&mut self, to: &JumpTo<'_>) -> Result<bool, &'static str> {
+        let now = self.watch.now();
+        let new_fake = cdp_jump_target(self.clock, to, now)?;
+        self.clock.jump_to_at(new_fake, now);
+        self.attacher.move_clock(&cdp_set_expr(self.clock.shim_origin()), self.clock.shim_origin(), self.next_index);
+        self.watch.pushed(self.clock);
+        Ok(false)
+    }
 }
 
 /// The family verdict of a CDP session. No PID registry on this path: a CDP session tracks JS
@@ -549,9 +513,12 @@ mod tests {
         .unwrap();
         let mut next = 0;
         let speed = |id: u64| Command::SetMultiplier { v: PROTOCOL_VERSION, id, multiplier: 120 };
-        assert!(!apply_command(speed(1), &mut clock, &mut attacher, &mut next, &mut watch), "no context, no caveat");
+        let mut apply = |command, clock: &mut CdpClock, attacher: &mut Attacher, next: &mut u32| {
+            apply_command(&mut CdpCommandClock { clock, attacher, next_index: next, watch: &mut watch }, command)
+        };
+        assert!(!apply(speed(1), &mut clock, &mut attacher, &mut next), "no context, no caveat");
         attacher.attach_existing(clock.shim_origin(), &mut next, Instant::now() + Duration::from_secs(2)).unwrap();
-        assert!(apply_command(speed(2), &mut clock, &mut attacher, &mut next, &mut watch), "a worker ran timers at the old rate");
+        assert!(apply(speed(2), &mut clock, &mut attacher, &mut next), "a worker ran timers at the old rate");
         drop(attacher);
         drop(server);
     }

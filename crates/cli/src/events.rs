@@ -127,16 +127,18 @@ pub(crate) fn command_id(cmd: &Command) -> u64 {
     }
 }
 
+/// `error`, the one place it is built (R5-A3): `id` names the command it answers, absent for a line
+/// that was no command, `code` is the exit code the refusal stands for (docs/08 section 8), `key` is the
+/// translation key and `origin` says who refused - `core` for the protocol and the session's own
+/// checks, `mechanism` for the substitution underneath.
+pub(crate) fn error_event(id: Option<u64>, code: i32, key: &str, origin: &str) -> Event {
+    Event::Error { v: PROTOCOL_VERSION, id, code, key: key.into(), origin: origin.into() }
+}
+
 /// `error` for a well-formed command the running session does not act on. The session continues -
 /// this reports an outcome, it does not end anything.
 pub(crate) fn unsupported_command(id: u64) -> Event {
-    Event::Error {
-        v: PROTOCOL_VERSION,
-        id: Some(id),
-        code: 1,
-        key: "protocol.unsupported_command".into(),
-        origin: "core".into(),
-    }
+    error_event(Some(id), 1, "protocol.unsupported_command", "core")
 }
 
 /// The shortest sleep of the machine a session tells about (R5-P1). The sleep bias moves only when the
