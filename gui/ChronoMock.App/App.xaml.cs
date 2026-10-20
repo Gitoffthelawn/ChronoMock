@@ -59,11 +59,31 @@ public partial class App : Application
         {
             // Startup failed before the window is up (a missing strings file, a missing dev artifact, an
             // unreadable history file). DispatcherUnhandledException does not cover OnStartup itself, so
-            // show the reason and shut down cleanly rather than crash with a raw stack (M-6).
+            // show the reason and shut down cleanly rather than crash with a raw stack (M-6). The whole
+            // exception goes to the diagnostics folder first and the box names the file (R5/6b, D1) - the
+            // message alone was all a failed start ever left.
             System.Windows.MessageBox.Show(
-                ex.Message, "Chrono Mock - startup failed",
+                FaultReports.StartupText(TranslationKeyConverter.Resolve, ex, SaveQuietly(FaultReports.Record(ex, "startup"))),
+                "Chrono Mock - startup failed",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             Shutdown(1);
+        }
+    }
+
+    /// <summary>
+    /// Write a fault record to the diagnostics folder, or nothing. The save itself never throws for a folder it
+    /// cannot write, but this runs where a failed start is being reported, and anything that escaped here
+    /// would replace that report with a crash.
+    /// </summary>
+    private static string? SaveQuietly(string record)
+    {
+        try
+        {
+            return FileDiagnosticsLog.ForApp().Save(record);
+        }
+        catch (Exception)
+        {
+            return null; // the box still shows the message - only the file line goes
         }
     }
 
@@ -124,13 +144,15 @@ public partial class App : Application
     /// </summary>
     private void Report(Exception fault, string source)
     {
-        if (!_faults.ShouldShow(fault))
+        var notice = _faults.Hear(fault);
+        if (notice == FaultNotice.None)
         {
             return;
         }
 
-        var saved = FileDiagnosticsLog.ForApp().Save(FaultReports.Record(fault, source));
-        if (Dispatcher.HasShutdownStarted)
+        var saved = FileDiagnosticsLog.ForApp().Save(FaultReports.Record(fault, source, notice == FaultNotice.RecordLast));
+        // Past the cap on boxes the fault is still written (R5/6b, D1), and only shown while under it.
+        if (notice != FaultNotice.Show || Dispatcher.HasShutdownStarted)
         {
             return;
         }

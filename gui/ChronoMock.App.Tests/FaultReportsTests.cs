@@ -1,4 +1,7 @@
+using System.Globalization;
+using System.Runtime.CompilerServices;
 using ChronoMock.App;
+using ChronoMock.App.Localization;
 
 namespace ChronoMock.App.Tests;
 
@@ -29,9 +32,88 @@ public class FaultReportsTests
         var first = Thrown(() => new InvalidOperationException("one"));
         var second = Thrown(() => new InvalidOperationException("two"));
 
-        Assert.True(reports.ShouldShow(first));
-        Assert.False(reports.ShouldShow(second), "the same fault a second time is not new information");
-        Assert.True(reports.ShouldShow(Thrown(() => new FormatException("three"))), "a different fault is");
+        Assert.Equal(FaultNotice.Show, reports.Hear(first));
+        Assert.Equal(FaultNotice.None, reports.Hear(second)); // the same fault a second time is not new information
+        Assert.Equal(FaultNotice.Show, reports.Hear(Thrown(() => new FormatException("three")))); // a different one is
+    }
+
+    // Two places in this code that hand .NET the same bad text: the fault is thrown INSIDE .NET in both, from
+    // one frame there, and only the frame of ours below it tells them apart.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int ReadsTheCount() => int.Parse("not a number", CultureInfo.InvariantCulture);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int ReadsTheLimit() => int.Parse("not a number", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// R5/6b, D1. Two faults of one type thrown from one frame inside .NET, reached from two different places in
+    /// this code, are two faults. The signature took the innermost frame of all, which was the .NET one for
+    /// both, so the second was neither shown nor written. Reversal probe: sign by the innermost frame again and
+    /// the second is heard as the first.
+    /// </summary>
+    [Fact]
+    public void Two_faults_thrown_inside_dotnet_from_two_places_of_ours_are_two_faults()
+    {
+        var first = Record.Exception(() => ReadsTheCount())!;
+        var second = Record.Exception(() => ReadsTheLimit())!;
+        Assert.Equal( // the innermost frame is the same one inside .NET - not vacuous
+            first.StackTrace!.Split('\n')[0].Trim(), second.StackTrace!.Split('\n')[0].Trim());
+
+        var reports = new FaultReports();
+
+        Assert.Equal(FaultNotice.Show, reports.Hear(first));
+        Assert.Equal(FaultNotice.Show, reports.Hear(second));
+        Assert.Contains(nameof(ReadsTheLimit), FaultReports.Signature(second), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R5/6b, D1. Past the cap on boxes a fault is still written, up to the cap on files, and the last file says
+    /// that later faults are not written. The ninth fault used to leave nothing at all. Reversal probe: return
+    /// before writing past the box cap and the ninth notice is None.
+    /// </summary>
+    [Fact]
+    public void Past_the_cap_on_boxes_faults_are_still_written_up_to_their_own_cap()
+    {
+        var reports = new FaultReports();
+        var notices = Enumerable.Range(0, FaultReports.MaxRecorded + 3)
+            .Select(i => reports.Hear($"System.InvalidOperationException|at ChronoMock.Place{i}()"))
+            .ToList();
+
+        Assert.Equal(FaultReports.MaxShown, notices.Count(n => n == FaultNotice.Show));
+        Assert.Equal(FaultNotice.Record, notices[FaultReports.MaxShown]);
+        Assert.Equal(FaultReports.MaxRecorded - FaultReports.MaxShown - 1, notices.Count(n => n == FaultNotice.Record));
+        Assert.Equal(FaultNotice.RecordLast, notices[FaultReports.MaxRecorded - 1]);
+        Assert.All(notices.Skip(FaultReports.MaxRecorded), n => Assert.Equal(FaultNotice.None, n));
+        Assert.Contains("later ones are not written", FaultReports.Record(new InvalidOperationException(), "dispatcher", last: true), StringComparison.Ordinal);
+        Assert.DoesNotContain("note:", FaultReports.Record(new InvalidOperationException(), "dispatcher"), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R5/6b, D1. The box of a failed start says it could not start, names the file the whole exception went
+    /// to, and ends with the message - in the window's words, or in the English it would have shown when the
+    /// window has no words because the strings are what failed.
+    /// </summary>
+    [Fact]
+    public void A_failed_start_says_so_names_the_file_and_falls_back_to_english_without_strings()
+    {
+        var fault = new InvalidOperationException("the strings file is missing");
+
+        var withStrings = FaultReports.StartupText(k => "<" + k + ">", fault, @"C:\logs\diagnostics-1.log");
+        Assert.Equal(
+            "<fault.startup>\n\n<fault.saved> C:\\logs\\diagnostics-1.log\n\n<fault.detail> the strings file is missing",
+            withStrings);
+
+        var without = FaultReports.StartupText(k => k, fault, savedPath: null);
+        Assert.Equal("Chrono Mock could not start.\n\nTechnical detail: the strings file is missing", without);
+    }
+
+    /// <summary>The English the startup box falls back to is the English the window speaks, word for word.</summary>
+    [Fact]
+    public void The_english_fallback_says_what_the_english_strings_say()
+    {
+        var english = LocalizationService.Load(LocalizationService.DefaultCulture);
+
+        Assert.All(FaultReports.EnglishFallback, pair => Assert.Equal(english[pair.Key], pair.Value));
     }
 
     /// <summary>A task that failed once stands for its one fault, and one that failed several ways keeps all
@@ -87,7 +169,7 @@ public class FaultReportsTests
             () => new KeyNotFoundException(), () => new ArithmeticException(), () => new RankException(),
         };
 
-        var shown = types.Count(make => reports.ShouldShow(Thrown(make)));
+        var shown = types.Count(make => reports.Hear(Thrown(make)) == FaultNotice.Show);
 
         Assert.Equal(FaultReports.MaxShown, shown);
     }

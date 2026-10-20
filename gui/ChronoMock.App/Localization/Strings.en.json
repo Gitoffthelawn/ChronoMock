@@ -555,6 +555,8 @@
   "fault.unexpected": "Something inside Chrono Mock failed unexpectedly. The window stays open, but what it was doing then may not have finished. If this keeps happening, restart Chrono Mock.",
   "fault.saved": "The details were saved to:",
   "fault.detail": "Technical detail:",
+  // The first line of the box a failed start shows (R5/6b), before "saved to" and the detail. FaultReports.EnglishFallback holds the same words for a start whose strings did not load.
+  "fault.startup": "Chrono Mock could not start.",
   "report.unreliable_banner": "!! UNRELIABLE EVIDENCE - the fake clock did not fully take effect. Do not cite this as proof of behavior.",
   "report.title": "Chrono Mock - session report",
   "report.target": "application",

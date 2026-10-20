@@ -528,6 +528,7 @@
   "fault.unexpected": "Coś w Chrono Mock nieoczekiwanie się nie powiodło. Okno zostaje otwarte, ale to, co wtedy robiło, mogło się nie zakończyć. Jeśli to się powtarza, uruchom Chrono Mock ponownie.",
   "fault.saved": "Szczegóły zapisano w:",
   "fault.detail": "Szczegół techniczny:",
+  "fault.startup": "Nie udało się uruchomić Chrono Mock.",
   "report.unreliable_banner": "!! DOWÓD NIERZETELNY - fałszywy zegar nie zadziałał w pełni. Nie cytuj tego jako dowodu zachowania.",
   "report.title": "Chrono Mock - raport sesji",
   "report.target": "aplikacja",
