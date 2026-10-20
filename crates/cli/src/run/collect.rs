@@ -469,4 +469,125 @@ mod tests {
         c.record(error("session.bad_multiplier"));
         assert!(c.core_left_session_open(), "a vanish opens the session");
     }
+
+    /// One native session that has something to say in every section a session that ran can have: a
+    /// parent verdict, a process and a page with every kind of channel list, a heartbeat, a refused speed
+    /// change, a family verdict with a child the hook missed, an engine and a followed program, and an end
+    /// with an exit code and something left behind. What a session that never ran says instead (a vanish,
+    /// a refusal, a failed start, a cut) has headlines of its own, so it is not here.
+    fn golden_session() -> Vec<Event> {
+        let read = |channel: &str, calls| CoveredChannel { channel: channel.into(), calls, capped: false };
+        vec![
+            Event::Ready {
+                v: 1,
+                protocol: 1,
+                core_version: "0.4.0".into(),
+                bitness: "x64".into(),
+                capabilities: Vec::new(),
+            },
+            Event::Verdict {
+                v: 1,
+                id: Some(1),
+                verdict: "works".into(),
+                refuse_start: false,
+                reason_key: "coverage.time_channels_covered".into(),
+                left_running: Vec::new(),
+                family_search_incomplete: false,
+            },
+            Event::Coverage {
+                v: 1,
+                pid: 4200,
+                kind: chrono_proto::UNIT_PROCESS.into(),
+                covered: vec![read("GetSystemTimePreciseAsFileTime", 12)],
+                observed: vec![read("QueryPerformanceCounter", 3)],
+                uncovered: vec!["NtQuerySystemTime".into()],
+                unobserved: vec!["timeGetTime".into()],
+                installed_late: vec!["GetSystemTimePreciseAsFileTime".into()],
+                warning_keys: vec!["wait.timeout_collapsed".into()],
+            },
+            Event::Coverage {
+                v: 1,
+                pid: 1,
+                kind: chrono_proto::UNIT_CONTEXT.into(),
+                covered: vec![read("page Date.now", 5)],
+                observed: Vec::new(),
+                uncovered: Vec::new(),
+                unobserved: Vec::new(),
+                installed_late: Vec::new(),
+                warning_keys: Vec::new(),
+            },
+            Event::State {
+                v: 1,
+                fake: chrono_proto::Clock { wall: "2038-01-19T03:14:08".into(), zone_bias_min: 0 },
+                real: chrono_proto::Clock { wall: "2026-10-20T10:00:01".into(), zone_bias_min: -120 },
+                multiplier: 1,
+                elapsed_fake_ms: 1000,
+                elapsed_real_ms: 1000,
+            },
+            Event::Error { v: 1, id: Some(12), code: 2, key: "time.bad_multiplier".into(), origin: "core".into() },
+            Event::SessionVerdict {
+                v: 1,
+                verdict: "partial".into(),
+                reason_key: "session.family_partial_children".into(),
+                process_count: 3,
+                warning_keys: vec!["wait.timeout_collapsed".into()],
+                uncovered_children: vec![chrono_proto::UncoveredChild {
+                    pid: 4300,
+                    parent_pid: 4200,
+                    image: Some("helper.exe".into()),
+                    role: Some("renderer".into()),
+                }],
+                uncovered_children_total: 2,
+                context_count: 1,
+                engines: vec![chrono_proto::ReachedEngine {
+                    pid: 4400,
+                    port: 9333,
+                    browser: "Engine/1.0".into(),
+                    context_count: 1,
+                }],
+                followed: vec![chrono_proto::FollowedProcess { pid: 4500, image: Some("app.exe".into()) }],
+                host_slept_ms: 0,
+                browser: None,
+            },
+            Event::Ended {
+                v: 1,
+                clean: true,
+                residue_keys: vec!["cdp.profile_left".into()],
+                target_exit_code: Some(3),
+                elapsed_real_ms: 2000,
+                elapsed_fake_ms: 2000,
+                fake_end_wall: Some("2038-01-19T03:14:09".into()),
+            },
+        ]
+    }
+
+    /// The golden session and the CLI report of it, recorded in `tests/wire/` for the window (R5-D64): its
+    /// test feeds the same events to the session panel and requires a line of the copied summary for every
+    /// section of this report, so a section added to the report and never to the window turns it red. Read
+    /// as a diff when recorded again with `CHRONO_BLESS=1`.
+    #[test]
+    fn the_golden_session_gives_the_report_recorded_for_the_window() {
+        let events = golden_session();
+        let stream: String = events.iter().map(|e| e.to_ndjson() + "\n").collect();
+        let mut c = Collector::default();
+        for event in events {
+            c.record(event);
+        }
+        let report = crate::report::render_report(&c.into_report("app.exe".into(), false, None));
+
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/wire");
+        for (name, got) in [("session.ndjson", &stream), ("session-report.txt", &report)] {
+            let path = dir.join(name);
+            if std::env::var_os("CHRONO_BLESS").is_some() {
+                std::fs::write(&path, got).expect("tests/wire is writable");
+                continue;
+            }
+            let want = std::fs::read_to_string(&path).expect("the recorded file exists").replace("\r\n", "\n");
+            assert!(
+                *got == want,
+                "tests/wire/{name} no longer matches the golden session - record a deliberate change with \
+                 CHRONO_BLESS=1, read the diff, and give the window a line for any section it adds"
+            );
+        }
+    }
 }

@@ -1,0 +1,31 @@
+Chrono Mock - session report
+  target:   app.exe
+  verdict:  PARTIAL - time substitution took effect only in part  (processes: 3, plus 2 not covered, contexts: 1)
+            the session clock reached the processes listed as covered - the ones this app spawned without the hook ran on the real clock
+  errors:
+            - the requested speed is outside the range this core accepts [time.bad_multiplier]
+  session:  fake clock reached 2038-01-19T03:14:09
+            real elapsed 2.0s, fake elapsed 2.0s
+  exited:   the target closed itself with code 3
+  followed: the target had started these, and the session went on for them:
+            - app.exe (pid 4500)
+  covered channels (substituted, with call counts, 17 calls in all):
+            - pid 4200: GetSystemTimePreciseAsFileTime (12 calls)
+            - context 1: page Date.now (5 calls)
+  observed channels (hooked but left real):
+            - pid 4200: QueryPerformanceCounter (3 calls)
+  uncovered channels (queried but not covered):
+            - pid 4200: NtQuerySystemTime
+  channels we meant to watch and could not hook:
+            - pid 4200: timeGetTime
+  channels hooked only once their module loaded (their counts are floors):
+            - pid 4200: GetSystemTimePreciseAsFileTime
+  processes this app spawned that the hook could not follow (they ran on the REAL clock):
+            - pid 4300 helper.exe (renderer, spawned by pid 4200)
+            - and 1 more not named
+  web engines reached inside the app (pages put on the session clock through them are the context rows above):
+            - Engine/1.0 on port 9333 (pid 4400)
+  warnings:
+            - some waits were too short to divide by the full speed factor and ran at this tool's shortest step (1 ms) instead - that part of the application did not accelerate (wait.timeout_collapsed)
+  not fully cleaned up:
+            - cdp.profile_left
