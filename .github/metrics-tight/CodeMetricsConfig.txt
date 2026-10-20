@@ -14,4 +14,4 @@
 # by rule and fails unless every value here is exactly one below its counterpart.
 
 CA1506: 80
-CA1502: 17
+CA1502: 13

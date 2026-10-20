@@ -1830,9 +1830,9 @@ public sealed class SessionViewModel : ObservableObject
                     ? sv.UncoveredChildrenTotal
                     : sv.UncoveredChildren.Count;
                 // Taken as it comes, without a test on it: this method sits ON the cyclomatic ceiling
-                // (CA1502 18 of 18, measured with tools/margin.ps1), so one more branch here would be a
-                // red build. Everything the rows need deciding - a nameless engine, an endpoint seen
-                // twice - is decided in the converter, which is where presentation belongs anyway.
+                // (CA1502, measured with tools/margin.ps1), so one more branch here would be a red build.
+                // Everything the rows need deciding - a nameless engine, an endpoint seen twice - is
+                // decided in the converter, which is where presentation belongs anyway.
                 Engines = sv.Engines;
                 EnginePagesReached = sv.ContextCount > 0;
                 FollowedRows = SessionReport.ProcessLines(sv.Followed);
@@ -1841,8 +1841,8 @@ public sealed class SessionViewModel : ObservableObject
                 // reader has to attribute to an event type is a warning they will not read.
                 // The one that says something is STILL SET on this machine leads, ahead of what the
                 // processes said: the list is shown through a window shorter than itself, and this line
-                // may not sit below the fold. Written with comparisons and no new branch (CA1502 stands at
-                // 18 of 18 on this method).
+                // may not sit below the fold. Written with comparisons and no new branch (this method
+                // stands on the CA1502 ceiling).
                 Warnings =
                 [
                     .. sv.WarningKeys.Where(w => w == LeftBehindKey),
@@ -1851,75 +1851,87 @@ public sealed class SessionViewModel : ObservableObject
                 ];
                 SetVerdict(VerdictKinds.Parse(sv.Verdict), sv.ReasonKey);
                 break;
-            case CoverageEvent c when _result.IsCdp:
-                // CDP emits one coverage per JS context - accumulate them all (each context's counts stay
-                // its own, never summed across contexts, rule 4) - union the warnings and uncovered lists.
-                // Two pages both produce "page Date.now", so two contexts reading one channel become two
-                // rows that tell apart only by their read count (rule 4 keeps each context's count its own,
-                // never summed). The raw context id used to prefix each row - dropped in P6 as a number that
-                // named nothing to the reader.
-                Covered = [.. _result.Covered, .. c.Covered];
-                Observed = [.. _result.Observed, .. c.Observed];
-                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
-                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
-                InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
-                break;
-            case CoverageEvent c when c.Kind == CoverageEvent.UnitContext:
-                // A page or worker inside a natively hooked application, reached through its web
-                // engine's debugging port (docs/09 section 12). Its number is a context index, never a
-                // pid, so it must not be mistaken for the parent. Rows accumulate per context like the
-                // CDP branch above and stand after the parent's, whichever event arrives last.
-                _result.PageCovered = [.. _result.PageCovered, .. c.Covered];
-                Covered = [.. _result.ParentCovered, .. _result.PageCovered];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
-                break;
-            case CoverageEvent c when c.Kind == CoverageEvent.UnitProcess:
-                // Native. Call counts stay the PARENT's - the process the first event names - because
-                // summing them across processes would fabricate a per-process picture (untouchable rule
-                // 4), and a per-process family breakdown is a later slice. But a LATER event for that
-                // same pid replaces the earlier one: the core reports a process when it is discovered
-                // and again when the session ends, and the first snapshot is taken inside the guard
-                // window, so its counts are the session's first blink (R2-X8) - measured, a probe that
-                // read the clock 25 times showed "×2" in this panel.
-                _result.ParentPid ??= c.Pid;
-                if (c.Pid == _result.ParentPid)
-                {
-                    _result.ParentCovered = c.Covered.ToList();
-                    Covered = [.. _result.ParentCovered, .. _result.PageCovered];
-                    Observed = c.Observed.ToList();
-                }
-
-                // Warnings and uncovered channels are not counts - they are the REASON behind the family
-                // verdict, and the core raises them per process (R2-W5). A child that opened a network
-                // connection, ran an unscaled wait, or failed to hook a channel says so on its own event,
-                // so dropping every event after the first left the panel with the right verdict and no
-                // reason for it (rule 6). Union them across the family, exactly like the CLI driver
-                // (driver_run) and the CDP branch above. A channel can therefore be covered in the parent
-                // and uncovered in a child at once - that is the honest reading, and it is precisely why
-                // the family verdict is partial (Verdict::combine).
-                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
-                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
-                InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
-                break;
             case CoverageEvent c:
-                // A kind this build does not know - a newer core naming a unit this panel has never
-                // heard of. Its number is neither a pid nor a context index, so it must not become the
-                // parent and its counts have no row to go in. What it says about the session - the
-                // warnings and the gaps - is evidence all the same, and stays (rule 4, rule 6).
-                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
-                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
+                ApplyCoverage(c);
                 break;
             default:
                 // ready and ack do not change the panel.
                 break;
         }
+    }
+
+    /// <summary>
+    /// Fold one <c>coverage</c> event into the audit. Its own method so <see cref="Apply"/> holds one branch
+    /// for it rather than four: Apply stood on the cyclomatic ceiling (CA1502 at 18), and every event the
+    /// panel learned after that had to be squeezed past the limit instead of written plainly (R5/6b).
+    /// </summary>
+    private void ApplyCoverage(CoverageEvent c)
+    {
+        if (_result.IsCdp)
+        {
+            // CDP emits one coverage per JS context - accumulate them all (each context's counts stay
+            // its own, never summed across contexts, rule 4) - union the warnings and uncovered lists.
+            // Two pages both produce "page Date.now", so two contexts reading one channel become two
+            // rows that tell apart only by their read count (rule 4 keeps each context's count its own,
+            // never summed). The raw context id used to prefix each row - dropped in P6 as a number that
+            // named nothing to the reader.
+            Covered = [.. _result.Covered, .. c.Covered];
+            Observed = [.. _result.Observed, .. c.Observed];
+            Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+            Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+            InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
+        }
+        else if (c.Kind == CoverageEvent.UnitContext)
+        {
+            // A page or worker inside a natively hooked application, reached through its web
+            // engine's debugging port (docs/09 section 12). Its number is a context index, never a
+            // pid, so it must not be mistaken for the parent. Rows accumulate per context like the
+            // CDP branch above and stand after the parent's, whichever event arrives last.
+            _result.PageCovered = [.. _result.PageCovered, .. c.Covered];
+            Covered = [.. _result.ParentCovered, .. _result.PageCovered];
+        }
+        else if (c.Kind == CoverageEvent.UnitProcess)
+        {
+            // Native. Call counts stay the PARENT's - the process the first event names - because
+            // summing them across processes would fabricate a per-process picture (untouchable rule
+            // 4), and a per-process family breakdown is a later slice. But a LATER event for that
+            // same pid replaces the earlier one: the core reports a process when it is discovered
+            // and again when the session ends, and the first snapshot is taken inside the guard
+            // window, so its counts are the session's first blink (R2-X8) - measured, a probe that
+            // read the clock 25 times showed "×2" in this panel.
+            _result.ParentPid ??= c.Pid;
+            if (c.Pid == _result.ParentPid)
+            {
+                _result.ParentCovered = c.Covered.ToList();
+                Covered = [.. _result.ParentCovered, .. _result.PageCovered];
+                Observed = c.Observed.ToList();
+            }
+
+            // Warnings and uncovered channels are not counts - they are the REASON behind the family
+            // verdict, and the core raises them per process (R2-W5). A child that opened a network
+            // connection, ran an unscaled wait, or failed to hook a channel says so on its own event,
+            // so dropping every event after the first left the panel with the right verdict and no
+            // reason for it (rule 6). Union them across the family, exactly like the CLI driver
+            // (driver_run) and the CDP branch above. A channel can therefore be covered in the parent
+            // and uncovered in a child at once - that is the honest reading, and it is precisely why
+            // the family verdict is partial (Verdict::combine).
+            Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+            Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+            InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
+        }
+        else
+        {
+            // A kind this build does not know - a newer core naming a unit this panel has never
+            // heard of. Its number is neither a pid nor a context index, so it must not become the
+            // parent and its counts have no row to go in. What it says about the session - the
+            // warnings and the gaps - is evidence all the same, and stays (rule 4, rule 6).
+            Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+            Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+        }
+
+        // Every kind says what it warned about, and every kind is coverage the panel now knows.
+        Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
+        CoverageKnown = true;
     }
 
     /// <summary>

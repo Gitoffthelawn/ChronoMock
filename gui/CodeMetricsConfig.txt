@@ -101,7 +101,13 @@ CA1506: 81
 # Re-measured 2026-09-09: `ReadParameters` still holds 18 and `SessionViewModel.Apply` is still 15, but
 # nothing in `SessionViewModel` reaches 13 any more. The two at 13 are `CalculatorViewModel.ApplyResult`
 # and `ScanViews` in the item-name guard.
-CA1502: 18
+#
+# 18 to 14 on 2026-10-20 (R5/6b), the down door. `SessionViewModel.Apply` had climbed to 18 and stood on
+# the ceiling, so every event the panel learned after that had to be written to dodge a branch rather
+# than plainly. Its four coverage cases moved to `ApplyCoverage`, one branch in Apply instead of four,
+# and Apply measured 14 - tied with `ScanViews` in the item-name guard, with `SessionReport.Summary` and
+# `CalculatorViewModel.ResolveActivePreset` at 13 behind them (tools/margin.ps1).
+CA1502: 14
 
 # CA1501 (inheritance depth) and CA1505 (maintainability index) are deliberately absent. Measured
 # before deciding: CA1501 tops out at 1 across the whole tree, so a ceiling on it guards nothing.
