@@ -4385,8 +4385,8 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp/session.rs",
-        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;\n",
-        "to": "      S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;\n"
+        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;\n",
+        "to": "      S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;\n"
       }
     ],
     "runner": "rust",
@@ -4404,7 +4404,7 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp/session.rs",
-        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;\n      for (var k in S.counts) { S.counts[k] = 0; }\n",
+        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;\n      for (var k in S.counts) { S.counts[k] = 0; }\n",
         "to": "      S.Z = null;\n"
       }
     ],
