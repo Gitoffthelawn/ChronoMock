@@ -43,6 +43,8 @@
   "scenario.left_out_after": "- powód podaje polecenie chrono presets.",
   "presets.err.folder_missing": "Brakuje folderu presetów - instalacja może być niekompletna. Rozpakuj paczkę ponownie.",
   "presets.err.folder_unreadable": "Nie udało się odczytać folderu presetów - sprawdź, czy Windows pozwala temu kontu go otworzyć.",
+  "calendars.err.folder_missing": "Brakuje folderu kalendarzy - instalacja może być niekompletna. Rozpakuj paczkę ponownie.",
+  "calendars.err.folder_unreadable": "Nie udało się odczytać folderu kalendarzy - sprawdź, czy Windows pozwala temu kontu go otworzyć.",
 
   // The rebuilt setup screen: one thing always visible and the rest folded away behind a header that keeps
   // saying what is set inside it. The chips are deliberately short - they sit in a section header beside a
@@ -657,6 +659,8 @@
   "calc.preset_note": "Scenariusz to punkt startowy - nie certyfikat kompletności testu.",
   "calc.preset_params_header": "Parametry",
   "calc.preset_needs_params": "Uzupełnij parametry powyżej, aby policzyć ten scenariusz.",
+  "calc.preset_calendar_missing": "Ten scenariusz liczy dni robocze według kalendarza „{0}”, którego ta instalacja nie ma. Dodaj jego plik do folderu calendars, żeby go użyć.",
+  "calc.preset_calendar_unchecked": "Ten scenariusz liczy dni robocze według kalendarza „{0}”, a listy kalendarzy nie udało się odczytać, więc nie jest liczony.",
   "calc.build_header": "Zbuduj datę",
   "calc.start_point": "Zacznij od",
   "calc.base_zone": "Strefa czasowa",
@@ -711,6 +715,7 @@
   "calc.cal.us_banking": "USA bankowy",
   "calc.cal.us_federal": "USA federalny",
   "calc.cal.pl": "Polska",
+  "calc.cal.unreadable": "Nie udało się odczytać kalendarzy: {0}",
 
   // The engine writes its refusals for the command line, so its own sentence here names a flag
   // ("pass --calendar") that this screen cannot pass. Said instead as the control that fixes it, and

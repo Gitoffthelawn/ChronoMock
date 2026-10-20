@@ -236,7 +236,8 @@ pub(crate) fn print_usage() {
     diag!("       (--preset supplies the moment and mode from presets/<id>.json, exclusive of --at/--mode/--scale-duration; --param fills its parameters, a trial start_date defaults to the target's file date)");
     print_calc_usage();
     print_presets_usage();
-    diag!("usage: chrono version   (also --version, -V)   the build, which core it is, and the protocol it speaks");
+    print_calendars_usage();
+    diag!("usage: chrono version  (also --version, -V)   the build, which core it is, and the protocol it speaks");
     diag!("usage: chrono license [--components]   (also --license)   the licence, the warranty disclaimer, and every bundled component with its version");
 }
 
@@ -297,6 +298,7 @@ pub(crate) fn print_help_for(command: &str) -> i32 {
     match command {
         "calc" => print_calc_usage(),
         "presets" => print_presets_usage(),
+        "calendars" => print_calendars_usage(),
         _ => print_usage(),
     }
     0
@@ -306,6 +308,12 @@ pub(crate) fn print_presets_usage() {
     diag!("usage: chrono presets [--dir <folder>] [--json]   every preset in the catalogue the way --preset reads it, and every file it would refuse, with the reason");
     diag!("       without --dir it reads the folder --preset looks in (<exe>/presets, else ./presets)");
     diag!("       --json emits machine output (chronomock.presets/1)");
+}
+
+pub(crate) fn print_calendars_usage() {
+    diag!("usage: chrono calendars [--dir <folder>] [--json]   every calendar --calendar can count in, and every file it would refuse, with the reason");
+    diag!("       without --dir it reads the folder --calendar looks in (<exe>/calendars, else ./calendars)");
+    diag!("       --json emits machine output (chronomock.calendars/1)");
 }
 
 pub(crate) fn print_calc_usage() {

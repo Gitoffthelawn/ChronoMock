@@ -246,6 +246,11 @@
                       Style="{StaticResource LabelKeyCombo}" ToolTip="{DynamicResource tip.calc_calendar}"
                       app:PartState.HasError="{Binding CalendarMissing}"
                       AutomationProperties.Name="{DynamicResource calc.field_calendar}" />
+            <!-- Why the list holds only "no calendar": the engine could not say which calendars there are
+                 (R5-P12). Below the field, like the start point's message, so it never shifts the row. -->
+            <TextBlock Style="{StaticResource PartFieldMessage}" Margin="{StaticResource StackGapSm}"
+                       Text="{Binding CalendarError}"
+                       Visibility="{Binding HasCalendarError, Converter={StaticResource BoolToVis}}" />
 
             <!-- The reverse tool lives here now, under the builder, so the middle column carries both ways
                  of naming a moment - build one up, or read a pasted one - instead of a short form standing
@@ -375,9 +380,10 @@
                   </controls:TextNamedItems>
                 </StackPanel>
 
-                <!-- "Fill in the parameters" while one has no value, or - a defence after R4/18 - that the
-                     preset is in a shape this build cannot read. One line, keyed by the view model. -->
-                <TextBlock Text="{Binding ActiveNoteKey, Converter={StaticResource KeyToText}}" TextWrapping="Wrap"
+                <!-- "Fill in the parameters" while one has no value, that the calendar the preset counts in
+                     is not here (R5-P12), or - a defence after R4/18 - that the preset is in a shape this
+                     build cannot read. One line, composed by the view model with the calendar it names. -->
+                <TextBlock Text="{Binding ActiveNoteText}" TextWrapping="Wrap"
                            Margin="{StaticResource StackGapSm}"
                            FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushStatusPartial}"
                            Visibility="{Binding HasActiveNote, Converter={StaticResource BoolToVis}}" />

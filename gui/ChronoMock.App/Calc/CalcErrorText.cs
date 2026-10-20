@@ -31,12 +31,13 @@ internal static class CalcErrorText
 {
     /// <summary>The prefixes the CLI puts in front of its own diagnostics. They belong to a command line,
     /// not to a window, so they come off either way.</summary>
-    private static readonly string[] Prefixes = ["chrono calc: ", "chrono presets: ", "chrono: "];
+    private static readonly string[] Prefixes = ["chrono calc: ", "chrono presets: ", "chrono calendars: ", "chrono: "];
 
-    /// <summary>The key families an engine sentence can end in: the calculator's, and since R4/18 the preset
-    /// catalogue's (<c>chrono presets</c>), which the window asks the same engine for and translates the same
-    /// way - <c>family.something</c> to <c>family.err.something</c>.</summary>
-    private static readonly string[] Families = ["calc.", "presets."];
+    /// <summary>The key families an engine sentence can end in: the calculator's, since R4/18 the preset
+    /// catalogue's (<c>chrono presets</c>) and since R5/6a the calendar catalogue's (<c>chrono calendars</c>),
+    /// which the window asks the same engine for and translates the same way - <c>family.something</c> to
+    /// <c>family.err.something</c>.</summary>
+    private static readonly string[] Families = ["calc.", "presets.", "calendars."];
 
     /// <summary>
     /// The interface text for an engine failure: the translation of its stable key when it has one, else

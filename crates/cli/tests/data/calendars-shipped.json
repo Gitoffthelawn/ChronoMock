@@ -1,0 +1,34 @@
+{
+  "schema": "chronomock.calendars/1",
+  "dir": "../../calendars",
+  "calendars": [
+    {
+      "file": "pl.json",
+      "id": "pl",
+      "country": "PL",
+      "name": {
+        "en": "Poland",
+        "local": "Polska"
+      }
+    },
+    {
+      "file": "us-banking.json",
+      "id": "us-banking",
+      "country": "US",
+      "name": {
+        "en": "United States - banking (Federal Reserve)",
+        "local": "United States - banking (Federal Reserve)"
+      }
+    },
+    {
+      "file": "us-federal.json",
+      "id": "us-federal",
+      "country": "US",
+      "name": {
+        "en": "United States - federal",
+        "local": "United States - federal"
+      }
+    }
+  ],
+  "refused": []
+}

@@ -8,6 +8,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **`chrono calendars` lists the calendars the calculator can count in**, the way `chrono presets`
+  lists the presets: every calendar file `--calendar` reads, with its country and its own name, and
+  every file it would refuse, with the reason. `--dir` reads another folder, `--json` answers in
+  `chronomock.calendars/1`. The window's calculator now offers the calendars this command lists,
+  so a calendar added as a data file can be picked there too.
 - **A Chromium session says what its pages did that the fake clock does not reach.** Three new
   warnings, each said only when it happened, in a Chromium session and for the pages of a web engine
   inside an application alike. `chromium.engine_stamps_real`: a page's animation frame got its stamp, or
@@ -235,6 +240,11 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A calculator scenario that counts in a calendar this installation does not have is no longer
+  computed in another one.** The window kept the calendar picked before, so a scenario for a market
+  with no calendar here counted its business days in another country's, without a word. It now says
+  which calendar the scenario needs and computes nothing. When the list of calendars cannot be read,
+  the calendar field says why and offers no calendar.
 - **A timer or a delay whose absolute due the session's clock has already passed fires at once.**
   `SetWaitableTimer`, `SetWaitableTimerEx`, `SetThreadpoolTimer` and `SetThreadpoolTimerEx` got the
   shortest relative due for it, which Windows fires only at the next tick of the system timer - up to

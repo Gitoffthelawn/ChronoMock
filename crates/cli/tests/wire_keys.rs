@@ -279,8 +279,9 @@ fn gui_calc_keys(root: &Path) -> BTreeSet<String> {
 }
 
 /// The key families an engine sentence can end in, as the window's `CalcErrorText` reads them: the
-/// calculator's, and since R4/18 the preset catalogue's (`chrono presets`), translated the same way.
-const ENGINE_KEY_FAMILIES: [&str; 2] = ["(calc.", "(presets."];
+/// calculator's, since R4/18 the preset catalogue's (`chrono presets`) and since R5/6a the calendar
+/// catalogue's (`chrono calendars`), translated the same way.
+const ENGINE_KEY_FAMILIES: [&str; 3] = ["(calc.", "(presets.", "(calendars."];
 
 fn collect_calc_keys(text: &str, keys: &mut BTreeSet<String>) {
     for family in ENGINE_KEY_FAMILIES {
@@ -401,12 +402,14 @@ fn every_calculator_key_has_both_translations() {
     let en = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.en.json"));
     let pl = translation_keys(&root.join("gui/ChronoMock.App/Localization/Strings.pl.json"));
 
-    // `family.something` -> `family.err.something`, the mapping `CalcErrorText.Describe` makes. The
-    // catalogue's family has to be found too, or this guard would hold half of what it claims.
-    assert!(
-        keys.iter().any(|k| k.starts_with("presets.")),
-        "no `presets.` key was found - the catalogue's refusals are no longer scanned"
-    );
+    // `family.something` -> `family.err.something`, the mapping `CalcErrorText.Describe` makes. Each
+    // catalogue's family has to be found too, or this guard would hold part of what it claims.
+    for family in ["presets.", "calendars."] {
+        assert!(
+            keys.iter().any(|k| k.starts_with(family)),
+            "no `{family}` key was found - that catalogue's refusals are no longer scanned"
+        );
+    }
     let missing: Vec<String> = keys
         .iter()
         .map(|k| {
@@ -814,6 +817,7 @@ fn every_translation_is_reached_by_the_window_or_the_core() {
         ("coverage.session_clock_never_read", "the core's wire keys"),
         ("calc.err.needs_calendar", "an engine refusal"),
         ("presets.err.folder_missing", "a catalogue refusal"),
+        ("calendars.err.folder_missing", "a calendar catalogue refusal"),
         ("calc.variant.on_day", "a variant label"),
         ("calc.sig.leap_day", "a landmark"),
         ("calc.weekday.monday", "a weekday"),

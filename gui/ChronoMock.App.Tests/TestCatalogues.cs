@@ -19,6 +19,11 @@ internal static class TestCatalogues
     /// <summary>What the engine answers for the shipped <c>presets/</c> folder.</summary>
     public static PresetCatalogue Shipped() => PresetCatalogueClient.Parse(File.ReadAllText(Recorded("presets-shipped.json")));
 
+    /// <summary>What the engine answers for the shipped <c>calendars/</c> folder (<c>chrono calendars</c>, held to
+    /// the engine by <c>calendar_catalogue.rs</c>).</summary>
+    public static CalendarCatalogue ShippedCalendars()
+        => CalendarCatalogueClient.Parse(File.ReadAllText(Recorded("calendars-shipped.json")));
+
     /// <summary>What the engine answers for the test catalogue - the bridge the Rust side records.</summary>
     public static PresetCatalogue TestCatalogue() => PresetCatalogueClient.Parse(File.ReadAllText(Recorded("preset-catalogue.json")));
 
@@ -66,6 +71,32 @@ internal sealed class HangingPresetSource : IPresetSource
         await Task.Delay(Timeout.Infinite, ct);
         throw new InvalidOperationException("a delay without end ended");
     }
+}
+
+/// <summary>An engine that answers the calendar question with what the test chose, fails as told, or answers
+/// only when the test lets it - the list as it is while the engine is still starting.</summary>
+internal sealed class FakeCalendarSource : ICalendarSource
+{
+    private readonly TaskCompletionSource<CalendarCatalogue> _answer = new();
+
+    public FakeCalendarSource()
+    {
+    }
+
+    public FakeCalendarSource(CalendarCatalogue catalogue) => _answer.SetResult(catalogue);
+
+    /// <summary>A source whose engine fails with <paramref name="engineMessage"/>, as <c>CalcException</c> carries it.</summary>
+    public static FakeCalendarSource Failing(string engineMessage)
+    {
+        var source = new FakeCalendarSource();
+        source._answer.SetException(new CalcException(engineMessage, 1));
+        return source;
+    }
+
+    /// <summary>Let a source made without an answer give <paramref name="catalogue"/>.</summary>
+    public void Answer(CalendarCatalogue catalogue) => _answer.SetResult(catalogue);
+
+    public Task<CalendarCatalogue> ReadAsync(CancellationToken ct = default) => _answer.Task;
 }
 
 /// <summary>An engine that answers the catalogue question with what the test chose - or fails as told.</summary>

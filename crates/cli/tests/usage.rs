@@ -21,7 +21,7 @@ fn text(out: &Output) -> String {
 /// Asking is answered: usage, exit 0, no word about anything being unknown.
 #[test]
 fn every_way_of_asking_for_help_is_answered_with_usage_and_exit_zero() {
-    let asks: [&[&str]; 7] = [
+    let asks: [&[&str]; 9] = [
         &["--help"],
         &["-h"],
         &["help"],
@@ -29,6 +29,8 @@ fn every_way_of_asking_for_help_is_answered_with_usage_and_exit_zero() {
         &["run", "-h"],
         &["calc", "--help"],
         &["calc", "-h"],
+        &["calendars", "--help"],
+        &["calendars", "-h"],
     ];
     for args in asks {
         let out = chrono(args);
@@ -40,6 +42,8 @@ fn every_way_of_asking_for_help_is_answered_with_usage_and_exit_zero() {
     // The calculator's help is the calculator's usage, not the whole tool's.
     let calc = text(&chrono(&["calc", "--help"]));
     assert!(calc.contains("chrono calc") && !calc.contains("chrono run <target>"), "{calc}");
+    let calendars = text(&chrono(&["calendars", "--help"]));
+    assert!(calendars.contains("chrono calendars") && !calendars.contains("chrono run <target>"), "{calendars}");
 }
 
 /// Only the first word after a command asks for its help. Further along, `--help` can belong to the
