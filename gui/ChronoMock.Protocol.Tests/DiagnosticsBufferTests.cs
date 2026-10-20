@@ -73,7 +73,7 @@ public sealed class DiagnosticsBufferTests
     [Fact]
     public void Lines_that_were_not_events_do_not_push_the_stderr_lines_out()
     {
-        var log = new CoreDiagnostics();
+        var log = Standing();
         for (var i = 0; i < CoreDiagnostics.MaxLines; i++)
         {
             log.Add($"core stderr: {i}");
@@ -86,8 +86,31 @@ public sealed class DiagnosticsBufferTests
 
         var lines = log.Snapshot();
         Assert.Equal(0, log.Dropped);
-        Assert.Equal(CoreDiagnostics.MaxLines, lines.Count(l => l.StartsWith("core stderr: ", StringComparison.Ordinal)));
-        Assert.Contains("core stderr: 0", lines);
+        Assert.Equal(CoreDiagnostics.MaxLines, lines.Count(l => l.StartsWith(At0 + "core stderr: ", StringComparison.Ordinal)));
+        Assert.Contains(At0 + "core stderr: 0", lines);
+    }
+
+    /// <summary>The stamp a line is kept with when the clock stands at zero.</summary>
+    private const string At0 = "[+0.000 s] ";
+
+    /// <summary>A log whose clock stands still, so its lines read the same on every run.</summary>
+    private static CoreDiagnostics Standing() => new(() => TimeSpan.Zero);
+
+    /// <summary>
+    /// R5/6b, D2. Every line carries its time since the connection, from the clock the log was given, in
+    /// invariant digits - a block of lines without times said what happened and never when. Both kinds of
+    /// line are stamped, the count of lines not kept is not, since it happened at no one moment. Reversal
+    /// probe: keep the line unstamped and the first assertion fails.
+    /// </summary>
+    [Fact]
+    public void Every_line_is_kept_with_its_time_since_the_connection()
+    {
+        var now = TimeSpan.FromMilliseconds(12_345.6);
+        var log = new CoreDiagnostics(() => now);
+        log.Add("core stderr: late");
+        log.AddNoise("stray");
+
+        Assert.Equal(new[] { "[+12.346 s] stray", "[+12.346 s] core stderr: late" }, log.Snapshot());
     }
 
     /// <summary>The other queue keeps its FIRST lines, the ones closest to whatever started writing there, and
@@ -96,7 +119,7 @@ public sealed class DiagnosticsBufferTests
     [Fact]
     public void The_first_lines_that_were_not_events_stay_and_the_rest_are_counted()
     {
-        var log = new CoreDiagnostics();
+        var log = Standing();
         log.Add("core stderr: first");
         for (var i = 0; i < CoreDiagnostics.MaxNoiseLines + 7; i++)
         {
@@ -104,10 +127,10 @@ public sealed class DiagnosticsBufferTests
         }
 
         var lines = log.Snapshot().ToList();
-        Assert.Equal("noise 0", lines[0]);
-        Assert.Equal($"noise {CoreDiagnostics.MaxNoiseLines - 1}", lines[CoreDiagnostics.MaxNoiseLines - 1]);
+        Assert.Equal(At0 + "noise 0", lines[0]);
+        Assert.Equal($"{At0}noise {CoreDiagnostics.MaxNoiseLines - 1}", lines[CoreDiagnostics.MaxNoiseLines - 1]);
         Assert.Equal("core stdout: 7 later line(s) that were not events are not kept", lines[CoreDiagnostics.MaxNoiseLines]);
-        Assert.Equal("core stderr: first", lines[^1]);
+        Assert.Equal(At0 + "core stderr: first", lines[^1]);
         Assert.Equal(CoreDiagnostics.MaxNoiseLines + 2, lines.Count);
     }
 
@@ -115,9 +138,9 @@ public sealed class DiagnosticsBufferTests
     [Fact]
     public void Without_lines_that_were_not_events_the_block_is_the_stderr_alone()
     {
-        var log = new CoreDiagnostics();
+        var log = Standing();
         log.Add("core stderr: only");
 
-        Assert.Equal(new[] { "core stderr: only" }, log.Snapshot());
+        Assert.Equal(new[] { At0 + "core stderr: only" }, log.Snapshot());
     }
 }

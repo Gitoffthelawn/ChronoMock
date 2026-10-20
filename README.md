@@ -363,10 +363,10 @@ Chrono Mock leaves nothing behind in your system - no persistent hooks, no regis
 opt-in described further down for an application that runs as administrator, which writes one value
 for the length of the session, removes it before the verdict and names it in the report), and
 nothing outside its own folder except three things it will name for you: the session history and the
-diagnostics log, which move to `%LOCALAPPDATA%\ChronoMock\` when the tool's own folder is not writable
-(a USB stick, or Program Files without admin), and, for an Electron or Chromium target, a throwaway
-browser profile under `%TEMP%` that is deleted when the session ends - and reported in the session
-summary if it could not be. That guarantee covers the tool. It does not, and cannot, cover the
+diagnostics logs, kept in `%LOCALAPPDATA%\ChronoMock\` by every copy, so they hold the applications you
+tested and the arguments you gave them where only your account reads them, and, for an Electron or
+Chromium target, a throwaway browser profile under `%TEMP%` that is deleted when the session ends - and
+reported in the session summary if it could not be. That guarantee covers the tool. It does not, and cannot, cover the
 application under test.
 
 ---

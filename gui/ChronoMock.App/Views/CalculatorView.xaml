@@ -479,9 +479,9 @@
                       <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}" />
                       <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
                                  VerticalAlignment="Center" Margin="{StaticResource CopyValueGap}" />
-                      <Button Grid.Row="1" Grid.Column="1" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
-                              Tag="{Binding}" IsEnabled="{Binding HasValue}" MinWidth="{StaticResource CopyButtonMinWidth}"
-                              FontSize="{StaticResource FontSizeCaption}" />
+                      <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource PartCopyAction}"
+                              Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
+                              Tag="{Binding}" IsEnabled="{Binding HasValue}" />
                     </Grid>
                   </DataTemplate>
                 </controls:TextNamedItems.ItemTemplate>
@@ -514,10 +514,9 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding CustomFormatRow.Value}"
                            Margin="{StaticResource CopyValueGap}" />
-                <Button Grid.Column="1" Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
-                        Tag="{Binding CustomFormatRow}" IsEnabled="{Binding CustomFormatRow.HasValue}"
-                        MinWidth="{StaticResource CopyButtonMinWidth}"
-                        FontSize="{StaticResource FontSizeCaption}" />
+                <Button Grid.Column="1" Style="{StaticResource PartCopyAction}"
+                        Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
+                        Tag="{Binding CustomFormatRow}" IsEnabled="{Binding CustomFormatRow.HasValue}" />
               </Grid>
               <!-- Why the line above may not be what the reader expects: letter runs the engine does not
                    know are passed through as text, so the result LOOKS formatted while carrying raw mask
@@ -530,6 +529,15 @@
               <TextBlock Style="{StaticResource PartGroupHeading}" Text="{DynamicResource calc.metadata}" Margin="{StaticResource SpaceXs}" />
               <TextBlock Style="{StaticResource PartValue}" Text="{Binding MetadataLine}"
                          Margin="{StaticResource SpaceXs}" />
+
+              <!-- The question this result answers, as a terminal asks it (R5-D54): PowerShell, the engine by
+                   its full path. Under everything it answers for, so it is read as the whole result's, not as
+                   one format's. Waits for a result being computed, as Copy does. -->
+              <Button x:Name="CopyCommandButton" Style="{StaticResource PartCopyAction}"
+                      Content="{DynamicResource calc.copy_command}" Click="OnCopyCommandClick"
+                      HorizontalAlignment="Left" Margin="{StaticResource SpaceXs}"
+                      ToolTip="{DynamicResource tip.copy_command}" ToolTipService.ShowOnDisabled="True"
+                      IsEnabled="{Binding HasResult}" />
             </StackPanel>
 
             <!-- The one action this module ends in, styled as the setup's Start is: it read as any other

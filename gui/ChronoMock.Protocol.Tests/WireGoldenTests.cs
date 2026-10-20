@@ -17,19 +17,7 @@ public class WireGoldenTests
     /// What the window knowingly does not read today, each with why and what makes it go. Checked from both
     /// ends: a gap the golden file no longer shows has to come out. Only shrinks.
     /// </summary>
-    private static readonly (string Where, string Why)[] KnownUnread =
-    [
-        ("host_slept",
-            "the core's note that the machine slept during the session (docs/08). The window shows the "
-            + "time.host_slept warning from the session verdict instead - goes when the window shows the sleep "
-            + "while the session runs"),
-        ("session_verdict.host_slept_ms",
-            "how long the machine slept, which the CLI prints inside the time.host_slept warning line and the "
-            + "window's warning does not - goes when the window's warning says how long"),
-        ("session_verdict.browser",
-            "the browser a Chromium session drove, which the CLI report names on its browser line and the "
-            + "window's summary does not - goes when the summary names it"),
-    ];
+    private static readonly (string Where, string Why)[] KnownUnread = [];
 
     private static string[] GoldenLines()
         => File.ReadAllLines(Path.Combine(RepoPaths.RepoRoot(), "tests", "wire", "events.ndjson"));

@@ -59,31 +59,49 @@ public partial class CalculatorView : UserControl
             return;
         }
 
+        CopyAndFlash(button, value, "calc.copy");
+    }
+
+    // Copy the result's question as a command line for a terminal (R5-D54), once the result for the builder as
+    // it stands is in.
+    private async void OnCopyCommandClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button && ViewModel is { } vm && await vm.CopyCommandAsync() is { Length: > 0 } command)
+        {
+            CopyAndFlash(button, command, "calc.copy_command");
+        }
+    }
+
+    // A clipboard held by another process is ignored for a convenience copy: say nothing rather than claim a
+    // copy that did not happen.
+    private void CopyAndFlash(Button button, string text, string labelKey)
+    {
         try
         {
-            Clipboard.SetText(value);
+            Clipboard.SetText(text);
         }
         catch (ExternalException)
         {
-            // Clipboard busy - say nothing rather than claim a copy that did not happen.
             return;
         }
 
-        FlashCopied(button);
+        FlashCopied(button, labelKey);
     }
 
     // The copy affordance has to answer, or a reader cannot tell a click that worked from one that did
-    // nothing. The clicked button reads "Copied" for a moment and then returns to "Copy". Only one button
+    // nothing. The clicked button reads "Copied" for a moment and then returns to its own label. Only one button
     // shows it at a time - a second copy reverts the first at once, so the screen never carries two claims
     // of a value the clipboard can only hold one of.
     private Button? _copiedButton;
+    private string _copiedLabelKey = "calc.copy";
     private System.Windows.Threading.DispatcherTimer? _copiedTimer;
 
-    private void FlashCopied(Button button)
+    private void FlashCopied(Button button, string labelKey)
     {
         RevertCopied();
 
         _copiedButton = button;
+        _copiedLabelKey = labelKey; // what the button said before, so it says it again
         button.Content = Application.Current?.TryFindResource("calc.copied") as string ?? "Copied";
 
         _copiedTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
@@ -99,7 +117,7 @@ public partial class CalculatorView : UserControl
         if (_copiedButton is not null)
         {
             // Back to the DynamicResource, so a later language switch still reaches the label.
-            _copiedButton.SetResourceReference(ContentControl.ContentProperty, "calc.copy");
+            _copiedButton.SetResourceReference(ContentControl.ContentProperty, _copiedLabelKey);
             _copiedButton = null;
         }
     }

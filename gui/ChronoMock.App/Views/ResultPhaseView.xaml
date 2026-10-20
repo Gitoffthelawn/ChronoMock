@@ -293,17 +293,25 @@
               <HeaderedContentControl.Header>
                 <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource result.fact_elapsed_fake}" />
               </HeaderedContentControl.Header>
-              <TextBlock x:Name="FactElapsedFake" Style="{StaticResource PartLabel}"
-                         FontFamily="{StaticResource FontFamilyMono}"
+              <TextBlock x:Name="FactElapsedFake" Style="{StaticResource PartLabelMono}"
                          Text="{Binding Fake.Elapsed}" />
             </HeaderedContentControl>
             <HeaderedContentControl Style="{StaticResource PartFormRow}">
               <HeaderedContentControl.Header>
                 <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource result.fact_elapsed_real}" />
               </HeaderedContentControl.Header>
-              <TextBlock x:Name="FactElapsedReal" Style="{StaticResource PartLabel}"
-                         FontFamily="{StaticResource FontFamilyMono}"
+              <TextBlock x:Name="FactElapsedReal" Style="{StaticResource PartLabelMono}"
                          Text="{Binding Real.Elapsed}" />
+            </HeaderedContentControl>
+            <!-- How long the machine slept (R5-D71), only when it did: the session clock stood still for that
+                 long, as during a pause (docs/01 section 3.0a). -->
+            <HeaderedContentControl Style="{StaticResource PartFormRow}"
+                                    Visibility="{Binding HasHostSlept, Converter={StaticResource BoolToVis}}">
+              <HeaderedContentControl.Header>
+                <TextBlock Style="{StaticResource PartNote}" Text="{DynamicResource result.fact_slept}" />
+              </HeaderedContentControl.Header>
+              <TextBlock x:Name="FactSlept" Style="{StaticResource PartLabelMono}"
+                         Text="{Binding HostSlept}" />
             </HeaderedContentControl>
           </StackPanel>
         </Border>
@@ -320,7 +328,7 @@
         -->
         <Expander x:Name="HistorySection" Style="{StaticResource PartSection}"
                   Margin="{StaticResource StackGapXl}"
-                  Visibility="{Binding HasHistory, Converter={StaticResource BoolToVis}}">
+                  Visibility="{Binding ShowsHistorySection, Converter={StaticResource BoolToVis}}">
           <Expander.Header>
             <TextBlock Style="{StaticResource PartHeading}" Text="{DynamicResource result.section_history}" />
           </Expander.Header>
@@ -338,30 +346,41 @@
             <TextBlock x:Name="HistoryNote" Style="{StaticResource PartNote}"
                        Text="{Binding HistoryNoteKey, Converter={StaticResource KeyToText}}"
                        Visibility="{Binding HasHistoryNote, Converter={StaticResource BoolToVis}}" />
+            <!-- A history this version cannot read, moved aside by this session's record or by a clear, and
+                 kept (R5-D73): where it went, so a list that starts again with one row, or with none, does not
+                 read as sessions lost. -->
+            <TextBlock x:Name="HistorySetAside" Style="{StaticResource PartNote}"
+                       Visibility="{Binding HasHistorySetAside, Converter={StaticResource BoolToVis}}">
+              <Run Text="{DynamicResource history.set_aside}" /><Run Text="{Binding HistorySetAside, StringFormat=' {0}', Mode=OneWay}" />
+            </TextBlock>
 
-            <ListBox x:Name="HistoryList"
-                     ItemsSource="{Binding History}"
-                     SelectedItem="{Binding SelectedRecord}"
-                     ItemTemplate="{StaticResource HistoryRow}"
-                     ItemContainerStyle="{StaticResource HistoryRowContainer}" />
+            <!-- The rows and what acts on them, only while there are rows: a section kept for the note alone
+                 holds no empty well and no buttons with nothing to act on. -->
+            <StackPanel x:Name="HistoryRows" Visibility="{Binding HasHistory, Converter={StaticResource BoolToVis}}">
+              <ListBox x:Name="HistoryList"
+                       ItemsSource="{Binding History}"
+                       SelectedItem="{Binding SelectedRecord}"
+                       ItemTemplate="{StaticResource HistoryRow}"
+                       ItemContainerStyle="{StaticResource HistoryRowContainer}" />
 
-            <TextBlock x:Name="HistoryHint" Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
-                       Text="{DynamicResource result.history_note}" />
+              <TextBlock x:Name="HistoryHint" Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
+                         Text="{DynamicResource result.history_note}" />
 
-            <!-- The two that need a chosen row are disabled without one, the third acts on the whole list
-                 and asks first when it is wired. A row of controls starts on the column's edge and the gap
-                 comes after each control (ControlRowGap). -->
-            <WrapPanel x:Name="HistoryActions" Margin="{StaticResource StackGapSm}">
-              <Button x:Name="RepeatSession" Content="{DynamicResource result.action_repeat}"
-                      Margin="{StaticResource ControlRowGap}"
-                      Command="{Binding Commands.Repeat}" />
-              <Button x:Name="ForgetSession" Content="{DynamicResource result.action_forget}"
-                      Margin="{StaticResource ControlRowGap}"
-                      Command="{Binding Commands.Forget}" />
-              <Button x:Name="ClearHistory" Content="{DynamicResource result.action_clear_history}"
-                      Command="{Binding Commands.ClearHistory}"
-                      Margin="{StaticResource ControlRowGap}" />
-            </WrapPanel>
+              <!-- The two that need a chosen row are disabled without one, the third acts on the whole list
+                   and asks first when it is wired. A row of controls starts on the column's edge and the gap
+                   comes after each control (ControlRowGap). -->
+              <WrapPanel x:Name="HistoryActions" Margin="{StaticResource StackGapSm}">
+                <Button x:Name="RepeatSession" Content="{DynamicResource result.action_repeat}"
+                        Margin="{StaticResource ControlRowGap}"
+                        Command="{Binding Commands.Repeat}" />
+                <Button x:Name="ForgetSession" Content="{DynamicResource result.action_forget}"
+                        Margin="{StaticResource ControlRowGap}"
+                        Command="{Binding Commands.Forget}" />
+                <Button x:Name="ClearHistory" Content="{DynamicResource result.action_clear_history}"
+                        Command="{Binding Commands.ClearHistory}"
+                        Margin="{StaticResource ControlRowGap}" />
+              </WrapPanel>
+            </StackPanel>
           </StackPanel>
         </Expander>
       </StackPanel>

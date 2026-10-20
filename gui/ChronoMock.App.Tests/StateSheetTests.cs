@@ -222,6 +222,8 @@ public class StateSheetTests
             var total = 0;
 
             total += RenderResult("result-works", PhaseStates.ResultWorks()).Count;
+            // A session the machine slept through: the fact row with how long (R5-D71).
+            total += Shows(RenderResult("result-slept", PhaseStates.ResultWorksAfterSleep()), "result.fact_slept");
             // A works that proves nothing about time, its caveats under the reason with the audit folded (R5-D3).
             total += Shows(
                 RenderResult("result-not-evidence", PhaseStates.ResultWorksButNotEvidence()),
@@ -260,6 +262,14 @@ public class StateSheetTests
             total += Shows(RenderResult("result-loader-failed", PhaseStates.ResultLoaderFailed()), "target.loader_bad_image");
             total += Shows(RenderResult("result-cut-short", PhaseStates.ResultCutShort()), "result.cut_short");
             total += RenderResult("result-history", PhaseStates.ResultWithHistoryChosen(), "HistorySection").Count;
+            // A record that moved an unreadable history aside, and the note that says where (R5-D73).
+            total += Shows(
+                RenderResult("result-history-set-aside", PhaseStates.ResultWithHistorySetAside(), "HistorySection"),
+                "history.set_aside");
+            // A clear that moved it aside: no rows, and the section stays for the note.
+            total += Shows(
+                RenderResult("result-history-cleared-aside", PhaseStates.ResultWithHistoryClearedAside(), "HistorySection"),
+                "history.set_aside");
 
             total += RenderedFloor(
                 "result-floor",

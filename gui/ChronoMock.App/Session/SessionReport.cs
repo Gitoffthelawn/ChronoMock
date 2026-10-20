@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
+using System.Runtime.InteropServices;
 using System.Text;
 using ChronoMock.Protocol;
 
@@ -42,6 +43,9 @@ internal static class SessionReport
         // The target the session RAN ON, not the one now in the form - see SessionSetup.
         sb.Append("  ").Append(translate("report.target")).Append(": ")
           .Append(Path.GetFileName(setup.TargetPath)).Append('\n');
+        // Under the target, where the CLI report names it (R5-D44): a page behaves by its engine, so the
+        // version is part of the evidence.
+        AppendValue(sb, translate, "report.browser", r.Browser);
 
         // A session the core never closed says so above the verdict it qualifies (R4-W3), as the CLI report
         // does: the verdict below is the one from the start, not the session's.
@@ -95,6 +99,10 @@ internal static class SessionReport
         }
 
         AppendList(sb, translate, "report.left_running", r.LeftRunningRows, translateItems: false);
+        // Every error the core sent, under the verdict and the refusal, as the CLI report lists them (R5-D71).
+        // A command it refused while the session ran was on the screen for as long as the session was, and
+        // then nowhere - a speed that never took was not in the report about the session it did not take in.
+        AppendList(sb, translate, "report.errors", r.Errors, translateItems: true);
 
         if (r.HasTiming)
         {
@@ -106,6 +114,8 @@ internal static class SessionReport
               .Append(Fmt(translate, "report.elapsed", Seconds(r.ElapsedRealMs), Seconds(r.ElapsedFakeMs)))
               .Append('\n');
         }
+
+        AppendSleep(sb, r, translate);
 
         // The target's own exit code, if the app exited on its own (informational, not a verdict).
         if (r.TargetExitCode is int code)
@@ -153,10 +163,11 @@ internal static class SessionReport
         return sb.ToString();
     }
 
-    /// <summary>Compose the diagnostics block: a header naming the status, target, and requested moment, then
-    /// the core's stderr and parse-error lines verbatim. English and stable, like the core's own stderr and
-    /// the CLI report - it is a technical artifact for a bug report, not interface text (rule 15 governs the
-    /// UI - this is data).</summary>
+    /// <summary>Compose the diagnostics block: a header naming the status, the window and the system, the core
+    /// and the mode, the target, the requested moment and the exception the window caught, then the core's
+    /// stderr and parse-error lines verbatim, each with its time since the connection. English and stable,
+    /// like the core's own stderr and the CLI report - it is a technical artifact for a bug report, not
+    /// interface text (rule 15 governs the UI - this is data).</summary>
     internal static string Diagnostics(
         SessionResult r, SessionSetup setup, IEnumerable<string> lines, int dropped, int? coreExit, DateTime utcNow)
     {
@@ -168,6 +179,18 @@ internal static class SessionReport
         sb.Append("  when:      ")
           .Append(utcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("  status:    ").Append(r.StatusKind).Append(" (").Append(r.StatusKey).Append(")\n");
+        // Which window, on which system, drove which core, and how (R5/6b, D2). A block that said none of it
+        // left support to ask, and the answer is the first thing a fault in one build and not another needs.
+        sb.Append("  gui:       ").Append(AppVersion.Current)
+          .Append(" (").Append(Arch(RuntimeInformation.ProcessArchitecture)).Append(" process)\n");
+        sb.Append("  os:        ").Append(RuntimeInformation.OSDescription)
+          .Append(" (").Append(Arch(RuntimeInformation.OSArchitecture)).Append(")\n");
+        sb.Append("  core:      ").Append(CoreLine(r)).Append('\n');
+        sb.Append("  mode:      ").Append(r.CorePath.Length == 0 ? "(no plan)" : r.IsCdp ? "chromium" : "native").Append('\n');
+        if (r.Browser.Length > 0)
+        {
+            sb.Append("  browser:   ").Append(r.Browser).Append('\n');
+        }
         // The code the core itself ended with, which is what tells a crash from a kill once the core sent
         // nothing more (R4-S27). A negative one is an NTSTATUS, so it is shown in hex as well, as the CLI does.
         if (coreExit is { } code)
@@ -185,6 +208,7 @@ internal static class SessionReport
         sb.Append("  target:    ").Append(target.Length > 0 ? target : "(none)").Append('\n');
         sb.Append("  requested: ").Append(setup.Moment)
           .Append(" (zone ").Append(setup.Zone.Label).Append(", mode ").Append(modeToken).Append(")\n");
+        AppendFault(sb, r.Fault);
 
         sb.Append("  core output:\n");
         var any = false;
@@ -211,6 +235,44 @@ internal static class SessionReport
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// The core the session asked for and what became of it: its version and bitness from the handshake, or
+    /// that it never shook hands, or that it never started at all - then its path, which is what a missing or
+    /// quarantined core is diagnosed by.
+    /// </summary>
+    private static string CoreLine(SessionResult r)
+    {
+        if (r.CorePath.Length == 0)
+        {
+            return "(none - the session stopped before choosing one)";
+        }
+
+        var state = !r.CoreStarted ? "did not start"
+            : r.CoreVersion.Length == 0 ? "no handshake"
+            : r.CoreVersion + ", " + r.CoreBitness;
+        return state + ", " + r.CorePath;
+    }
+
+    /// <summary>The exception the window caught, whole - type, message, stack and the faults inside it - under
+    /// its own heading, each further line indented under the first. Nothing when there was none.</summary>
+    private static void AppendFault(StringBuilder sb, Exception? fault)
+    {
+        if (fault is null)
+        {
+            return;
+        }
+
+        var lines = fault.ToString().Split('\n');
+        sb.Append("  error:     ").Append(lines[0].TrimEnd('\r')).Append('\n');
+        foreach (var line in lines.Skip(1))
+        {
+            sb.Append("             ").Append(line.TrimEnd('\r')).Append('\n');
+        }
+    }
+
+    /// <summary>An architecture the way the rest of the block writes it: <c>x64</c>, <c>x86</c>, <c>arm64</c>.</summary>
+    private static string Arch(Architecture architecture) => architecture.ToString().ToLowerInvariant();
 
     /// <summary>A history record of the START setup and the session's final verdict (docs/04 section 6). The
     /// GUI's own clock is real (only the target is faked), so the caller's <paramref name="utcNow"/> is the
@@ -355,6 +417,34 @@ internal static class SessionReport
         }
 
         return true;
+    }
+
+    /// <summary>One labelled line, or nothing when there is no value to name - a line that says "browser:" and
+    /// nothing after it claims a fact it does not have.</summary>
+    private static void AppendValue(StringBuilder sb, Func<string, string> translate, string labelKey, string value)
+    {
+        if (value.Length > 0)
+        {
+            sb.Append("  ").Append(translate(labelKey)).Append(": ").Append(value).Append('\n');
+        }
+    }
+
+    /// <summary>
+    /// How long the machine slept, in the session's block (R5-D71). The CLI says it inside the warning line,
+    /// and the summary's warnings are the window's texts, which carry no number - so the length goes where
+    /// the session's other durations are, written as the screen writes them. A session with no timing still
+    /// gets it, under its own heading, rather than a line hanging under nothing.
+    /// </summary>
+    private static void AppendSleep(StringBuilder sb, SessionResult r, Func<string, string> translate)
+    {
+        if (r.HostSleptMs <= 0)
+        {
+            return;
+        }
+
+        sb.Append(r.HasTiming ? "    " : "  " + translate("report.session") + ": ")
+          .Append(Fmt(translate, "report.slept", ClockView.FormatDuration(r.HostSleptMs)))
+          .Append('\n');
     }
 
     private static void AppendList(

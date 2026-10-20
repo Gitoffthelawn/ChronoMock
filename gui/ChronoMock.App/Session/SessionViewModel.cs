@@ -97,6 +97,7 @@ public sealed class SessionViewModel : ObservableObject
     private bool _launched;
     private bool _stopRequested;
     private string _historyError = string.Empty;
+    private string _historySetAside = string.Empty;
     private string _historyNoteKey = string.Empty;
     private SessionRecord? _selectedRecord;
     // The setup the session was started with, taken at Start, so history and the reports record what was
@@ -192,7 +193,11 @@ public sealed class SessionViewModel : ObservableObject
             }
         };
 
-        History.CollectionChanged += (_, _) => RaisePropertyChanged(nameof(HasHistory));
+        History.CollectionChanged += (_, _) =>
+        {
+            RaisePropertyChanged(nameof(HasHistory));
+            RaisePropertyChanged(nameof(ShowsHistorySection));
+        };
         RecentTargets.CollectionChanged += (_, _) => RaisePropertyChanged(nameof(HasRecentTargets));
         foreach (var record in _store.Load())
         {
@@ -374,6 +379,11 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>True when there is at least one recorded session - the History panel binds its visibility here.</summary>
     public bool HasHistory => History.Count > 0;
 
+    /// <summary>Whether the history section is on the screen: while there is a recorded session, and while it
+    /// has to say where an unreadable history went - a clear that moved one leaves no rows, and the section
+    /// that would say so used to go with them (R5-D73).</summary>
+    public bool ShowsHistorySection => HasHistory || HasHistorySetAside;
+
     /// <summary>Raw detail when a session could not be written to history (e.g. a read-only drive), empty
     /// otherwise. Surfaced, never swallowed (rule 6).</summary>
     public string HistoryError
@@ -384,6 +394,25 @@ public sealed class SessionViewModel : ObservableObject
 
     /// <summary>True when a history write failed - the panel shows the reason (rule 6).</summary>
     public bool HasHistoryError => _historyError.Length > 0;
+
+    /// <summary>Where recording this session moved a history this version cannot read, empty when it moved
+    /// none (R5-D73). The move kept the old history (rule 7) and said nothing about it, so the panel opened on
+    /// one row and the reader had no way to know their earlier sessions were kept, or where.</summary>
+    public string HistorySetAside
+    {
+        get => _historySetAside;
+        private set
+        {
+            if (Set(ref _historySetAside, value))
+            {
+                RaisePropertyChanged(nameof(HasHistorySetAside));
+                RaisePropertyChanged(nameof(ShowsHistorySection));
+            }
+        }
+    }
+
+    /// <summary>True when recording this session set an unreadable history aside - the panel says where.</summary>
+    public bool HasHistorySetAside => _historySetAside.Length > 0;
 
     /// <summary>Translation key for what a history LOAD could not fill in, empty when it filled everything.
     /// Separate from <see cref="HistoryError"/>, which is about a failed write and is rendered after a
@@ -1728,6 +1757,13 @@ public sealed class SessionViewModel : ObservableObject
 
     public bool HasWarnings => _result.Warnings.Count > 0;
 
+    /// <summary>How long the machine slept during the session, written like the elapsed lines beside it, or
+    /// empty when it did not sleep (R5-D71). The session clock stood still for that long.</summary>
+    public string HostSlept => HasHostSlept ? ClockView.FormatDuration(_result.HostSleptMs) : string.Empty;
+
+    /// <summary>True when the machine slept during the session - the result's fact row shows only then.</summary>
+    public bool HasHostSlept => _result.HostSleptMs > 0;
+
     /// <summary>
     /// Fold one event into the view state. Pure and synchronous (no I/O, no threading) so the mapping is
     /// unit-testable - the live loop marshals each call onto the UI thread. A late <c>state</c> after a
@@ -1735,6 +1771,7 @@ public sealed class SessionViewModel : ObservableObject
     /// </summary>
     public void Apply(ChronoEvent evt)
     {
+        NoteForReport(evt);
         switch (evt)
         {
             case StateEvent s when CanReturnToRunning(StatusKind):
@@ -1830,9 +1867,9 @@ public sealed class SessionViewModel : ObservableObject
                     ? sv.UncoveredChildrenTotal
                     : sv.UncoveredChildren.Count;
                 // Taken as it comes, without a test on it: this method sits ON the cyclomatic ceiling
-                // (CA1502 18 of 18, measured with tools/margin.ps1), so one more branch here would be a
-                // red build. Everything the rows need deciding - a nameless engine, an endpoint seen
-                // twice - is decided in the converter, which is where presentation belongs anyway.
+                // (CA1502, measured with tools/margin.ps1), so one more branch here would be a red build.
+                // Everything the rows need deciding - a nameless engine, an endpoint seen twice - is
+                // decided in the converter, which is where presentation belongs anyway.
                 Engines = sv.Engines;
                 EnginePagesReached = sv.ContextCount > 0;
                 FollowedRows = SessionReport.ProcessLines(sv.Followed);
@@ -1841,8 +1878,8 @@ public sealed class SessionViewModel : ObservableObject
                 // reader has to attribute to an event type is a warning they will not read.
                 // The one that says something is STILL SET on this machine leads, ahead of what the
                 // processes said: the list is shown through a window shorter than itself, and this line
-                // may not sit below the fold. Written with comparisons and no new branch (CA1502 stands at
-                // 18 of 18 on this method).
+                // may not sit below the fold. Written with comparisons and no new branch (this method
+                // stands on the CA1502 ceiling).
                 Warnings =
                 [
                     .. sv.WarningKeys.Where(w => w == LeftBehindKey),
@@ -1851,75 +1888,107 @@ public sealed class SessionViewModel : ObservableObject
                 ];
                 SetVerdict(VerdictKinds.Parse(sv.Verdict), sv.ReasonKey);
                 break;
-            case CoverageEvent c when _result.IsCdp:
-                // CDP emits one coverage per JS context - accumulate them all (each context's counts stay
-                // its own, never summed across contexts, rule 4) - union the warnings and uncovered lists.
-                // Two pages both produce "page Date.now", so two contexts reading one channel become two
-                // rows that tell apart only by their read count (rule 4 keeps each context's count its own,
-                // never summed). The raw context id used to prefix each row - dropped in P6 as a number that
-                // named nothing to the reader.
-                Covered = [.. _result.Covered, .. c.Covered];
-                Observed = [.. _result.Observed, .. c.Observed];
-                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
-                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
-                InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
-                break;
-            case CoverageEvent c when c.Kind == CoverageEvent.UnitContext:
-                // A page or worker inside a natively hooked application, reached through its web
-                // engine's debugging port (docs/09 section 12). Its number is a context index, never a
-                // pid, so it must not be mistaken for the parent. Rows accumulate per context like the
-                // CDP branch above and stand after the parent's, whichever event arrives last.
-                _result.PageCovered = [.. _result.PageCovered, .. c.Covered];
-                Covered = [.. _result.ParentCovered, .. _result.PageCovered];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
-                break;
-            case CoverageEvent c when c.Kind == CoverageEvent.UnitProcess:
-                // Native. Call counts stay the PARENT's - the process the first event names - because
-                // summing them across processes would fabricate a per-process picture (untouchable rule
-                // 4), and a per-process family breakdown is a later slice. But a LATER event for that
-                // same pid replaces the earlier one: the core reports a process when it is discovered
-                // and again when the session ends, and the first snapshot is taken inside the guard
-                // window, so its counts are the session's first blink (R2-X8) - measured, a probe that
-                // read the clock 25 times showed "×2" in this panel.
-                _result.ParentPid ??= c.Pid;
-                if (c.Pid == _result.ParentPid)
-                {
-                    _result.ParentCovered = c.Covered.ToList();
-                    Covered = [.. _result.ParentCovered, .. _result.PageCovered];
-                    Observed = c.Observed.ToList();
-                }
-
-                // Warnings and uncovered channels are not counts - they are the REASON behind the family
-                // verdict, and the core raises them per process (R2-W5). A child that opened a network
-                // connection, ran an unscaled wait, or failed to hook a channel says so on its own event,
-                // so dropping every event after the first left the panel with the right verdict and no
-                // reason for it (rule 6). Union them across the family, exactly like the CLI driver
-                // (driver_run) and the CDP branch above. A channel can therefore be covered in the parent
-                // and uncovered in a child at once - that is the honest reading, and it is precisely why
-                // the family verdict is partial (Verdict::combine).
-                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
-                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
-                InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
-                break;
             case CoverageEvent c:
-                // A kind this build does not know - a newer core naming a unit this panel has never
-                // heard of. Its number is neither a pid nor a context index, so it must not become the
-                // parent and its counts have no row to go in. What it says about the session - the
-                // warnings and the gaps - is evidence all the same, and stays (rule 4, rule 6).
-                Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
-                Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
-                Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
-                CoverageKnown = true;
+                ApplyCoverage(c);
                 break;
             default:
                 // ready and ack do not change the panel.
                 break;
         }
+    }
+
+    /// <summary>
+    /// What an event adds to the report beyond the panel's projection (<see cref="SessionResult.Absorb"/>,
+    /// R5-D71), and the two things of it the panel shows: the sleep warning, on the list the moment the core
+    /// notices rather than with the verdict at the end, and the slept time on the result.
+    /// </summary>
+    private void NoteForReport(ChronoEvent evt)
+    {
+        var sleptBefore = _result.HostSleptMs;
+        if (_result.Absorb(evt))
+        {
+            Warnings = [.. _result.Warnings, .. SessionResult.HostSleptWarning.Except(_result.Warnings)];
+        }
+
+        if (_result.HostSleptMs != sleptBefore)
+        {
+            RaisePropertyChanged(nameof(HostSlept));
+            RaisePropertyChanged(nameof(HasHostSlept));
+        }
+    }
+
+    /// <summary>
+    /// Fold one <c>coverage</c> event into the audit. Its own method so <see cref="Apply"/> holds one branch
+    /// for it rather than four: Apply stood on the cyclomatic ceiling (CA1502 at 18), and every event the
+    /// panel learned after that had to be squeezed past the limit instead of written plainly (R5/6b).
+    /// </summary>
+    private void ApplyCoverage(CoverageEvent c)
+    {
+        if (_result.IsCdp)
+        {
+            // CDP emits one coverage per JS context - accumulate them all (each context's counts stay
+            // its own, never summed across contexts, rule 4) - union the warnings and uncovered lists.
+            // Two pages both produce "page Date.now", so two contexts reading one channel become two
+            // rows that tell apart only by their read count (rule 4 keeps each context's count its own,
+            // never summed). The raw context id used to prefix each row - dropped in P6 as a number that
+            // named nothing to the reader.
+            Covered = [.. _result.Covered, .. c.Covered];
+            Observed = [.. _result.Observed, .. c.Observed];
+            Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+            Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+            InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
+        }
+        else if (c.Kind == CoverageEvent.UnitContext)
+        {
+            // A page or worker inside a natively hooked application, reached through its web
+            // engine's debugging port (docs/09 section 12). Its number is a context index, never a
+            // pid, so it must not be mistaken for the parent. Rows accumulate per context like the
+            // CDP branch above and stand after the parent's, whichever event arrives last.
+            _result.PageCovered = [.. _result.PageCovered, .. c.Covered];
+            Covered = [.. _result.ParentCovered, .. _result.PageCovered];
+        }
+        else if (c.Kind == CoverageEvent.UnitProcess)
+        {
+            // Native. Call counts stay the PARENT's - the process the first event names - because
+            // summing them across processes would fabricate a per-process picture (untouchable rule
+            // 4), and a per-process family breakdown is a later slice. But a LATER event for that
+            // same pid replaces the earlier one: the core reports a process when it is discovered
+            // and again when the session ends, and the first snapshot is taken inside the guard
+            // window, so its counts are the session's first blink (R2-X8) - measured, a probe that
+            // read the clock 25 times showed "×2" in this panel.
+            _result.ParentPid ??= c.Pid;
+            if (c.Pid == _result.ParentPid)
+            {
+                _result.ParentCovered = c.Covered.ToList();
+                Covered = [.. _result.ParentCovered, .. _result.PageCovered];
+                Observed = c.Observed.ToList();
+            }
+
+            // Warnings and uncovered channels are not counts - they are the REASON behind the family
+            // verdict, and the core raises them per process (R2-W5). A child that opened a network
+            // connection, ran an unscaled wait, or failed to hook a channel says so on its own event,
+            // so dropping every event after the first left the panel with the right verdict and no
+            // reason for it (rule 6). Union them across the family, exactly like the CLI driver
+            // (driver_run) and the CDP branch above. A channel can therefore be covered in the parent
+            // and uncovered in a child at once - that is the honest reading, and it is precisely why
+            // the family verdict is partial (Verdict::combine).
+            Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+            Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+            InstalledLate = [.. _result.InstalledLate, .. c.InstalledLate.Where(u => !_result.InstalledLate.Contains(u))];
+        }
+        else
+        {
+            // A kind this build does not know - a newer core naming a unit this panel has never
+            // heard of. Its number is neither a pid nor a context index, so it must not become the
+            // parent and its counts have no row to go in. What it says about the session - the
+            // warnings and the gaps - is evidence all the same, and stays (rule 4, rule 6).
+            Uncovered = [.. _result.Uncovered, .. c.Uncovered.Where(u => !_result.Uncovered.Contains(u))];
+            Unobserved = [.. _result.Unobserved, .. c.Unobserved.Where(u => !_result.Unobserved.Contains(u))];
+        }
+
+        // Every kind says what it warned about, and every kind is coverage the panel now knows.
+        Warnings = [.. _result.Warnings, .. c.WarningKeys.Where(w => !_result.Warnings.Contains(w))];
+        CoverageKnown = true;
     }
 
     /// <summary>
@@ -2001,18 +2070,19 @@ public sealed class SessionViewModel : ObservableObject
             }
             catch (InvalidOperationException ex)
             {
-                LastError = ex.Message;
+                NoteFault(ex);
                 SetStatus("status.target_unsupported", SessionStatusKind.Error);
                 return;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                LastError = ex.Message;
+                NoteFault(ex);
                 SetStatus("status.target_unreadable", SessionStatusKind.Error);
                 return;
             }
 
             IsCdp = plan.IsCdp;
+            _result.CorePath = plan.CorePath;
 
             // The handshake and its two refusals (no ready, or a gate that says no) come back as ONE
             // translation key, because that is all the difference amounts to here - both refuse before the
@@ -2021,6 +2091,7 @@ public sealed class SessionViewModel : ObservableObject
             var open = await CoreSession.OpenAsync(plan, ReadyTimeout, _connect);
             session = open.Session;
             _session = session;
+            _result.HeardFrom(session);
             if (open.RefusalKey is not null)
             {
                 SetStatus(open.RefusalKey, SessionStatusKind.Error);
@@ -2050,20 +2121,20 @@ public sealed class SessionViewModel : ObservableObject
             // The core itself could not be started: its executable is missing or would not spawn (a broken
             // or incomplete install). Target-file problems were already classified above and returned, so
             // reaching here means the core, not the target (RELEASE-007).
-            LastError = ex.Message;
+            NoteFault(ex);
             SetStatus("status.core_missing", SessionStatusKind.Error);
         }
         catch (IOException ex)
         {
             // The protocol pipe broke mid-session.
-            LastError = ex.Message;
+            NoteFault(ex);
             SetStatus("status.error", SessionStatusKind.Error);
         }
         catch (Exception ex)
         {
             // Anything else - most likely a malformed core event dereferenced in Apply (M-11). Surface it
             // as an honest error rather than let it escape `async void OnStartClick` and crash the UI thread.
-            LastError = ex.Message;
+            NoteFault(ex);
             SetStatus("status.error", SessionStatusKind.Error);
         }
         finally
@@ -2099,6 +2170,10 @@ public sealed class SessionViewModel : ObservableObject
     {
         if (session is null)
         {
+            // No core ran - it would not start, or the application could not be read - so there is nothing of
+            // its own to drain. That is precisely the session someone asks for help with, and it used to leave
+            // no block at all (R5/6b, D2): the block still says which core was asked for and what failed.
+            CaptureDiagnostics([]);
             return;
         }
 
@@ -2251,6 +2326,9 @@ public sealed class SessionViewModel : ObservableObject
         LeftRunningRows = [];
         RefusalIncomplete = false;
         ResidueKeys = [];
+        _result.ForgetReportFacts();
+        RaisePropertyChanged(nameof(HostSlept));
+        RaisePropertyChanged(nameof(HasHostSlept));
         DiagnosticsText = string.Empty;
         DiagnosticsSavedPath = string.Empty;
         CopyFeedbackKey = string.Empty;
@@ -2258,6 +2336,8 @@ public sealed class SessionViewModel : ObservableObject
         // A note about what the last LOAD could not fill belongs to the form the user is about to run, not
         // to the run itself - once they start, they have accepted the form as it stands.
         HistoryNoteKey = string.Empty;
+        // Said about the session that moved the old history, not about the next one.
+        HistorySetAside = string.Empty;
         // The jump target belongs to the session it was typed in (R5-P11). It is read in the zone of the
         // session it is sent to, so a moment left from the last run would jump the next one somewhere nobody
         // asked for. Cleared to the untouched state - an empty field typed out says "the date is empty", and a
@@ -2323,6 +2403,14 @@ public sealed class SessionViewModel : ObservableObject
         }
     }
 
+    /// <summary>A failure the session loop caught: its message for the screen, and the whole exception for the
+    /// diagnostics block (R5/6b, D2) - the message alone reached support with no type and no stack.</summary>
+    private void NoteFault(Exception fault)
+    {
+        LastError = fault.Message;
+        _result.Fault = fault;
+    }
+
     /// <summary>Compose the diagnostics block: a header naming the status, target, and requested moment, then
     /// the core's stderr and parse-error lines verbatim. English and stable, like the core's own stderr and
     /// the CLI report - it is a technical artifact for a bug report, not interface text (rule 15 governs the
@@ -2361,6 +2449,7 @@ public sealed class SessionViewModel : ObservableObject
         }
 
         HistoryError = await _store.AppendAsync(record).ConfigureAwait(true);
+        HistorySetAside = _store.TakeSetAside();
     }
 
     /// <summary>Remove one past session from the panel and the store. Mild and left un-confirmed (zasady/13
@@ -2379,6 +2468,9 @@ public sealed class SessionViewModel : ObservableObject
     {
         History.Clear();
         HistoryError = await _store.ClearAsync().ConfigureAwait(true);
+        // A clear that found the file unreadable moves it aside as an append does, and says so here - read
+        // only by the next record, the move was silent now and claimed by a record that moved nothing.
+        HistorySetAside = _store.TakeSetAside();
     }
 
     /// <summary>Repeat a past session by filling the setup form with its parameters. It never starts a

@@ -99,6 +99,146 @@ public sealed class SessionHistoryStoreTests : IDisposable
     public void Load_is_empty_when_no_file_exists()
         => Assert.Empty(new FileSessionHistoryStore(_dir).Load());
 
+    /// <summary>
+    /// R5-D73. Moving an unreadable history aside says where it went, once: the panel opened on one row after a
+    /// downgrade and nothing said the earlier sessions were kept. Reversal probe: forget the path and the first
+    /// assertion fails.
+    /// </summary>
+    [Fact]
+    public void Setting_a_history_aside_says_where_it_went_once()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "sessions.json"), "{ written by a newer build");
+        var store = new FileSessionHistoryStore(_dir);
+
+        store.Append(Record("After"));
+
+        var setAside = store.TakeSetAside();
+        Assert.StartsWith(Path.Combine(Path.GetFullPath(_dir), "sessions.json.unreadable-"), setAside, StringComparison.Ordinal);
+        Assert.Equal("{ written by a newer build", File.ReadAllText(setAside));
+        Assert.Equal(string.Empty, store.TakeSetAside());
+        store.Append(Record("Next"));
+        Assert.Equal(string.Empty, store.TakeSetAside()); // a readable history is not moved, so nothing is said
+    }
+
+    /// <summary>
+    /// R5-D73. A scratch file a killed write left behind is swept by the next write, and only that: one written
+    /// a moment ago may be another write in progress, and a set-aside history is somebody's history (rule 7).
+    /// Reversal probe: skip the sweep and the old scratch file stays.
+    /// </summary>
+    [Fact]
+    public void A_scratch_file_a_killed_write_left_is_swept_and_nothing_else_is()
+    {
+        Directory.CreateDirectory(_dir);
+        string Made(string name, TimeSpan age)
+        {
+            var path = Path.Combine(_dir, name);
+            File.WriteAllText(path, "{}");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow - age);
+            return path;
+        }
+
+        var left = Made("sessions.json.4242.1.tmp", TimeSpan.FromHours(3));
+        var leftMarker = Made(FileSessionHistoryStore.ImportedName + ".4242.tmp", TimeSpan.FromHours(3));
+        var fresh = Made("sessions.json.4243.1.tmp", TimeSpan.FromSeconds(5));
+        var setAside = Made("sessions.json.unreadable-20260101-000000", TimeSpan.FromDays(30));
+        var someoneElses = Made("notes.tmp", TimeSpan.FromDays(30));
+
+        new FileSessionHistoryStore(_dir).Append(Record("Now"));
+
+        Assert.False(File.Exists(left));
+        Assert.False(File.Exists(leftMarker));
+        Assert.True(File.Exists(fresh));
+        Assert.True(File.Exists(setAside));
+        Assert.True(File.Exists(someoneElses));
+    }
+
+    private string BesideExe => Path.Combine(_dir, "exe", "history");
+
+    private string PerUser => Path.Combine(_dir, "user", "history");
+
+    /// <summary>
+    /// R5-D72. The history an older build of a portable copy kept beside its executable is read into the
+    /// per-user one once, in the order the sessions ended, and the old file is left exactly as it was (rule 7).
+    /// Reading again adds nothing. Reversal probes: skip the import and the old session is missing, read it on
+    /// every load and the second load holds it twice.
+    /// </summary>
+    [Fact]
+    public void A_history_beside_the_executable_is_read_in_once_and_left_where_it_is()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Old") with { EndedAtUtc = "2026-08-01T09:00:00Z" });
+        new FileSessionHistoryStore(PerUser).Append(Record("New") with { EndedAtUtc = "2026-08-25T09:00:00Z" });
+        var oldFile = Path.Combine(BesideExe, "sessions.json");
+        var before = File.ReadAllBytes(oldFile);
+
+        var loaded = new FileSessionHistoryStore(PerUser, BesideExe).Load();
+        var again = new FileSessionHistoryStore(PerUser, BesideExe).Load();
+
+        Assert.Equal(["Old.exe", "New.exe"], loaded.Select(r => r.TargetName));
+        Assert.Equal(2, again.Count);
+        Assert.Equal(before, File.ReadAllBytes(oldFile));
+        Assert.Equal(
+            [Path.GetFullPath(oldFile)],
+            File.ReadAllLines(Path.Combine(PerUser, FileSessionHistoryStore.ImportedName)));
+        Assert.Empty(Directory.GetFiles(PerUser, "*.tmp"));
+    }
+
+    /// <summary>A history cleared after the import stays cleared - the old file is not read in again.</summary>
+    [Fact]
+    public void A_cleared_history_does_not_come_back_from_beside_the_executable()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Old"));
+        var store = new FileSessionHistoryStore(PerUser, BesideExe);
+        Assert.Single(store.Load()); // read in - not vacuous
+
+        store.Clear();
+
+        Assert.Empty(new FileSessionHistoryStore(PerUser, BesideExe).Load());
+    }
+
+    /// <summary>A session in both histories - a history folder copied along with the program - is kept once.</summary>
+    [Fact]
+    public void A_session_in_both_histories_is_kept_once()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Both"));
+        new FileSessionHistoryStore(PerUser).Append(Record("Both"));
+
+        Assert.Single(new FileSessionHistoryStore(PerUser, BesideExe).Load());
+    }
+
+    /// <summary>
+    /// An old history this build cannot read is not merged and not marked: nothing of it can be shown, the
+    /// file is left as it was, and a later build that can read it still gets the chance.
+    /// </summary>
+    [Fact]
+    public void An_old_history_this_build_cannot_read_is_left_unmerged_and_unmarked()
+    {
+        Directory.CreateDirectory(BesideExe);
+        File.WriteAllText(Path.Combine(BesideExe, "sessions.json"), "{ not json");
+        new FileSessionHistoryStore(PerUser).Append(Record("New"));
+
+        var loaded = new FileSessionHistoryStore(PerUser, BesideExe).Load();
+
+        Assert.Equal(["New.exe"], loaded.Select(r => r.TargetName));
+        Assert.Equal("{ not json", File.ReadAllText(Path.Combine(BesideExe, "sessions.json")));
+        Assert.False(File.Exists(Path.Combine(PerUser, FileSessionHistoryStore.ImportedName)));
+    }
+
+    /// <summary>An old history with no sessions marks itself read even though there is nothing to write - and
+    /// the per-user folder is made for the mark, so it is not tried again on every start.</summary>
+    [Fact]
+    public void An_empty_old_history_is_marked_read_in_a_folder_made_for_it()
+    {
+        var old = new FileSessionHistoryStore(BesideExe);
+        old.Append(Record("Gone"));
+        old.Clear();
+        Directory.CreateDirectory(BesideExe);
+        File.WriteAllText(Path.Combine(BesideExe, "sessions.json"), """{ "schema": 1, "stability": "unstable", "sessions": [] }""");
+
+        Assert.Empty(new FileSessionHistoryStore(PerUser, BesideExe).Load());
+        Assert.True(File.Exists(Path.Combine(PerUser, FileSessionHistoryStore.ImportedName)));
+    }
+
     [Fact]
     public void Load_is_empty_and_keeps_the_file_when_it_is_corrupt()
     {
@@ -369,5 +509,41 @@ public sealed class SessionHistoryStoreTests : IDisposable
 
         Assert.True(waited, "the removal must wait for the instance that holds the history");
         Assert.Equal("Kept.exe", Assert.Single(store.Load()).TargetName);
+    }
+
+    /// <summary>
+    /// R5-D72, review round on #133. Once the old history is read in, a later start does not take the gate to
+    /// learn that: the old file stays beside the executable for good, and the load runs on the window's thread
+    /// while it opens, so asking under the gate made every start wait out another instance's write. Measured
+    /// here as a load that returns while another instance holds the gate. Reversal probe: drop the check before
+    /// the gate and the load waits for it.
+    /// </summary>
+    [Fact]
+    public async Task A_history_read_in_once_does_not_wait_for_the_gate_on_later_starts()
+    {
+        new FileSessionHistoryStore(BesideExe).Append(Record("Old"));
+        Assert.Single(new FileSessionHistoryStore(PerUser, BesideExe).Load()); // read in - not vacuous
+        using var taken = new ManualResetEventSlim();
+        using var letGo = new ManualResetEventSlim();
+        var other = new Thread(() =>
+        {
+            using var gate = new Mutex(initiallyOwned: false, @"Local\ChronoMock.History");
+            gate.WaitOne();
+            taken.Set();
+            letGo.Wait();
+            gate.ReleaseMutex();
+        });
+        other.Start();
+        taken.Wait(TestContext.Current.CancellationToken);
+
+        var load = Task.Run(() => new FileSessionHistoryStore(PerUser, BesideExe).Load(), TestContext.Current.CancellationToken);
+        await Task.Delay(1000, TestContext.Current.CancellationToken);
+        var waited = !load.IsCompleted;
+        letGo.Set();
+        var loaded = await load;
+        other.Join();
+
+        Assert.False(waited, "a start after the import waited for another instance's write");
+        Assert.Equal("Old.exe", Assert.Single(loaded).TargetName);
     }
 }

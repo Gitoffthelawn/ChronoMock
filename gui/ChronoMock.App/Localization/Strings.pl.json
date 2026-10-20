@@ -528,6 +528,7 @@
   "fault.unexpected": "Coś w Chrono Mock nieoczekiwanie się nie powiodło. Okno zostaje otwarte, ale to, co wtedy robiło, mogło się nie zakończyć. Jeśli to się powtarza, uruchom Chrono Mock ponownie.",
   "fault.saved": "Szczegóły zapisano w:",
   "fault.detail": "Szczegół techniczny:",
+  "fault.startup": "Nie udało się uruchomić Chrono Mock.",
   "report.unreliable_banner": "!! DOWÓD NIERZETELNY - fałszywy zegar nie zadziałał w pełni. Nie cytuj tego jako dowodu zachowania.",
   "report.title": "Chrono Mock - raport sesji",
   "report.target": "aplikacja",
@@ -540,6 +541,10 @@
   "report.session": "sesja",
   "report.session_reached": "fałszywy zegar osiągnął {0}",
   "report.elapsed": "realnie {0}s, fałszywie {1}s",
+  // How long the machine slept, see the English file.
+  "report.slept": "komputer spał przez {0} - zegar sesji w tym czasie stał",
+  "report.browser": "przeglądarka",
+  "report.errors": "błędy",
 
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "aplikacja zakończyła się kodem",
@@ -560,6 +565,7 @@
 
   // Session history (chrono-mock 7.2, 8.8, 11.1 pt 13). Local-only; clicking an entry fills the setup form and never starts a session (untouchable rule 7, docs/04 section 6).
   "history.save_failed": "Nie udało się zapisać do historii:",
+  "history.set_aside": "Ta wersja nie mogła odczytać wcześniejszej historii, więc została odłożona, nie usunięta:",
   "history.clear_title": "Wyczyść historię",
   "history.clear_confirm": "Wyczyścić wszystkie zapisane sesje?",
   "history.clear_undone": "Tej operacji nie można cofnąć. Same sesje już się zakończyły - to usuwa zapisy o nich.",
@@ -591,6 +597,7 @@
   "result.fact_reached": "Fałszywy zegar doszedł do",
   "result.fact_elapsed_fake": "Minęło na fałszywym zegarze",
   "result.fact_elapsed_real": "Minęło naprawdę",
+  "result.fact_slept": "Komputer spał",
   "result.section_history": "Poprzednie sesje",
   "result.chip_history": "sesji:",
   "result.history_ended": "zakończona",
@@ -680,6 +687,7 @@
   "calc.all_formats": "Wszystkie formaty - kopiuj jednym klikiem",
   "calc.copy": "Kopiuj",
   "calc.copied": "Skopiowano",
+  "calc.copy_command": "Kopiuj jako polecenie",
   "calc.custom_format": "Format własny",
   "calc.custom_format_hint": "np. yyyy-MM-dd HH:mm:ss",
   "calc.metadata": "Szczegóły",
@@ -840,5 +848,6 @@
   "tip.calc_calendar": "Kalendarz świąt i dni roboczych używany przez kroki dni roboczych i najbliższy.",
   "tip.custom_format": "Sformatuj wynik własną maską (tokeny .NET/Java).",
   "tip.analyze": "Wklej datę, by zobaczyć jak się czyta - obie interpretacje, gdy niejednoznaczna.",
+  "tip.copy_command": "Kopiuje polecenie PowerShella, które da ten wynik w terminalu.",
   "tip.use_in_substitution": "Wyślij tę datę i godzinę do trybu „Uruchom aplikację”. Dostępne tylko, gdy jej strefa jest jedną z oferowanych stref sesji."
 }

@@ -185,6 +185,70 @@ internal static class PhaseStates
     }
 
     /// <summary>
+    /// A session whose record moved a history this version cannot read aside (R5-D73), with the history
+    /// section open: the note naming where it went, over the one row the history now starts with. The path is
+    /// as long as a real one under a long account name, which is what the note has to wrap.
+    /// </summary>
+    public static SessionViewModel ResultWithHistorySetAside()
+    {
+        var model = ResultRunning(new SessionViewModel(new SetAsideHistoryStore(
+            @"C:\Users\a.tester.with.a.long.account.name\AppData\Local\ChronoMock\history\sessions.json.unreadable-20261020-180000")));
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "session.family_covered",
+            ProcessCount = 1,
+        });
+        model.Apply(Ended());
+        model.RecordSessionAsync().GetAwaiter().GetResult(); // the store answers at once - no thread to wait for
+        // The record is stamped with the real clock, and a render that moves with it is no baseline.
+        model.History[0] = model.History[0] with { EndedAtUtc = "2026-09-09T20:31:01Z" };
+        return model;
+    }
+
+    /// <summary>
+    /// A clear that found the history unreadable and moved it aside (R5-D73, review round on #133): no rows
+    /// left, and the section stays to say where the old history went.
+    /// </summary>
+    public static SessionViewModel ResultWithHistoryClearedAside()
+    {
+        var model = ResultRunning(new SessionViewModel(new SetAsideHistoryStore(
+            @"C:\Users\a.tester\AppData\Local\ChronoMock\history\sessions.json.unreadable-20261020-190000")));
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "session.family_covered",
+            ProcessCount = 1,
+        });
+        model.Apply(Ended());
+        model.ClearHistoryAsync().GetAwaiter().GetResult(); // the store answers at once - no thread to wait for
+        return model;
+    }
+
+    /// <summary>
+    /// A works session the machine slept through for eight hours (R5-D71): the warning on the audit, and the
+    /// fact row that says how long the session clock stood still.
+    /// </summary>
+    public static SessionViewModel ResultWorksAfterSleep()
+    {
+        var model = ResultRunning();
+        model.Apply(new HostSleptEvent { V = ProtocolJson.ProtocolVersion, SleptMs = 28_800_000, TotalSleptMs = 28_800_000 });
+        model.Apply(new SessionVerdictEvent
+        {
+            V = ProtocolJson.ProtocolVersion,
+            Verdict = "works",
+            ReasonKey = "session.family_covered",
+            ProcessCount = 1,
+            WarningKeys = ["time.host_slept"],
+            HostSleptMs = 28_800_000,
+        });
+        model.Apply(Ended());
+        return model;
+    }
+
+    /// <summary>
     /// A session that outlived the program it launched: a launcher, or a script running <c>start app.exe</c>,
     /// ended and left the application running, and the session went on for it (ADR-16). The warning is what
     /// tells the tester why the session lasted longer than the program they chose.

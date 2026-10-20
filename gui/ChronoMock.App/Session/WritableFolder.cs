@@ -3,77 +3,45 @@ using System.IO; // The WPF SDK trims System.IO from implicit usings (Path colli
 namespace ChronoMock.App;
 
 /// <summary>
-/// Where this application's own files go, and whether a folder can take them - the one question the history
-/// store and the diagnostics log both ask before choosing between the folder beside the executable and the
-/// per-user one. Each of them carried its own copy of the probe and of the choice, and both copies had the
-/// same fault, so they live here once.
+/// Where this application's own files go - the one answer the history store and the diagnostics log both
+/// take, so the two cannot end up in different places.
+/// <para>
+/// 🔴 Always the per-user folder, in every copy (R5-D4, R5-D72). A portable copy used to keep its history and
+/// logs beside the executable whenever that folder took a write, and a copy on a shared folder or a stick
+/// handed round then kept everybody's sessions - the applications they tested, with the arguments they
+/// started them with - in one file anyone with the folder could read. The per-user folder is readable by
+/// that user only. An installed copy already kept them there, because the installer owns its folder.
+/// </para>
+/// <para>
+/// The question "can this folder take a write" went with the choice: it wrote a probe file to ask, and two
+/// instances asking at once could disagree (R4-N49).
+/// </para>
 /// </summary>
 internal static class WritableFolder
 {
-    /// <summary>Keeps two probes of one process apart, as the process id keeps two instances apart.</summary>
-    private static int _probeCounter;
-
-    /// <summary>The folder the running window keeps one kind of its own files in (<c>history</c>, <c>logs</c>).</summary>
-    internal static string ForApp(string name) => Choose(
-        name,
-        AppContext.BaseDirectory,
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        AppPaths.IsInstalled,
-        IsWritable);
+    /// <summary>The folder the running window keeps one kind of its own files in (<c>history</c>, <c>logs</c>).
+    /// Windows is asked to create the per-user folder when the account has none yet.</summary>
+    internal static string ForApp(string name) => In(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
+        name);
 
     /// <summary>
-    /// Where one kind of the window's own files goes. A portable copy keeps them beside the executable when
-    /// that folder takes a write (a USB stick or a read-only share does not), and in the per-user folder
-    /// otherwise. An installed copy keeps them in the per-user folder, always.
+    /// The folder for one kind of the window's own files under a per-user root - separate so a test can ask it
+    /// of a root it made.
     /// <para>
-    /// 🔴 Installed means the installer owns the folder. Asked like a portable copy, an installed window
-    /// running as administrator found Program Files writable and kept its history there - a second history
-    /// beside the one the same person's ordinary window keeps, and a folder the uninstaller leaves behind,
-    /// since it removes only what it installed. And the question itself writes: the probe creates the folder
-    /// it asks about. So an installed copy never asks.
+    /// 🔴 An empty root is refused. Windows answers an empty path for an account it gives no local application
+    /// data folder, and a path built on it is relative - every history and log would then be written into
+    /// whatever folder the window was started from, outside both places README and SECURITY name.
     /// </para>
     /// </summary>
-    internal static string Choose(
-        string name, string exeDir, string perUserRoot, bool installed, Func<string, bool> isWritable)
+    internal static string In(string perUserRoot, string name)
     {
-        var perUser = Path.Combine(perUserRoot, "ChronoMock", name);
-        if (installed)
+        if (string.IsNullOrWhiteSpace(perUserRoot))
         {
-            return perUser;
+            throw new InvalidOperationException(
+                "Windows gives this account no local application data folder, so Chrono Mock has nowhere of its own to keep its history and logs.");
         }
 
-        var beside = Path.Combine(exeDir, name);
-        return isWritable(beside) ? beside : perUser;
-    }
-
-    /// <summary>
-    /// Whether the folder can be created and written to, by actually writing (a folder's read-only attribute
-    /// does not stop file creation on Windows, so a real write is the only honest test).
-    /// <para>
-    /// 🔴 The probe used to have one fixed name. Two instances starting together could meet on it - one
-    /// holding it open while the other tried to write it - and the loser decided the folder was read-only and
-    /// took the per-user one, so the two kept their history in two places (R4-N49). The name is unique now,
-    /// and the file deletes itself when it is closed, so even a process killed between the write and the
-    /// delete leaves nothing behind.
-    /// </para>
-    /// </summary>
-    internal static bool IsWritable(string dir)
-    {
-        try
-        {
-            Directory.CreateDirectory(dir);
-            var probe = Path.Combine(
-                dir, $".write-probe-{Environment.ProcessId}-{Interlocked.Increment(ref _probeCounter)}");
-            using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1,
-                       FileOptions.DeleteOnClose))
-            {
-            }
-
-            return true;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
+        return Path.Combine(perUserRoot, "ChronoMock", name);
     }
 }

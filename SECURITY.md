@@ -93,8 +93,8 @@ the loopback host and the port it was given. Both behaviours are covered by test
 
 **It cleans up after itself, and cannot clean up after the target.** Chrono Mock
 leaves no persistent hooks and no registry entries. It writes the session history
-and a `diagnostics-*.log` beside itself, or under `%LOCALAPPDATA%\ChronoMock\` when
-its own folder is not writable, and for a Chromium target a throwaway browser
+and a `diagnostics-*.log` under `%LOCALAPPDATA%\ChronoMock\`, which only your account
+can read, whichever copy you run, and for a Chromium target a throwaway browser
 profile under `%TEMP%` that is deleted when the session ends and reported in the
 summary when it could not be. An application run in the future writes future dates
 into its own data, and no tool can undo that - the README says so before you start.

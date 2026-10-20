@@ -18,4 +18,11 @@ public interface ICalcEngine
     /// when <paramref name="ct"/> is cancelled first.
     /// </summary>
     Task<CalcResult> EvaluateAsync(IReadOnlyList<string> calcArgs, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same question as a command line to paste into a terminal (R5-D54, <see cref="PowerShellCommand"/>),
+    /// without <c>--json</c>, so the engine answers as the command line does. Null for an engine that has no
+    /// executable to name - a test's.
+    /// </summary>
+    string? CommandLine(IReadOnlyList<string> calcArgs) => null;
 }

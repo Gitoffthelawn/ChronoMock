@@ -555,6 +555,8 @@
   "fault.unexpected": "Something inside Chrono Mock failed unexpectedly. The window stays open, but what it was doing then may not have finished. If this keeps happening, restart Chrono Mock.",
   "fault.saved": "The details were saved to:",
   "fault.detail": "Technical detail:",
+  // The first line of the box a failed start shows (R5/6b), before "saved to" and the detail. FaultReports.EnglishFallback holds the same words for a start whose strings did not load.
+  "fault.startup": "Chrono Mock could not start.",
   "report.unreliable_banner": "!! UNRELIABLE EVIDENCE - the fake clock did not fully take effect. Do not cite this as proof of behavior.",
   "report.title": "Chrono Mock - session report",
   "report.target": "application",
@@ -567,6 +569,12 @@
   "report.session": "session",
   "report.session_reached": "fake clock reached {0}",
   "report.elapsed": "real {0}s, fake {1}s",
+  // How long the machine slept (R5-D71), in the session's block beside its other durations. {0} is written like the elapsed lines on the screen.
+  "report.slept": "the computer slept for {0} - the session clock stood still meanwhile",
+  // The browser a Chromium session drove (R5-D44), under the application, where the CLI report names it.
+  "report.browser": "browser",
+  // Every error the core sent, under the verdict, as the CLI report lists them (R5-D71).
+  "report.errors": "errors",
 
   // The target's own exit code (informational; native sessions where the app exited on its own) and any cleanup residue the core could not remove - both surfaced from `ended` so a session never hides them.
   "report.target_exit": "application exited with code",
@@ -591,6 +599,8 @@
 
   // Session history (chrono-mock 7.2, 8.8, 11.1 pt 13). Local-only; clicking an entry fills the setup form and never starts a session (untouchable rule 7, docs/04 section 6).
   "history.save_failed": "Could not save to history:",
+  // Followed by the full path of the file the old history was moved to (R5-D73). Said once, by the session whose record moved it.
+  "history.set_aside": "This version could not read the earlier history, so it was moved aside, not deleted:",
   "history.clear_title": "Clear history",
   "history.clear_confirm": "Clear all recorded sessions?",
   "history.clear_undone": "This cannot be undone. The sessions themselves already ended - this removes the records of them.",
@@ -622,6 +632,8 @@
   "result.fact_reached": "Fake clock reached",
   "result.fact_elapsed_fake": "Passed on the fake clock",
   "result.fact_elapsed_real": "Passed in real time",
+  // Shown only when the machine slept during the session (R5-D71). The session clock stood still meanwhile.
+  "result.fact_slept": "Computer slept",
   "result.section_history": "Previous sessions",
   "result.chip_history": "sessions:",
   "result.history_ended": "ended",
@@ -711,6 +723,8 @@
   "calc.all_formats": "All formats - one click to copy",
   "calc.copy": "Copy",
   "calc.copied": "Copied",
+  // The button under the result that copies its question as a PowerShell command line (R5-D54).
+  "calc.copy_command": "Copy as command",
   "calc.custom_format": "Custom format",
   "calc.custom_format_hint": "e.g. yyyy-MM-dd HH:mm:ss",
   "calc.metadata": "Details",
@@ -871,5 +885,6 @@
   "tip.calc_calendar": "The holiday and business-day calendar used by business-day and nearest steps.",
   "tip.custom_format": "Render the result with your own format mask (.NET/Java tokens).",
   "tip.analyze": "Paste a date to see how it reads - both interpretations when it is ambiguous.",
+  "tip.copy_command": "Copies the PowerShell command that gives this result in a terminal.",
   "tip.use_in_substitution": "Send this date and time to Run an app. Available only when its zone is one of the offered session zones."
 }

@@ -8,6 +8,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **"Copy as command" under the calculator's result** copies the question it answers as a PowerShell
+  command line: the engine by its full path, so it works from a portable copy that is not on PATH, and
+  the same arguments, so a terminal gives the same answer. Windows PowerShell 5.1 passes three kinds of
+  value on wrongly - one with a double quote in it, an empty one, and one with a space that ends in a
+  backslash - so a command holding one of them starts with a comment that says to run it in PowerShell
+  7.3 or later.
 - **`chrono calendars` lists the calendars the calculator can count in**, the way `chrono presets`
   lists the presets: every calendar file `--calendar` reads, with its country and its own name, and
   every file it would refuse, with the reason. `--dir` reads another folder, `--json` answers in
@@ -84,6 +90,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A portable copy keeps its session history and diagnostics logs in `%LOCALAPPDATA%\ChronoMock`,**
+  as an installed copy already did. Beside the program, on a shared folder or a stick passed round,
+  they held everybody's sessions - the applications tested and the arguments they were started with -
+  where anyone with the folder could read them. The history an older version kept beside the program is
+  read in once, when this version first starts, and left where it is. Older diagnostics logs beside
+  the program stay there.
 - **Both scenario lists search the same way.** A word typed into the session's scenario search now
   finds a scenario by the line that says what it tests, as the calculator's search always did - both
   lines are shown on every row. The calculator's search box is the session's: it has the clear button,
@@ -246,6 +258,26 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The copied session summary says what the CLI report says about errors, sleep and the browser.**
+  Every error the core sent is listed under the verdict - a speed it refused while the session ran was
+  on the screen only while the session lasted. How long the computer slept is in the session's block,
+  and the result screen shows it beside the elapsed times. The browser a Chromium session drove is
+  named under the application. The sleep warning is on the session's warning list as soon as the core
+  notices the sleep, not only once the session ends.
+- **The diagnostics block says which window, system and core a session ran with, and what failed.** It
+  names the window's version, Windows, the core's version, bitness and path, whether the session drove
+  an application or a Chromium browser, and that browser, and it carries the whole exception the window
+  caught, with its stack. Every line of the core's output has its time since the session began. A core
+  that could not be started at all now leaves a block too - it used to leave none.
+- **A failed start writes the whole fault to the diagnostics folder and its box says where.** The box
+  showed the exception's message and nothing was written. Two different unexpected faults thrown from
+  the same place inside .NET are no longer taken for one, and faults past the eighth, which are no
+  longer shown, are still written - up to 32 different ones a run, the last saying so.
+- **A history this version cannot read is set aside with a word, and a killed write leaves no file
+  for good.** The history panel says where the earlier history was moved when this version could not
+  read it, instead of starting again with one row and saying nothing. A scratch file left by a write
+  that was killed half-way is removed by the next write once it is ten minutes old. A history that was
+  set aside is never removed.
 - **"New session" comes back at the mode the last session started with.** Changing the speed while a
   session ran moved the Mode list with it, so a session started in flow left the next form at x60.
 - **The "Jump to" field of a new session is empty.** It kept the moment typed in the last session,

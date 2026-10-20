@@ -1014,6 +1014,18 @@ public sealed class CalculatorViewModel : ObservableObject
     }
 
     /// <summary>
+    /// The command line a "Copy as command" press puts on the clipboard (R5-D54): the question this result
+    /// answers, asked of the engine from a terminal. Built from the builder as it stands once its result is
+    /// current, like <see cref="CopyValueAsync"/>, so the pasted command answers what the screen shows - and
+    /// null without a result, or from an engine with no executable to name.
+    /// </summary>
+    public async Task<string?> CopyCommandAsync()
+    {
+        AskAgainIfTheClockMoved();
+        return await _result.WhenCurrentAsync(ActionWait) && HasResult ? _client.CommandLine(BuildCurrentArgs()) : null;
+    }
+
+    /// <summary>
     /// Ask again when the answer on screen was computed for a clock that has moved on (R5-P13): a Today base
     /// past midnight in its zone, a Now base past the second it was read at. Nothing in the builder changes
     /// when time passes, so the answer counted as current - a "Today + 30 d" from yesterday went to the

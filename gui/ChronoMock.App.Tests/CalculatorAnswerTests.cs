@@ -53,6 +53,55 @@ public class CalculatorAnswerTests
         Assert.Equal(["2026-01-31T00:00:00"], sent);
     }
 
+    /// <summary>
+    /// R5-D54. "Copy as command" pressed straight after an edit copies the command for the edit - the question
+    /// whose answer the screen is about to show, never the one before it. The builder is current the moment it
+    /// is edited, so this holds with or without the wait: what the press waits for is the answer, and the next
+    /// test is the one that needs it.
+    /// </summary>
+    [Fact]
+    public async Task Copy_as_command_pressed_straight_after_an_edit_copies_the_command_for_the_edit()
+    {
+        var vm = await CalculatorWithOneStepAsync(new FakeCalcEngine(NewYearShifted));
+
+        vm.Steps[0].Amount = "30";
+        var command = await vm.CopyCommandAsync();
+
+        Assert.Equal("calc " + string.Join(" ", vm.BuildCurrentArgs()), command);
+        Assert.Contains("30", command, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R5-D54. "Copy as command" pressed straight after an edit the engine refuses copies nothing: the press
+    /// waits for the answer to the edit, and a question the engine refused is not one to hand over. Without the
+    /// wait the answer from before the edit still stands, and the refused question went to the clipboard.
+    /// Reversal probe: drop the wait.
+    /// </summary>
+    [Fact]
+    public async Task Copy_as_command_pressed_straight_after_a_refused_edit_copies_nothing()
+    {
+        var vm = await CalculatorWithOneStepAsync(new FakeCalcEngine(args =>
+            Shift(args) == "+99d"
+                ? throw new CalcException("chrono calc: step 1 overflows the representable range (calc.overflow)", 1)
+                : NewYearShifted(args)));
+
+        vm.Steps[0].Amount = "99";
+        Assert.True(vm.HasResult); // the answer from before the edit still stands - not vacuous
+
+        Assert.Null(await vm.CopyCommandAsync());
+    }
+
+    /// <summary>A calculator with no result has no command to copy. Reversal probe: drop the result check and
+    /// the builder's bare question is copied.</summary>
+    [Fact]
+    public async Task Copy_as_command_without_a_result_copies_nothing()
+    {
+        var vm = new CalculatorViewModel(new FakeCalcEngine(NewYearShifted));
+
+        Assert.False(vm.HasResult); // nothing asked yet - not vacuous
+        Assert.Null(await vm.CopyCommandAsync());
+    }
+
     [Fact]
     public async Task Copy_pressed_straight_after_an_edit_copies_the_value_for_the_edit_from_the_same_row()
     {

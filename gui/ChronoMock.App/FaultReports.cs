@@ -25,22 +25,56 @@ internal sealed class FaultReports
     /// being information - one more would be noise on top of an app that is already broken.</summary>
     internal const int MaxShown = 8;
 
-    /// <summary>Fault signatures already shown this run - type plus innermost frame, so a repeating fault is
-    /// one box and a genuinely different one is still heard.</summary>
-    private readonly HashSet<string> _shown = new(StringComparer.Ordinal);
+    /// <summary>
+    /// How many DISTINCT faults are written to the diagnostics folder. More than are shown (R5/6b, D1): the
+    /// ninth fault used to be neither shown nor written, so the file a support request asks for stopped at
+    /// exactly the point the app was most broken. Still a cap, because the folder keeps its newest fifty files
+    /// and a storm of faults would otherwise push out the session logs it is there for.
+    /// </summary>
+    internal const int MaxRecorded = 32;
+
+    /// <summary>Fault signatures already heard this run (<see cref="Signature"/>), so a repeating fault is
+    /// one box and one file, and a genuinely different one is still heard.</summary>
+    private readonly HashSet<string> _heard = new(StringComparer.Ordinal);
 
     private readonly Lock _gate = new();
 
-    /// <summary>Whether <paramref name="fault"/> is one to show: not shown before, and under the cap. Records
-    /// it when it is. Safe from any thread.</summary>
-    internal bool ShouldShow(Exception fault)
+    /// <summary>
+    /// What to do about <paramref name="fault"/>: nothing when it was heard before or past
+    /// <see cref="MaxRecorded"/>, write it and show it while under <see cref="MaxShown"/>, write it only after
+    /// that - and say so in the last file written. Remembers it. Safe from any thread.
+    /// </summary>
+    internal FaultNotice Hear(Exception fault) => Hear(Signature(fault));
+
+    /// <summary><see cref="Hear(Exception)"/> for a signature already read - separate so the caps are tested
+    /// without throwing forty different exceptions.</summary>
+    internal FaultNotice Hear(string signature)
     {
-        ArgumentNullException.ThrowIfNull(fault);
-        var signature = $"{fault.GetType().FullName}|{fault.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}";
         lock (_gate)
         {
-            return _shown.Count < MaxShown && _shown.Add(signature);
+            if (_heard.Count >= MaxRecorded || !_heard.Add(signature))
+            {
+                return FaultNotice.None;
+            }
+
+            return _heard.Count <= MaxShown ? FaultNotice.Show
+                : _heard.Count < MaxRecorded ? FaultNotice.Record
+                : FaultNotice.RecordLast;
         }
+    }
+
+    /// <summary>
+    /// What tells one fault from another: its type and the innermost frame of THIS application's code it was
+    /// thrown through (R5/6b, D1). The innermost frame of all is often inside .NET - a helper that throws for
+    /// every argument check - so two unrelated faults thrown that way read as one, and the second was never
+    /// shown or written. A fault with no frame of ours keeps the innermost one.
+    /// </summary>
+    internal static string Signature(Exception fault)
+    {
+        ArgumentNullException.ThrowIfNull(fault);
+        var frames = (fault.StackTrace ?? string.Empty).Split('\n').Select(f => f.Trim()).ToList();
+        var ours = frames.FirstOrDefault(f => f.StartsWith("at ChronoMock.", StringComparison.Ordinal));
+        return fault.GetType().FullName + "|" + (ours ?? frames[0]);
     }
 
     /// <summary>The fault a failed task stands for: the one inside it when there is exactly one, which is how
@@ -63,10 +97,35 @@ internal sealed class FaultReports
     /// <param name="savedPath">Where the details were written, or null when they could not be - the line then
     /// goes, rather than naming a file that does not exist.</param>
     internal static string DialogText(Func<string, string> translate, Exception fault, string? savedPath)
+        => Compose(translate, "fault.unexpected", fault, savedPath);
+
+    /// <summary>
+    /// The text of the box a failed start shows (R5/6b, D1): that it could not start, where the whole exception
+    /// was written, and its message. It used to be the message alone, with nothing written anywhere. The
+    /// strings dictionary may be the very thing that failed, so a key that resolves to itself means the window
+    /// has no texts, and the box speaks the English it would have shown.
+    /// </summary>
+    internal static string StartupText(Func<string, string> translate, Exception fault, string? savedPath)
+    {
+        ArgumentNullException.ThrowIfNull(translate);
+        var speaks = translate("fault.startup") != "fault.startup";
+        return Compose(speaks ? translate : key => EnglishFallback[key], "fault.startup", fault, savedPath);
+    }
+
+    /// <summary>The startup box's words when the window has none of its own - what Strings.en.json says, held
+    /// to it by a test.</summary>
+    internal static readonly IReadOnlyDictionary<string, string> EnglishFallback = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["fault.startup"] = "Chrono Mock could not start.",
+        ["fault.saved"] = "The details were saved to:",
+        ["fault.detail"] = "Technical detail:",
+    };
+
+    private static string Compose(Func<string, string> translate, string leadKey, Exception fault, string? savedPath)
     {
         ArgumentNullException.ThrowIfNull(translate);
         ArgumentNullException.ThrowIfNull(fault);
-        var text = translate("fault.unexpected");
+        var text = translate(leadKey);
         if (savedPath is { Length: > 0 })
         {
             text += "\n\n" + translate("fault.saved") + " " + savedPath;
@@ -77,13 +136,31 @@ internal sealed class FaultReports
 
     /// <summary>The block written to the diagnostics folder: the whole exception, stack and inner faults
     /// included, which the box leaves out. English and stable, like every diagnostics block (data, not
-    /// interface text).</summary>
-    internal static string Record(Exception fault, string source)
+    /// interface text). The last one a run writes says that later ones will not be.</summary>
+    internal static string Record(Exception fault, string source, bool last = false)
     {
         ArgumentNullException.ThrowIfNull(fault);
         return "Chrono Mock unexpected fault\n"
             + "  when:   " + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture) + "\n"
-            + "  source: " + source + "\n\n"
+            + "  source: " + source + "\n"
+            + (last ? $"  note:   the last of the {MaxRecorded} different faults a run writes - later ones are not written\n" : string.Empty)
+            + "\n"
             + fault + "\n";
     }
+}
+
+/// <summary>What <see cref="FaultReports.Hear"/> says to do about a fault.</summary>
+internal enum FaultNotice
+{
+    /// <summary>Heard before, or past the cap on what is written - nothing.</summary>
+    None,
+
+    /// <summary>Write it and show it.</summary>
+    Show,
+
+    /// <summary>Write it, past the cap on boxes.</summary>
+    Record,
+
+    /// <summary>Write it, and say it is the last one written.</summary>
+    RecordLast,
 }
