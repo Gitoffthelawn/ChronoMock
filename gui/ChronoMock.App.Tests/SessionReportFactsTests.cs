@@ -61,6 +61,9 @@ public class SessionReportFactsTests
         Assert.Contains(nameof(SessionViewModel.Warnings), raised);
         Assert.Contains(nameof(SessionViewModel.HostSlept), raised);
 
+        // The machine sleeps again: the time grows, the warning stays one line.
+        vm.Apply(new HostSleptEvent { V = ProtocolJson.ProtocolVersion, SleptMs = 1_800_000, TotalSleptMs = 5_400_000 });
+        Assert.Single(vm.Warnings, w => w == "time.host_slept");
         vm.Apply(Verdict(5_400_000, null, "time.host_slept"));
 
         Assert.Single(vm.Warnings, w => w == "time.host_slept");

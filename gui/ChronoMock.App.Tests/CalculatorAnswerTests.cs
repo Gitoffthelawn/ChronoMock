@@ -55,8 +55,9 @@ public class CalculatorAnswerTests
 
     /// <summary>
     /// R5-D54. "Copy as command" pressed straight after an edit copies the command for the edit - the question
-    /// whose answer the screen is about to show, never the one before it. Reversal probe: build the command
-    /// before waiting for the result and it carries the old amount.
+    /// whose answer the screen is about to show, never the one before it. The builder is current the moment it
+    /// is edited, so what the press waits for is the answer: a command for a question the engine refused is not
+    /// one to hand over (the case below).
     /// </summary>
     [Fact]
     public async Task Copy_as_command_pressed_straight_after_an_edit_copies_the_command_for_the_edit()
@@ -70,7 +71,8 @@ public class CalculatorAnswerTests
         Assert.Contains("30", command, StringComparison.Ordinal);
     }
 
-    /// <summary>A calculator with no result has no command to copy.</summary>
+    /// <summary>A calculator with no result has no command to copy. Reversal probe: drop the result check and
+    /// the builder's bare question is copied.</summary>
     [Fact]
     public async Task Copy_as_command_without_a_result_copies_nothing()
     {

@@ -1093,8 +1093,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
-        "from": "                      <Grid.RowDefinitions>\n                        <RowDefinition Height=\"Auto\" />\n                        <RowDefinition Height=\"Auto\" />\n                      </Grid.RowDefinitions>\n                      <Grid.ColumnDefinitions>\n                        <ColumnDefinition Width=\"*\" />\n                        <ColumnDefinition Width=\"Auto\" />\n                      </Grid.ColumnDefinitions>\n                      <TextBlock Grid.Row=\"0\" Grid.ColumnSpan=\"2\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n                      <TextBlock Grid.Row=\"1\" Grid.Column=\"0\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\" Margin=\"{StaticResource CopyValueGap}\" />\n                      <Button Grid.Row=\"1\" Grid.Column=\"1\" Content=\"{DynamicResource calc.copy}\" Click=\"OnCopyFormatClick\"",
-        "to": "                      <Grid.ColumnDefinitions>\n                        <ColumnDefinition Width=\"104\" />\n                        <ColumnDefinition Width=\"*\" />\n                        <ColumnDefinition Width=\"Auto\" />\n                      </Grid.ColumnDefinitions>\n                      <TextBlock Grid.Column=\"0\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n                      <TextBlock Grid.Column=\"1\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\" Margin=\"{StaticResource CopyValueGap}\" />\n                      <Button Grid.Column=\"2\" Content=\"{DynamicResource calc.copy}\" Click=\"OnCopyFormatClick\""
+        "from": "                      <Grid.RowDefinitions>\n                        <RowDefinition Height=\"Auto\" />\n                        <RowDefinition Height=\"Auto\" />\n                      </Grid.RowDefinitions>\n                      <Grid.ColumnDefinitions>\n                        <ColumnDefinition Width=\"*\" />\n                        <ColumnDefinition Width=\"Auto\" />\n                      </Grid.ColumnDefinitions>\n                      <TextBlock Grid.Row=\"0\" Grid.ColumnSpan=\"2\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n                      <TextBlock Grid.Row=\"1\" Grid.Column=\"0\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\" Margin=\"{StaticResource CopyValueGap}\" />\n                      <Button Grid.Row=\"1\" Grid.Column=\"1\" Style=\"{StaticResource PartCopyAction}\"",
+        "to": "                      <Grid.ColumnDefinitions>\n                        <ColumnDefinition Width=\"104\" />\n                        <ColumnDefinition Width=\"*\" />\n                        <ColumnDefinition Width=\"Auto\" />\n                      </Grid.ColumnDefinitions>\n                      <TextBlock Grid.Column=\"0\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n                      <TextBlock Grid.Column=\"1\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\" Margin=\"{StaticResource CopyValueGap}\" />\n                      <Button Grid.Column=\"2\" Style=\"{StaticResource PartCopyAction}\""
       }
     ],
     "runner": "cs",
@@ -2031,23 +2031,6 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.Removing_a_row_waits_for_another_instance_that_is_writing",
-    "match": "method",
-    "build": "",
-    "notHere": ""
-  },
-  {
-    "name": "r4-13 n49 fixed sample",
-    "edits": [
-      {
-        "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
-        "from": "$\".write-probe-{Environment.ProcessId}-{Interlocked.Increment(ref _probeCounter)}\"",
-        "to": "$\".write-probe{(Interlocked.Increment(ref _probeCounter) < 0 ? \"x\" : string.Empty)}\""
-      }
-    ],
-    "runner": "cs",
-    "package": "gui/ChronoMock.App.Tests",
-    "target": [],
-    "test": "ChronoMock.App.Tests.DiagnosticsLogTests.A_folder_answers_writable_while_another_instance_holds_the_old_probe_name",
     "match": "method",
     "build": "",
     "notHere": ""
@@ -13162,8 +13145,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
-        "from": "AppPaths.IsInstalled,",
-        "to": "false,"
+        "from": "        => In(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), name);",
+        "to": "        => In(AppContext.BaseDirectory, name);"
       }
     ],
     "runner": "rust",
@@ -13172,7 +13155,7 @@
       "--test",
       "msi"
     ],
-    "test": "the_window_keeps_nothing_of_its_own_in_an_installed_folder",
+    "test": "the_window_keeps_nothing_of_its_own_in_the_folder_it_runs_from",
     "match": "exact",
     "build": "",
     "notHere": ""
@@ -19405,6 +19388,533 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.CalculatorDebounceTests.Every_live_recompute_goes_through_the_debounce",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 host_slept not parsed",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/Events.cs",
+        "from": "            \"host_slept\" => Deserialize<HostSleptEvent>(line),",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.WireGoldenTests.Every_field_of_every_event_the_core_sends_has_a_place_in_the_window",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 sleep not listed live",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "            Warnings = [.. _result.Warnings, .. SessionResult.HostSleptWarning.Except(_result.Warnings)];",
+        "to": "            Warnings = _result.Warnings;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportFactsTests.The_sleep_is_on_the_warning_list_the_moment_the_core_notices_it",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 sleep listed twice",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "            Warnings = [.. _result.Warnings, .. SessionResult.HostSleptWarning.Except(_result.Warnings)];",
+        "to": "            Warnings = [.. _result.Warnings, .. SessionResult.HostSleptWarning];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportFactsTests.The_sleep_is_on_the_warning_list_the_moment_the_core_notices_it",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 errors not kept",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionResult.cs",
+        "from": "                Errors = [.. Errors, error.Key];",
+        "to": "                Errors = [.. Errors];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportFactsTests.Every_error_the_core_sends_is_listed_in_the_summary",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 errors not in the summary",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        AppendList(sb, translate, \"report.errors\", r.Errors, translateItems: true);",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.Every_section_of_the_cli_report_has_its_line_in_the_copied_summary",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 slept time not said",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        if (r.HostSleptMs <= 0)",
+        "to": "        if (r.HostSleptMs >= 0)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.What_the_report_says_inside_its_sections_the_summary_says_too",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D44 browser not kept",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionResult.cs",
+        "from": "                Browser = verdict.Browser ?? string.Empty;",
+        "to": "                Browser = string.Empty;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportFactsTests.The_browser_a_chromium_session_drove_is_named_under_the_application",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b A8 a new session keeps the last one's facts",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        _result.ForgetReportFacts();",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportFactsTests.A_new_session_forgets_what_the_last_one_reported",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D2 ready dropped",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/CoreSession.cs",
+        "from": "        session.Ready = handshake.Ready;",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_core_that_shook_hands_is_named_by_its_version_and_bitness",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D2 no block without a core",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "            CaptureDiagnostics([]);",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_core_that_does_not_start_leaves_a_block_with_its_path_and_the_whole_exception",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D2 the message only",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        _result.Fault = fault;",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_core_that_does_not_start_leaves_a_block_with_its_path_and_the_whole_exception",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D2 lines without their time",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/CoreDiagnostics.cs",
+        "from": "        _lines.Enqueue(Stamped(_sinceConnect(), line));",
+        "to": "        _lines.Enqueue(line);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.DiagnosticsBufferTests.Every_line_is_kept_with_its_time_since_the_connection",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D2 stack lines not indented",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "            sb.Append(\"             \").Append(line.TrimEnd('\\r')).Append('\\n');",
+        "to": "            sb.Append(line.TrimEnd('\\r')).Append('\\n');"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportTests.The_diagnostics_block_names_the_window_the_system_and_the_whole_exception",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D2 core line without its bitness",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "            : r.CoreVersion + \", \" + r.CoreBitness;",
+        "to": "            : r.CoreVersion;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportTests.The_core_line_says_what_became_of_the_core",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D1 signed by the innermost frame",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/FaultReports.cs",
+        "from": "        return fault.GetType().FullName + \"|\" + (ours ?? frames[0]);",
+        "to": "        return fault.GetType().FullName + \"|\" + frames[0];"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FaultReportsTests.Two_faults_thrown_inside_dotnet_from_two_places_of_ours_are_two_faults",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D1 nothing written past the box cap",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/FaultReports.cs",
+        "from": "                : _heard.Count < MaxRecorded ? FaultNotice.Record",
+        "to": "                : _heard.Count < MaxRecorded ? FaultNotice.None"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FaultReportsTests.Past_the_cap_on_boxes_faults_are_still_written_up_to_their_own_cap",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D1 startup box speaks keys",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/FaultReports.cs",
+        "from": "        var speaks = translate(\"fault.startup\") != \"fault.startup\";",
+        "to": "        var speaks = true;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FaultReportsTests.A_failed_start_says_so_names_the_file_and_falls_back_to_english_without_strings",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D1 fallback drifts from the strings",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/FaultReports.cs",
+        "from": "        [\"fault.startup\"] = \"Chrono Mock could not start.\",",
+        "to": "        [\"fault.startup\"] = \"Chrono Mock failed to start.\","
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FaultReportsTests.The_english_fallback_says_what_the_english_strings_say",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b B4 files beside the executable",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
+        "from": "        => In(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), name);",
+        "to": "        => In(AppContext.BaseDirectory, name);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DataFolderTests.Every_copy_keeps_its_files_in_the_per_user_folder",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b B4 old history not read in",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "            || !File.Exists(Path.Combine(_besideExe, FileName)))",
+        "to": "            || File.Exists(Path.Combine(_besideExe, FileName)))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.A_history_beside_the_executable_is_read_in_once_and_left_where_it_is",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b B4 read in without its mark",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "            File.WriteAllLines(temp, [.. done, source]);",
+        "to": "            File.WriteAllLines(temp, done);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.A_cleared_history_does_not_come_back_from_beside_the_executable",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b B4 a session in both kept twice",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "                .DistinctBy(r => (r.EndedAtUtc, r.TargetPath, r.MomentLocal))",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.A_session_in_both_histories_is_kept_once",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b B4 an unreadable old history marked",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "        if (theirsUnreadable || oursUnreadable)",
+        "to": "        if (oursUnreadable)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.An_old_history_this_build_cannot_read_is_left_unmerged_and_unmarked",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b Z5 left scratch not swept",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "                         && File.GetLastWriteTimeUtc(scratch) < leftBefore)",
+        "to": "                         && File.GetLastWriteTimeUtc(scratch) < DateTime.MinValue)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.A_scratch_file_a_killed_write_left_is_swept_and_nothing_else_is",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b Z5 fresh scratch swept",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "                         && File.GetLastWriteTimeUtc(scratch) < leftBefore)",
+        "to": "                         && File.GetLastWriteTimeUtc(scratch) <= DateTime.UtcNow)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.A_scratch_file_a_killed_write_left_is_swept_and_nothing_else_is",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b Z5 set aside without a word",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionHistory.cs",
+        "from": "        Interlocked.Exchange(ref _setAside, Path.GetFullPath(target));",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionHistoryStoreTests.Setting_a_history_aside_says_where_it_went_once",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b Z5 note not read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        HistorySetAside = _store.TakeSetAside();",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_session_whose_record_set_the_old_history_aside_says_where_it_went",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D7 values bare unless spaced",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/PowerShellCommand.cs",
+        "from": "        return word.Length > 0 && char.IsAsciiLetterLower(word[0])\n               && word.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-');",
+        "to": "        return word.Length > 0 && !word.Contains(' ', StringComparison.Ordinal);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.PowerShellCommandTests.Flags_and_words_are_bare_and_every_other_value_is_quoted",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D7 one kind of single quote",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/PowerShellCommand.cs",
+        "from": "    private static bool IsSingleQuote(char c) => c is (char)0x27 or (char)0x2018 or (char)0x2019 or (char)0x201A or (char)0x201B;",
+        "to": "    private static bool IsSingleQuote(char c) => c is (char)0x27;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.PowerShellCommandTests.Every_kind_of_single_quote_is_doubled",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D7 a double quote unsaid",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/PowerShellCommand.cs",
+        "from": "        => argument.Length == 0 || argument.Contains('\"', StringComparison.Ordinal)",
+        "to": "        => argument.Length == 0"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.PowerShellCommandTests.A_command_windows_powershell_would_pass_wrongly_says_so_first",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-6b D7 a command without a result",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        return await _result.WhenCurrentAsync(ActionWait) && HasResult ? _client.CommandLine(BuildCurrentArgs()) : null;",
+        "to": "        return await _result.WhenCurrentAsync(ActionWait) ? _client.CommandLine(BuildCurrentArgs()) : null;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CalculatorAnswerTests.Copy_as_command_without_a_result_copies_nothing",
     "match": "method",
     "build": "",
     "notHere": ""
