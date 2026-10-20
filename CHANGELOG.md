@@ -211,6 +211,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A timer or a delay whose absolute due the session's clock has already passed fires at once.**
+  `SetWaitableTimer`, `SetWaitableTimerEx`, `SetThreadpoolTimer` and `SetThreadpoolTimerEx` got the
+  shortest relative due for it, which Windows fires only at the next tick of the system timer - up to
+  15.6 ms of real time at the default timer resolution, 15.6 s of session time at x1000. An absolute
+  `NtDelayExecution` deadline already reached waited for the same tick. Each now answers as it does
+  without a session: the timers fire at once, and `NtDelayExecution` returns at once with the status of
+  a deadline already past rather than the one for giving up the processor.
 - **The WebView2 policy value of `--elevated-embedded` is always its own session's, also when the
   `*` value holds a session marker.** A session copies the `*` value into its own and puts its marker
   last, but the first marker was read. So a `*` value carrying one - a tester who copied a session's

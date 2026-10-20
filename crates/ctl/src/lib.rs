@@ -2198,7 +2198,7 @@ pub const MIN_SCALED_DELAY_TICKS: i64 = MIN_SCALED_WAIT_MS as i64 * 10_000;
 
 /// Scale an `NtDelayExecution` interval (100 ns units) by the duration multiplier. Only a
 /// NEGATIVE interval is a relative delay - scale its magnitude (interval / M, toward zero).
-/// A positive interval is an absolute deadline, which the hook converts with [`scale_timer_due`]
+/// A positive interval is an absolute deadline, which the hook converts with [`scale_delay_deadline`]
 /// instead (R5-D2), and a zero is a yield - both pass through here untouched. `m` is clamped to >= 1 (rule 3, symmetric to scale_wait). A relative delay never
 /// reaches zero, for the reason [`MIN_SCALED_WAIT_MS`] gives: a zero delay is a yield, and turning a
 /// sleep into a yield turns a polling loop into a spin.
@@ -2234,9 +2234,13 @@ pub fn delay_hit_floor(interval: i64, m: i64) -> bool {
 /// clock): convert it to the real delay until the fake clock reaches it - `(due - fake_now) / M` -
 /// returned negative. Unlike `NtDelayExecution`, a positive due here is NOT passed through: the
 /// kernel reads the REAL clock for an absolute timer, so an unconverted fake instant would fire
-/// years off. An absolute due already at or before `fake_now` gets `-1`, the shortest relative due,
-/// which the kernel fires at its next timer tick rather than at once: about 1 ms with the timer
-/// resolution raised, up to 15.6 ms at the default one (measured 2026-10-20).
+/// years off. An absolute due already at or before `fake_now` gets `0`, which both timer APIs take as
+/// an absolute instant long past and fire at once, exactly as they fire a real due already past
+/// (measured on both bitnesses, 2026-10-20, and documented for the thread pool: "If the due time
+/// specified by pftDueTime is zero, then the timer expires immediately"). It used to get `-1`, the
+/// shortest RELATIVE due, which the kernel fires only at its next timer tick - up to 15.6 ms at the
+/// default resolution, 15.6 s of session time at x1000 (R5-F12, R5-D56). `NtDelayExecution` reads a
+/// zero differently, which is why it has [`scale_delay_deadline`] of its own.
 ///
 /// `m` is clamped to >= 1, so frozen (M=0) leaves the timer at real length - the multiplier is an
 /// integer, so a fractional "slow motion" (0<M<1) is not representable and never arises (symmetric
@@ -2267,10 +2271,37 @@ pub fn scale_timer_due(due: i64, fake_now: i64, wall_m: i64, dur_m: i64) -> i64 
             return due; // not representable: hand the app's own value back, unscaled
         };
         if delta_fake <= 0 {
-            -1 // fake clock already at/past the due time: the shortest relative due, the next timer tick
+            0 // fake clock already at/past the due time: an instant the real clock passed long ago, fired at once
         } else {
             -(delta_fake / m)
         }
+    }
+}
+
+/// The absolute instant handed to `NtDelayExecution` for a deadline the session's clock has already
+/// reached: one hundred nanoseconds into 1601, which the real clock passed long ago.
+const PAST_DEADLINE: i64 = 1;
+
+/// Convert an absolute `NtDelayExecution` deadline (100 ns, positive, a fake wall-clock instant the
+/// application computed from the substituted clock) into what the kernel gets: the real relative delay
+/// until the fake clock reaches it, as [`scale_timer_due`] works it out on the wall's speed. A non-positive
+/// interval is not a deadline - a relative delay or a yield, [`scale_delay_interval`]'s business - and
+/// passes through untouched, as does a deadline the arithmetic cannot reach.
+///
+/// A deadline already reached, or less than one real tick ahead, is where this differs from the timers
+/// (R5-D59). [`scale_timer_due`] answers `0` there, and to `NtDelayExecution` a zero is not an instant: it
+/// is a request to give up the processor, answered with `STATUS_NO_YIELD_PERFORMED` (0x40000024) or a
+/// yield to another ready thread. A real deadline already past returns at once with `STATUS_SUCCESS` and
+/// yields nothing (measured on both bitnesses, 2026-10-20), so a reached deadline goes to the kernel as an
+/// absolute instant long past, [`PAST_DEADLINE`], and the application sees what it would see without the
+/// session. It used to get `-1`, which waits for the next timer tick (R5-F12).
+pub fn scale_delay_deadline(deadline: i64, fake_now: i64, wall_m: i64) -> i64 {
+    if deadline <= 0 {
+        return deadline;
+    }
+    match scale_timer_due(deadline, fake_now, wall_m, 1) {
+        0 => PAST_DEADLINE,
+        converted => converted,
     }
 }
 
@@ -3347,9 +3378,9 @@ mod tests {
         // due = fake_now + 6s (60_000_000 ticks) ahead - at x60 the real wait is 0.1s (1_000_000 ticks).
         let fake_now = 1_000_000_000;
         assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 60, 60), -1_000_000);
-        // Absolute already at or before fake_now: the shortest relative due, fired at the next timer tick.
-        assert_eq!(scale_timer_due(fake_now - 5, fake_now, 60, 60), -1);
-        assert_eq!(scale_timer_due(fake_now, fake_now, 60, 60), -1);
+        // Absolute already at or before fake_now: an instant long past, fired at once (R5-F12).
+        assert_eq!(scale_timer_due(fake_now - 5, fake_now, 60, 60), 0);
+        assert_eq!(scale_timer_due(fake_now, fake_now, 60, 60), 0);
         // Frozen and slow motion clamp to real length (>= 1): a relative due stays real...
         assert_eq!(scale_timer_due(-6_000_000, 0, 0, 0), -6_000_000);
         assert_eq!(scale_timer_due(-6_000_000, 0, -5, -5), -6_000_000);
@@ -3379,8 +3410,38 @@ mod tests {
         assert_eq!(scale_timer_due(-6_000_000, fake_now, 60, 1), -6_000_000);
         // At x1 the absolute due is still converted - a shifted DATE is enough to need it.
         assert_eq!(scale_timer_due(fake_now + 60_000_000, fake_now, 1, 1), -60_000_000);
-        // A due in the past on the fake clock gets the shortest relative due in either kind of session.
-        assert_eq!(scale_timer_due(fake_now - 1, fake_now, 1, 1), -1);
+        // A due in the past on the fake clock fires at once in either kind of session.
+        assert_eq!(scale_timer_due(fake_now - 1, fake_now, 1, 1), 0);
+    }
+
+    /// R5-F12. A timer whose absolute due the session's clock has already passed fires at once, as the same
+    /// timer fires without the session. It used to get `-1`, the shortest relative due, which the kernel
+    /// fires only at its next timer tick: up to 15.6 ms of real time, 15.6 s of session time at x1000.
+    #[test]
+    fn a_due_already_reached_fires_at_once_and_not_at_the_next_tick() {
+        let fake_now = 1_000_000_000;
+        for (due, wall_m, dur_m) in [(fake_now, 1, 1), (fake_now - 1, 1000, 1), (fake_now - 10_000_000, 1000, 1000), (0, 60, 60)] {
+            assert_eq!(scale_timer_due(due, fake_now, wall_m, dur_m), 0, "due {due} at x{wall_m}");
+        }
+    }
+
+    /// R5-F12 and R5-D59. An `NtDelayExecution` deadline the session's clock has already reached returns at
+    /// once, as it does without the session. A zero would not do it: to that call a zero is a yield,
+    /// answered with another status, so the kernel gets an instant long past instead. A deadline still
+    /// ahead is the delay until the wall reaches it, and what is not a deadline passes through.
+    #[test]
+    fn a_delay_deadline_already_reached_is_an_instant_long_past_and_never_a_yield() {
+        let fake_now = 1_000_000_000;
+        assert_eq!(scale_delay_deadline(fake_now, fake_now, 1), PAST_DEADLINE);
+        assert_eq!(scale_delay_deadline(fake_now - 10_000_000, fake_now, 1000), PAST_DEADLINE);
+        // Less than one real tick ahead at x60: nothing left to wait, and still not a yield.
+        assert_eq!(scale_delay_deadline(fake_now + 59, fake_now, 60), PAST_DEADLINE);
+        assert_eq!(scale_delay_deadline(fake_now + 60_000_000, fake_now, 60), -1_000_000);
+        // A relative delay and a yield are not deadlines.
+        assert_eq!(scale_delay_deadline(-10_000, fake_now, 60), -10_000);
+        assert_eq!(scale_delay_deadline(0, fake_now, 60), 0);
+        // A deadline the arithmetic cannot reach is handed back as it was, like the timers.
+        assert_eq!(scale_delay_deadline(i64::MAX, -1, 60), i64::MAX);
     }
 
     #[test]
@@ -3934,6 +3995,9 @@ mod tests {
                 // A due near the clock by name too: a tick or a rate's worth either side of it.
                 timer_due(due, fake_now, wall_m, dur_m)?;
                 timer_due(fake_now.saturating_add(near), fake_now, wall_m, dur_m)?;
+                // The same moments as an NtDelayExecution deadline, which cannot take a zero (R5-D59).
+                delay_deadline(due, fake_now, wall_m)?;
+                delay_deadline(fake_now.saturating_add(near), fake_now, wall_m)?;
             }
 
             /// How long the machine slept, read from three clocks while timer interrupts land between the
@@ -4050,9 +4114,9 @@ mod tests {
         /// A timer's due as the kernel gets it: never positive, because a positive due is an instant on the
         /// REAL clock (R5-D2). A relative one is divided by the duration rate. An absolute one is a moment
         /// of the wall: the timer fires no later than the wall reaches it and no more than one real tick
-        /// before, a moment already past gets the shortest relative due, and a moment the arithmetic cannot
-        /// reach is handed back as it was. Zero only for less than one real tick, which the kernel fires at
-        /// once.
+        /// before, a moment already past gets zero, which the kernel fires at once (R5-F12), and a moment
+        /// the arithmetic cannot reach is handed back as it was. Otherwise zero only for less than one real
+        /// tick, fired at once too.
         fn timer_due(due: i64, fake_now: i64, wall_m: i64, dur_m: i64) -> Result<(), TestCaseError> {
             let got = scale_timer_due(due, fake_now, wall_m, dur_m);
             let (asked, now) = (i128::from(due), i128::from(fake_now));
@@ -4068,13 +4132,39 @@ mod tests {
             if i64::try_from(ahead).is_err() {
                 prop_assert_eq!(got, due, "a due the arithmetic cannot reach is handed back");
             } else if ahead <= 0 {
-                prop_assert_eq!(got, -1, "a moment already past gets the shortest relative due");
+                prop_assert_eq!(got, 0, "a moment already past fires at once");
             } else {
                 prop_assert!(got <= 0, "absolute {} from {} at x{} came out as {}", due, fake_now, wall_m, got);
                 // Where the wall stands when the timer fires.
                 let fires = -i128::from(got) * rate;
                 prop_assert!(fires <= ahead && fires > ahead - rate, "absolute {} from {} at x{}: fires {} of {} ahead", due, fake_now, wall_m, fires, ahead);
                 prop_assert!(got < 0 || ahead < rate, "absolute {} from {} at x{} came out as none", due, fake_now, wall_m);
+            }
+            Ok(())
+        }
+
+        /// An `NtDelayExecution` deadline as the kernel gets it (R5-D59): never zero, because to that call
+        /// zero is a yield. What is not a deadline passes through. A moment already past, or less than one
+        /// real tick ahead, is an instant long past, a moment the arithmetic cannot reach is handed back,
+        /// and any other is a relative delay that ends no later than the wall reaches it and no more than
+        /// one real tick before.
+        fn delay_deadline(deadline: i64, fake_now: i64, wall_m: i64) -> Result<(), TestCaseError> {
+            let got = scale_delay_deadline(deadline, fake_now, wall_m);
+            if deadline <= 0 {
+                prop_assert_eq!(got, deadline, "a relative delay and a yield pass through");
+                return Ok(());
+            }
+            prop_assert_ne!(got, 0, "deadline {} from {} at x{} became a yield", deadline, fake_now, wall_m);
+            let rate = i128::from(wall_m.max(1));
+            let ahead = i128::from(deadline) - i128::from(fake_now);
+            if i64::try_from(ahead).is_err() {
+                prop_assert_eq!(got, deadline, "a deadline the arithmetic cannot reach is handed back");
+            } else if ahead < rate {
+                prop_assert_eq!(got, PAST_DEADLINE, "deadline {} from {} at x{}: nothing left to wait", deadline, fake_now, wall_m);
+            } else {
+                prop_assert!(got < 0, "deadline {} from {} at x{} came out as {}", deadline, fake_now, wall_m, got);
+                let ends = -i128::from(got) * rate;
+                prop_assert!(ends <= ahead && ends > ahead - rate, "deadline {} from {} at x{}: ends {} of {} ahead", deadline, fake_now, wall_m, ends, ahead);
             }
             Ok(())
         }
