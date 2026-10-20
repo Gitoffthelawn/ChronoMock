@@ -26,6 +26,38 @@ public class ParamInputTests
           "choices": [ { "label": "day_before", "days": -1 }, { "label": "on_day", "days": 0 }, { "label": "day_after", "days": 1 } ] }
         """;
 
+    /// <summary>
+    /// R5-WY5: the builder hears of each change of the value once, and of nothing else. It resolved the preset
+    /// again on every property an input raised, and a date raises two - its text and the calendar's day - so each
+    /// keystroke in a date resolved twice. Reversal probe: raise it for the calendar's day too and the date
+    /// count is two.
+    /// </summary>
+    [Fact]
+    public void Each_change_of_the_value_is_said_once_and_nothing_else_is()
+    {
+        var date = new ParamInputViewModel(Param("""{ "id": "start_date", "type": "date", "default": null }"""), Units());
+        var duration = new ParamInputViewModel(
+            Param("""{ "id": "length", "type": "duration", "default": { "amount": 30, "unit": "d" } }"""), Units());
+        var variant = new ParamInputViewModel(Param(Boundary), Units());
+        var said = 0;
+        foreach (var input in new[] { date, duration, variant })
+        {
+            input.ValueChanged += (_, _) => said++;
+        }
+
+        date.DateText = "2038-01-19";
+        Assert.Equal(1, said);
+        date.SelectedDate = new DateTime(2038, 1, 20);
+        Assert.Equal(2, said);
+        date.DateText = "2038-01-20"; // the same text - no change
+        Assert.Equal(2, said);
+
+        duration.Amount = "45";
+        duration.Unit = duration.Units.First(u => u.Token == "w");
+        variant.Variant = variant.VariantOptions.First(v => v.Token == "on_day");
+        Assert.Equal(5, said);
+    }
+
     [Fact]
     public void The_default_unit_is_found_by_token_not_by_position()
     {

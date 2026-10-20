@@ -352,6 +352,12 @@ public sealed class ParamInputViewModel : ObservableObject
     /// <summary>The choices of a variant parameter, as the catalogue lists them.</summary>
     public IReadOnlyList<VariantOption> VariantOptions { get; }
 
+    /// <summary>Raised once for each change of the value - the date, the amount, the unit or the choice - and
+    /// for nothing else (R5-WY5). The builder resolved the preset again on EVERY property this raised, and a
+    /// date raises two (its text and the calendar's day), so each keystroke in a date resolved twice. A list
+    /// of property names kept by the builder instead would miss the next value property in silence.</summary>
+    public event EventHandler? ValueChanged;
+
     public string DateText
     {
         get => _dateText;
@@ -360,6 +366,7 @@ public sealed class ParamInputViewModel : ObservableObject
             if (Set(ref _dateText, value))
             {
                 RaisePropertyChanged(nameof(SelectedDate));
+                ValueChanged?.Invoke(this, EventArgs.Empty);
             }
         }
     }
@@ -384,9 +391,17 @@ public sealed class ParamInputViewModel : ObservableObject
         }
     }
 
-    public string Amount { get => _amount; set => Set(ref _amount, value); }
-    public UnitOption Unit { get => _unit; set => Set(ref _unit, value); }
-    public VariantOption? Variant { get => _variant; set => Set(ref _variant, value); }
+    public string Amount { get => _amount; set => SetValue(ref _amount, value); }
+    public UnitOption Unit { get => _unit; set => SetValue(ref _unit, value); }
+    public VariantOption? Variant { get => _variant; set => SetValue(ref _variant, value); }
+
+    private void SetValue<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+    {
+        if (Set(ref field, value, name))
+        {
+            ValueChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
     /// <summary>The parameter id, used to build the value map.</summary>
     public string Id => Param.Id;
@@ -1209,14 +1224,14 @@ public sealed class CalculatorViewModel : ObservableObject
         foreach (var param in preset.Parameters)
         {
             var input = new ParamInputViewModel(param, Units, culture);
-            input.PropertyChanged += OnParamChanged;
+            input.ValueChanged += OnParamChanged;
             ParamInputs.Add(input);
         }
 
         HasParamInputs = ParamInputs.Count > 0;
     }
 
-    private void OnParamChanged(object? sender, PropertyChangedEventArgs e) => ResolveActivePreset();
+    private void OnParamChanged(object? sender, EventArgs e) => ResolveActivePreset();
 
     // Gather the parameter inputs and fill the builder from the preset's moment. A missing date leaves the
     // inputs shown with the honest note and does not fill a wrong moment (rule 6).
@@ -1317,7 +1332,7 @@ public sealed class CalculatorViewModel : ObservableObject
     {
         foreach (var input in ParamInputs)
         {
-            input.PropertyChanged -= OnParamChanged;
+            input.ValueChanged -= OnParamChanged;
         }
 
         ParamInputs.Clear();
