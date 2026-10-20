@@ -18005,5 +18005,43 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-2b R5-F12 a timer due already reached waits for the next tick",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "            0 // fake clock already at/past the due time: an instant the real clock passed long ago, fired at once",
+        "to": "            -1 // fake clock already at/past the due time: an instant the real clock passed long ago, fired at once"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_due_already_reached_fires_at_once_and_not_at_the_next_tick",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-2b R5-D59 a delay deadline already reached becomes a yield",
+    "edits": [
+      {
+        "file": "crates/ctl/src/lib.rs",
+        "from": "        0 => PAST_DEADLINE,",
+        "to": "        0 => 0,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-ctl",
+    "target": [
+      "--lib"
+    ],
+    "test": "tests::a_delay_deadline_already_reached_is_an_instant_long_past_and_never_a_yield",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

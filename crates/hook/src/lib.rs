@@ -72,7 +72,7 @@ use chrono_ctl::{
     read_ended, read_qpc, read_qpc_with, RELEASE_MARGIN_QUIT,
     read_pid_count, read_scale_dur, read_scale_qpc, set_created, MAX_COV_PIDS,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
-    scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
+    scale_delay_deadline, scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
     wait_hit_floor, bump_timers_at_floor, timer_elapse_hit_floor, timer_period_hit_floor, ChannelModule, Cov,
     Ctl, CHANNELS, IDX_GDTZI, IDX_GLT, IDX_GST, IDX_GSTAFT, IDX_GSTPAFT, IDX_GTC, IDX_GTC64,
@@ -1994,13 +1994,14 @@ fn note_absolute_due() {
 }
 
 /// An absolute `NtDelayExecution` deadline - a wall-clock instant the application computed from the fake
-/// clock - as the real relative delay until the fake clock reaches it (R5-D2), or `None` when the session is
-/// gone and the wall is real again. Converted in every session: before R5 it went to the kernel as it was,
-/// under `--scale-duration` too, and the kernel compares it with the real clock.
+/// clock - as the real relative delay until the fake clock reaches it (R5-D2), or as an instant long past
+/// when it has already reached it (R5-D59), or `None` when the session is gone and the wall is real again.
+/// Converted in every session: before R5 it went to the kernel as it was, under `--scale-duration` too,
+/// and the kernel compares it with the real clock.
 fn absolute_delay(deadline: i64) -> Option<i64> {
     let (fake_now, wall_m) = fake_now_and_dur_m()?;
     note_absolute_due();
-    Some(scale_timer_due(deadline, fake_now, wall_m, 1))
+    Some(scale_delay_deadline(deadline, fake_now, wall_m))
 }
 
 unsafe extern "system" fn h_sleep(ms: u32) { unsafe {
