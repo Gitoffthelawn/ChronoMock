@@ -18045,6 +18045,25 @@
     "notHere": ""
   },
   {
+    "name": "r5-4d R5-D57 a sign before a run number is taken",
+    "edits": [
+      {
+        "file": "crates/cli/src/run/args.rs",
+        "from": "    if !chrono_core::is_ascii_digits(field) {",
+        "to": "    if field.is_empty() {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "run::args::tests::a_sign_before_a_run_number_is_refused_as_calc_refuses_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
     "name": "r5-5c R5-F9 an engine stamp read while the timers run faster is not noticed",
     "edits": [
       {
