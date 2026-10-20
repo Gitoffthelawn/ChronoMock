@@ -1,3 +1,4 @@
+using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.Protocol;
 
 namespace ChronoMock.App.Tests;
@@ -173,6 +174,70 @@ public class SessionRunTests
         Assert.Empty(store.Load()); // nothing ran, so nothing is recorded
         Assert.True(core.LetGo);
         Assert.Contains("chrono: the hook library is not next to the core", vm.DiagnosticsText, StringComparison.Ordinal);
+        // The core ran and never said ready, and the block says which core that was (R5/6b, D2).
+        Assert.Contains(
+            "  core:      no handshake, " + AppPaths.SubstitutionCores.CoreForTarget(Target) + "\n",
+            vm.DiagnosticsText,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R5/6b, D2. A core that could not even be started leaves a diagnostics block: which core was asked for,
+    /// that it did not start, and the exception whole, with its stack. The session loop closed nothing in that
+    /// case and composed no block at all, so the one failure a user asks for help with left nothing to send.
+    /// Reversal probes: return early again for a missing session and the block is empty, keep only the message
+    /// and the type and the stack are gone.
+    /// </summary>
+    [Fact]
+    public async Task A_core_that_does_not_start_leaves_a_block_with_its_path_and_the_whole_exception()
+    {
+        var corePath = AppPaths.SubstitutionCores.CoreForTarget(Target);
+        var vm = new SessionViewModel(
+            new InMemorySessionHistoryStore(),
+            connect: path => throw new FileNotFoundException("the core is not where the layout says", path));
+        vm.SetTarget(Target);
+
+        await vm.StartAsync().WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        Assert.Equal(SessionStatusKind.Error, vm.StatusKind);
+        var block = vm.DiagnosticsText;
+        Assert.Contains("  core:      did not start, " + corePath + "\n", block, StringComparison.Ordinal);
+        Assert.Contains(
+            "  error:     System.IO.FileNotFoundException: the core is not where the layout says",
+            block,
+            StringComparison.Ordinal);
+        Assert.Contains("\n                at ", block, StringComparison.Ordinal);
+        Assert.Contains("  mode:      native\n", block, StringComparison.Ordinal);
+    }
+
+    /// <summary>R5/6b, D2. A core that shook hands is named in the block by what it said: its version and
+    /// bitness, then its path.</summary>
+    [Fact]
+    public async Task A_core_that_shook_hands_is_named_by_its_version_and_bitness()
+    {
+        var ready = FakeCoreConnection.ReadyFor(Target);
+        var core = new FakeCoreConnection(
+            [ready],
+            command => command is StartCommand
+                ? [new VerdictEvent { V = ProtocolJson.ProtocolVersion, Verdict = "fails", RefuseStart = true, ReasonKey = "verdict.reason.fails" }]
+                : []);
+        var vm = ViewModel(new InMemorySessionHistoryStore(), core);
+
+        var run = vm.StartAsync();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (vm.StatusKind != SessionStatusKind.Refused && clock.Elapsed < Limit)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        core.End();
+        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            $"  core:      {ready.CoreVersion}, {ready.Bitness}, {AppPaths.SubstitutionCores.CoreForTarget(Target)}\n",
+            vm.DiagnosticsText,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("  error:", vm.DiagnosticsText, StringComparison.Ordinal);
     }
 
     /// <summary>

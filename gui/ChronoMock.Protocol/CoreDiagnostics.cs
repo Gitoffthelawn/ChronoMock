@@ -29,6 +29,31 @@ internal sealed class CoreDiagnostics
     private readonly ConcurrentQueue<string> _noise = new();
     private int _noiseDropped;
 
+    /// <summary>How long it has been since the connection began - the core is started right after this log is
+    /// made, so a line's stamp is its time since the session was asked for (R5/6b, D2).</summary>
+    private readonly Func<TimeSpan> _sinceConnect;
+
+    /// <param name="sinceConnect">The clock the lines are stamped with, a stopwatch started here when null -
+    /// a test passes one that stands still, so its lines read the same on every run.</param>
+    internal CoreDiagnostics(Func<TimeSpan>? sinceConnect = null)
+    {
+        if (sinceConnect is null)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            sinceConnect = () => watch.Elapsed;
+        }
+
+        _sinceConnect = sinceConnect;
+    }
+
+    /// <summary>
+    /// A line as it is kept: its time since the connection, then the line. A block of lines with no times said
+    /// what happened and not when - whether the core stalled for ten seconds before a failure, or a reader
+    /// gave up the moment the session began, was not in it (R5/6b, D2).
+    /// </summary>
+    internal static string Stamped(TimeSpan sinceConnect, string line)
+        => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"[+{sinceConnect.TotalSeconds:0.000} s] {line}");
+
     /// <summary>Append one diagnostic line, dropping the oldest past the cap and counting what was dropped.
     /// <para>
     /// 🔴 The marker used to be a LINE, enqueued once when the first drop happened. Enqueue appends and
@@ -41,7 +66,7 @@ internal sealed class CoreDiagnostics
     /// </summary>
     internal void Add(string line)
     {
-        _lines.Enqueue(line);
+        _lines.Enqueue(Stamped(_sinceConnect(), line));
         // Atomic, because two threads add here: the reader of the core's stderr, and dispose, which notes a
         // reader that did not finish in time - that is, while that reader still runs. A plain += between them
         // could lose a count, and the block would then claim to be less of a tail than it is (R4-N52).
@@ -55,7 +80,7 @@ internal sealed class CoreDiagnostics
     {
         if (_noise.Count < MaxNoiseLines)
         {
-            _noise.Enqueue(line);
+            _noise.Enqueue(Stamped(_sinceConnect(), line));
         }
         else
         {

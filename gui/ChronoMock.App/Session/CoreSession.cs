@@ -41,6 +41,11 @@ internal sealed class CoreSession : IAsyncDisposable
     /// <summary>The core's exit code once the session is disposed, or null.</summary>
     internal int? CoreExitCode => _client.ExitCode;
 
+    /// <summary>What the core said about itself in its handshake - its version and bitness - or null when it
+    /// never said <c>ready</c>. Kept for the diagnostics block (R5/6b, D2): the handshake was read for its
+    /// verdict and dropped, so a block about a failed session could not say which core it was.</summary>
+    internal ReadyEvent? Ready { get; private set; }
+
     /// <summary>
     /// Connect to the core and complete the handshake. The returned session is ALWAYS non-null once the
     /// core process exists, even when the handshake refuses - the caller owns disposal either way, and a
@@ -62,6 +67,7 @@ internal sealed class CoreSession : IAsyncDisposable
         var session = new CoreSession((connect ?? CoreClient.Connect)(plan.CorePath));
 
         var handshake = await ReadReadyAsync(session._client, readyTimeout);
+        session.Ready = handshake.Ready;
         // An error the core sent INSTEAD of ready is its own refusal, and a better one than
         // "no handshake" - it names the actual reason.
         var refusal = handshake.ErrorKey ?? RefusalKeyFor(handshake.Ready, plan.Machine, plan.IsCdp);

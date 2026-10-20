@@ -1,3 +1,4 @@
+using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using ChronoMock.App;
 using ChronoMock.Protocol;
 
@@ -62,6 +63,55 @@ public class SessionReportTests
         Assert.Contains("  when:      2031-05-06T12:00:00Z\n", block, StringComparison.Ordinal);
         Assert.Contains(@"  target:    C:\apps\ledger.exe", block, StringComparison.Ordinal);
         Assert.Contains("    core said this\n", block, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// R5/6b, D2. The block names the window, the system and the mode, and the exception the window caught
+    /// whole: its type and message on the error line, every further line of it indented under that line, so a
+    /// stack read in a ticket stays one block.
+    /// </summary>
+    [Fact]
+    public void The_diagnostics_block_names_the_window_the_system_and_the_whole_exception()
+    {
+        Exception fault;
+        try
+        {
+            throw new InvalidOperationException("outer", new IOException("inner"));
+        }
+        catch (InvalidOperationException e)
+        {
+            fault = e;
+        }
+
+        var result = new SessionResult { CorePath = @"C:\cores\chrono.exe", IsCdp = true, Browser = "Chrome/152.0", Fault = fault };
+        var block = SessionReport.Diagnostics(result, Distinct(), [], 0, null, Noon);
+        var lines = block.Split('\n');
+
+        Assert.Contains(lines, l => l.StartsWith("  gui:       " + AppVersion.Current + " (", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.StartsWith("  os:        ", StringComparison.Ordinal) && l.Length > "  os:        ".Length);
+        Assert.Contains("  mode:      chromium\n  browser:   Chrome/152.0\n", block, StringComparison.Ordinal);
+        Assert.Contains("  error:     System.InvalidOperationException: outer\n", block, StringComparison.Ordinal);
+        Assert.Contains(lines, l => l.StartsWith("              ---> System.IO.IOException: inner", StringComparison.Ordinal));
+        var errorAt = Array.FindIndex(lines, l => l.StartsWith("  error:", StringComparison.Ordinal));
+        var outputAt = Array.FindIndex(lines, l => l == "  core output:");
+        Assert.All(lines[(errorAt + 1)..outputAt], l => Assert.StartsWith("             ", l, StringComparison.Ordinal));
+    }
+
+    /// <summary>R5/6b, D2. The core line says what became of the core the session asked for, from a session that
+    /// never chose one to one that shook hands, and a block without a caught exception has no error line.</summary>
+    [Theory]
+    [InlineData("", false, "", "  core:      (none - the session stopped before choosing one)\n  mode:      (no plan)\n")]
+    [InlineData(@"C:\c\chrono.exe", false, "", "  core:      did not start, C:\\c\\chrono.exe\n  mode:      native\n")]
+    [InlineData(@"C:\c\chrono.exe", true, "", "  core:      no handshake, C:\\c\\chrono.exe\n")]
+    [InlineData(@"C:\c\chrono.exe", true, "0.4.0", "  core:      0.4.0, x86, C:\\c\\chrono.exe\n")]
+    public void The_core_line_says_what_became_of_the_core(string path, bool started, string version, string expected)
+    {
+        var result = new SessionResult { CorePath = path, CoreStarted = started, CoreVersion = version, CoreBitness = "x86" };
+
+        var block = SessionReport.Diagnostics(result, Distinct(), [], 0, null, Noon);
+
+        Assert.Contains(expected, block, StringComparison.Ordinal);
+        Assert.DoesNotContain("  error:", block, StringComparison.Ordinal);
     }
 
     [Fact]

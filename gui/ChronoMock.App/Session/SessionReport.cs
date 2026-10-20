@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
+using System.Runtime.InteropServices;
 using System.Text;
 using ChronoMock.Protocol;
 
@@ -162,10 +163,11 @@ internal static class SessionReport
         return sb.ToString();
     }
 
-    /// <summary>Compose the diagnostics block: a header naming the status, target, and requested moment, then
-    /// the core's stderr and parse-error lines verbatim. English and stable, like the core's own stderr and
-    /// the CLI report - it is a technical artifact for a bug report, not interface text (rule 15 governs the
-    /// UI - this is data).</summary>
+    /// <summary>Compose the diagnostics block: a header naming the status, the window and the system, the core
+    /// and the mode, the target, the requested moment and the exception the window caught, then the core's
+    /// stderr and parse-error lines verbatim, each with its time since the connection. English and stable,
+    /// like the core's own stderr and the CLI report - it is a technical artifact for a bug report, not
+    /// interface text (rule 15 governs the UI - this is data).</summary>
     internal static string Diagnostics(
         SessionResult r, SessionSetup setup, IEnumerable<string> lines, int dropped, int? coreExit, DateTime utcNow)
     {
@@ -177,6 +179,18 @@ internal static class SessionReport
         sb.Append("  when:      ")
           .Append(utcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)).Append('\n');
         sb.Append("  status:    ").Append(r.StatusKind).Append(" (").Append(r.StatusKey).Append(")\n");
+        // Which window, on which system, drove which core, and how (R5/6b, D2). A block that said none of it
+        // left support to ask, and the answer is the first thing a fault in one build and not another needs.
+        sb.Append("  gui:       ").Append(AppVersion.Current)
+          .Append(" (").Append(Arch(RuntimeInformation.ProcessArchitecture)).Append(" process)\n");
+        sb.Append("  os:        ").Append(RuntimeInformation.OSDescription)
+          .Append(" (").Append(Arch(RuntimeInformation.OSArchitecture)).Append(")\n");
+        sb.Append("  core:      ").Append(CoreLine(r)).Append('\n');
+        sb.Append("  mode:      ").Append(r.CorePath.Length == 0 ? "(no plan)" : r.IsCdp ? "chromium" : "native").Append('\n');
+        if (r.Browser.Length > 0)
+        {
+            sb.Append("  browser:   ").Append(r.Browser).Append('\n');
+        }
         // The code the core itself ended with, which is what tells a crash from a kill once the core sent
         // nothing more (R4-S27). A negative one is an NTSTATUS, so it is shown in hex as well, as the CLI does.
         if (coreExit is { } code)
@@ -194,6 +208,7 @@ internal static class SessionReport
         sb.Append("  target:    ").Append(target.Length > 0 ? target : "(none)").Append('\n');
         sb.Append("  requested: ").Append(setup.Moment)
           .Append(" (zone ").Append(setup.Zone.Label).Append(", mode ").Append(modeToken).Append(")\n");
+        AppendFault(sb, r.Fault);
 
         sb.Append("  core output:\n");
         var any = false;
@@ -220,6 +235,44 @@ internal static class SessionReport
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// The core the session asked for and what became of it: its version and bitness from the handshake, or
+    /// that it never shook hands, or that it never started at all - then its path, which is what a missing or
+    /// quarantined core is diagnosed by.
+    /// </summary>
+    private static string CoreLine(SessionResult r)
+    {
+        if (r.CorePath.Length == 0)
+        {
+            return "(none - the session stopped before choosing one)";
+        }
+
+        var state = !r.CoreStarted ? "did not start"
+            : r.CoreVersion.Length == 0 ? "no handshake"
+            : r.CoreVersion + ", " + r.CoreBitness;
+        return state + ", " + r.CorePath;
+    }
+
+    /// <summary>The exception the window caught, whole - type, message, stack and the faults inside it - under
+    /// its own heading, each further line indented under the first. Nothing when there was none.</summary>
+    private static void AppendFault(StringBuilder sb, Exception? fault)
+    {
+        if (fault is null)
+        {
+            return;
+        }
+
+        var lines = fault.ToString().Split('\n');
+        sb.Append("  error:     ").Append(lines[0].TrimEnd('\r')).Append('\n');
+        foreach (var line in lines.Skip(1))
+        {
+            sb.Append("             ").Append(line.TrimEnd('\r')).Append('\n');
+        }
+    }
+
+    /// <summary>An architecture the way the rest of the block writes it: <c>x64</c>, <c>x86</c>, <c>arm64</c>.</summary>
+    private static string Arch(Architecture architecture) => architecture.ToString().ToLowerInvariant();
 
     /// <summary>A history record of the START setup and the session's final verdict (docs/04 section 6). The
     /// GUI's own clock is real (only the target is faked), so the caller's <paramref name="utcNow"/> is the

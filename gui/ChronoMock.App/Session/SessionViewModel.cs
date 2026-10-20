@@ -2041,18 +2041,19 @@ public sealed class SessionViewModel : ObservableObject
             }
             catch (InvalidOperationException ex)
             {
-                LastError = ex.Message;
+                NoteFault(ex);
                 SetStatus("status.target_unsupported", SessionStatusKind.Error);
                 return;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                LastError = ex.Message;
+                NoteFault(ex);
                 SetStatus("status.target_unreadable", SessionStatusKind.Error);
                 return;
             }
 
             IsCdp = plan.IsCdp;
+            _result.CorePath = plan.CorePath;
 
             // The handshake and its two refusals (no ready, or a gate that says no) come back as ONE
             // translation key, because that is all the difference amounts to here - both refuse before the
@@ -2061,6 +2062,7 @@ public sealed class SessionViewModel : ObservableObject
             var open = await CoreSession.OpenAsync(plan, ReadyTimeout, _connect);
             session = open.Session;
             _session = session;
+            _result.HeardFrom(session);
             if (open.RefusalKey is not null)
             {
                 SetStatus(open.RefusalKey, SessionStatusKind.Error);
@@ -2090,20 +2092,20 @@ public sealed class SessionViewModel : ObservableObject
             // The core itself could not be started: its executable is missing or would not spawn (a broken
             // or incomplete install). Target-file problems were already classified above and returned, so
             // reaching here means the core, not the target (RELEASE-007).
-            LastError = ex.Message;
+            NoteFault(ex);
             SetStatus("status.core_missing", SessionStatusKind.Error);
         }
         catch (IOException ex)
         {
             // The protocol pipe broke mid-session.
-            LastError = ex.Message;
+            NoteFault(ex);
             SetStatus("status.error", SessionStatusKind.Error);
         }
         catch (Exception ex)
         {
             // Anything else - most likely a malformed core event dereferenced in Apply (M-11). Surface it
             // as an honest error rather than let it escape `async void OnStartClick` and crash the UI thread.
-            LastError = ex.Message;
+            NoteFault(ex);
             SetStatus("status.error", SessionStatusKind.Error);
         }
         finally
@@ -2139,6 +2141,10 @@ public sealed class SessionViewModel : ObservableObject
     {
         if (session is null)
         {
+            // No core ran - it would not start, or the application could not be read - so there is nothing of
+            // its own to drain. That is precisely the session someone asks for help with, and it used to leave
+            // no block at all (R5/6b, D2): the block still says which core was asked for and what failed.
+            CaptureDiagnostics([]);
             return;
         }
 
@@ -2364,6 +2370,14 @@ public sealed class SessionViewModel : ObservableObject
         {
             DiagnosticsSavedPath = path;
         }
+    }
+
+    /// <summary>A failure the session loop caught: its message for the screen, and the whole exception for the
+    /// diagnostics block (R5/6b, D2) - the message alone reached support with no type and no stack.</summary>
+    private void NoteFault(Exception fault)
+    {
+        LastError = fault.Message;
+        _result.Fault = fault;
     }
 
     /// <summary>Compose the diagnostics block: a header naming the status, target, and requested moment, then

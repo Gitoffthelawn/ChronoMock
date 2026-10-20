@@ -252,6 +252,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   and the result screen shows it beside the elapsed times. The browser a Chromium session drove is
   named under the application. The sleep warning is on the session's warning list as soon as the core
   notices the sleep, not only once the session ends.
+- **The diagnostics block says which window, system and core a session ran with, and what failed.** It
+  names the window's version, Windows, the core's version, bitness and path, whether the session drove
+  an application or a Chromium browser, and that browser, and it carries the whole exception the window
+  caught, with its stack. Every line of the core's output has its time since the session began. A core
+  that could not be started at all now leaves a block too - it used to leave none.
 - **"New session" comes back at the mode the last session started with.** Changing the speed while a
   session ran moved the Mode list with it, so a session started in flow left the next form at x60.
 - **The "Jump to" field of a new session is empty.** It kept the moment typed in the last session,

@@ -107,6 +107,23 @@ internal sealed class SessionResult
     internal long HostSleptMs;
     internal string Browser = string.Empty;
 
+    // Which core the session asked for and what became of it, and what failed in the window, for the
+    // diagnostics block (R5/6b, D2). A block about a failed session named neither the core nor the error, so
+    // "it does not start" reached support as a status key and a message with no stack.
+    internal string CorePath = string.Empty;
+    internal bool CoreStarted;
+    internal string CoreVersion = string.Empty;
+    internal string CoreBitness = string.Empty;
+    internal Exception? Fault;
+
+    /// <summary>The core is running: note what its handshake said about it, nothing when it never said ready.</summary>
+    internal void HeardFrom(CoreSession session)
+    {
+        CoreStarted = true;
+        CoreVersion = session.Ready?.CoreVersion ?? string.Empty;
+        CoreBitness = session.Ready?.Bitness ?? string.Empty;
+    }
+
     /// <summary>
     /// Fold what an event says for the report beyond what the panel projects (R5-D71): an error of any kind and
     /// at any point - one the session went on after, one it ended on, one that came after the end - joins the
@@ -134,12 +151,18 @@ internal sealed class SessionResult
         }
     }
 
-    /// <summary>Forget what <see cref="Absorb"/> gathered, for the next session.</summary>
+    /// <summary>Forget the last session's report facts - what <see cref="Absorb"/> gathered, and its core and
+    /// fault - for the next one.</summary>
     internal void ForgetReportFacts()
     {
         Errors = [];
         HostSleptMs = 0;
         Browser = string.Empty;
+        CorePath = string.Empty;
+        CoreStarted = false;
+        CoreVersion = string.Empty;
+        CoreBitness = string.Empty;
+        Fault = null;
     }
 
     /// <summary>
