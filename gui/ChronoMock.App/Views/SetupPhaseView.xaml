@@ -415,7 +415,7 @@
               <TextBlock Style="{StaticResource PartLabel}" Text="{DynamicResource setup.label_mode}" />
             </HeaderedContentControl.Header>
             <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}"
-                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                      Style="{StaticResource LabelKeyCombo}"
                       IsEnabled="{Binding CanEditTime}" ToolTip="{DynamicResource tip.mode}"
                       HorizontalAlignment="Left" MinWidth="{StaticResource LaunchFieldWidth}" />
           </HeaderedContentControl>

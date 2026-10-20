@@ -124,7 +124,7 @@
                  so the date and the time stay on one line rather than being fitted by hand. -->
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.start_point}" />
             <ComboBox x:Name="BaseKindBox" ItemsSource="{Binding BaseKinds}" SelectedItem="{Binding SelectedBase}"
-                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                      Style="{StaticResource LabelKeyCombo}"
                       ToolTip="{DynamicResource tip.base_kind}" />
             <!-- Specific date: the shared moment input (ISO box plus a calendar popup, locale-safe, rule 2),
                  the same control the substitution panel uses. Its DataContext is the base MomentField, so
@@ -183,7 +183,7 @@
 
                       <!-- Kind picker: swaps which editor below it is visible. -->
                       <ComboBox Grid.Row="0" Grid.Column="0" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}"
-                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}" Margin="{StaticResource CopyValueGap}" />
+                                Style="{StaticResource LabelKeyCombo}" Margin="{StaticResource CopyValueGap}" />
 
                       <Button Grid.Row="0" Grid.Column="1" Content="✕" Click="OnRemoveStepClick" Tag="{Binding}"
                               VerticalAlignment="Center"
@@ -199,14 +199,14 @@
                       <!-- Snap editor: a period boundary target. One control, so it takes the row. -->
                       <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="{StaticResource StackGapSm}"
                                 ItemsSource="{Binding SnapTargets}" SelectedItem="{Binding SnapTarget}"
-                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                                Style="{StaticResource LabelKeyCombo}"
                                 Visibility="{Binding IsSnap, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Nearest editor: roll to the nearest business day in a direction (needs a calendar -
                            without one the engine returns an honest calendar error, surfaced as the result error). -->
                       <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="{StaticResource StackGapSm}"
                                 ItemsSource="{Binding NearestTargets}" SelectedItem="{Binding NearestTarget}"
-                                ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                                Style="{StaticResource LabelKeyCombo}"
                                 Visibility="{Binding IsNearest, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Set-time editor: a wall-clock HH:MM:SS, the width the time field has everywhere
@@ -243,7 +243,7 @@
                  turning it on never moves the row. -->
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.field_calendar}" />
             <ComboBox x:Name="CalendarBox" ItemsSource="{Binding Calendars}" SelectedItem="{Binding SelectedCalendar}"
-                      ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}" ToolTip="{DynamicResource tip.calc_calendar}"
+                      Style="{StaticResource LabelKeyCombo}" ToolTip="{DynamicResource tip.calc_calendar}"
                       app:PartState.HasError="{Binding CalendarMissing}"
                       AutomationProperties.Name="{DynamicResource calc.field_calendar}" />
 
@@ -366,7 +366,7 @@
                           <controls:AmountUnitInput HorizontalAlignment="Left" AccessibleName="{Binding Label}"
                                                     Visibility="{Binding IsDuration, Converter={StaticResource BoolToVis}}" />
                           <ComboBox ItemsSource="{Binding VariantOptions}" SelectedItem="{Binding Variant}"
-                                    ItemContainerStyle="{StaticResource LabelKeyComboItem}" ItemTemplate="{StaticResource LabelKeyText}"
+                                    Style="{StaticResource LabelKeyCombo}"
                                     AutomationProperties.Name="{Binding Label}"
                                     Visibility="{Binding IsVariant, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>

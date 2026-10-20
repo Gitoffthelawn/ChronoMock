@@ -56,6 +56,14 @@
         <TextBlock Text="{Binding LabelKey, Converter={StaticResource KeyToText}}" />
       </DataTemplate>
 
+      <!-- A drop-down of labelled options: each item drawn and named by its label, the two above together. The
+           pair was written out on every such list, eight times (R5 A11). Based on the window's own ComboBox
+           style (Themes/Parts.xaml), so a list that takes this one looks exactly like one that does not. -->
+      <Style x:Key="LabelKeyCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+        <Setter Property="ItemContainerStyle" Value="{StaticResource LabelKeyComboItem}" />
+        <Setter Property="ItemTemplate" Value="{StaticResource LabelKeyText}" />
+      </Style>
+
       <!-- The accessible name of one part of a composite input, led by the input's own name (AmountUnitInput). -->
       <local:PartNameConverter x:Key="PartName" />
 

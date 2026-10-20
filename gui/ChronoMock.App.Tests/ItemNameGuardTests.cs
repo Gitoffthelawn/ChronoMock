@@ -116,6 +116,7 @@ public class ItemNameGuardTests
         var appDir = TestPaths.AppDirectory();
         var unnamed = new List<string>();
         int templated = 0;
+        var styles = KeyedStyleSetters(appDir);
 
         foreach (var file in AppXaml(appDir))
         {
@@ -128,15 +129,21 @@ public class ItemNameGuardTests
                     continue;
                 }
 
+                // A keyed style can set either one for the list (LabelKeyCombo sets both, R5 A11), so the
+                // style's own setters count as the list's.
+                var styled = StyleKey(element.Attribute("Style")?.Value) is { } key && styles.TryGetValue(key, out var set)
+                    ? set
+                    : [];
                 bool hasTemplate = element.Attribute("ItemTemplate") is not null
-                    || element.Elements().Any(c => c.Name.LocalName == $"{name}.ItemTemplate");
+                    || element.Elements().Any(c => c.Name.LocalName == $"{name}.ItemTemplate")
+                    || styled.Contains("ItemTemplate");
                 if (!hasTemplate)
                 {
                     continue; // items are plain strings - ToString() already IS the label
                 }
 
                 templated++;
-                if (element.Attribute("ItemContainerStyle") is null)
+                if (element.Attribute("ItemContainerStyle") is null && !styled.Contains("ItemContainerStyle"))
                 {
                     unnamed.Add($"  {rel}: <{name} ItemsSource=\"{element.Attribute("ItemsSource")?.Value}\">");
                 }
@@ -144,5 +151,38 @@ public class ItemNameGuardTests
         }
 
         return (templated, unnamed);
+    }
+
+    /// <summary>The properties each keyed style in the application's XAML sets, by its key.</summary>
+    private static Dictionary<string, HashSet<string>> KeyedStyleSetters(string appDir)
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var styles = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var file in AppXaml(appDir))
+        {
+            foreach (var style in XDocument.Load(file).Descendants().Where(e => e.Name.LocalName == "Style"))
+            {
+                if (style.Attribute(x + "Key")?.Value is { } key)
+                {
+                    styles[key] = [.. style.Elements()
+                        .Where(e => e.Name.LocalName == "Setter")
+                        .Select(e => e.Attribute("Property")?.Value ?? string.Empty)];
+                }
+            }
+        }
+
+        return styles;
+    }
+
+    /// <summary>The key of a <c>{StaticResource Key}</c> or <c>{DynamicResource Key}</c> reference, or null.</summary>
+    private static string? StyleKey(string? reference)
+    {
+        if (reference is null || !reference.StartsWith('{') || !reference.EndsWith('}'))
+        {
+            return null;
+        }
+
+        var parts = reference[1..^1].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 2 && parts[0] is "StaticResource" or "DynamicResource" ? parts[1] : null;
     }
 }
