@@ -372,5 +372,5 @@ public class PresetCatalogueTests
     [InlineData("Payment due", "N business days out", "quarter", false)]
     public void The_filter_matches_name_or_explains_case_insensitively(
         string name, string explains, string filter, bool expected)
-        => Assert.Equal(expected, CalculatorViewModel.PresetMatchesFilter(name, explains, filter));
+        => Assert.Equal(expected, ScenarioFilter.Matches(name, explains, filter));
 }

@@ -456,7 +456,8 @@ public class StateSheetTests
 
             async Task<CalculatorView> Calculator(PresetLibrary library, ICalendarSource? calendars = null)
             {
-                var vm = new CalculatorViewModel(new FakeCalcEngine(CalculatorSheetEngine.Answer), library, calendars);
+                var vm = new CalculatorViewModel(
+                    new FakeCalcEngine(CalculatorSheetEngine.Answer), library, new CalendarChoices(calendars));
                 var view = new CalculatorView { DataContext = vm };
                 await vm.EnsureComputedAsync();
                 return view;
@@ -469,6 +470,12 @@ public class StateSheetTests
 
             var leftOut = await Calculator(TestCatalogues.Library(TestCatalogues.ShippedWithFilesLeftOut()));
             total += Rendered("calculator-presets-left-out", leftOut);
+
+            // R5-U7: the session's search box over the list, and what it says in the list's place when the
+            // search left nothing.
+            var searched = await Calculator(TestCatalogues.Library(TestCatalogues.Shipped()));
+            ((CalculatorViewModel)searched.DataContext).PresetFilter = "no scenario is called this";
+            total += Rendered("calculator-presets-no-matches", searched);
 
             var waiting = await Calculator(TestCatalogues.Library(TestCatalogues.TestCatalogue()));
             var model = (CalculatorViewModel)waiting.DataContext;

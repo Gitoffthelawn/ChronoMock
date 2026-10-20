@@ -178,19 +178,8 @@ public sealed class ScenarioPicker : ObservableObject
         RaisePropertyChanged(nameof(ShowsParametricNote));
     }
 
-    /// <summary>
-    /// Whether one scenario answers what was typed.
-    /// </summary>
-    /// <remarks>
-    /// 🔴 CURRENT culture here, while the catalogue is ORDERED invariantly (see ScenarioCatalog.Load), and
-    /// the difference is on purpose rather than an oversight to tidy up. Ordering has to be identical on
-    /// every machine or "the third scenario" stops naming the same one. Matching is a person typing, and
-    /// a person typing expects their own alphabet's idea of case.
-    ///
-    /// The name only, never the explanation. A row that matched on text the list does not show would be
-    /// a result the reader cannot account for, and an unexplainable result is a fault here even when it
-    /// is arguably useful.
-    /// </remarks>
+    /// <summary>Whether one scenario answers what was typed - the rule every scenario list shares
+    /// (<see cref="ScenarioFilter"/>, R5-D67).</summary>
     private static bool Matches(ScenarioItem scenario, string needle)
-        => scenario.DisplayName.Contains(needle, StringComparison.CurrentCultureIgnoreCase);
+        => ScenarioFilter.Matches(scenario.DisplayName, scenario.DisplayExplains, needle);
 }

@@ -21,7 +21,7 @@ public class CalculatorClockTests
         var engine = new FakeCalcEngine(args => args.Contains("--analyze")
             ? CalcResults.Analysis("2008-04-08T00:00:00")
             : CalcResults.Moment($"2026-11-{Interlocked.Increment(ref asked):00}T00:00:00"));
-        var vm = new CalculatorViewModel(engine, clock: clock);
+        var vm = new CalculatorViewModel(engine, clock: new AnswerClock(clock));
         return (vm, () => Volatile.Read(ref asked));
     }
 

@@ -84,6 +84,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **Both scenario lists search the same way.** A word typed into the session's scenario search now
+  finds a scenario by the line that says what it tests, as the calculator's search always did - both
+  lines are shown on every row. The calculator's search box is the session's: it has the clear button,
+  Enter chooses the first scenario left, and a search that leaves nothing says so in the list's place.
+  The scenario chosen in the calculator stays marked while it still matches, and is marked again when
+  a search that hid it is cleared, with its parameters as they were typed.
 - **A `jump` to an absolute moment that names no moment gets the same answer on both mechanisms.** A
   protocol client that sent `{"kind":"absolute"}` without `local` was told `moment.invalid` by a
   Chromium session, while a native session read the missing moment as an empty one and, when the same

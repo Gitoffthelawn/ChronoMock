@@ -47,7 +47,7 @@ public class CalendarCatalogueTests
             Shipped("pl"),
             new CatalogueCalendar("de", "DE", new CalendarName("Germany", "Deutschland")),
             new CatalogueCalendar("xx", "XX", Name: null));
-        var vm = new CalculatorViewModel(new FakeCalcEngine(), presets: null, new FakeCalendarSource(engine));
+        var vm = new CalculatorViewModel(new FakeCalcEngine(), presets: null, new CalendarChoices(new FakeCalendarSource(engine)));
 
         _ = vm.EnsureComputedAsync();
 
@@ -62,7 +62,7 @@ public class CalendarCatalogueTests
     public void A_calendar_picked_before_the_list_arrives_stays_picked_only_if_listed()
     {
         var listed = new FakeCalendarSource();
-        var kept = new CalculatorViewModel(new FakeCalcEngine(), presets: null, listed);
+        var kept = new CalculatorViewModel(new FakeCalcEngine(), presets: null, new CalendarChoices(listed));
         _ = kept.EnsureComputedAsync();
         kept.SelectedCalendar = kept.Calendars.Single(c => c.Id == "pl");
 
@@ -72,7 +72,7 @@ public class CalendarCatalogueTests
         Assert.Contains(kept.SelectedCalendar, kept.Calendars);
 
         var unlisted = new FakeCalendarSource();
-        var dropped = new CalculatorViewModel(new FakeCalcEngine(), presets: null, unlisted);
+        var dropped = new CalculatorViewModel(new FakeCalcEngine(), presets: null, new CalendarChoices(unlisted));
         _ = dropped.EnsureComputedAsync();
         dropped.SelectedCalendar = dropped.Calendars.Single(c => c.Id == "pl");
 
@@ -94,7 +94,7 @@ public class CalendarCatalogueTests
             var vm = new CalculatorViewModel(
                 new FakeCalcEngine(),
                 TestCatalogues.Library(TestCatalogues.Shipped()),
-                new FakeCalendarSource(With(Shipped("pl"))));
+                new CalendarChoices(new FakeCalendarSource(With(Shipped("pl")))));
             _ = vm.EnsureComputedAsync();
             vm.SelectedCalendar = vm.Calendars.Single(c => c.Id == "pl");
 
@@ -132,7 +132,7 @@ public class CalendarCatalogueTests
             var vm = new CalculatorViewModel(
                 new FakeCalcEngine(),
                 TestCatalogues.Library(TestCatalogues.Shipped()),
-                FakeCalendarSource.Failing(EngineSaid));
+                new CalendarChoices(FakeCalendarSource.Failing(EngineSaid)));
             _ = vm.EnsureComputedAsync();
             vm.SelectedPreset = vm.Presets.Single(p => p.Info.Id == PaymentDue);
 
@@ -160,7 +160,7 @@ public class CalendarCatalogueTests
         var vm = new CalculatorViewModel(
             new FakeCalcEngine(),
             TestCatalogues.Library(TestCatalogues.Shipped()),
-            new FakeCalendarSource(With(Shipped("pl"), Shipped("us-banking") with { Id = "US-Banking" })));
+            new CalendarChoices(new FakeCalendarSource(With(Shipped("pl"), Shipped("us-banking") with { Id = "US-Banking" }))));
         _ = vm.EnsureComputedAsync();
 
         vm.SelectedPreset = vm.Presets.Single(p => p.Info.Id == PaymentDue);
