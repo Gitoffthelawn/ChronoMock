@@ -300,6 +300,12 @@ internal static class PhaseStates
     /// something is still set on this machine.</summary>
     public static SessionViewModel ResultElevatedLeft() => EmbeddedPages(["embedded.policy_value_left"], []);
 
+    /// <summary>The same session with what the audit could not see in its pages (R5-F9, R5-F10): pages gone
+    /// before it read them, and the engine's own stamps and animations at real speed while the timers ran
+    /// faster - the three longest of the page warnings, drawn together.</summary>
+    public static SessionViewModel ResultEngineTimeUnseen() =>
+        EmbeddedPages([], ["chromium.contexts_unread", "chromium.engine_stamps_real", "chromium.animations_real"]);
+
     private static SessionViewModel EmbeddedPages(string[] firstWarningKeys, string[] lastWarningKeys)
     {
         var model = ResultRunning();

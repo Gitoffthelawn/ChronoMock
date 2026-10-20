@@ -4385,8 +4385,8 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp/session.rs",
-        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;\n",
-        "to": "      S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;\n"
+        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;\n",
+        "to": "      S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;\n"
       }
     ],
     "runner": "rust",
@@ -4404,7 +4404,7 @@
     "edits": [
       {
         "file": "crates/cli/src/cdp/session.rs",
-        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0;\n      for (var k in S.counts) { S.counts[k] = 0; }\n",
+        "from": "      S.Z = null; S.zoneMissed = 0; S.hiddenFast = 0; S.capped = 0; S.stamps = 0; S.animated = 0;\n      for (var k in S.counts) { S.counts[k] = 0; }\n",
         "to": "      S.Z = null;\n"
       }
     ],
@@ -18059,6 +18059,139 @@
       "--bins"
     ],
     "test": "run::args::tests::a_sign_before_a_run_number_is_refused_as_calc_refuses_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c R5-F9 an engine stamp read while the timers run faster is not noticed",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "  function stamped(){ if (!S.stamps && durationRate() > 1) { S.stamps = 1; } }",
+        "to": "  function stamped(){}"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c R5-F9 an animation playing while the timers run faster is not noticed",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "if (list[i].playState === 'running') { S.animated = 1; return; }",
+        "to": "if (false) { S.animated = 1; return; }"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c R5-F10 a context gone before its first audit is not counted",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "                self.unread = self.unread.saturating_add(1);",
+        "to": "                self.unread = self.unread.saturating_add(0);"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_context_gone_before_its_first_audit_is_counted_unread",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c R5-F10 a context read once is still counted unread",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "        ctx.read = true;\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_context_gone_before_its_first_audit_is_counted_unread",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c CR129 a closed connection leaves its unread contexts out",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_attach.rs",
+        "from": "                self.requests.connection_closed();\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_attach::tests::a_connection_that_closes_counts_the_contexts_it_took_unread",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c CR129 a closed connection counts its unread contexts twice",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp_requests.rs",
+        "from": "        if std::mem::replace(&mut self.closed, true) {\n            return;\n        }\n",
+        "to": ""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp_requests::tests::a_closed_connection_counts_the_contexts_it_took_unread_once",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-5c CR129 a frame asked for and never run is noticed",
+    "edits": [
+      {
+        "file": "crates/cli/src/cdp/session.rs",
+        "from": "      return _raf.call(globalThis, function(){ stamped(); return cb.apply(this, arguments); });",
+        "to": "      stamped(); return _raf.call(globalThis, function(){ return cb.apply(this, arguments); });"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "cdp::shim_exec::the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are",
     "match": "exact",
     "build": "",
     "notHere": ""

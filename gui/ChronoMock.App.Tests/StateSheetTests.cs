@@ -243,6 +243,11 @@ public class StateSheetTests
             total += Shows(
                 RenderResult("result-elevated-left", PhaseStates.ResultElevatedLeft(), "AuditSection"),
                 "embedded.policy_value_left");
+            // What the audit could not see in its pages (R5-F9, R5-F10): the three page warnings at once.
+            var unseen = RenderResult("result-engine-time-unseen", PhaseStates.ResultEngineTimeUnseen(), "AuditSection");
+            Shows(unseen, "chromium.contexts_unread");
+            Shows(unseen, "chromium.engine_stamps_real");
+            total += Shows(unseen, "chromium.animations_real");
             total += RenderResult("result-refused", PhaseStates.ResultRefused()).Count;
             total += Shows(RenderResult("result-refused-left-running", PhaseStates.ResultRefusedLeftRunning()), "result.left_running");
             total += Shows(RenderResult("result-refused-incomplete", PhaseStates.ResultRefusedIncomplete()), "result.refusal_incomplete");

@@ -125,6 +125,19 @@ pub(crate) const KEY_TIMER_RATE_CAPPED: &str = "chromium.timer_rate_capped";
 /// takes no jump or change of speed, and its calls are not counted (R5-P5, R5-D47, R5-D48). Both paths.
 pub(crate) const KEY_FRAMES_UNREACHED: &str = "chromium.frames_unreached";
 
+/// A page read a time the engine stamps itself - an animation frame's, an event's, the document
+/// timeline's - while its timers ran faster. Those stamps run at real speed, so they disagree with
+/// `performance.now` (R5-F9, R5-D58, R5-D60: said now, moved in R5/5d). Both paths.
+pub(crate) const KEY_ENGINE_STAMPS_REAL: &str = "chromium.engine_stamps_real";
+
+/// A page played CSS or Web Animations while its timers ran faster. Animations play at real speed, so
+/// they ran slower than the session clock (R5-F9, R5-D60). Both paths.
+pub(crate) const KEY_ANIMATIONS_REAL: &str = "chromium.animations_real";
+
+/// Pages or workers went away before the audit, which reads once a second, could read them: what they
+/// called is not in the counts (R5-F10, R5-D60). Both paths.
+pub(crate) const KEY_CONTEXTS_UNREAD: &str = "chromium.contexts_unread";
+
 /// The speed changed while the session ran: a one-time timer already waiting finished its wait at the
 /// old speed (R5-P6 - a repeating one takes the new speed from its next tick). Both paths.
 pub(crate) const KEY_RATE_CHANGE_RUNNING_TIMERS: &str = "chromium.rate_change_affects_running_timers";
@@ -150,6 +163,12 @@ pub(crate) struct SessionFacts {
     pub(crate) timers_capped: bool,
     /// A page had a frame in its process its shim could not reach (R5-P5).
     pub(crate) frames_unreached: bool,
+    /// A page read a time the engine stamps while its timers ran faster (R5-F9).
+    pub(crate) engine_stamps_real: bool,
+    /// A page played an animation while its timers ran faster (R5-F9).
+    pub(crate) animations_real: bool,
+    /// A context went away before its shim answered an audit (R5-F10).
+    pub(crate) contexts_unread: bool,
     /// The fake wall reached the end of its range and stood there.
     pub(crate) clock_clamped: bool,
     /// The machine slept during the session, and the session clock stood still for it (R5-F6).
@@ -220,6 +239,20 @@ pub(crate) fn session_warnings(facts: &SessionFacts) -> Vec<String> {
         // the session clock like the rest and are counted together in the last row - said, so that row
         // is not read as one context (rule 4, R5-P20).
         warnings.push(KEY_CONTEXTS_POOLED.to_string());
+    }
+    if facts.contexts_unread && !(facts.app_closed && !facts.audited) {
+        // The counts are what the audit read, and these contexts were gone before it read them (rule 4,
+        // R5-F10). An application that closed before any audit already says the counts may be short, for
+        // every context at once.
+        warnings.push(KEY_CONTEXTS_UNREAD.to_string());
+    }
+    if facts.engine_stamps_real {
+        // The shim moves the clocks a page reads, not the ones the engine stamps for it (rule 27: said
+        // until R5/5d moves them).
+        warnings.push(KEY_ENGINE_STAMPS_REAL.to_string());
+    }
+    if facts.animations_real {
+        warnings.push(KEY_ANIMATIONS_REAL.to_string());
     }
     if facts.zone_missed {
         // The shim in a context read an offset other than the session's (rule 4: the zone is said to
@@ -479,6 +512,27 @@ mod tests {
         assert_eq!(
             session_warnings(&SessionFacts { timers_capped: true, frames_unreached: true, ..audited }),
             vec!["chromium.launched_with_debug_port", "chromium.timer_rate_capped", "chromium.frames_unreached"]
+        );
+        // R5-F10 and R5-F9: contexts gone before the audit read them, and the engine's own stamps and
+        // animations at real speed while the timers ran faster.
+        assert_eq!(
+            session_warnings(&SessionFacts { contexts_unread: true, engine_stamps_real: true, animations_real: true, ..audited }),
+            vec![
+                "chromium.launched_with_debug_port",
+                "chromium.contexts_unread",
+                "chromium.engine_stamps_real",
+                "chromium.animations_real",
+            ]
+        );
+        // An application that closed before any audit says it once, for every context.
+        assert_eq!(
+            session_warnings(&SessionFacts { app_closed: true, contexts_unread: true, ..SessionFacts::default() }),
+            vec!["chromium.launched_with_debug_port", "chromium.app_closed_before_audit"]
+        );
+        assert_eq!(
+            session_warnings(&SessionFacts { app_closed: true, contexts_unread: true, ..audited }),
+            vec!["chromium.launched_with_debug_port", "chromium.contexts_unread"],
+            "audited once, then closed with contexts never read"
         );
         assert_eq!(
             session_warnings(&SessionFacts { app_closed: true, rate_changed_in_flight: true, ..audited }),

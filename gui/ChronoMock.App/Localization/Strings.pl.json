@@ -506,6 +506,9 @@
   "chromium.rate_change_affects_running_timers": "Prędkość zmieniła się w locie. Zegar i nowe timery przyjęły ją od razu, timer powtarzalny od następnego tyknięcia, a jednorazowy, który już czekał, dokończył czekanie w starym tempie.",
   "chromium.timer_rate_capped": "Część timerów przy tej prędkości musiałaby działać częściej niż co 4 ms. Przeglądarka na to nie pozwala, więc działały wolniej niż wybrana prędkość - sam zegar ją zachował.",
   "chromium.frames_unreached": "Część ramek wewnątrz strony była poza zasięgiem sesji. Taka ramka zostaje przy zegarze, z którym wystartowała (prawdziwym, jeśli była przed sesją), nie idzie za skokiem ani zmianą prędkości, a jej wywołania nie są liczone.",
+  "chromium.contexts_unread": "Część stron albo workerów zakończyła się, zanim audyt zdążył je odczytać - odczytuje raz na sekundę. Ich wywołań nie ma w licznikach.",
+  "chromium.engine_stamps_real": "Strona odczytała czas, który przeglądarka nadaje klatkom animacji i zdarzeniom (requestAnimationFrame, Event.timeStamp, document.timeline.currentTime). Ten czas biegnie z prawdziwą prędkością, a performance.now z prędkością sesji, więc oba się rozjeżdżają.",
+  "chromium.animations_real": "Strona odtwarzała animacje CSS albo Web Animations, gdy sesja biegła szybciej. Animacje grają z prawdziwą prędkością, więc szły wolniej niż zegar sesji.",
   "chromium.clock_move_missed": "Strona internetowa przyjęła zmianę prędkości albo skok z opóźnieniem albo wcale, zwykle dlatego, że była zajęta, więc jej zegar odbiega od zegara sesji do następnego skoku, a jej przeładowanie może przywrócić starszy.",
 
   // Cleanup residue the core reports in `ended.residue_keys` when a teardown could not finish (rules 4, 6). Today only a CDP session raises one (the temporary browser profile could not be removed); a native session always ends clean. Rendered verbatim in the panel and the summary.
