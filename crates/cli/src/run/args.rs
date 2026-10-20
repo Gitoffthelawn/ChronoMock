@@ -76,6 +76,19 @@ pub(crate) struct RunArgs {
     pub(super) timeout_secs: Option<u64>,
 }
 
+/// A number on the `run` command line - a tick, a count of heartbeats or seconds, a multiplier - read
+/// under the rule every number this tool takes from a person goes through (R4-N34): ASCII digits and
+/// nothing else. Rust's own parse also takes a leading `+`, so `--ticks +5` ran five heartbeats and
+/// `--mode x+60` at sixty, while `calc` refused the same sign (R5-D57). `refusal` opens the message,
+/// and a run of digits too large for the type is refused without the digits-only note, which would
+/// then be the wrong advice.
+fn digits_only<T: std::str::FromStr>(field: &str, refusal: String) -> Result<T, String> {
+    if !chrono_core::is_ascii_digits(field) {
+        return Err(format!("{refusal} (digits only)"));
+    }
+    field.parse().map_err(|_| refusal)
+}
+
 /// Parse `--mode` into a wire mode token and optional multiplier.
 /// `flow` = real speed, `frozen` = held, `xN` = accelerated N times (N >= 1).
 pub(crate) fn parse_mode(raw: &str) -> Result<(String, Option<i64>), String> {
@@ -87,9 +100,7 @@ pub(crate) fn parse_mode(raw: &str) -> Result<(String, Option<i64>), String> {
                 .strip_prefix('x')
                 .or_else(|| raw.strip_prefix('X'))
                 .ok_or_else(|| format!("mode must be flow, frozen, or xN like x60, got '{raw}'"))?;
-            let m: i64 = n
-                .parse()
-                .map_err(|_| format!("bad multiplier in mode '{raw}'"))?;
+            let m: i64 = digits_only(n, format!("bad multiplier in mode '{raw}'"))?;
             // The friendly surface keeps its own floor of 1: `x0` here would be a confusing way to
             // spell `--mode frozen`, which already exists. The ceiling is the shared one, so the CLI
             // and the protocol agree on what a session may run at.
@@ -177,8 +188,8 @@ pub(crate) fn elevation_problem(ra: &RunArgs, elevated: Option<bool>) -> Option<
 /// unvalidated surface (rule 4) - freezing in flight is not a feature here.
 fn parse_set_after(raw: &str) -> Result<(u64, i64), String> {
     let (t, m) = raw.split_once(':').ok_or("--set-after must be <tick>:<multiplier>")?;
-    let tick: u64 = t.parse().map_err(|_| format!("bad tick in '{raw}'"))?;
-    let mult: i64 = m.parse().map_err(|_| format!("bad multiplier in '{raw}'"))?;
+    let tick: u64 = digits_only(t, format!("bad tick in '{raw}'"))?;
+    let mult: i64 = digits_only(m, format!("bad multiplier in '{raw}'"))?;
     if mult < 1 {
         return Err(format!("--set-after multiplier must be >= 1, got '{raw}'"));
     }
@@ -361,12 +372,12 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
             "--ticks" => {
                 i += 1;
                 let raw = flag_value(argv, i, "--ticks", "a number of heartbeats")?;
-                ticks = raw.parse().map_err(|_| format!("bad --ticks value '{raw}'"))?;
+                ticks = digits_only(raw, format!("bad --ticks value '{raw}'"))?;
             }
             "--timeout" => {
                 i += 1;
                 let raw = flag_value(argv, i, "--timeout", "a value in seconds")?;
-                let secs: u64 = raw.parse().map_err(|_| format!("bad --timeout value '{raw}'"))?;
+                let secs: u64 = digits_only(raw, format!("bad --timeout value '{raw}'"))?;
                 if secs == 0 {
                     return Err("--timeout must be at least 1 second".into());
                 }
@@ -383,7 +394,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
                 let (t, mom) = raw
                     .split_once(':')
                     .ok_or("--jump-after must be <tick>:<moment>")?;
-                jump_after = Some((t.parse().map_err(|_| format!("bad tick in '{raw}'"))?, mom.to_string()));
+                jump_after = Some((digits_only(t, format!("bad tick in '{raw}'"))?, mom.to_string()));
             }
             "--report" => {
                 i += 1;
@@ -682,6 +693,31 @@ mod tests {
         assert_eq!(ra.report.as_deref(), Some("r.txt"));
     }
 
+    /// R5-D57. A number on the `run` command line is digits and nothing else, as it is everywhere else in
+    /// the tool (R4-N34): a leading `+` was taken, so `--ticks +5` ran five heartbeats and `x+60` sixty
+    /// times faster, while `calc` refused the same sign. Each refusal says why, and a number that is only
+    /// too large is not told it has the wrong characters.
+    #[test]
+    fn a_sign_before_a_run_number_is_refused_as_calc_refuses_it() {
+        let refused = |words: &[&str]| -> String {
+            let line: Vec<String> = ["app.exe"].iter().chain(words).map(|w| w.to_string()).collect();
+            parse_run_args(&line).err().unwrap_or_else(|| panic!("{words:?} was taken"))
+        };
+        for words in [
+            ["--ticks", "+5"], ["--timeout", "+30"], ["--mode", "x+60"], ["--set-after", "+3:60"], ["--set-after", "3:+60"],
+            ["--jump-after", "+3:2026-01-01T00:00:00"], ["--mode", "x-5"], ["--ticks", " 5"], ["--ticks", ""],
+        ] {
+            let message = refused(&words);
+            assert!(message.ends_with("(digits only)"), "{words:?}: {message}");
+        }
+        let too_large = refused(&["--ticks", "18446744073709551616"]);
+        assert_eq!(too_large, "bad --ticks value '18446744073709551616'");
+        // The digits themselves still run.
+        let line: Vec<String> = ["app.exe", "--ticks", "05", "--mode", "x60", "--set-after", "3:60"].map(String::from).to_vec();
+        let taken = parse_run_args(&line).unwrap();
+        assert_eq!((taken.ticks, taken.multiplier, taken.set_after), (5, Some(60), Some((3, 60))));
+    }
+
     mod properties {
         use super::*;
         use proptest::prelude::*;
@@ -777,7 +813,7 @@ mod tests {
                     ("flow".into(), mode("flow", None)), ("frozen".into(), mode("frozen", None)),
                     ("x60".into(), mode("multiplier", Some(60))), ("X2".into(), mode("multiplier", Some(2))),
                     (format!("x{max}"), mode("multiplier", Some(max))), (format!("x{}", max + 1), None),
-                    ("x0".into(), None), ("x-5".into(), None), ("fast".into(), None), ("x".into(), None),
+                    ("x0".into(), None), ("x-5".into(), None), ("x+60".into(), None), ("fast".into(), None), ("x".into(), None),
                 ]),
                 args,
                 valued("--cwd", values([
@@ -787,17 +823,19 @@ mod tests {
                 valued("--ticks", vec![
                     ("0".into(), Some(Sets::Ticks(0))), ("5".into(), Some(Sets::Ticks(5))),
                     (u64::MAX.to_string(), Some(Sets::Ticks(u64::MAX))), ((u128::from(u64::MAX) + 1).to_string(), None),
-                    ("-1".into(), None), ("x".into(), None),
+                    ("-1".into(), None), ("+5".into(), None), ("x".into(), None),
                 ]),
-                valued("--timeout", values([("1", Some(Sets::Timeout(1))), ("30", Some(Sets::Timeout(30))), ("0", None), ("-1", None)])),
+                valued("--timeout", values([
+                    ("1", Some(Sets::Timeout(1))), ("30", Some(Sets::Timeout(30))), ("0", None), ("-1", None), ("+30", None),
+                ])),
                 valued("--set-after", vec![
                     ("3:60".into(), Some(Sets::SetAfter(3, 60))), ("0:1".into(), Some(Sets::SetAfter(0, 1))),
                     (format!("1:{max}"), Some(Sets::SetAfter(1, max))), (format!("1:{}", max + 1), None),
-                    ("3:0".into(), None), ("3".into(), None), ("x:60".into(), None),
+                    ("3:0".into(), None), ("3".into(), None), ("x:60".into(), None), ("+3:60".into(), None), ("3:+60".into(), None),
                 ]),
                 valued("--jump-after", values([
                     ("3:2026-01-01T00:00:00", Some(Sets::JumpAfter(3, "2026-01-01T00:00:00".into()))),
-                    ("0:+1d", Some(Sets::JumpAfter(0, "+1d".into()))), ("3", None), ("x:2026", None),
+                    ("0:+1d", Some(Sets::JumpAfter(0, "+1d".into()))), ("3", None), ("x:2026", None), ("+3:+1d", None),
                 ])),
                 valued("--report", values([("out.md", Some(Sets::Report("out.md".into()))), ("--x", None)])),
                 valued("--param", values([

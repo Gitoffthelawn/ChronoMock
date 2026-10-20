@@ -70,6 +70,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A number on the `chrono run` command line is digits and nothing else, as it is in `chrono calc`.**
+  The multiplier of `--mode xN`, `--ticks`, `--timeout`, both numbers of `--set-after` and the tick of
+  `--jump-after` took a leading `+`, so `--ticks +5` ran five heartbeats and `--mode x+60` sixty times
+  faster, while `calc` refused the same sign. They are refused now with "(digits only)" at the end of
+  the message, and so are `x-5` and `--set-after 3:-3`, which used to be told the multiplier must be at
+  least 1. A number that is only too large is refused without that note.
 - **A Chromium session covers every page and worker, however many there are.** The audit gives the
   first 256 a row of their own and counts the rest together in the last row, and every one of them runs
   on the session clock. Past 256 they used to be refused the time shim and ran on the real clock, which
