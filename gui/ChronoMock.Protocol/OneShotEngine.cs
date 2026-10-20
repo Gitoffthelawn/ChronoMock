@@ -57,18 +57,34 @@ internal static class OneShotEngine
     /// Throws <see cref="EngineLaunchException"/> when it cannot be started,
     /// <see cref="EngineTimeoutException"/> when it ran past the limit, and
     /// <see cref="OperationCanceledException"/> when <paramref name="ct"/> was cancelled first - in the last
-    /// two cases after killing it: <c>using</c> disposes the managed wrapper, NOT the running process, and a
-    /// cancelled question used to leave the engine running, so a burst of typing left a pile of orphans.
+    /// two cases after killing it when it had started: <c>using</c> disposes the managed wrapper, NOT the
+    /// running process, and a cancelled question used to leave the engine running, so a burst of typing left
+    /// a pile of orphans.
+    /// </summary>
+    internal static Task<EngineRun> RunAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        string? workingDirectory,
+        TimeSpan limit,
+        CancellationToken ct)
+        => RunAsync(executable, arguments, workingDirectory, limit, static process => process.Start(), ct);
+
+    /// <summary>
+    /// The same, with <paramref name="start"/> as the step that starts the process: <see cref="Process.Start()"/>
+    /// in the window, and in a test one that holds until the test lets it go, which is how a start made on
+    /// the caller's thread shows - the call does not come back until it did.
     /// </summary>
     internal static async Task<EngineRun> RunAsync(
         string executable,
         IReadOnlyList<string> arguments,
         string? workingDirectory,
         TimeSpan limit,
+        Func<Process, bool> start,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(executable);
         ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(start);
 
         var psi = new ProcessStartInfo
         {
@@ -91,20 +107,13 @@ internal static class OneShotEngine
         }
 
         using var process = new Process { StartInfo = psi };
-        try
-        {
-            process.Start();
-        }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException
-                                      or ObjectDisposedException or PlatformNotSupportedException)
-        {
-            // The system's own reason only: the process message repeats the path and adds a working
-            // directory, which on the rendered panel made one sentence of four lines (R4-S26).
-            var reason = e is System.ComponentModel.Win32Exception native
-                ? new System.ComponentModel.Win32Exception(native.NativeErrorCode).Message
-                : e.Message;
-            throw new EngineLaunchException(executable, reason);
-        }
+
+        // 🔴 Started on a pool thread, never on the caller's (R5-WY1). The caller is the window's thread, and
+        // creating a process holds it for as long as the system takes - the loader, and an antivirus scanning
+        // the engine before it may run, which on a machine with one is the larger part. The calculator asks
+        // on every edit, so that was a pause on every edit. A question superseded before the pool got to it
+        // starts nothing and comes back cancelled.
+        await Task.Run(() => StartProcess(process, executable, start), ct).ConfigureAwait(false);
 
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
         attempt.CancelAfter(limit);
@@ -139,6 +148,25 @@ internal static class OneShotEngine
             _ = ChildProcesses.KillQuietly(process);
             await ChildProcesses.ObserveQuietly(stdoutTask, stderrTask).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>Start the process, or throw <see cref="EngineLaunchException"/> naming the system's reason.</summary>
+    private static void StartProcess(Process process, string executable, Func<Process, bool> start)
+    {
+        try
+        {
+            start(process);
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException
+                                      or ObjectDisposedException or PlatformNotSupportedException)
+        {
+            // The system's own reason only: the process message repeats the path and adds a working
+            // directory, which on the rendered panel made one sentence of four lines (R4-S26).
+            var reason = e is System.ComponentModel.Win32Exception native
+                ? new System.ComponentModel.Win32Exception(native.NativeErrorCode).Message
+                : e.Message;
+            throw new EngineLaunchException(executable, reason);
         }
     }
 }

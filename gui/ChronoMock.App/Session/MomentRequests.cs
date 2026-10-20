@@ -27,10 +27,18 @@ internal sealed class MomentRequests
     /// a scanner can take longer, and Start then says so rather than go ahead with the date from before.</summary>
     private static readonly TimeSpan StartWait = TimeSpan.FromSeconds(15);
 
+    /// <summary>How long a scenario chosen while the one before it is still unanswered waits before it asks
+    /// (R5-WY1). Arrowing down the list chose every row it passed, and each choice started an engine process
+    /// that the next one killed - with a key held, one for every repeat. At the system's default repeat rate a
+    /// held key moves well inside this, so a run of rows asks for the row it stops on. A choice with nothing
+    /// before it in flight asks at once, so a click costs no wait.</summary>
+    private static readonly TimeSpan ChoiceQuiet = TimeSpan.FromMilliseconds(200);
+
     private readonly MomentField _moment;
     private readonly ICalcEngine? _engine;
     private readonly Func<int> _zoneBias;
     private readonly TimeSpan _startWait;
+    private readonly TimeSpan _choiceQuiet;
     private readonly LatestAnswer _answer = new();
     private bool _filling;
     private bool _relativeAsked;
@@ -41,12 +49,16 @@ internal sealed class MomentRequests
     /// because the zone is part of every question asked here (untouchable rule 2).</param>
     /// <param name="startWait">How long Start waits for the newest answer, the default when null. Shorter
     /// only in a test, which would otherwise sit out the whole default to prove the limit.</param>
-    public MomentRequests(MomentField moment, ICalcEngine? engine, Func<int> zoneBias, TimeSpan? startWait = null)
+    /// <param name="choiceQuiet">How long a choice made over an unanswered one waits, the default when null.
+    /// Longer only in a test, so a slow machine cannot let a row through that a key held down would not.</param>
+    public MomentRequests(
+        MomentField moment, ICalcEngine? engine, Func<int> zoneBias, TimeSpan? startWait = null, TimeSpan? choiceQuiet = null)
     {
         _moment = moment ?? throw new ArgumentNullException(nameof(moment));
         _engine = engine;
         _zoneBias = zoneBias ?? throw new ArgumentNullException(nameof(zoneBias));
         _startWait = startWait ?? StartWait;
+        _choiceQuiet = choiceQuiet ?? ChoiceQuiet;
         _answer.CurrentChanged += (_, e) => CurrentChanged?.Invoke(this, e);
 
         // A change this type did not make - typed, Today or Now, the calculator's date, a history row - is
@@ -87,6 +99,9 @@ internal sealed class MomentRequests
     public async Task<string?> ChooseScenarioAsync(ScenarioItem scenario)
     {
         ArgumentNullException.ThrowIfNull(scenario);
+        // Read before this choice supersedes it: a request still unanswered means the choices are coming
+        // faster than the engine answers them.
+        var overAnUnanswered = !_answer.IsCurrent;
         _relativeAsked = false;
         _answer.Ask();
         if (_answer.Begin() is not { } ticket)
@@ -96,6 +111,13 @@ internal sealed class MomentRequests
 
         try
         {
+            if (overAnUnanswered)
+            {
+                // On the ticket's token, so the next choice, a typed date or the window closing ends the wait
+                // before any engine is started. The field is not current meanwhile, so Start waits for it.
+                await Task.Delay(_choiceQuiet, ticket.Token);
+            }
+
             var resolved = await ScenarioMoment.ResolveAsync(_engine, scenario, _zoneBias(), ticket.Token);
             return Settle(ticket, resolved.Iso, resolved.ErrorKey, fromScenario: true);
         }

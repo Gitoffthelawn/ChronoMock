@@ -64,6 +64,59 @@ public class OneShotEngineTests
             () => Run("for /l %i in (1,1,2000000000) do @rem", TimeSpan.FromSeconds(10), caller.Token));
     }
 
+    /// <summary>
+    /// R5-WY1: the engine is started on a pool thread, never on the caller's - the window's, which creating a
+    /// process held for as long as the loader and an antivirus took, on every edit in the calculator. The start
+    /// here holds until the test lets it go, so a start made on the caller's thread keeps the call from coming
+    /// back - for five seconds, so that is a red assertion rather than a hang.
+    /// </summary>
+    [Fact(Timeout = 15_000)]
+    public async Task The_engine_is_started_off_the_callers_thread()
+    {
+        using var release = new ManualResetEventSlim();
+        var startedBeforeTheCallCameBack = 0;
+
+        var run = OneShotEngine.RunAsync(
+            Cmd,
+            ["/d", "/c", "exit /b 0"],
+            null,
+            TimeSpan.FromSeconds(10),
+            process =>
+            {
+                release.Wait(TimeSpan.FromSeconds(5));
+                Interlocked.Exchange(ref startedBeforeTheCallCameBack, 1);
+                return process.Start();
+            },
+            TestContext.Current.CancellationToken);
+        var startedFirst = Interlocked.CompareExchange(ref startedBeforeTheCallCameBack, 0, 0);
+        release.Set();
+
+        Assert.Equal(0, (await run).ExitCode); // and once let go, it runs as before
+        Assert.Equal(0, startedFirst);
+    }
+
+    [Fact]
+    public async Task A_question_cancelled_before_it_is_asked_starts_no_engine()
+    {
+        // The start no longer happens before the first await, so a question superseded before the pool got to
+        // it is never started - it used to be started and killed at once.
+        var starts = 0;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => OneShotEngine.RunAsync(
+            Cmd,
+            ["/d", "/c", "exit /b 0"],
+            null,
+            TimeSpan.FromSeconds(10),
+            process =>
+            {
+                Interlocked.Increment(ref starts);
+                return process.Start();
+            },
+            new CancellationToken(canceled: true)));
+
+        Assert.Equal(0, starts);
+    }
+
     [Fact]
     public async Task An_engine_that_cannot_start_is_named_with_the_systems_reason()
     {

@@ -259,6 +259,40 @@ public class SessionRunTests
         Assert.Contains("  mode:      native\n", block, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// R5-WY1: the core's process is created on a pool thread, never on the caller's - the window's, which
+    /// creating a process holds for as long as the loader and an antivirus take. The connection here holds
+    /// until the test lets it go, so a connection made on the caller's thread keeps the call from coming back
+    /// (for five seconds, so that is a red assertion rather than a hang).
+    /// </summary>
+    [Fact]
+    public async Task The_core_is_connected_off_the_callers_thread()
+    {
+        using var release = new ManualResetEventSlim();
+        var connectedBeforeTheCallCameBack = 0;
+        var core = new FakeCoreConnection([FakeCoreConnection.ReadyFor(Target)]);
+        var plan = SessionPlan.Build(Target, new TimeSpec
+        {
+            Moment = new MomentSpec { Kind = "absolute", Local = "2038-01-19T03:14:07", TzBiasMin = 0 },
+            Mode = "flow",
+        });
+
+        var open = CoreSession.OpenAsync(plan, Limit, path =>
+        {
+            release.Wait(TimeSpan.FromSeconds(5));
+            Interlocked.Exchange(ref connectedBeforeTheCallCameBack, 1);
+            return core.Connector(path);
+        });
+        var connectedFirst = Interlocked.CompareExchange(ref connectedBeforeTheCallCameBack, 0, 0);
+        release.Set();
+        var opened = await open.WaitAsync(Limit, TestContext.Current.CancellationToken);
+        await opened.Session.DisposeAsync();
+
+        Assert.Equal(0, connectedFirst);
+        Assert.Null(opened.RefusalKey); // and once let go, the handshake passes as before
+        Assert.Equal(plan.CorePath, core.ConnectedTo);
+    }
+
     /// <summary>R5/6b, D2. A core that shook hands is named in the block by what it said: its version and
     /// bitness, then its path.</summary>
     [Fact]
