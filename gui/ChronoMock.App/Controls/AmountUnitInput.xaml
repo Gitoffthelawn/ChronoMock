@@ -31,8 +31,7 @@
          Whatever unit is chosen, the field keeps its width, and no label is cut under the chevron. -->
     <ComboBox x:Name="UnitList" ItemsSource="{Binding Units}" SelectedItem="{Binding Unit}"
               VerticalAlignment="Center"
-              ItemContainerStyle="{StaticResource LabelKeyComboItem}"
-              ItemTemplate="{StaticResource LabelKeyText}"
+              Style="{StaticResource LabelKeyCombo}"
               AutomationProperties.Name="{Binding AccessibleName, ElementName=Root, Converter={StaticResource PartName}, ConverterParameter={x:Static controls:AmountUnitInput.UnitWordKey}}" />
   </StackPanel>
 </UserControl>

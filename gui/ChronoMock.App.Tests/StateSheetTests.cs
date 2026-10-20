@@ -428,13 +428,13 @@ public class StateSheetTests
             total += Rendered("calculator-refused", view);
 
             // The analysis strip refusing a pasted text: the failure, the engine's sentence, no old readings.
-            vm.AnalyzeText = "31/31/2031";
-            await CalculatorAnswerTests.Until(() => vm.AnalyzeHasError && !vm.IsAnalysisStale, "the analysis refusal");
+            vm.Analysis.AnalyzeText = "31/31/2031";
+            await CalculatorAnswerTests.Until(() => vm.Analysis.AnalyzeHasError && !vm.Analysis.IsAnalysisStale, "the analysis refusal");
             total += Rendered("calculator-analysis-refused", view);
 
             // R4-S23: a pasted number - two instants, each with its time, and the zone they are shown in.
-            vm.AnalyzeText = "1740607200";
-            await CalculatorAnswerTests.Until(() => vm.HasAnalysisZoneLine && !vm.IsAnalysisStale, "the epoch readings");
+            vm.Analysis.AnalyzeText = "1740607200";
+            await CalculatorAnswerTests.Until(() => vm.Analysis.HasAnalysisZoneLine && !vm.Analysis.IsAnalysisStale, "the epoch readings");
             total += Rendered("calculator-analysis-epoch", view);
             return total;
         });

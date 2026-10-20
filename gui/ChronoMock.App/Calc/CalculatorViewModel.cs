@@ -408,7 +408,7 @@ public sealed class ReadingRow
         // The engine sends the weekday name in English - map it to a key so the view renders it in the
         // current language (rule 15), rather than baking an English literal into a bound string. Kept as a
         // key (not resolved here) so this row stays language-neutral and unit-testable without a WPF host.
-        WeekdayKey = CalculatorViewModel.WeekdayKey(reading.Metadata.Weekday);
+        WeekdayKey = ResultProjection.WeekdayKey(reading.Metadata.Weekday);
         Significance = new ObservableCollection<string>(reading.Significance.Select(key => $"calc.sig.{key}"));
     }
 
@@ -442,7 +442,6 @@ public sealed class CalculatorViewModel : ObservableObject
     private bool _unpacking;
     private bool _hasActivePreset;
     private string _activeNoteKey = string.Empty;
-    private string _analysisZoneLine = string.Empty;
     private bool _hasParamInputs;
     private string _activePresetName = string.Empty;
     private string _activePresetExplains = string.Empty;
@@ -474,20 +473,10 @@ public sealed class CalculatorViewModel : ObservableObject
     private int _resultZoneBias;
     private bool _computedOnce;
 
-    private string _analyzeText = "04/08/2008";
-    private bool _hasAnalysis;
-    private bool _analyzeAmbiguous;
-    private bool _analyzeHasError;
-    private string _analyzeError = string.Empty;
-    private string _analyzeErrorDetail = string.Empty;
-
     /// <summary>Which edit of the builder the result on screen answers (R4-W4). Every edit asks, and a
     /// result is applied only while it answers the newest edit. It also owns the in-flight run's
     /// cancellation, which two hand-kept fields used to do (see LatestAnswer for the ownership rule).</summary>
     private readonly LatestAnswer _result = new();
-
-    /// <summary>The same for the reverse-analysis strip and the text pasted into it (R4-N44).</summary>
-    private readonly LatestAnswer _analysis = new();
 
     /// <summary>How long an action pressed during a recompute waits for the answer to the current input
     /// before giving up. Above the engine's own 10 s limit, so an honest run always answers inside it.
@@ -504,14 +493,12 @@ public sealed class CalculatorViewModel : ObservableObject
     private static readonly TimeSpan EditDebounce = TimeSpan.FromMilliseconds(250);
 
     private readonly Debounce _recomputeDebounce = new(EditDebounce);
-    private readonly Debounce _analyzeDebounce = new(EditDebounce);
 
     public CalculatorViewModel(ICalcEngine client, PresetLibrary? presets = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _presets = presets;
         _result.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsResultStale));
-        _analysis.CurrentChanged += (_, _) => RaisePropertyChanged(nameof(IsAnalysisStale));
 
         // 🔴 Three kinds on screen, not four. "Specific instant (UTC)" was a fourth entry that meant
         // "Specific date, read in UTC" - a zone folded into the base kind, from before the zone picker
@@ -579,6 +566,9 @@ public sealed class CalculatorViewModel : ObservableObject
         // moment this panel is created.
         BaseZones = TimeInputs.CalcZones();
         _baseZone = BaseZones[0];
+
+        // The strip reads the zone at the moment it asks, so a new zone needs no wiring beyond a Trigger.
+        Analysis = new ReverseAnalysisViewModel(client, () => _baseZone, EditDebounce);
 
         Steps.CollectionChanged += (_, _) => TriggerRecompute();
     }
@@ -656,42 +646,9 @@ public sealed class CalculatorViewModel : ObservableObject
     /// <summary>Whether the active preset shows parameter inputs.</summary>
     public bool HasParamInputs { get => _hasParamInputs; private set => Set(ref _hasParamInputs, value); }
 
-    /// <summary>Reverse analysis (7.3): the reading(s) a pasted date resolves to, both shown when ambiguous.</summary>
-    public ObservableCollection<ReadingRow> Readings { get; } = [];
-
-    /// <summary>The pasted date to interpret (reverse analysis).</summary>
-    public string AnalyzeText
-    {
-        get => _analyzeText;
-        set
-        {
-            if (Set(ref _analyzeText, value))
-            {
-                TriggerAnalyze();
-            }
-        }
-    }
-
-    public bool HasAnalysis { get => _hasAnalysis; private set => Set(ref _hasAnalysis, value); }
-    public bool AnalyzeAmbiguous { get => _analyzeAmbiguous; private set => Set(ref _analyzeAmbiguous, value); }
-    public bool AnalyzeHasError { get => _analyzeHasError; private set => Set(ref _analyzeHasError, value); }
-    public string AnalyzeError { get => _analyzeError; private set => Set(ref _analyzeError, value); }
-
-    /// <summary>The engine's own sentence under the analysis failure, the way the result column shows one
-    /// under its own (R4-N44): it names what the engine could not read, which the translated line alone
-    /// does not. Empty when it would only repeat that line.</summary>
-    public string AnalyzeErrorDetail
-    {
-        get => _analyzeErrorDetail;
-        private set { if (Set(ref _analyzeErrorDetail, value)) { RaisePropertyChanged(nameof(HasAnalyzeErrorDetail)); } }
-    }
-
-    public bool HasAnalyzeErrorDetail => _analyzeErrorDetail.Length > 0;
-
-    /// <summary>Whether the readings on screen are for an earlier text than the one in the box - from an
-    /// edit until the analysis of it lands. The strip shows that rather than pass old readings off as
-    /// the new text's.</summary>
-    public bool IsAnalysisStale => !_analysis.IsCurrent;
+    /// <summary>Reverse analysis (7.3): the reading(s) a pasted date resolves to, both shown when ambiguous.
+    /// Its own view model (R5-D9), bound as the strip's DataContext.</summary>
+    public ReverseAnalysisViewModel Analysis { get; }
 
     public BaseKindOption SelectedBase
     {
@@ -750,7 +707,7 @@ public sealed class CalculatorViewModel : ObservableObject
                 TriggerRecompute();
                 // A pasted number is an instant, read in this same zone - the one `--zone` names for
                 // `--analyze` in the CLI too (R4-S23, owner's decision D4) - so its readings move with it.
-                TriggerAnalyze();
+                Analysis.Trigger();
             }
         }
     }
@@ -758,8 +715,12 @@ public sealed class CalculatorViewModel : ObservableObject
     /// <summary>The <c>--zone</c> argument for the current pick, or null for the host entry, which means
     /// "send nothing and let the engine read the host's zone" (untouchable rule 2: the panel still SHOWS
     /// which zone that is, it just does not pin it).</summary>
-    private string? BaseZoneOffset =>
-        _baseZone.IsHost ? null : ZoneLabel.OffsetFromBiasMinutes(_baseZone.BiasMinutes);
+    private string? BaseZoneOffset => ZoneArgument(_baseZone);
+
+    /// <summary>The <c>--zone</c> argument for a pick of the zone list, or null for the host entry. One rule
+    /// for the builder and the reverse analysis, which read a pasted number in the same zone (R4-S23).</summary>
+    internal static string? ZoneArgument(ZoneOption zone)
+        => zone.IsHost ? null : ZoneLabel.OffsetFromBiasMinutes(zone.BiasMinutes);
 
     /// <summary>The argument list the CURRENT builder state produces - the one <see cref="RecomputeAsync"/>
     /// actually sends. Its own method so a test can read what this panel would ask for: asserting
@@ -980,7 +941,7 @@ public sealed class CalculatorViewModel : ObservableObject
     public void Abandon()
     {
         _result.Abandon();
-        _analysis.Abandon();
+        Analysis.Abandon();
     }
 
     /// <summary>Compute once when the screen is first shown (never from the constructor, so building the
@@ -994,133 +955,10 @@ public sealed class CalculatorViewModel : ObservableObject
 
         _computedOnce = true;
         _ = LoadPresetsAsync();
-        _analysis.Ask();
-        _ = AnalyzeAsync(); // the reverse-analysis strip is live from the start (its default example)
+        Analysis.Start(); // the reverse-analysis strip is live from the start (its default example)
         _result.Ask();
         return RecomputeAsync();
     }
-
-    /// <summary>Build the calc arguments for reverse analysis (pure - unit-tested). <paramref name="zoneOffset"/>
-    /// is the calculator's zone, null for this machine's, which sends no flag - the zone a pasted number is
-    /// read in, exactly as <c>--zone</c> does for <c>--analyze</c> in the CLI (R4-S23).</summary>
-    public static IReadOnlyList<string> BuildAnalyzeArgs(string text, string? zoneOffset = null)
-        => zoneOffset is null ? ["--analyze", text.Trim()] : ["--analyze", text.Trim(), "--zone", zoneOffset];
-
-    private void TriggerAnalyze()
-    {
-        if (_computedOnce)
-        {
-            _analysis.Ask();
-            _ = _analyzeDebounce.RunAsync(AnalyzeAsync);
-        }
-    }
-
-    private async Task AnalyzeAsync()
-    {
-        // Null when the text in the box already has its analysis on screen - nothing to compute.
-        if (_analysis.Begin() is not { } ticket)
-        {
-            return;
-        }
-
-        try
-        {
-            var result = await _client.EvaluateAsync(BuildAnalyzeArgs(_analyzeText, BaseZoneOffset), ticket.Token);
-            if (_analysis.Accept(ticket))
-            {
-                ApplyAnalysis(result);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // A newer text superseded this one - its own analysis answers it.
-        }
-        catch (CalcException e)
-        {
-            if (_analysis.Accept(ticket))
-            {
-                ShowAnalysisError(DescribeCalcError(e.Message), DetailForCalcError(e.Message));
-            }
-        }
-        catch (Exception e)
-        {
-            // Any other failure (an incomplete reading dereferenced in ApplyAnalysis / ReadingRow) is
-            // surfaced honestly rather than swallowed by this fire-and-forget task (M-11, rule 6). Not a
-            // translated key: this is a .NET fault with no key to map, and the message is all there is.
-            if (_analysis.Accept(ticket))
-            {
-                ShowAnalysisError(e.Message, string.Empty);
-            }
-        }
-        finally
-        {
-            _analysis.Release(ticket);
-        }
-    }
-
-    /// <summary>An analysis that failed shows the failure and nothing else (R4-N44): the readings of the
-    /// text before it stayed on screen under the error, read as this text's.</summary>
-    private void ShowAnalysisError(string message, string detail)
-    {
-        AnalyzeError = message;
-        AnalyzeErrorDetail = detail;
-        AnalyzeHasError = true;
-        HasAnalysis = false;
-        AnalyzeAmbiguous = false;
-        AnalysisZoneLine = string.Empty;
-        Readings.Clear();
-    }
-
-    /// <summary>The sentence above instant readings. A number is an instant because it carries no
-    /// date, a date with an offset (<c>2026-01-01T10:00:00+02:00</c>, R5-D5 item 5) because it names its
-    /// own zone - the line for the number said "a number" of a date, so the second one has its own.</summary>
-    internal static string AnalysisZoneKey(IEnumerable<CalcReading> readings)
-        => readings.Any(r => string.Equals(r.Reading, "iso_offset", StringComparison.Ordinal))
-            ? "calc.analyze_zone_offset"
-            : "calc.analyze_zone";
-
-    private void ApplyAnalysis(CalcResult result)
-    {
-        if (result.Analysis is not { } analysis)
-        {
-            ShowAnalysisError(Tr("calc.err.no_readings"), string.Empty);
-            return;
-        }
-
-        AnalyzeHasError = false;
-        AnalyzeError = string.Empty;
-        AnalyzeErrorDetail = string.Empty;
-        AnalyzeAmbiguous = analysis.Ambiguous;
-        // An instant has a wall clock only in some zone, and the readings showed it with no zone near them
-        // (R4-S23) - the CLI prints the same line above them. A date written as fields has none to name.
-        AnalysisZoneLine = analysis.Readings.Any(r => r.Instant)
-            ? TextFormat.Translate(
-                Tr, AnalysisZoneKey(analysis.Readings),
-                ZoneLabel.FromBiasMinutes(analysis.ZoneBiasMin) + (_baseZone.IsHost ? $" ({Tr("zone.host")})" : string.Empty))
-            : string.Empty;
-        Readings.Clear();
-        foreach (var reading in analysis.Readings)
-        {
-            Readings.Add(new ReadingRow(reading));
-        }
-
-        HasAnalysis = Readings.Count > 0;
-    }
-
-    /// <summary>The line above instant readings naming the zone they are shown in, empty when there is none.</summary>
-    public string AnalysisZoneLine
-    {
-        get => _analysisZoneLine;
-        private set
-        {
-            if (Set(ref _analysisZoneLine, value))
-            {
-                RaisePropertyChanged(nameof(HasAnalysisZoneLine));
-            }
-        }
-    }
-
-    public bool HasAnalysisZoneLine => _analysisZoneLine.Length > 0;
 
     /// <summary>Where the scenario list stands - reading, failed, empty, or read with files left out.</summary>
     public CatalogueStatus PresetStatus { get; } = new();
@@ -1480,65 +1318,39 @@ public sealed class CalculatorViewModel : ObservableObject
         return args;
     }
 
-    private async Task RecomputeAsync()
-    {
-        // Null when the builder as it stands already has its result on screen - a run scheduled before a
-        // preset settled the result has nothing left to answer (R4-S21).
-        if (_result.Begin() is not { } ticket)
+    private Task RecomputeAsync() => _result.RunAsync<CalcResult?>(
+        // A Specific base that is not a well-formed moment yet must not spawn a broken --base: the
+        // MomentInput shows the precise inline reason, and the result is cleared rather than left stale
+        // (rule 6). Today and Now carry no base text, so they always compute. The arguments are built
+        // inside the run, so a throw there is answered like any other failure.
+        async token => IsSpecificBase && !Base.IsValid
+            ? null
+            : await _client.EvaluateAsync(BuildCurrentArgs(), token),
+        result =>
         {
-            return;
-        }
-
-        // 🔴 EVERY path below answers the ticket, the argument building included: a throw outside this
-        // block would leave the newest edit with no answer ever, and an action waiting for one would sit
-        // out its whole limit before giving up.
-        try
-        {
-            // A Specific base that is not a well-formed moment yet must not spawn a broken --base: the
-            // MomentInput shows the precise inline reason, and the result is cleared rather than left stale
-            // (rule 6). Today and Now carry no base text, so they always compute.
-            if (IsSpecificBase && !Base.IsValid)
+            if (result is null)
             {
-                if (_result.Accept(ticket))
-                {
-                    ClearResult();
-                }
-
-                return;
+                ClearResult();
             }
-
-            var result = await _client.EvaluateAsync(BuildCurrentArgs(), ticket.Token);
-            if (_result.Accept(ticket))
+            else
             {
                 ApplyResult(result);
             }
-        }
-        catch (OperationCanceledException)
+        },
+        e =>
         {
-            // A newer edit superseded this one - its own run answers it.
-        }
-        catch (CalcException e)
-        {
-            if (_result.Accept(ticket))
+            if (e is CalcException calc)
             {
-                ShowError(DescribeCalcError(e.Message), DetailForCalcError(e.Message), IsNeedsCalendar(e.Message));
+                ShowError(DescribeCalcError(calc.Message), DetailForCalcError(calc.Message), IsNeedsCalendar(calc.Message));
             }
-        }
-        catch (Exception e)
-        {
-            // Any other failure (a malformed/incomplete calc result dereferenced in ApplyResult) is
-            // surfaced as an honest error, never silently swallowed by this fire-and-forget task (M-11,
-            // rule 6). A .NET fault, not an engine refusal, so there is no second line to add.
-            if (_result.Accept(ticket))
+            else
             {
+                // Any other failure (a malformed/incomplete calc result dereferenced in ApplyResult) is
+                // surfaced as an honest error, never silently swallowed by this fire-and-forget task (M-11,
+                // rule 6). A .NET fault, not an engine refusal, so there is no second line to add.
                 ShowError(e.Message, string.Empty, calendarMissing: false);
             }
-        }
-        finally
-        {
-            _result.Release(ticket);
-        }
-    }
+        });
 
     /// <summary>
     /// A failed evaluation shows the failure and NOTHING of the result before it (R4-S21). The old date,
@@ -1613,54 +1425,41 @@ public sealed class CalculatorViewModel : ObservableObject
             return;
         }
 
+        Show(ResultProjection.From(moment, Calendars, Tr));
+    }
+
+    /// <summary>Put a result column on screen - a computed moment's, or the empty one. One method for both,
+    /// so every line the result writes is also a line the clear clears (R4-N43).</summary>
+    private void Show(ResultLines lines)
+    {
         HasError = false;
         Error = string.Empty;
         ErrorDetail = string.Empty;
         CalendarMissing = false;
-
-        var t = moment.Iso.IndexOf('T', StringComparison.Ordinal);
-        ResultDate = t >= 0 ? moment.Iso[..t] : moment.Iso;
-        ResultTime = t >= 0 ? moment.Iso[(t + 1)..] : string.Empty;
-        // The engine sends the weekday in English - render it in the current language (rule 15). Resolved
-        // here (not exposed as a key) because it is one part of the result column the view binds as text.
-        ResultWeekday = Tr(WeekdayKey(moment.Metadata.Weekday));
-        ResultZone = OffsetLabel(moment.ZoneBiasMin);
-
+        HasResult = lines.HasResult;
+        CanUseInSubstitution = lines.CanUseInSubstitution;
+        _resultMomentLocal = lines.MomentLocal;
+        _resultZoneBias = lines.ZoneBias;
+        ResultWeekday = lines.Weekday;
+        ResultDate = lines.Date;
+        ResultTime = lines.Time;
+        ResultZone = lines.Zone;
+        MetadataLine = lines.MetadataLine;
         Significance.Clear();
-        foreach (var key in moment.Significance)
+        foreach (var key in lines.SignificanceKeys)
         {
-            Significance.Add($"calc.sig.{key}");
+            Significance.Add(key);
         }
 
         HasSignificance = Significance.Count > 0;
-        SignificanceCalendar = HasSignificance
-            ? CalendarNote(
-                moment.Metadata.Calendar,
-                moment.Significance.Contains("before_calendar") ? moment.Metadata.CalendarValidFrom : null,
-                moment.Significance.Contains("calendar_outdated") ? moment.Metadata.CalendarLawAsOf : null)
-            : string.Empty;
-
-        ShowFormats(moment.Formats);
-        ShowCustomFormat(moment.CustomFormat, moment.CustomFormatUnknown);
-
-        // One line per clamped step, so a two-clamp expression does not hide the second one. Through
-        // TextFormat, like every translated template: a broken translation file used to throw here,
-        // halfway through applying a result (R4-N46).
-        var clamps = moment.ClampedSteps;
-        HasClampNotice = clamps is { Count: > 0 };
-        ClampNotice = HasClampNotice
-            ? string.Join(
-                Environment.NewLine,
-                clamps!.Select(c => TextFormat.Translate("calc.clamped_step", c.Step, c.RequestedDay, c.ClampedTo)))
-            : string.Empty;
-
-        MetadataLine = BuildMetadataLine(moment.Metadata);
-        HasResult = true;
-
-        // Remember the moment with its zone for the bridge to substitution (rule 2 - never a bare date).
-        _resultMomentLocal = moment.Iso;
-        _resultZoneBias = moment.ZoneBiasMin;
-        CanUseInSubstitution = CanTransferZone(moment.ZoneBiasMin);
+        SignificanceCalendar = lines.SignificanceCalendar;
+        ShowFormats(lines.Formats);
+        CustomFormatRow.Show(lines.CustomFormat, lines.CustomFormat.Length > 0);
+        HasCustomFormat = lines.CustomFormat.Length > 0;
+        CustomFormatWarning = lines.CustomFormatWarning;
+        HasCustomFormatWarning = lines.HasCustomFormatWarning;
+        ClampNotice = lines.ClampNotice;
+        HasClampNotice = lines.HasClampNotice;
     }
 
     /// <summary>
@@ -1672,25 +1471,19 @@ public sealed class CalculatorViewModel : ObservableObject
     /// after a clear or a language switch (R4-Z4).
     /// </para>
     /// </summary>
-    private void ShowFormats(CalcFormats f)
+    private void ShowFormats(IReadOnlyList<FormatValue> fresh)
     {
-        (string Key, string? Value)[] fresh =
-        [
-            ("calc.fmt.iso_date", f.IsoDate),
-            ("calc.fmt.iso_datetime", f.IsoDatetime),
-            ("calc.fmt.us", f.Us),
-            ("calc.fmt.pl", f.Pl),
-            ("calc.fmt.epoch_s", Number(f.EpochSeconds)),
-            ("calc.fmt.epoch_ms", Number(f.EpochMillis)),
-            ("calc.fmt.filetime", Number(f.Filetime)),
-            ("calc.fmt.rfc1123", f.Rfc1123),
-        ];
+        if (fresh.Count == 0)
+        {
+            ClearFormats();
+            return;
+        }
 
-        var labels = fresh.Select(row => Tr(row.Key)).ToArray();
+        var labels = fresh.Select(row => Tr(row.LabelKey)).ToArray();
         if (!Formats.Select(row => row.Label).SequenceEqual(labels, StringComparer.Ordinal))
         {
             ClearFormats();
-            for (var i = 0; i < fresh.Length; i++)
+            for (var i = 0; i < fresh.Count; i++)
             {
                 Formats.Add(new FormatRow(labels[i], fresh[i].Value ?? Tr("calc.out_of_range"), fresh[i].Value is not null));
             }
@@ -1698,60 +1491,18 @@ public sealed class CalculatorViewModel : ObservableObject
             return;
         }
 
-        for (var i = 0; i < fresh.Length; i++)
+        for (var i = 0; i < fresh.Count; i++)
         {
             Formats[i].Show(fresh[i].Value ?? Tr("calc.out_of_range"), fresh[i].Value is not null);
         }
     }
 
-    /// <summary>The custom-format row, present only when a mask was passed (--format). It comes from the
-    /// civil date, so unlike epoch/FILETIME it never falls out of range.</summary>
-    private void ShowCustomFormat(string? rendered, IReadOnlyList<string>? unknown)
-    {
-        var custom = rendered ?? string.Empty;
-        CustomFormatRow.Show(custom, custom.Length > 0);
-        HasCustomFormat = custom.Length > 0;
-
-        // The engine names the letter runs it did not recognise. They ARE in the line above, verbatim,
-        // so the row without this warning reads as a rendered date that happens to contain letters.
-        HasCustomFormatWarning = HasCustomFormat && unknown is { Count: > 0 };
-        CustomFormatWarning = HasCustomFormatWarning
-            ? TextFormat.Translate("calc.fmt.unknown_tokens", string.Join(", ", unknown!))
-            : string.Empty;
-    }
-
     /// <summary>
     /// Clear the result column to an honest empty state: an unreadable base (the MomentInput already says
     /// why), an engine refusal, or a preset still waiting for a parameter. Nothing of the result before it
-    /// may stay, so every line the result writes is cleared here - the clamp note and the custom-format
-    /// warning were not, and stood under a result that was no longer there (R4-N43).
+    /// may stay - see <see cref="Show"/>.
     /// </summary>
-    private void ClearResult()
-    {
-        HasError = false;
-        Error = string.Empty;
-        ErrorDetail = string.Empty;
-        CalendarMissing = false;
-        HasResult = false;
-        CanUseInSubstitution = false;
-        _resultMomentLocal = string.Empty;
-        _resultZoneBias = 0;
-        ResultWeekday = string.Empty;
-        ResultDate = "-";
-        ResultTime = string.Empty;
-        ResultZone = string.Empty;
-        MetadataLine = string.Empty;
-        Significance.Clear();
-        HasSignificance = false;
-        SignificanceCalendar = string.Empty;
-        ClearFormats();
-        CustomFormatRow.Show(string.Empty, hasValue: false);
-        HasCustomFormat = false;
-        CustomFormatWarning = string.Empty;
-        HasCustomFormatWarning = false;
-        ClampNotice = string.Empty;
-        HasClampNotice = false;
-    }
+    private void ClearResult() => Show(ResultLines.Empty);
 
     /// <summary>Take the format rows off the screen. A press that is still waiting holds its row, so the
     /// row is told it has no value first - the press then copies nothing rather than a value from a result
@@ -1766,80 +1517,8 @@ public sealed class CalculatorViewModel : ObservableObject
         Formats.Clear();
     }
 
-    /// <summary>The sentence naming the calendar that judged the weekend and holiday marks, or empty when
-    /// the engine applied none. The id comes back from the engine (e.g. "us-banking") and is shown through
-    /// the picker's own label, so the note names the calendar the way the tester picked it (rule 15). An id
-    /// the picker does not know is shown as itself rather than dropped - an honest raw id beats a sentence
-    /// that quietly omits which calendar it means.
-    ///
-    /// Two results say more about the calendar than its name (R4-S20, R4/20). <paramref name="startsIn"/> is
-    /// the calendar's first year when the date lies before it: the calendar judged nothing, and "marks
-    /// follow" would claim it did. <paramref name="lawAsOf"/> is the day its holidays were checked against
-    /// the law when that check is more than a year old for what was computed: the note says from when, so
-    /// the tester can tell how old.</summary>
-    internal string CalendarNote(string? calendarId, long? startsIn = null, string? lawAsOf = null)
-    {
-        if (calendarId is null)
-        {
-            return string.Empty;
-        }
-
-        var label = Calendars.FirstOrDefault(c => c.Id == calendarId) is { } known
-            ? Tr(known.LabelKey)
-            : calendarId;
-        if (startsIn is { } year)
-        {
-            return TextFormat.Translate("calc.sig_calendar_before", label, year);
-        }
-
-        return lawAsOf is { } day
-            ? TextFormat.Translate("calc.sig_calendar_outdated", label, day)
-            : TextFormat.Translate("calc.sig_calendar", label);
-    }
-
-    private static string BuildMetadataLine(CalcMetadata m)
-    {
-        // Labels are translated (rule 15) - ISO and Q are universal notation, and the numbers and holiday
-        // name are data. The weekday comes from the engine in English, mapped to a key and resolved.
-        var parts = new List<string>
-        {
-            Tr(WeekdayKey(m.Weekday)),
-            $"ISO {m.IsoWeekYear}-W{m.IsoWeek:D2}",
-            $"{Tr("calc.md.us_week")} {m.UsWeek}",
-            $"Q{m.Quarter}",
-            $"{Tr("calc.md.day")} {m.DayOfYear}",
-            Tr(m.IsLeapYear ? "calc.md.leap_year" : "calc.md.common_year"),
-        };
-        if (m.BusinessDay is { } business)
-        {
-            parts.Add(Tr(business ? "calc.md.business_day" : "calc.md.not_business_day"));
-        }
-
-        if (m.Holiday is { } holiday)
-        {
-            parts.Add(holiday); // the holiday name follows the DATA locale (the calendar), not the UI (rule 15)
-        }
-
-        return string.Join(" · ", parts);
-    }
-
-    /// <summary>Translation key for a weekday name the engine emits in English (e.g. "Monday" ->
-    /// "calc.weekday.monday"). An unrecognised name falls through to KeyToText's honest key-as-text.</summary>
-    internal static string WeekdayKey(string engineWeekday)
-        => $"calc.weekday.{engineWeekday.ToLowerInvariant()}";
-
     /// <summary>Resolve a translation key to text in the current language, for the composed result strings
     /// (metadata line, weekday, format labels) that the view binds as text rather than as a key.</summary>
     private static string Tr(string key) => TranslationKeyConverter.Resolve(key);
 
-    private static string? Number(long? value)
-        => value?.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-    /// <summary>A "+HH:MM" / "-HH:MM" offset for a session bias (UTC = local + bias, so the offset is -bias).</summary>
-    private static string OffsetLabel(int biasMin)
-    {
-        var off = -biasMin;
-        var sign = off < 0 ? '-' : '+';
-        return $"UTC{sign}{Math.Abs(off) / 60:D2}:{Math.Abs(off) % 60:D2}";
-    }
 }

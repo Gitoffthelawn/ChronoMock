@@ -162,6 +162,58 @@ internal sealed class LatestAnswer
     }
 
     /// <summary>
+    /// One run for the newest input, from its ticket to its release: <paramref name="ask"/> computes the
+    /// answer, and <paramref name="answer"/> or <paramref name="fail"/> puts it on screen only while it still
+    /// answers the newest input. A run superseded on the way ends quietly - the newer input's own run answers
+    /// it. Nothing to compute (the newest input already has its answer) means nothing runs.
+    /// <para>
+    /// 🔴 EVERY path answers the ticket, the asking included: <paramref name="ask"/> runs inside the guard, so
+    /// a throw while building the question is a failure shown like any other rather than an input left with
+    /// no answer ever, which an action waiting on <see cref="WhenCurrentAsync"/> would sit out to its limit.
+    /// A throw out of <paramref name="answer"/> is shown through <paramref name="fail"/> too, so an answer
+    /// the screen cannot take (an incomplete payload) is said rather than lost (M-11, rule 6).
+    /// </para>
+    /// <para>
+    /// The calculator's result and its reverse analysis are two runs of this one shape, which each of them
+    /// used to write out in full (R5-D9).
+    /// </para>
+    /// </summary>
+    public async Task RunAsync<T>(Func<CancellationToken, Task<T>> ask, Action<T> answer, Action<Exception> fail)
+    {
+        ArgumentNullException.ThrowIfNull(ask);
+        ArgumentNullException.ThrowIfNull(answer);
+        ArgumentNullException.ThrowIfNull(fail);
+        if (Begin() is not { } ticket)
+        {
+            return;
+        }
+
+        try
+        {
+            var value = await ask(ticket.Token);
+            if (Accept(ticket))
+            {
+                answer(value);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer input superseded this one - its own run answers it.
+        }
+        catch (Exception e)
+        {
+            if (Accept(ticket))
+            {
+                fail(e);
+            }
+        }
+        finally
+        {
+            Release(ticket);
+        }
+    }
+
+    /// <summary>
     /// Wait until the answer on screen belongs to the newest input, at most <paramref name="limit"/>. True
     /// when it does. Completes at once, without yielding, when nothing is being computed - so an action
     /// that waits behaves exactly as it did before whenever there is nothing to wait for.

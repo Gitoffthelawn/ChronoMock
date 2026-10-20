@@ -433,9 +433,9 @@
         "to": "reading.Significance.Select(key => $\"calc.landmark.{key}\")"
       },
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "Significance.Add($\"calc.sig.{key}\");",
-        "to": "Significance.Add($\"calc.landmark.{key}\");"
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "moment.Significance.Select(key => $\"calc.sig.{key}\")",
+        "to": "moment.Significance.Select(key => $\"calc.landmark.{key}\")"
       }
     ],
     "runner": "rust",
@@ -834,9 +834,9 @@
         "to": "reading.Significance.Select(key => $\"calc.landmark.{key}\")"
       },
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "Significance.Add($\"calc.sig.{key}\");",
-        "to": "Significance.Add($\"calc.landmark.{key}\"); // was Add($\"calc.sig.{key}\")"
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "moment.Significance.Select(key => $\"calc.sig.{key}\").ToList();",
+        "to": "moment.Significance.Select(key => $\"calc.landmark.{key}\").ToList(); // was $\"calc.sig.{key}\""
       }
     ],
     "runner": "rust",
@@ -4273,8 +4273,8 @@
     "name": "r4-16 n28 gui record without the field",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "            KeepBackgroundTimers = _startCaptured ? _startKeepBackgroundTimers : _keepBackgroundTimers,\n",
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        KeepBackgroundTimers = setup.KeepBackgroundTimers,\n",
         "to": ""
       }
     ],
@@ -4726,8 +4726,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "        ClampNotice = string.Empty;\n        HasClampNotice = false;\n",
-        "to": ""
+        "from": "        ClampNotice = lines.ClampNotice;\n        HasClampNotice = lines.HasClampNotice;\n",
+        "to": "        if (lines.HasResult)\n        {\n            ClampNotice = lines.ClampNotice;\n            HasClampNotice = lines.HasClampNotice;\n        }\n"
       }
     ],
     "runner": "cs",
@@ -4743,8 +4743,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "        CustomFormatWarning = string.Empty;\n        HasCustomFormatWarning = false;\n        ClampNotice",
-        "to": "        ClampNotice"
+        "from": "        CustomFormatWarning = lines.CustomFormatWarning;\n        HasCustomFormatWarning = lines.HasCustomFormatWarning;\n",
+        "to": "        if (lines.HasResult)\n        {\n            CustomFormatWarning = lines.CustomFormatWarning;\n            HasCustomFormatWarning = lines.HasCustomFormatWarning;\n        }\n"
       }
     ],
     "runner": "cs",
@@ -5682,9 +5682,9 @@
     "name": "r4-17 w4 stale answer accepted",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "            if (_result.Accept(ticket))\n            {\n                ApplyResult(result);",
-        "to": "            if (_result.Accept(ticket) || ticket.Generation >= 0)\n            {\n                ApplyResult(result);"
+        "file": "gui/ChronoMock.App/LatestAnswer.cs",
+        "from": "            if (Accept(ticket))\n            {\n                answer(value);",
+        "to": "            if (Accept(ticket) || ticket.Generation >= 0)\n            {\n                answer(value);"
       }
     ],
     "runner": "cs",
@@ -5751,8 +5751,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "        CustomFormatWarning = string.Empty;\n        HasCustomFormatWarning = false;\n",
-        "to": ""
+        "from": "        HasCustomFormatWarning = lines.HasCustomFormatWarning;\n",
+        "to": "        HasCustomFormatWarning = lines.HasCustomFormatWarning || HasCustomFormatWarning;\n"
       }
     ],
     "runner": "cs",
@@ -5801,9 +5801,9 @@
     "name": "r4-17 n44 detail lost",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "ShowAnalysisError(DescribeCalcError(e.Message), DetailForCalcError(e.Message));",
-        "to": "ShowAnalysisError(DescribeCalcError(e.Message), string.Empty);"
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
+        "from": "ShowAnalysisError(CalculatorViewModel.DescribeCalcError(calc.Message), CalculatorViewModel.DetailForCalcError(calc.Message));",
+        "to": "ShowAnalysisError(CalculatorViewModel.DescribeCalcError(calc.Message), string.Empty);"
       }
     ],
     "runner": "cs",
@@ -5818,7 +5818,7 @@
     "name": "r4-17 n44 readings stay",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        AnalyzeAmbiguous = false;\n        AnalysisZoneLine = string.Empty;\n        Readings.Clear();\n    }",
         "to": "        AnalyzeAmbiguous = false;\n        AnalysisZoneLine = string.Empty;\n    }"
       }
@@ -7087,7 +7087,7 @@
     "name": "r4-18 s23 arguments without the zone",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        => zoneOffset is null ? [\"--analyze\", text.Trim()] : [\"--analyze\", text.Trim(), \"--zone\", zoneOffset];",
         "to": "        => zoneOffset is null ? [\"--analyze\", text.Trim()] : [\"--analyze\", text.Trim()];"
       }
@@ -7104,8 +7104,8 @@
     "name": "r4-18 s23 model does not pass the zone",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "BuildAnalyzeArgs(_analyzeText, BaseZoneOffset)",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
+        "from": "BuildAnalyzeArgs(_analyzeText, CalculatorViewModel.ZoneArgument(_zone()))",
         "to": "BuildAnalyzeArgs(_analyzeText)"
       }
     ],
@@ -7122,7 +7122,7 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "                TriggerRecompute();\n                // A pasted number is an instant, read in this same zone - the one `--zone` names for\n                // `--analyze` in the CLI too (R4-S23, owner's decision D4) - so its readings move with it.\n                TriggerAnalyze();\n",
+        "from": "                TriggerRecompute();\n                // A pasted number is an instant, read in this same zone - the one `--zone` names for\n                // `--analyze` in the CLI too (R4-S23, owner's decision D4) - so its readings move with it.\n                Analysis.Trigger();\n",
         "to": "                TriggerRecompute();\n"
       }
     ],
@@ -7155,7 +7155,7 @@
     "name": "r4-18 s23 zone line above every reading",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        AnalysisZoneLine = analysis.Readings.Any(r => r.Instant)",
         "to": "        AnalysisZoneLine = analysis.Readings.Count > 0"
       }
@@ -7172,8 +7172,8 @@
     "name": "r4-18 s23 line without this computer",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "(_baseZone.IsHost ? $\" ({Tr(\"zone.host\")})\" : string.Empty)",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
+        "from": "(_zone().IsHost ? $\" ({Tr(\"zone.host\")})\" : string.Empty)",
         "to": "string.Empty"
       }
     ],
@@ -8298,7 +8298,7 @@
     "name": "r4-20 window without the start year",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
         "from": "moment.Significance.Contains(\"before_calendar\") ? moment.Metadata.CalendarValidFrom : null,",
         "to": "moment.Significance.Contains(\"weekend\") ? moment.Metadata.CalendarValidFrom : null,"
       }
@@ -8315,7 +8315,7 @@
     "name": "r4-20 window without the check date",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
         "from": "moment.Significance.Contains(\"calendar_outdated\") ? moment.Metadata.CalendarLawAsOf : null)",
         "to": "moment.Significance.Contains(\"weekend\") ? moment.Metadata.CalendarLawAsOf : null)"
       }
@@ -8332,9 +8332,9 @@
     "name": "r4-20 window before range plain note",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "return TextFormat.Translate(\"calc.sig_calendar_before\", label, year);",
-        "to": "return TextFormat.Translate(\"calc.sig_calendar\", label, year);"
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "return TextFormat.Translate(tr, \"calc.sig_calendar_before\", label, year);",
+        "to": "return TextFormat.Translate(tr, \"calc.sig_calendar\", label, year);"
       }
     ],
     "runner": "cs",
@@ -10681,7 +10681,7 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "                LeftRunningRows = FollowedLines(v.LeftRunning);\n",
+        "from": "                LeftRunningRows = SessionReport.ProcessLines(v.LeftRunning);\n",
         "to": ""
       }
     ],
@@ -10714,8 +10714,8 @@
     "name": "r4-8 g3 clipboard without the list",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        AppendList(sb, translate, \"report.left_running\", _leftRunningRows, translateItems: false);\n",
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        AppendList(sb, translate, \"report.left_running\", r.LeftRunningRows, translateItems: false);\n",
         "to": ""
       }
     ],
@@ -10816,7 +10816,7 @@
     "name": "r4-8 g9 clipboard without the caveat",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
         "from": "            sb.Append(\"  \").Append(translate(\"result.refusal_incomplete\")).Append('\\n');\n",
         "to": ""
       }
@@ -12595,8 +12595,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "ElevatedEmbedded = _startCaptured ? _startReachElevated : WantsElevatedEmbedded,",
-        "to": "ElevatedEmbedded = _reachElevatedEmbedded,"
+        "from": "        WantsElevatedEmbedded);\n",
+        "to": "        _reachElevatedEmbedded);\n"
       }
     ],
     "runner": "cs",
@@ -12646,8 +12646,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "                    .. sv.WarningKeys.Where(w => w == LeftBehindKey),\n                    .. _warnings,\n",
-        "to": "                    .. _warnings,\n"
+        "from": "                    .. sv.WarningKeys.Where(w => w == LeftBehindKey),\n                    .. _result.Warnings,\n",
+        "to": "                    .. _result.Warnings,\n"
       }
     ],
     "runner": "cs",
@@ -14248,8 +14248,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];",
-        "to": "        => ResultIsVerdict && _verdictKind == VerdictKind.Fails ? [.. EvidenceUndoingWarnings] : [];"
+        "from": "        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Works ? [.. _result.EvidenceUndoingWarnings] : [];",
+        "to": "        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Fails ? [.. _result.EvidenceUndoingWarnings] : [];"
       }
     ],
     "runner": "cs",
@@ -14265,8 +14265,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        => ResultIsVerdict && _verdictKind == VerdictKind.Works ? [.. EvidenceUndoingWarnings] : [];",
-        "to": "        => ResultIsVerdict ? [.. EvidenceUndoingWarnings] : [];"
+        "from": "        => ResultIsVerdict && _result.VerdictKind == VerdictKind.Works ? [.. _result.EvidenceUndoingWarnings] : [];",
+        "to": "        => ResultIsVerdict ? [.. _result.EvidenceUndoingWarnings] : [];"
       }
     ],
     "runner": "cs",
@@ -14298,9 +14298,9 @@
     "name": "r5-w1 a works session that proves nothing is reliable in the window",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "                              && !IsCutShort\n                              && !EvidenceUndoingWarnings.Any();",
-        "to": "                              && !IsCutShort;"
+        "file": "gui/ChronoMock.App/Session/SessionResult.cs",
+        "from": "                                && !IsCutShort\n                                && !EvidenceUndoingWarnings.Any();",
+        "to": "                                && !IsCutShort;"
       }
     ],
     "runner": "cs",
@@ -14957,7 +14957,7 @@
     "name": "r5-w2 a date with an offset gets the number's zone line",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        => readings.Any(r => string.Equals(r.Reading, \"iso_offset\", StringComparison.Ordinal))",
         "to": "        => readings.Any(r => string.Equals(r.Reading, \"epoch_seconds\", StringComparison.Ordinal))"
       }
@@ -18193,6 +18193,247 @@
     ],
     "test": "cdp::shim_exec::the_engines_own_stamps_and_animations_are_noticed_and_handed_back_as_they_are",
     "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D62 the summary reads the form instead of the start setup",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "return SessionReport.Summary(_result, Requested, Fake.Wall, translate);",
+        "to": "return SessionReport.Summary(_result, LiveSetup, Fake.Wall, translate);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionViewModelTests.The_summary_names_the_target_and_zone_the_session_ran_on_not_a_later_edit",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D62 the diagnostics block reads its own clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": ".Append(utcNow.ToString(\"yyyy-MM-ddTHH:mm:ssZ\", CultureInfo.InvariantCulture))",
+        "to": ".Append(DateTime.UtcNow.ToString(\"yyyy-MM-ddTHH:mm:ssZ\", CultureInfo.InvariantCulture))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionReportTests.The_diagnostics_block_is_stamped_with_the_clock_it_is_given",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D9 a run overtaken while it computes shows its answer",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/LatestAnswer.cs",
+        "from": "            if (Accept(ticket))\n            {\n                answer(value);\n            }\n",
+        "to": "            Accept(ticket);\n            answer(value);\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.LatestAnswerTests.A_run_overtaken_while_it_computes_shows_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D9 a question that throws leaves its input unanswered",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/LatestAnswer.cs",
+        "from": "        catch (Exception e)\n        {\n            if (Accept(ticket))\n            {\n                fail(e);\n            }\n        }\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.LatestAnswerTests.A_question_that_throws_is_shown_as_a_failure_and_answers_the_input",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D9 the empty result column loses its dash",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "false, string.Empty, \"-\", string.Empty,",
+        "to": "false, string.Empty, string.Empty, string.Empty,"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ResultProjectionTests.The_empty_column_shows_a_dash_and_nothing_else",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D63 the session ignores the connection it is given",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/CoreSession.cs",
+        "from": "new CoreSession((connect ?? CoreClient.Connect)(plan.CorePath))",
+        "to": "new CoreSession(CoreClient.Connect(plan.CorePath))"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "*SessionRunTests",
+    "match": "class",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D63 a refused core is not let go",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                    await CloseSessionAsync(session);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_core_that_refuses_the_handshake_launches_nothing_and_its_words_are_kept",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D64 a field the window has no place for passes the wire check",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.Protocol/Events.cs",
+        "from": "[JsonPropertyName(\"residue_keys\")]",
+        "to": "[JsonPropertyName(\"residue_key\")]"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.Protocol.Tests",
+    "target": [],
+    "test": "ChronoMock.Protocol.Tests.WireGoldenTests.Every_field_of_every_event_the_core_sends_has_a_place_in_the_window",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D64 the copied summary drops a section of the report",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        AppendEngines(sb, r, translate);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.Every_section_of_the_cli_report_has_its_line_in_the_copied_summary",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b R5-D64 the golden events leave a field at the default serde skips",
+    "edits": [
+      {
+        "file": "crates/proto/tests/wire_golden.rs",
+        "from": "            host_slept_ms: 7_200_000,",
+        "to": "            host_slept_ms: 0,"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-proto",
+    "target": [
+      "--test",
+      "wire_golden"
+    ],
+    "test": "the_golden_events_are_one_of_each_kind_with_every_field_written_out",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b A11 the labelled drop-down loses the names of its items",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/App.xaml",
+        "from": "        <Setter Property=\"ItemContainerStyle\" Value=\"{StaticResource LabelKeyComboItem}\" />\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "*ItemNameGuardTests",
+    "match": "class",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b CR130 the summary loses a warning only the family verdict raised",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                    .. sv.WarningKeys.Where(w => w != LeftBehindKey).Except(_result.Warnings),\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.What_the_report_says_inside_its_sections_the_summary_says_too",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b CR130 a count at the ceiling is copied as a plain count",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionReport.cs",
+        "from": "        var key = channel.Capped ? \"coverage.reads_at_least\"",
+        "to": "        var key = channel.Calls < 0 ? \"coverage.reads_at_least\""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SummaryParityTests.What_the_report_says_inside_its_sections_the_summary_says_too",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-9b CR130 a speed change sent to a gone core escapes the session",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/CoreSession.cs",
+        "from": "        error is IOException or ObjectDisposedException or InvalidOperationException;",
+        "to": "        error is IOException;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionRunTests.A_speed_change_sent_to_a_core_that_is_already_gone_is_let_go_quietly",
+    "match": "method",
     "build": "",
     "notHere": ""
   }

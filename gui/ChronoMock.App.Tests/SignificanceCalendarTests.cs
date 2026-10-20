@@ -24,10 +24,15 @@ public class SignificanceCalendarTests
     private static CalculatorViewModel NewViewModel()
         => new(new CalcClient(() => Path.Combine(Path.GetTempPath(), "chrono-does-not-exist-here.exe")));
 
+    /// <summary>The note the result column would show for <paramref name="calendarId"/>, named through this
+    /// window's own calendar list.</summary>
+    private static string Note(CalculatorViewModel vm, string? calendarId)
+        => ResultProjection.CalendarNote(vm.Calendars, TranslationKeyConverter.Resolve, calendarId);
+
     [Fact]
     public void No_calendar_means_no_note_rather_than_a_vague_one()
     {
-        var note = WpfTestHost.InvokeSettled(() => NewViewModel().CalendarNote(null));
+        var note = WpfTestHost.InvokeSettled(() => Note(NewViewModel(), null));
         Assert.Equal(string.Empty, note);
     }
 
@@ -38,7 +43,7 @@ public class SignificanceCalendarTests
         {
             var vm = NewViewModel();
             var banking = vm.Calendars.Single(c => c.Id == "us-banking");
-            return (vm.CalendarNote("us-banking"), TranslationKeyConverter.Resolve(banking.LabelKey));
+            return (Note(vm, "us-banking"), TranslationKeyConverter.Resolve(banking.LabelKey));
         });
 
         // The engine sends an id and the tester picked a label. The note has to speak the second one, or
@@ -53,7 +58,7 @@ public class SignificanceCalendarTests
     {
         // A calendar shipped later, or a user's own file, would otherwise leave a sentence that names no
         // calendar at all - which is worse than the raw id, since the reader cannot tell it is missing.
-        var note = WpfTestHost.InvokeSettled(() => NewViewModel().CalendarNote("some-other-calendar"));
+        var note = WpfTestHost.InvokeSettled(() => Note(NewViewModel(), "some-other-calendar"));
 
         Assert.Contains("some-other-calendar", note, StringComparison.Ordinal);
     }
