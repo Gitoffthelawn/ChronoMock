@@ -3133,10 +3133,15 @@ unsafe extern "system" fn h_cpiw(
 /// "Never" needs the flag: with a debug monitor listening, OutputDebugStringA waits on its buffer
 /// inside kernelbase through the exported WaitForSingleObjectEx, which the hook observes. A line of
 /// ours must not reach the audit as a wait of the target's.
+/// Write one line to the debugger's log. From a buffer on the stack, not a `CString`: a detour reaches
+/// this on its cold paths - a watcher that could not start, axes released from a half-written anchor, a
+/// child the target starts - and a detour does not allocate (H4, R5-A11). A message past the buffer is
+/// cut there, and one with a NUL in it ends at the NUL.
 fn log(msg: &str) {
-    if let Ok(c) = CString::new(msg) {
-        unobserved(|| unsafe { OutputDebugStringA(PCSTR(c.as_ptr() as *const u8)) })
-    }
+    let mut line = [0u8; 512];
+    let len = msg.bytes().take(line.len() - 1).take_while(|b| *b != 0).count();
+    line[..len].copy_from_slice(&msg.as_bytes()[..len]);
+    unobserved(|| unsafe { OutputDebugStringA(PCSTR(line.as_ptr())) })
 }
 
 /// Where a channel's detour goes, and whether every caller of the channel passes through that address.

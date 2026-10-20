@@ -304,7 +304,6 @@ const HOOK_MAY_ALLOCATE: &[(&str, &str)] = &[
     ("late_scan", "the watcher thread's look for modules that arrived late, outside every detour"),
     ("late_one", "creates one late detour on the watcher thread"),
     ("enable_one_late", "switches one late detour on, on the watcher thread"),
-    ("log", "the diagnostic writer of the install and the watcher - no detour calls it, held below"),
     (
         "begin_remote_load",
         "loads the hook into a child the target starts - once per process start, never on a clock read",
@@ -313,9 +312,24 @@ const HOOK_MAY_ALLOCATE: &[(&str, &str)] = &[
     ("debugged_child_proc", "the thread that waits on a child started under a debugger"),
 ];
 
-/// Every function the hook defines in `text`, with the first and last line of its body. A declaration
-/// without a body (a trait's method) is left out.
-fn hook_functions(text: &str) -> BTreeMap<String, (usize, usize)> {
+/// The functions on the list above that a detour may reach through its helpers, each with why. Every
+/// other one is out of every detour's reach through any chain of calls, not only a direct one: a
+/// direct-call check missed `h_* -> detached -> ensure_watcher -> start_watcher -> log` while `log`
+/// built a `CString` (review round of #131). The list only shrinks, and an entry no detour reaches any
+/// more is red.
+const DETOUR_MAY_REACH: &[(&str, &str)] = &[
+    (
+        "begin_remote_load",
+        "a detour of process creation gives the child the hook - a process start, not a clock read",
+    ),
+    ("inherit_into_debugged_child", "the same, for a child started under a debugger"),
+    ("debugged_child_proc", "started by the same path, the thread that waits on such a child"),
+];
+
+/// Every function the hook defines in `text`, by its name and its first line, with the last line of its
+/// body. Keyed by both, so two functions of one name (`drop` in two impls) are two entries - keyed by the
+/// name alone, the second hid the first. A declaration without a body (a trait's method) is left out.
+fn hook_functions(text: &str) -> BTreeMap<(String, usize), usize> {
     let mut out = BTreeMap::new();
     let lines: Vec<&str> = text.lines().collect();
     for (i, line) in lines.iter().enumerate() {
@@ -336,7 +350,7 @@ fn hook_functions(text: &str) -> BTreeMap<String, (usize, usize)> {
                 break;
             }
             if seen && depth == 0 {
-                out.insert(name.clone(), (i, j));
+                out.insert((name.clone(), i), j);
                 break;
             }
         }
@@ -352,6 +366,36 @@ fn calls(code: &str, name: &str) -> bool {
     })
 }
 
+/// Every function of the hook a detour (`h_*`) reaches through any chain of calls, by name. Calls are
+/// read by name, so two functions of one name share what they call - which can only add a path, never
+/// hide one. A function handed to the system as a thread's start is not a call, and its thread is not
+/// a detour's.
+fn reached_from_detours(functions: &BTreeMap<(String, usize), usize>, lines: &[&str]) -> BTreeSet<String> {
+    let names: BTreeSet<&str> = functions.keys().map(|(name, _)| name.as_str()).collect();
+    let mut callees: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for ((name, start), end) in functions {
+        let found = callees.entry(name.as_str()).or_default();
+        for line in &lines[*start..=*end] {
+            let code = code_only(line);
+            for callee in names.iter().filter(|callee| **callee != name.as_str()) {
+                if calls(code, callee) {
+                    found.insert(callee);
+                }
+            }
+        }
+    }
+    let mut reached = BTreeSet::new();
+    let mut todo: Vec<&str> = names.iter().copied().filter(|name| name.starts_with("h_")).collect();
+    while let Some(caller) = todo.pop() {
+        for callee in callees.get(caller).into_iter().flatten() {
+            if reached.insert(callee.to_string()) {
+                todo.push(callee);
+            }
+        }
+    }
+    reached
+}
+
 #[test]
 fn the_hook_allocates_only_where_it_says_why() {
     let path = repo_root().join("crates/hook/src/lib.rs");
@@ -364,10 +408,10 @@ fn the_hook_allocates_only_where_it_says_why() {
 
     let allocating: BTreeSet<&str> = functions
         .iter()
-        .filter(|(_, (start, end))| {
-            lines[*start..=*end].iter().any(|l| DETOUR_FORBIDDEN.iter().any(|bad| code_only(l).contains(bad)))
+        .filter(|((_, start), end)| {
+            lines[*start..=**end].iter().any(|l| DETOUR_FORBIDDEN.iter().any(|bad| code_only(l).contains(bad)))
         })
-        .map(|(name, _)| name.as_str())
+        .map(|((name, _), _)| name.as_str())
         .collect();
     let listed: BTreeSet<&str> = HOOK_MAY_ALLOCATE.iter().map(|(name, _)| *name).collect();
     let unlisted: Vec<_> = allocating.difference(&listed).collect();
@@ -379,18 +423,40 @@ fn the_hook_allocates_only_where_it_says_why() {
     let stale: Vec<_> = listed.difference(&allocating).collect();
     assert!(stale.is_empty(), "listed in HOOK_MAY_ALLOCATE and no longer allocating - take it off: {stale:?}");
 
-    // A detour calls none of them, so what they allocate is never on a clock read.
-    let mut reached = Vec::new();
-    for (detour, (start, end)) in functions.iter().filter(|(name, _)| name.starts_with("h_")) {
-        for line in &lines[*start..=*end] {
-            for (name, _) in HOOK_MAY_ALLOCATE {
-                if calls(code_only(line), name) {
-                    reached.push(format!("{detour} calls {name}"));
-                }
-            }
-        }
-    }
-    assert!(reached.is_empty(), "a detour calls a function that allocates: {reached:?}");
+    // What a detour reaches, through any chain of helpers. The canary: the watcher's start is on nearly
+    // every detour's path (`detached`), and a call scan that does not find it has gone blind.
+    let reached = reached_from_detours(&functions, &lines);
+    assert!(reached.contains("start_watcher"), "no detour reaches start_watcher - the call scan went blind");
+    let may_reach: BTreeSet<&str> = DETOUR_MAY_REACH.iter().map(|(name, _)| *name).collect();
+    let on_a_detour: Vec<_> = listed.iter().filter(|name| reached.contains(**name) && !may_reach.contains(**name)).collect();
+    assert!(
+        on_a_detour.is_empty(),
+        "a detour reaches a function that allocates - make it not allocate, or keep it off the detour's \
+         path: {on_a_detour:?}"
+    );
+    let stale_reach: Vec<_> = may_reach.iter().filter(|name| !reached.contains(**name) || !listed.contains(**name)).collect();
+    assert!(stale_reach.is_empty(), "DETOUR_MAY_REACH names what no detour reaches or what no longer allocates: {stale_reach:?}");
+}
+
+/// Two functions of one name are two entries, so the first one's body is read as well as the second's.
+#[test]
+fn two_functions_of_one_name_are_both_read() {
+    let hook = "impl Drop for A {\n    fn drop(&mut self) {\n        let v = vec![1];\n    }\n}\nimpl Drop for B {\n    fn drop(&mut self) {\n        close();\n    }\n}\n";
+    let functions = hook_functions(hook);
+    let drops: Vec<_> = functions.keys().filter(|(name, _)| name == "drop").collect();
+    assert_eq!(drops.len(), 2, "{functions:?}");
+}
+
+/// The reach follows a chain, not only a direct call, and a method or a longer name is no call.
+#[test]
+fn the_reach_of_a_detour_follows_every_chain_of_calls() {
+    let hook = "fn h_read() {\n    detached();\n    x.alone();\n    alones();\n}\nfn detached() {\n    start();\n}\n\
+                fn start() {\n    note(\"x\");\n}\nfn note(m: &str) {\n    keep(m);\n}\nfn keep(m: &str) {\n    m.len();\n}\n\
+                fn alone() {\n    keep(\"y\");\n}\n";
+    let functions = hook_functions(hook);
+    let lines: Vec<&str> = hook.lines().collect();
+    let reached = reached_from_detours(&functions, &lines);
+    assert_eq!(reached, ["detached", "keep", "note", "start"].iter().map(|s| s.to_string()).collect());
 }
 
 // ---------------------------------------------------------------------------------------------

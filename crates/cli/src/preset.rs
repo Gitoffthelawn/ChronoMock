@@ -793,6 +793,16 @@ pub(crate) fn parse_parameter(dto: ParameterDto) -> Result<Parameter, PresetErro
         Some(v) => Some(param_value_from_json(&dto.id, kind, &v)?),
         None => None,
     };
+    // A hint that fills a date, on a parameter that is no date, is a fault in the file, so it is refused with
+    // the file (review round of #131). Found only when the hint was used, it went out as a fault in the values
+    // given - the calculator said `calc.preset_parameter` to a user who gave none. A hint this build does not
+    // know stays a question for the moment it is used, when a value given or a default can still stand in.
+    if dto.default_hint.as_deref() == Some("target_file_creation") && kind != ParamKind::Date {
+        return Err(PresetError::BadFile(format!(
+            "parameter '{}': hint target_file_creation fills a date, but the parameter is not a date",
+            dto.id
+        )));
+    }
     let label_texts = dto.label.map(PresetTextDto::into_texts).unwrap_or_default();
     Ok(Parameter { id: dto.id, kind, default, default_hint: dto.default_hint, label_texts })
 }
@@ -1863,6 +1873,20 @@ mod tests {
         .expect("a preset the reader takes");
         let (in_file, stage) = mismatch.fill(&param_map(&[]), None).unwrap_err();
         assert_eq!(stage, PresetStage::File, "{}", in_file.message());
+
+        // A date hint on a duration is the file's fault too, and refused with the file - before any value is
+        // asked for, so it never reads as a bad value the user gave.
+        let hinted = parse_preset(
+            r#"{"schema": "chronomock.preset/1", "id": "h", "name": { "en": "n" }, "explains": { "en": "e" },
+                "applies_to": "both",
+                "parameters": [ { "id": "d", "type": "duration", "default_hint": "target_file_creation" } ],
+                "moment": { "base": "today", "steps": [] }}"#,
+        );
+        assert!(
+            matches!(&hinted, Err(PresetError::BadFile(m)) if m.contains("target_file_creation")),
+            "{:?}",
+            hinted.as_ref().err().map(PresetError::message)
+        );
     }
 
     fn civil(y: i64, mo: u32, d: u32, h: u32, mi: u32, s: u32) -> chrono_core::calc::CivilDateTime {

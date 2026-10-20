@@ -250,6 +250,12 @@ fn the_copyright_is_said_alike_wherever_it_is_written() {
     assert_eq!(product["license"].as_str(), Some(license.as_str()), "the register's licence is not the workspace's");
     assert!(gui.contains(&format!("Licensed under {license}.")), "the GUI's copyright names another licence");
     assert!(cli.contains("env!(\"CARGO_PKG_LICENSE\")"), "build.rs no longer takes the licence from Cargo");
+    // The line has to reach the resource: a copyright built and never set holds nothing (review round of
+    // #131). The built resource itself was read once, after the change, and said the same as before.
+    assert!(
+        cli.contains("res.set(\"LegalCopyright\", &copyright);"),
+        "build.rs no longer sets the version resource's LegalCopyright from the copyright line"
+    );
 }
 
 fn repo_root() -> PathBuf {
