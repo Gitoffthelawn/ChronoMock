@@ -276,4 +276,44 @@ public class LatestAnswerTests
         answer.Settle();
         Assert.True(answer.IsCurrent);
     }
+
+    /// <summary>
+    /// One run of <see cref="LatestAnswer.RunAsync"/> overtaken by an edit while it computes: its answer is
+    /// not shown, and nothing is reported as a failure - the newer input's own run answers it (R5-D9).
+    /// </summary>
+    [Fact]
+    public async Task A_run_overtaken_while_it_computes_shows_nothing()
+    {
+        var answer = new LatestAnswer();
+        var shown = new List<string>();
+        var computing = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        answer.Ask();
+
+        var run = answer.RunAsync(_ => computing.Task, shown.Add, e => shown.Add("failed: " + e.Message));
+        answer.Ask(); // an edit while the engine computes
+        computing.SetResult("the old input's answer");
+        await run;
+
+        Assert.Empty(shown);
+        Assert.False(answer.IsCurrent);
+    }
+
+    /// <summary>
+    /// A question that throws while it is being built is answered like any other failure, so the input is
+    /// current again rather than waiting for an answer that will never come - an action waiting on it would
+    /// otherwise sit out its whole limit.
+    /// </summary>
+    [Fact]
+    public async Task A_question_that_throws_is_shown_as_a_failure_and_answers_the_input()
+    {
+        var answer = new LatestAnswer();
+        var shown = new List<string>();
+        answer.Ask();
+
+        await answer.RunAsync<string>(
+            _ => throw new InvalidOperationException("no question"), shown.Add, e => shown.Add("failed: " + e.Message));
+
+        Assert.Equal(["failed: no question"], shown);
+        Assert.True(answer.IsCurrent);
+    }
 }

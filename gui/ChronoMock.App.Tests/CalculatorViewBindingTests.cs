@@ -82,10 +82,11 @@ public class CalculatorViewBindingTests
         {
             var (view, vm) = NewCalculatorView();
             var box = (TextBox)view.FindName("AnalyzeBox");
-            Assert.Same(vm, box.DataContext);
+            // The strip binds its own view model (R5-D9).
+            Assert.Same(vm.Analysis, box.DataContext);
 
             box.Text = "12/31/1999";
-            return vm.AnalyzeText;
+            return vm.Analysis.AnalyzeText;
         });
 
         Assert.Equal("12/31/1999", pasted);

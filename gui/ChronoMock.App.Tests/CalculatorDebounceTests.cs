@@ -90,10 +90,10 @@ public class CalculatorDebounceTests
         await vm.EnsureComputedAsync();
         await QuietAsync(launches);
 
-        vm.AnalyzeText = "2008-04-08";
+        vm.Analysis.AnalyzeText = "2008-04-08";
         var afterFirst = await QuietAsync(launches);
 
-        vm.AnalyzeText = "2009-05-09";
+        vm.Analysis.AnalyzeText = "2009-05-09";
         var afterSecond = await QuietAsync(launches);
 
         Assert.True(afterSecond > afterFirst, $"the second edit queued no analysis - launches stayed at {afterFirst}");
@@ -155,7 +155,7 @@ public class CalculatorDebounceTests
         ),
         (
             "_ = AnalyzeAsync();",
-            "the reverse-analysis strip's own first reveal, on the same reasoning and in the same method"
+            "the reverse-analysis strip's own first reveal (ReverseAnalysisViewModel.Start), on the same reasoning"
         ),
     ];
 
@@ -166,8 +166,11 @@ public class CalculatorDebounceTests
         // format mask (five days older than the debounce) and the preset parameter inputs. Both cost one
         // process launch per keystroke, which is the exact jank the debounce was introduced to remove.
         // The behavioural tests above cover those two paths. This covers the next one.
-        var source = File.ReadAllLines(
-            Path.Combine(TestPaths.AppDirectory(), "Calc", "CalculatorViewModel.cs"));
+        // Both files that run an engine evaluation for the calculator: the builder's result, and the reverse
+        // analysis since it became its own view model (R5-D9). A scan of one file would miss the other.
+        var source = new[] { "CalculatorViewModel.cs", "ReverseAnalysisViewModel.cs" }
+            .SelectMany(file => File.ReadAllLines(Path.Combine(TestPaths.AppDirectory(), "Calc", file)))
+            .ToArray();
 
         var direct = new List<string>();
         for (var i = 0; i < source.Length; i++)
@@ -184,7 +187,8 @@ public class CalculatorDebounceTests
 
             if (code.Contains("RunAsync(RecomputeAsync)", StringComparison.Ordinal)
                 || code.Contains("RunAsync(AnalyzeAsync)", StringComparison.Ordinal)
-                || code.Contains("private async Task", StringComparison.Ordinal)
+                || code.Contains("Task RecomputeAsync()", StringComparison.Ordinal)
+                || code.Contains("Task AnalyzeAsync()", StringComparison.Ordinal)
                 || AllowedDirectCalls.Any(a => code.Contains(a.Call, StringComparison.Ordinal)))
             {
                 continue;
@@ -199,13 +203,13 @@ public class CalculatorDebounceTests
             "AllowedDirectCalls with the reason it may spawn a process per edit: " + string.Join("; ", direct));
 
         // The canary, and it earned its keep on the first run by firing at a threshold written from a
-        // guess rather than a count. Exactly four call-shaped mentions stand in that file: the two method
+        // guess rather than a count. Exactly four call-shaped mentions stand in those files: the two method
         // declarations, and the two first-reveal calls registered above. The debounced call sites are not
         // among them - they pass the method as a delegate, without parentheses, which is the whole point.
         Assert.True(
             source.Count(l => l.Contains("RecomputeAsync()", StringComparison.Ordinal)
                               || l.Contains("AnalyzeAsync()", StringComparison.Ordinal)) >= 4,
-            "the scan did not find the calls it is supposed to be reading - it is looking at the wrong file");
+            "the scan did not find the calls it is supposed to be reading - it is looking at the wrong files");
     }
 
     /// <summary>

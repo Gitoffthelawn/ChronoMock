@@ -433,9 +433,9 @@
         "to": "reading.Significance.Select(key => $\"calc.landmark.{key}\")"
       },
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "Significance.Add($\"calc.sig.{key}\");",
-        "to": "Significance.Add($\"calc.landmark.{key}\");"
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "moment.Significance.Select(key => $\"calc.sig.{key}\")",
+        "to": "moment.Significance.Select(key => $\"calc.landmark.{key}\")"
       }
     ],
     "runner": "rust",
@@ -834,9 +834,9 @@
         "to": "reading.Significance.Select(key => $\"calc.landmark.{key}\")"
       },
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "Significance.Add($\"calc.sig.{key}\");",
-        "to": "Significance.Add($\"calc.landmark.{key}\"); // was Add($\"calc.sig.{key}\")"
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "moment.Significance.Select(key => $\"calc.sig.{key}\").ToList();",
+        "to": "moment.Significance.Select(key => $\"calc.landmark.{key}\").ToList(); // was $\"calc.sig.{key}\""
       }
     ],
     "runner": "rust",
@@ -4726,8 +4726,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "        ClampNotice = string.Empty;\n        HasClampNotice = false;\n",
-        "to": ""
+        "from": "        ClampNotice = lines.ClampNotice;\n        HasClampNotice = lines.HasClampNotice;\n",
+        "to": "        if (lines.HasResult)\n        {\n            ClampNotice = lines.ClampNotice;\n            HasClampNotice = lines.HasClampNotice;\n        }\n"
       }
     ],
     "runner": "cs",
@@ -4743,8 +4743,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "        CustomFormatWarning = string.Empty;\n        HasCustomFormatWarning = false;\n        ClampNotice",
-        "to": "        ClampNotice"
+        "from": "        CustomFormatWarning = lines.CustomFormatWarning;\n        HasCustomFormatWarning = lines.HasCustomFormatWarning;\n",
+        "to": "        if (lines.HasResult)\n        {\n            CustomFormatWarning = lines.CustomFormatWarning;\n            HasCustomFormatWarning = lines.HasCustomFormatWarning;\n        }\n"
       }
     ],
     "runner": "cs",
@@ -5682,9 +5682,9 @@
     "name": "r4-17 w4 stale answer accepted",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "            if (_result.Accept(ticket))\n            {\n                ApplyResult(result);",
-        "to": "            if (_result.Accept(ticket) || ticket.Generation >= 0)\n            {\n                ApplyResult(result);"
+        "file": "gui/ChronoMock.App/LatestAnswer.cs",
+        "from": "            if (Accept(ticket))\n            {\n                answer(value);",
+        "to": "            if (Accept(ticket) || ticket.Generation >= 0)\n            {\n                answer(value);"
       }
     ],
     "runner": "cs",
@@ -5751,8 +5751,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "        CustomFormatWarning = string.Empty;\n        HasCustomFormatWarning = false;\n",
-        "to": ""
+        "from": "        HasCustomFormatWarning = lines.HasCustomFormatWarning;\n",
+        "to": "        HasCustomFormatWarning = lines.HasCustomFormatWarning || HasCustomFormatWarning;\n"
       }
     ],
     "runner": "cs",
@@ -5801,9 +5801,9 @@
     "name": "r4-17 n44 detail lost",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "ShowAnalysisError(DescribeCalcError(e.Message), DetailForCalcError(e.Message));",
-        "to": "ShowAnalysisError(DescribeCalcError(e.Message), string.Empty);"
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
+        "from": "ShowAnalysisError(CalculatorViewModel.DescribeCalcError(calc.Message), CalculatorViewModel.DetailForCalcError(calc.Message));",
+        "to": "ShowAnalysisError(CalculatorViewModel.DescribeCalcError(calc.Message), string.Empty);"
       }
     ],
     "runner": "cs",
@@ -5818,7 +5818,7 @@
     "name": "r4-17 n44 readings stay",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        AnalyzeAmbiguous = false;\n        AnalysisZoneLine = string.Empty;\n        Readings.Clear();\n    }",
         "to": "        AnalyzeAmbiguous = false;\n        AnalysisZoneLine = string.Empty;\n    }"
       }
@@ -7087,7 +7087,7 @@
     "name": "r4-18 s23 arguments without the zone",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        => zoneOffset is null ? [\"--analyze\", text.Trim()] : [\"--analyze\", text.Trim(), \"--zone\", zoneOffset];",
         "to": "        => zoneOffset is null ? [\"--analyze\", text.Trim()] : [\"--analyze\", text.Trim()];"
       }
@@ -7104,8 +7104,8 @@
     "name": "r4-18 s23 model does not pass the zone",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "BuildAnalyzeArgs(_analyzeText, BaseZoneOffset)",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
+        "from": "BuildAnalyzeArgs(_analyzeText, CalculatorViewModel.ZoneArgument(_zone()))",
         "to": "BuildAnalyzeArgs(_analyzeText)"
       }
     ],
@@ -7122,7 +7122,7 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "                TriggerRecompute();\n                // A pasted number is an instant, read in this same zone - the one `--zone` names for\n                // `--analyze` in the CLI too (R4-S23, owner's decision D4) - so its readings move with it.\n                TriggerAnalyze();\n",
+        "from": "                TriggerRecompute();\n                // A pasted number is an instant, read in this same zone - the one `--zone` names for\n                // `--analyze` in the CLI too (R4-S23, owner's decision D4) - so its readings move with it.\n                Analysis.Trigger();\n",
         "to": "                TriggerRecompute();\n"
       }
     ],
@@ -7155,7 +7155,7 @@
     "name": "r4-18 s23 zone line above every reading",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        AnalysisZoneLine = analysis.Readings.Any(r => r.Instant)",
         "to": "        AnalysisZoneLine = analysis.Readings.Count > 0"
       }
@@ -7172,8 +7172,8 @@
     "name": "r4-18 s23 line without this computer",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "(_baseZone.IsHost ? $\" ({Tr(\"zone.host\")})\" : string.Empty)",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
+        "from": "(_zone().IsHost ? $\" ({Tr(\"zone.host\")})\" : string.Empty)",
         "to": "string.Empty"
       }
     ],
@@ -8298,7 +8298,7 @@
     "name": "r4-20 window without the start year",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
         "from": "moment.Significance.Contains(\"before_calendar\") ? moment.Metadata.CalendarValidFrom : null,",
         "to": "moment.Significance.Contains(\"weekend\") ? moment.Metadata.CalendarValidFrom : null,"
       }
@@ -8315,7 +8315,7 @@
     "name": "r4-20 window without the check date",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
         "from": "moment.Significance.Contains(\"calendar_outdated\") ? moment.Metadata.CalendarLawAsOf : null)",
         "to": "moment.Significance.Contains(\"weekend\") ? moment.Metadata.CalendarLawAsOf : null)"
       }
@@ -8332,9 +8332,9 @@
     "name": "r4-20 window before range plain note",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "return TextFormat.Translate(\"calc.sig_calendar_before\", label, year);",
-        "to": "return TextFormat.Translate(\"calc.sig_calendar\", label, year);"
+        "file": "gui/ChronoMock.App/Calc/ResultProjection.cs",
+        "from": "return TextFormat.Translate(tr, \"calc.sig_calendar_before\", label, year);",
+        "to": "return TextFormat.Translate(tr, \"calc.sig_calendar\", label, year);"
       }
     ],
     "runner": "cs",
@@ -14957,7 +14957,7 @@
     "name": "r5-w2 a date with an offset gets the number's zone line",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "file": "gui/ChronoMock.App/Calc/ReverseAnalysisViewModel.cs",
         "from": "        => readings.Any(r => string.Equals(r.Reading, \"iso_offset\", StringComparison.Ordinal))",
         "to": "        => readings.Any(r => string.Equals(r.Reading, \"epoch_seconds\", StringComparison.Ordinal))"
       }

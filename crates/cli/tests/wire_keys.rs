@@ -693,7 +693,7 @@ const BUILT: [Built; 4] = [
     // The weekday of a result, by the core's own names, which the window lowers.
     Built {
         prefix: "calc.weekday.",
-        builder: ("gui/ChronoMock.App/Calc/CalculatorViewModel.cs", "$\"calc.weekday.{"),
+        builder: ("gui/ChronoMock.App/Calc/ResultProjection.cs", "$\"calc.weekday.{"),
         words: |root| {
             let names = quoted_words_in(&read(root, "crates/core/src/calc.rs"), &["const DOW_FULL"], "];");
             names.iter().map(|n| n.to_lowercase()).collect()

@@ -218,21 +218,21 @@ public class CalculatorAnswerTests
                     ? throw new CalcException(refusal, 1)
                     : args.Contains("--analyze") ? CalcResults.Analysis("2008-04-08T00:00:00", "2008-08-04T00:00:00") : CalcResults.Moment(BaseDay)));
             await vm.EnsureComputedAsync();
-            await Until(() => vm.Readings.Count == 2, "the first analysis to land");
+            await Until(() => vm.Analysis.Readings.Count == 2, "the first analysis to land");
 
-            vm.AnalyzeText = "garbage";
-            var staleAtOnce = vm.IsAnalysisStale;
-            await Until(() => vm.AnalyzeHasError, "the refusal to land");
+            vm.Analysis.AnalyzeText = "garbage";
+            var staleAtOnce = vm.Analysis.IsAnalysisStale;
+            await Until(() => vm.Analysis.AnalyzeHasError, "the refusal to land");
 
             return new
             {
                 staleAtOnce,
-                vm.Readings.Count,
-                vm.AnalyzeAmbiguous,
-                vm.HasAnalysis,
-                vm.AnalyzeErrorDetail,
-                vm.HasAnalyzeErrorDetail,
-                vm.IsAnalysisStale,
+                vm.Analysis.Readings.Count,
+                vm.Analysis.AnalyzeAmbiguous,
+                vm.Analysis.HasAnalysis,
+                vm.Analysis.AnalyzeErrorDetail,
+                vm.Analysis.HasAnalyzeErrorDetail,
+                vm.Analysis.IsAnalysisStale,
                 Expected = CalculatorViewModel.DetailForCalcError(refusal),
             };
         });
@@ -255,17 +255,17 @@ public class CalculatorAnswerTests
             : args.Contains("--analyze") ? CalcResults.Analysis("2008-04-08T00:00:00", "2008-08-04T00:00:00")
             : CalcResults.Moment(BaseDay)));
         await vm.EnsureComputedAsync();
-        await Until(() => vm.Readings.Count == 2, "the first analysis to land");
+        await Until(() => vm.Analysis.Readings.Count == 2, "the first analysis to land");
 
-        vm.AnalyzeText = "empty";
+        vm.Analysis.AnalyzeText = "empty";
         // A test has no window thread, so the answer is shown on a thread of its own, and the error flag is
         // written before the readings are dropped. The analysis is current only once the whole answer is on
         // screen (LatestAnswer.Release), so the wait is on that - the flag alone let the asserts below read
         // the readings of the text before (the same race as the clearing of the result, R4-N43).
-        await Until(() => vm.AnalyzeHasError && !vm.IsAnalysisStale, "the empty answer to land");
+        await Until(() => vm.Analysis.AnalyzeHasError && !vm.Analysis.IsAnalysisStale, "the empty answer to land");
 
-        Assert.Empty(vm.Readings);
-        Assert.False(vm.AnalyzeAmbiguous);
+        Assert.Empty(vm.Analysis.Readings);
+        Assert.False(vm.Analysis.AnalyzeAmbiguous);
     }
 
     /// <summary>A calculator past its first reveal with one "+1 d" step and that step's result on screen.</summary>

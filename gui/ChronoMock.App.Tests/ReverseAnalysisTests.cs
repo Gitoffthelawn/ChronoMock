@@ -12,7 +12,7 @@ public class ReverseAnalysisTests
 {
     [Fact]
     public void Analyze_args_wrap_the_trimmed_text()
-        => Assert.Equal(new[] { "--analyze", "04/08/2008" }, CalculatorViewModel.BuildAnalyzeArgs("  04/08/2008 "));
+        => Assert.Equal(new[] { "--analyze", "04/08/2008" }, ReverseAnalysisViewModel.BuildAnalyzeArgs("  04/08/2008 "));
 
     /// <summary>R4-S23, owner's decision D4: a pasted number is an instant, and the zone its wall clock is
     /// shown in is the calculator's, the one <c>--zone</c> names for <c>--analyze</c> in the CLI.</summary>
@@ -20,7 +20,7 @@ public class ReverseAnalysisTests
     public void Analyze_args_carry_the_calculator_zone_when_one_is_picked()
         => Assert.Equal(
             new[] { "--analyze", "1700000000", "--zone", "+05:00" },
-            CalculatorViewModel.BuildAnalyzeArgs(" 1700000000 ", "+05:00"));
+            ReverseAnalysisViewModel.BuildAnalyzeArgs(" 1700000000 ", "+05:00"));
 
     [Fact]
     public void A_reading_row_maps_the_key_date_and_significance()
@@ -63,8 +63,8 @@ public class ReverseAnalysisTests
         var metadata = new CalcMetadata("Thursday", 2026, 1, 1, 1, 1, false, 0, null, null);
         CalcReading Reading(string key) => new(key, "2026-01-01T08:00:00", [], metadata, Instant: true, Time: "08:00:00");
 
-        Assert.Equal("calc.analyze_zone_offset", CalculatorViewModel.AnalysisZoneKey([Reading("iso_offset")]));
-        Assert.Equal("calc.analyze_zone", CalculatorViewModel.AnalysisZoneKey([Reading("epoch_seconds"), Reading("epoch_millis")]));
+        Assert.Equal("calc.analyze_zone_offset", ReverseAnalysisViewModel.AnalysisZoneKey([Reading("iso_offset")]));
+        Assert.Equal("calc.analyze_zone", ReverseAnalysisViewModel.AnalysisZoneKey([Reading("epoch_seconds"), Reading("epoch_millis")]));
         // Each language's strings read on the shared host, the way the guard of the core's keys reads them.
         // A lookup through the running application answered with the key when no other test had started
         // it first, and saw only the default language, and an empty text passed as one.
@@ -97,7 +97,7 @@ public class ReverseAnalysisTests
             : CalcResults.Moment("2026-01-01T00:00:00"));
         var vm = new CalculatorViewModel(engine);
         await vm.EnsureComputedAsync();
-        await CalculatorAnswerTests.Until(() => vm.Readings.Count == 1 && !vm.IsAnalysisStale, "the first analysis to land");
+        await CalculatorAnswerTests.Until(() => vm.Analysis.Readings.Count == 1 && !vm.Analysis.IsAnalysisStale, "the first analysis to land");
 
         // This machine's entry sends no zone - the engine reads the host's, as the CLI does without --zone.
         Assert.All(Analyses(engine.Asked), q => Assert.Null(q.ValueOf("--zone")));
@@ -126,28 +126,28 @@ public class ReverseAnalysisTests
                 : args.Contains("1700000000") ? CalcResults.Instant("2023-11-14T22:13:20", "22:13:20", picked?.BiasMinutes ?? 0)
                 : CalcResults.Analysis("2008-04-08T00:00:00")));
             await vm.EnsureComputedAsync();
-            await CalculatorAnswerTests.Until(() => vm.Readings.Count == 1 && !vm.IsAnalysisStale, "the date's analysis to land");
-            var aboveTheFirstDate = vm.HasAnalysisZoneLine;
+            await CalculatorAnswerTests.Until(() => vm.Analysis.Readings.Count == 1 && !vm.Analysis.IsAnalysisStale, "the date's analysis to land");
+            var aboveTheFirstDate = vm.Analysis.HasAnalysisZoneLine;
 
             picked = vm.BaseZones.First(z => !z.IsHost && z.BiasMinutes != 0);
             vm.SelectedBaseZone = picked;
-            vm.AnalyzeText = "1700000000";
-            await CalculatorAnswerTests.Until(() => !vm.IsAnalysisStale && vm.Readings.Count == 1 && vm.Readings[0].Time.Length > 0, "the instant's analysis to land");
-            var aboveTheInstant = vm.AnalysisZoneLine;
+            vm.Analysis.AnalyzeText = "1700000000";
+            await CalculatorAnswerTests.Until(() => !vm.Analysis.IsAnalysisStale && vm.Analysis.Readings.Count == 1 && vm.Analysis.Readings[0].Time.Length > 0, "the instant's analysis to land");
+            var aboveTheInstant = vm.Analysis.AnalysisZoneLine;
 
             vm.SelectedBaseZone = vm.BaseZones.First(z => z.IsHost);
-            await CalculatorAnswerTests.Until(() => !vm.IsAnalysisStale, "the instant's analysis in this machine's zone to land");
-            var aboveTheInstantOnThisMachine = vm.AnalysisZoneLine;
+            await CalculatorAnswerTests.Until(() => !vm.Analysis.IsAnalysisStale, "the instant's analysis in this machine's zone to land");
+            var aboveTheInstantOnThisMachine = vm.Analysis.AnalysisZoneLine;
 
-            vm.AnalyzeText = "2008-04-08";
-            await CalculatorAnswerTests.Until(() => !vm.IsAnalysisStale && vm.Readings.Count == 1 && vm.Readings[0].Time.Length == 0, "the second date's analysis to land");
+            vm.Analysis.AnalyzeText = "2008-04-08";
+            await CalculatorAnswerTests.Until(() => !vm.Analysis.IsAnalysisStale && vm.Analysis.Readings.Count == 1 && vm.Analysis.Readings[0].Time.Length == 0, "the second date's analysis to land");
 
             return new
             {
                 aboveTheFirstDate,
                 aboveTheInstant,
                 aboveTheInstantOnThisMachine,
-                aboveTheSecondDate = vm.HasAnalysisZoneLine,
+                aboveTheSecondDate = vm.Analysis.HasAnalysisZoneLine,
                 Label = ZoneLabel.FromBiasMinutes(picked.BiasMinutes),
                 Expected = TextFormat.Translate(TranslationKeyConverter.Resolve, "calc.analyze_zone", ZoneLabel.FromBiasMinutes(picked.BiasMinutes)),
                 Host = TranslationKeyConverter.Resolve("zone.host"),
