@@ -79,6 +79,15 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **A `jump` to an absolute moment that names no moment gets the same answer on both mechanisms.** A
+  protocol client that sent `{"kind":"absolute"}` without `local` was told `moment.invalid` by a
+  Chromium session, while a native session read the missing moment as an empty one and, when the same
+  command named a zone outside the range, answered `time.bad_zone`. Both answer `moment.invalid` now.
+  The window and `chrono run` always send the moment, so neither of them could get here.
+- **A preset file that puts the `target_file_creation` hint on a parameter that is not a date is
+  refused when it is read.** The hint fills a date, so such a file is wrong whatever values are given.
+  It used to be refused only when the hint was needed, and then as a bad value, so `chrono calc` blamed
+  `--param` for a fault in the file.
 - **A number on the `chrono run` command line is digits and nothing else, as it is in `chrono calc`.**
   The multiplier of `--mode xN`, `--ticks`, `--timeout`, both numbers of `--set-after` and the tick of
   `--jump-after` took a leading `+`, so `--ticks +5` ran five heartbeats and `--mode x+60` sixty times

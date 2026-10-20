@@ -327,12 +327,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
          listener",
     ),
     (
-        "crates/hook/src/lib.rs",
+        "crates/ctl/src/lib.rs",
         "winsock",
-        "the injected library resolves ws2_32 to OBSERVE the target's own socket waits, and counts \
-         the target's own connection attempts in ntdll. Counting somebody else's call is the \
-         opposite of making one, and the audit reports a connection as a suspected server time \
-         source",
+        "the channel table names ws2_32 as the module of the socket wait (ChannelModule::late_dll, \
+         R5-A11), so the injected library can look it up to OBSERVE the target's own socket waits, \
+         never to load it. The library counts the target's own connection attempts in ntdll. \
+         Counting somebody else's call is the opposite of making one, and the audit reports a \
+         connection as a suspected server time source",
     ),
     (
         "gui/ChronoMock.Protocol.Tests/BinaryImportsTests.cs",

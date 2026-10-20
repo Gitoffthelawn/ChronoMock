@@ -56,7 +56,7 @@ pub(crate) const KEY_VARIABLES_OUTLIVE_SESSION: &str = "embedded.variables_outli
 /// in place of the strong claim that they read the real clock, which the reached pages refute.
 pub(crate) const KEY_WEB_ENGINE_REACHED: &str = "embedded.web_engine_reached";
 /// The strong claim slice A makes when a renderer ran without the hook, replaced by the one above.
-const KEY_WEB_ENGINE_UNCOVERED: &str = "embedded.web_engine_uncovered";
+pub(crate) const KEY_WEB_ENGINE_UNCOVERED: &str = "embedded.web_engine_uncovered";
 /// An endpoint answered as DevTools and could not be attached to.
 pub(crate) const KEY_ENGINE_UNREACHABLE: &str = "embedded.engine_unreachable";
 /// The session could not look for engines at all: no port to reserve, no thread, no table.

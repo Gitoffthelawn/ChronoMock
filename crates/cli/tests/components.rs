@@ -224,6 +224,40 @@ fn no_excused_crate_is_in_what_ships() {
     );
 }
 
+/// The program's copyright stands in three files nothing joins: the version resource of `chrono.exe`
+/// (`crates/cli/build.rs`), the GUI's assemblies (`gui/Directory.Build.props`) and the product in this
+/// register. All three name one holder, and the licence the two binaries name is the workspace's - the
+/// CLI reads it from Cargo, the GUI writes it out (R5-A11). The third copy was guarded by nothing.
+#[test]
+fn the_copyright_is_said_alike_wherever_it_is_written() {
+    let root = repo_root();
+    let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("cannot read {rel}: {e}"));
+    let holder = |text: &str, rel: &str| -> String {
+        let at = text.find("Copyright (C) ").unwrap_or_else(|| panic!("{rel} names no copyright"));
+        text[at..].split(['.', '"', '<']).next().unwrap_or_default().to_string()
+    };
+    let product = &register()["product"];
+    let in_register = product["copyright"].as_str().expect("the product's copyright").to_string();
+    let cli = read("crates/cli/build.rs");
+    let gui = read("gui/Directory.Build.props");
+    assert_eq!(holder(&cli, "build.rs"), in_register, "build.rs and the register name different holders");
+    assert_eq!(holder(&gui, "Directory.Build.props"), in_register, "the GUI and the register name different holders");
+
+    let license = read("Cargo.toml")
+        .lines()
+        .find_map(|l| l.strip_prefix("license = ").and_then(quoted))
+        .expect("the workspace names its licence");
+    assert_eq!(product["license"].as_str(), Some(license.as_str()), "the register's licence is not the workspace's");
+    assert!(gui.contains(&format!("Licensed under {license}.")), "the GUI's copyright names another licence");
+    assert!(cli.contains("env!(\"CARGO_PKG_LICENSE\")"), "build.rs no longer takes the licence from Cargo");
+    // The line has to reach the resource: a copyright built and never set holds nothing (review round of
+    // #131). The built resource itself was read once, after the change, and said the same as before.
+    assert!(
+        cli.contains("res.set(\"LegalCopyright\", &copyright);"),
+        "build.rs no longer sets the version resource's LegalCopyright from the copyright line"
+    );
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }

@@ -464,6 +464,71 @@ fn every_wire_key_has_a_gloss_in_the_cli_report() {
 
 /// The scan reads a key wherever it is quoted, including inside a raw string that holds JSON - the
 /// shape that hid `proto.serialize_failed` - and still refuses text that is not a key.
+/// How many times `source` builds an `Event::Error`: the variant with a brace body whose fields do not end
+/// with `..`. A match names the fields it binds and ends with `..`, a construction names every field, in
+/// whatever order - reading for `{ v:` alone missed one that put another field first (review round of
+/// #131).
+fn error_constructions(source: &str) -> usize {
+    let mut count = 0;
+    for (at, _) in source.match_indices("Event::Error") {
+        let Some(body) = source[at + "Event::Error".len()..].trim_start().strip_prefix('{') else {
+            continue;
+        };
+        let mut depth = 1;
+        let mut end = body.len();
+        for (i, c) in body.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !body[..end].trim_end().trim_end_matches(',').trim_end().ends_with("..") {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// The `error` event is built in one function, `events::error_event` (R5-A3). Sixteen hand-built copies
+/// had to agree on the version, the field names and the origin, and the two sessions' copies of the
+/// command answers had already drifted apart once (R5-P18, R5-P19). A match on the variant is left
+/// alone, and so is a test.
+#[test]
+fn an_error_event_is_built_in_one_place() {
+    let root = repo_root();
+    let mut built = Vec::new();
+    for path in rust_sources_under(&root.join("crates/cli/src")) {
+        let count = error_constructions(&production_source(&path));
+        if count > 0 {
+            let name = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+            built.push((name, count));
+        }
+    }
+    assert_eq!(
+        built,
+        [("crates/cli/src/events.rs".to_string(), 1)],
+        "an error event is built by hand outside events::error_event - build it there, so its shape has one place"
+    );
+}
+
+/// A construction is found whatever the order of its fields and however it is laid out, and a match is not
+/// one.
+#[test]
+fn an_error_event_is_found_built_whatever_the_order_of_its_fields() {
+    assert_eq!(error_constructions("let e = Event::Error { id: None, code: 1, v: 1, key: k, origin: o };"), 1);
+    assert_eq!(error_constructions("sink(&Event::Error {\n    v: 1,\n    id: None,\n    code: 1,\n    key: k.into(),\n    origin: o.into(),\n});"), 1);
+    assert_eq!(error_constructions("match e { Event::Error { key, origin, .. } => {} }"), 0);
+    assert_eq!(error_constructions("if let Event::Error { key, .. } = e {}"), 0);
+    assert_eq!(error_constructions("Event::Error { v: 1, ..base }"), 1, "struct update builds one too");
+}
+
 #[test]
 fn the_key_scan_reads_keys_inside_raw_json_strings() {
     let raw = r###"r#"{"type":"error","v":1,"key":"proto.serialize_failed","origin":"proto"}"#,"###;

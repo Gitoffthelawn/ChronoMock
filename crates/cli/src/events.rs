@@ -12,7 +12,7 @@ use std::io::Write;
 
 use chrono_core::calc::EvalError;
 use chrono_core::{filetime_utc_to_wall, SessionMomentError, TimeMode};
-use chrono_proto::{Clock, Command, CoveredChannel, Event, TimeSpec, PROTOCOL_VERSION};
+use chrono_proto::{Clock, Command, CoveredChannel, Event, TimeModeKind, TimeSpec, PROTOCOL_VERSION};
 /// Translation key for a relative-jump eval error (docs/08 section 10). A session has no calendar,
 /// so a business-day step needs one. A step or a base that lands outside the range a session clock
 /// can hold is `moment.out_of_range`, the same key a start that far out gets (R4-S7c) - the rest is an
@@ -54,10 +54,10 @@ pub(crate) fn moment_error_key(e: &SessionMomentError) -> &'static str {
 /// `{mode: multiplier, multiplier: 0}` accelerated at x1 where the native session froze. Zero is the
 /// wire spelling of freeze in both now, as it is for `set_multiplier`.
 pub(crate) fn start_time_mode(time: &TimeSpec) -> Result<TimeMode, &'static str> {
-    match time.mode.as_str() {
-        "flow" => Ok(TimeMode::Flow),
-        "frozen" => Ok(TimeMode::Frozen),
-        "multiplier" => {
+    match time.mode {
+        TimeModeKind::Flow => Ok(TimeMode::Flow),
+        TimeModeKind::Frozen => Ok(TimeMode::Frozen),
+        TimeModeKind::Multiplier => {
             // The core reads NDJSON from whatever client is on the other end, so it validates for
             // itself rather than trusting the friendly CLI to have done it. It did not, and the two
             // surfaces had drifted: `--mode` required >= 1 while the protocol took any i64, so a
@@ -70,7 +70,7 @@ pub(crate) fn start_time_mode(time: &TimeSpec) -> Result<TimeMode, &'static str>
                 Err("time.bad_multiplier")
             }
         }
-        _ => Err("time.bad_mode"),
+        TimeModeKind::Unknown => Err("time.bad_mode"),
     }
 }
 
@@ -127,16 +127,18 @@ pub(crate) fn command_id(cmd: &Command) -> u64 {
     }
 }
 
+/// `error`, the one place it is built (R5-A3): `id` names the command it answers, absent for a line
+/// that was no command, `code` is the exit code the refusal stands for (docs/08 section 8), `key` is the
+/// translation key and `origin` says who refused - `core` for the protocol and the session's own
+/// checks, `mechanism` for the substitution underneath.
+pub(crate) fn error_event(id: Option<u64>, code: i32, key: &str, origin: &str) -> Event {
+    Event::Error { v: PROTOCOL_VERSION, id, code, key: key.into(), origin: origin.into() }
+}
+
 /// `error` for a well-formed command the running session does not act on. The session continues -
 /// this reports an outcome, it does not end anything.
 pub(crate) fn unsupported_command(id: u64) -> Event {
-    Event::Error {
-        v: PROTOCOL_VERSION,
-        id: Some(id),
-        code: 1,
-        key: "protocol.unsupported_command".into(),
-        origin: "core".into(),
-    }
+    error_event(Some(id), 1, "protocol.unsupported_command", "core")
 }
 
 /// The shortest sleep of the machine a session tells about (R5-P1). The sleep bias moves only when the

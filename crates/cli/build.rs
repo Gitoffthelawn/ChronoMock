@@ -26,7 +26,11 @@ fn main() {
     res.set("ProductName", "Chrono Mock");
     res.set("FileDescription", "Chrono Mock CLI - fake-date app runner and test-date calculator");
     res.set("CompanyName", "DonislawDev");
-    res.set("LegalCopyright", "Copyright (C) 2026 DonislawDev. Licensed under GPL-3.0-only.");
+    // The licence is the workspace's, read from Cargo (R5-A11). The holder is written out here, in the
+    // GUI's Directory.Build.props and in packaging/components.json, and tests/components.rs holds the
+    // three to one line.
+    let copyright = format!("Copyright (C) 2026 DonislawDev. Licensed under {}.", env!("CARGO_PKG_LICENSE"));
+    res.set("LegalCopyright", &copyright);
     res.set("OriginalFilename", "chrono.exe");
 
     res.compile().expect("embed the application icon and version resource into chrono.exe");

@@ -65,6 +65,18 @@ pub(crate) struct ProcessCoverage {
     pub(crate) installed_late: Vec<String>,
 }
 
+/// Why a run ended before the session closed by itself (R5-A9). Each one has its own line in the report,
+/// and every match on it names all three - while it was a string, a misspelt one read as the idle limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CutShort {
+    /// `--timeout` ran out and the driver stopped the core.
+    Timeout,
+    /// The core sent no event for the idle limit and the driver stopped it.
+    Idle,
+    /// The core died or was killed before it sent `ended` (R4-W3).
+    CoreLost,
+}
+
 /// The captured outcome of a `chrono run` session, rendered as a human report in the
 /// non-json path. The core emits stable KEYS - this consumer renders English prose (rule 15:
 /// the CLI is English-only, so the key->text table lives here, never in the core - rule 16).
@@ -144,14 +156,14 @@ pub(crate) struct SessionReport {
     /// (SLOWNIK `uncoveredChild`). Named up to the wire cap, with the true total beside them.
     pub(crate) uncovered_children: Vec<chrono_proto::UncoveredChild>,
     pub(crate) uncovered_children_total: u32,
-    /// Set when the driver stopped the core instead of the session ending: `"timeout"` for the
-    /// `--timeout` ceiling, `"idle"` for a core that went quiet. Everything else in this report is
+    /// Set when the session did not end by itself: the driver stopped the core at a limit, or the core
+    /// stopped before it closed the session ([`CutShort`]). Everything else in this report is
     /// then the LAST SNAPSHOT the core managed to send, not a final account, and the difference is
     /// not small - a real run cut at 30 s reported `QueryPerformanceCounter (634)` for a target that
     /// went on to make more than a million calls. Counts read as totals unless something says
     /// otherwise, so this makes the report say it rather than leaving it to be inferred from an exit
     /// code (untouchable rules 4 and 6).
-    pub(crate) stopped_early: Option<&'static str>,
+    pub(crate) stopped_early: Option<CutShort>,
     /// Whether this was a Chromium (CDP) session: its coverage unit is a JS context, not an OS
     /// process, so the report says "context" instead of "pid".
     pub(crate) cdp: bool,
@@ -776,16 +788,16 @@ pub(crate) fn calls_label(n: u64) -> String {
 /// The caveat that has to stand above a cut-short run's numbers, or nothing at all. Its own function
 /// because `render_report` is pinned at the shape ceiling and the next branch in it needs a decision
 /// rather than a line - which is what the ceiling is for.
-fn render_cut_short(stopped_early: Option<&'static str>) -> String {
+fn render_cut_short(stopped_early: Option<CutShort>) -> String {
     let Some(which) = stopped_early else {
         return String::new();
     };
     let why = match which {
-        "timeout" => "the --timeout ceiling was reached",
+        CutShort::Timeout => "the --timeout ceiling was reached",
+        CutShort::Idle => "the core went quiet and was stopped",
         // The core died or was killed before it sent `ended` (R4-W3). The driver did not stop it, so
         // this is said apart from the two limits the driver enforces itself.
-        "core_lost" => "the core stopped before it closed the session",
-        _ => "the core went quiet and was stopped",
+        CutShort::CoreLost => "the core stopped before it closed the session",
     };
     format!(
         "  stopped:  CUT SHORT - {why}\n\
@@ -1225,10 +1237,12 @@ pub(crate) fn session_is_reliable(r: &SessionReport) -> bool {
 }
 
 /// Human label for the requested time mode.
-pub(crate) fn mode_label(mode: &str, multiplier: Option<i64>) -> String {
+pub(crate) fn mode_label(mode: chrono_proto::TimeModeKind, multiplier: Option<i64>) -> String {
     match mode {
-        "multiplier" => format!("x{}", multiplier.unwrap_or(1)),
-        other => other.to_string(),
+        chrono_proto::TimeModeKind::Multiplier => format!("x{}", multiplier.unwrap_or(1)),
+        chrono_proto::TimeModeKind::Flow => "flow".to_string(),
+        chrono_proto::TimeModeKind::Frozen => "frozen".to_string(),
+        chrono_proto::TimeModeKind::Unknown => "unknown".to_string(),
     }
 }
 
@@ -1902,6 +1916,17 @@ mod tests {
         assert!(render_report(&bare).contains("the computer slept during the session"));
     }
 
+    /// R5-A9: each way a run is cut short has a line of its own - the idle limit too, which no test read
+    /// while it was the catch-all of a match on strings - and a run that ended by itself has none.
+    #[test]
+    fn each_way_a_run_is_cut_short_says_its_own_why() {
+        let lines = [CutShort::Timeout, CutShort::Idle, CutShort::CoreLost].map(|why| render_cut_short(Some(why)));
+        assert!(lines[0].contains("the --timeout ceiling was reached"), "{}", lines[0]);
+        assert!(lines[1].contains("the core went quiet and was stopped"), "{}", lines[1]);
+        assert!(lines[2].contains("the core stopped before it closed the session"), "{}", lines[2]);
+        assert_eq!(render_cut_short(None), "");
+    }
+
     #[test]
     fn a_run_cut_short_says_so_above_its_numbers_and_is_never_cited_as_proof() {
         // The failure this closes, measured on a real target: a 30 s --timeout printed
@@ -1913,7 +1938,7 @@ mod tests {
         let r = SessionReport {
             session_verdict: Some(("works".into(), "session.family_covered".into(), 1)),
             covered: vec![(pid(1), "QueryPerformanceCounter".into(), 634)],
-            stopped_early: Some("timeout"),
+            stopped_early: Some(CutShort::Timeout),
             ..empty_report()
         };
 
@@ -1948,7 +1973,7 @@ mod tests {
         let r = SessionReport {
             parent_verdict: Some(("works".into(), "coverage.time_channels_covered".into())),
             covered: vec![(pid(1), "GetSystemTimeAsFileTime".into(), 7)],
-            stopped_early: Some("core_lost"),
+            stopped_early: Some(CutShort::CoreLost),
             ..empty_report()
         };
 

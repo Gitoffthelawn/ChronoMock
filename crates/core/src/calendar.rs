@@ -25,6 +25,74 @@ pub enum HolidayRule {
     EasterOffset { offset: i32 },
 }
 
+/// What puts a holiday rule outside the dates a year has (R5-A11). The bounds stood in the calendar
+/// loader alone, and a rule built through this library with a weekday of 20 overflowed in
+/// `nth_weekday_days`. They stand here now: the engine checks a rule before it computes one, and the
+/// loader checks each field with the same functions and says the fault in its own sentence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleError {
+    /// A month outside 1..=12.
+    Month(u32),
+    /// A day the month has in no year: outside 1..=`longest`.
+    Day { month: u32, day: u32, longest: u32 },
+    /// A weekday outside 0 (Sunday) ..= 6 (Saturday).
+    Weekday(u32),
+    /// An order that is neither -1 (the last) nor 1..=5.
+    Order(i32),
+    /// An Easter offset outside [`EASTER_OFFSET_RANGE`].
+    EasterOffset(i32),
+}
+
+/// The Easter offsets a rule may name: inside the year of its own Easter (R4-N39, the owner's decision
+/// R4-D12). Easter falls between 22 March, day 81 of a common year, and 25 April, day 115 (116 in a leap
+/// year), so -80 is 1 January at the earliest and +250 is 31 December at the latest, in every year.
+pub const EASTER_OFFSET_RANGE: std::ops::RangeInclusive<i32> = -80..=250;
+
+/// A month a rule may name.
+pub fn check_month(month: u32) -> Result<(), RuleError> {
+    if (1..=12).contains(&month) { Ok(()) } else { Err(RuleError::Month(month)) }
+}
+
+/// A day of `month` in some year, the month checked first. February 29 is one - a holiday observed only
+/// in leap years is a real thing (R2-N7) - and April 31 is none.
+pub fn check_day(month: u32, day: u32) -> Result<(), RuleError> {
+    check_month(month)?;
+    let longest = crate::max_day_in_month(month);
+    if (1..=longest).contains(&day) { Ok(()) } else { Err(RuleError::Day { month, day, longest }) }
+}
+
+/// Which occurrence of a weekday in its month: 1..=5 from the start, or -1 for the last. A fifth exists
+/// only in some months, and the engine answers that the holiday does not fall in a year without one
+/// (R2-N4).
+pub fn check_order(order: i32) -> Result<(), RuleError> {
+    if order == -1 || (1..=5).contains(&order) { Ok(()) } else { Err(RuleError::Order(order)) }
+}
+
+/// A weekday, 0 = Sunday .. 6 = Saturday.
+pub fn check_weekday(weekday: u32) -> Result<(), RuleError> {
+    if weekday <= 6 { Ok(()) } else { Err(RuleError::Weekday(weekday)) }
+}
+
+/// An Easter offset that keeps the holiday in the year of its Easter.
+pub fn check_easter_offset(offset: i32) -> Result<(), RuleError> {
+    if EASTER_OFFSET_RANGE.contains(&offset) { Ok(()) } else { Err(RuleError::EasterOffset(offset)) }
+}
+
+impl HolidayRule {
+    /// Whether the rule names a date a year can have (R5-A11).
+    pub fn check(&self) -> Result<(), RuleError> {
+        match *self {
+            HolidayRule::Fixed { month, day } => check_day(month, day),
+            HolidayRule::NthWeekday { month, weekday, order } => {
+                check_month(month)?;
+                check_order(order)?;
+                check_weekday(weekday)
+            }
+            HolidayRule::EasterOffset { offset } => check_easter_offset(offset),
+        }
+    }
+}
+
 /// What happens when a holiday falls on a weekend (docs/02 section 4). The names describe the
 /// BEHAVIOUR, never a country (a second country with the same behaviour reuses the value).
 ///
@@ -155,7 +223,13 @@ fn easter_sunday(year: i64) -> (u32, u32) {
 /// `None` means "this holiday does not fall in this year at all" - the answer for every rule whose
 /// date does not exist in the year asked about. Two rules can say that, and both used to answer with
 /// a date in the NEXT month instead.
+///
+/// A rule outside the dates a year has is in no year either (R5-A11): the loader refuses one, and a rule
+/// built through this library is not computed into an overflow or a date in another month.
 fn holiday_days(rule: &HolidayRule, year: i64) -> Option<i64> {
+    if rule.check().is_err() {
+        return None;
+    }
     match rule {
         // `None` when this year's month is too short: February 29 is a legitimate rule (the loader
         // accepts it, and a holiday observed only in leap years is a real thing), but in a common
@@ -501,6 +575,32 @@ pub fn add_business_days(
 mod tests {
     use super::*;
 
+    /// R5-A11: the bounds of a rule stand in the engine. A rule outside them, built through this library
+    /// rather than read by the loader, is in no year - a weekday of 20 on the last-weekday path
+    /// overflowed here - and `check` names the field the loader puts in its sentence.
+    #[test]
+    fn a_rule_outside_the_dates_a_year_has_is_no_holiday_and_says_which_field() {
+        let cases = [
+            (HolidayRule::NthWeekday { month: 1, weekday: 20, order: -1 }, RuleError::Weekday(20)),
+            (HolidayRule::NthWeekday { month: 13, weekday: 1, order: 1 }, RuleError::Month(13)),
+            (HolidayRule::NthWeekday { month: 5, weekday: 1, order: 6 }, RuleError::Order(6)),
+            (HolidayRule::Fixed { month: 4, day: 31 }, RuleError::Day { month: 4, day: 31, longest: 30 }),
+            (HolidayRule::Fixed { month: 0, day: 1 }, RuleError::Month(0)),
+            (HolidayRule::EasterOffset { offset: 251 }, RuleError::EasterOffset(251)),
+        ];
+        for (rule, error) in cases {
+            assert_eq!(rule.check(), Err(error), "{rule:?}");
+            assert_eq!(holiday_days(&rule, 2026), None, "{rule:?}");
+        }
+        for rule in [
+            HolidayRule::Fixed { month: 2, day: 29 },
+            HolidayRule::NthWeekday { month: 5, weekday: 1, order: -1 },
+            HolidayRule::EasterOffset { offset: -80 },
+        ] {
+            assert_eq!(rule.check(), Ok(()), "{rule:?}");
+        }
+    }
+
     fn dt(y: i64, m: u32, d: u32) -> CivilDateTime {
         CivilDateTime { year: y, month: m, day: d, hour: 0, minute: 0, second: 0 }
     }
@@ -710,12 +810,19 @@ mod tests {
             let day = holiday_days(&HolidayRule::EasterOffset { offset }, year).expect("an Easter");
             crate::civil_from_days(day).0
         };
+        // One day past either end is no rule the engine computes any more (R5-A11), so the year it would
+        // land in is counted from Easter directly.
+        let year_past = |offset: i32, year: i64| {
+            let (month, day) = easter_sunday(year);
+            crate::civil_from_days(days(year, month, day) + offset as i64).0
+        };
         for year in 1583..=4100 {
             assert_eq!(year_of(-80, year), year, "-80 in {year}");
             assert_eq!(year_of(250, year), year, "+250 in {year}");
         }
-        assert!((1583..=4100).any(|year| year_of(-81, year) != year), "-81 leaves some year");
-        assert!((1583..=4100).any(|year| year_of(251, year) != year), "+251 leaves some year");
+        assert!((1583..=4100).any(|year| year_past(-81, year) != year), "-81 leaves some year");
+        assert!((1583..=4100).any(|year| year_past(251, year) != year), "+251 leaves some year");
+        assert_eq!(holiday_days(&HolidayRule::EasterOffset { offset: 251 }, 2026), None);
     }
 
     /// A minimal Poland-shaped calendar for Easter-offset engine tests.

@@ -14,8 +14,9 @@ pub(crate) fn now_epoch_ms() -> i64 {
         .unwrap_or(0)
 }
 
-/// FILETIME ticks (100 ns since 1601) at the Unix epoch (1970-01-01T00:00:00Z).
-pub(crate) const FT_UNIX_EPOCH: i64 = 116_444_736_000_000_000;
+/// FILETIME ticks (100 ns since 1601) at the Unix epoch (1970-01-01T00:00:00Z), from the one count of days
+/// between the two epochs (R5-A11) rather than a second literal beside it.
+pub(crate) const FT_UNIX_EPOCH: i64 = chrono_core::DAYS_1601_TO_1970 * 86_400 * 10_000_000;
 
 /// The last fake instant a session clock shows, in Unix-epoch ms: the native clamp
 /// (`chrono_core::FAKE_WALL_MAX`, a whole second, so the division is exact). A Chromium session's
@@ -95,7 +96,7 @@ pub(crate) fn parse_zone_to_bias(raw: &str) -> Result<i32, String> {
 pub(crate) fn now_filetime_utc() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    (chrono_core::DAYS_1601_TO_1970 * 86_400 + d.as_secs() as i64) * 10_000_000 + (d.subsec_nanos() as i64 / 100)
+    FT_UNIX_EPOCH + d.as_secs() as i64 * 10_000_000 + (d.subsec_nanos() as i64 / 100)
 }
 
 /// Format a session bias (minutes, UTC = local + bias) back to a "+HH:MM" zone label - the core's one
@@ -119,6 +120,18 @@ pub(crate) fn session_zone_default(named: Option<i32>) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Unix epoch on the FILETIME count, now derived from the core's day count (R5-A11), is the
+    /// value Windows documents, and the moment that names it is the zero of the Unix-epoch ms the pages
+    /// and the panel read. The clock real now goes through the same constant.
+    #[test]
+    fn the_unix_epoch_is_one_constant_on_both_counts() {
+        assert_eq!(FT_UNIX_EPOCH, 116_444_736_000_000_000);
+        assert_eq!(moment_epoch_ms("1970-01-01T00:00:00", 0), Ok(0));
+        let now = now_filetime_utc();
+        let from_ms = now_epoch_ms() * 10_000 + FT_UNIX_EPOCH;
+        assert!((now - from_ms).abs() < 10_000_000 * 60, "the two real clocks disagree by more than a minute");
+    }
 
     #[test]
     fn zone_parses_valid_offsets_and_rejects_garbage() {

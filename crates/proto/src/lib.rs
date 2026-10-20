@@ -3,9 +3,8 @@
 //! One JSON object per line. The core writes events on its stdout, reads commands
 //! on its stdin. `stdout` is protocol only, `stderr` is human diagnostics.
 //!
-//! Stage 1 defines the messages the walking skeleton needs: `start`/`end` commands
-//! and `ready`/`verdict`/`ended`/`error` events. Later slices add `set_multiplier`,
-//! `jump`, `query`, `ack`, `coverage`, `state`, `warning`, `vanished`.
+//! The commands are [`Command`] and the events [`Event`], one variant per message type. docs/08
+//! names what each one means.
 //!
 //! `v` is repeated per message on purpose - a flat, unambiguous wire shape beats a
 //! clever envelope that trips serde's flatten + internal-tag edge cases.
@@ -112,11 +111,56 @@ pub struct ReachedEngine {
     pub context_count: u32,
 }
 
+/// What a [`MomentSpec`] names: a wall-clock moment, or a step from the session's own fake now.
+///
+/// A word this build does not know is read as [`MomentKind::Unknown`] rather than refused at parsing,
+/// so the command still gets its own answer - `moment.unsupported_kind` with its id - instead of the
+/// anonymous `protocol.bad_command_ignored` a malformed line gets (R5-P18). The wire spelling is the
+/// lowercase word, as it was while the field was a string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MomentKind {
+    /// `local` read in the zone `tz_bias_min` names, or in the session's when it names none.
+    Absolute,
+    /// `delta`, one step in the calculator's grammar, from the session's fake now. Jumps only.
+    Relative,
+    /// Any other word. Sent by no client of this build.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The time flow a `start` asks for. A word this build does not know is [`TimeModeKind::Unknown`],
+/// which the core refuses as `time.bad_mode` (R5-P18), as it did while the field was a string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeModeKind {
+    /// Real speed from the moment.
+    Flow,
+    /// The clock held at the moment.
+    Frozen,
+    /// `multiplier` times real speed, zero being frozen.
+    Multiplier,
+    /// Any other word. Sent by no client of this build.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What a `query` asks for. Every query is answered with a `state` snapshot, whatever it names - an
+/// unknown word included, which is [`QueryWhat::Unknown`] and answered all the same (R5-P18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QueryWhat {
+    /// The session's clock as it stands.
+    State,
+    /// Any other word.
+    #[serde(other)]
+    Unknown,
+}
+
 /// The target moment (session-zone semantics, docs/01 section 4).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MomentSpec {
-    /// "absolute" or "relative".
-    pub kind: String,
+    pub kind: MomentKind,
     #[serde(default)]
     pub local: Option<String>,
     #[serde(default)]
@@ -129,8 +173,7 @@ pub struct MomentSpec {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeSpec {
     pub moment: MomentSpec,
-    /// "flow" | "frozen" | "multiplier".
-    pub mode: String,
+    pub mode: TimeModeKind,
     #[serde(default)]
     pub multiplier: Option<i64>,
     #[serde(default)]
@@ -207,11 +250,11 @@ pub enum Command {
         #[serde(default)]
         force: bool,
     },
-    /// Ask for an immediate `state` snapshot (`what` is a stable key, e.g. "state").
+    /// Ask for an immediate `state` snapshot.
     Query {
         v: u32,
         id: u64,
-        what: String,
+        what: QueryWhat,
     },
     /// Change the speed in flight. The core re-anchors from its own clock, so the
     /// payload carries only the new multiplier, never a timestamp.
@@ -477,12 +520,12 @@ mod tests {
             },
             time: TimeSpec {
                 moment: MomentSpec {
-                    kind: "absolute".into(),
+                    kind: MomentKind::Absolute,
                     local: Some("2038-01-19T03:14:07".into()),
                     tz_bias_min: Some(-120),
                     delta: None,
                 },
-                mode: "multiplier".into(),
+                mode: TimeModeKind::Multiplier,
                 multiplier: Some(60),
                 scale_duration: false,
                 scale_qpc: false,
@@ -514,6 +557,36 @@ mod tests {
             "mode":"flow","multiplier":null,"scale_duration":false,"scale_qpc":false}}"#;
         assert!(parse_command(line).is_err());
         assert!(parse_command(&line.replace("window", "shared")).is_ok());
+    }
+
+    /// The opposite of the console: a moment kind, a mode or a query word this build does not know
+    /// still reads, as `Unknown`, so the core answers that one command with its id and its own key
+    /// (`moment.unsupported_kind`, `time.bad_mode`) rather than dropping the line as malformed (R5-P18).
+    /// And the words it knows go out as the lowercase strings the field carried while it was one.
+    #[test]
+    fn an_unknown_kind_mode_or_query_word_is_read_as_unknown_and_known_ones_keep_their_spelling() {
+        let start = r#"{"type":"start","v":1,"id":4,"target":{"path":"C:/app.exe"},
+            "time":{"moment":{"kind":"sideways","local":"2038-01-19T03:14:07"},"mode":"backwards"}}"#;
+        match parse_command(start).expect("an unknown kind and mode still read") {
+            Command::Start { id, time, .. } => {
+                assert_eq!((id, time.moment.kind, time.mode), (4, MomentKind::Unknown, TimeModeKind::Unknown));
+            }
+            other => panic!("expected a start, got {other:?}"),
+        }
+        let query = parse_command(r#"{"type":"query","v":1,"id":5,"what":"everything"}"#).expect("an unknown query word reads");
+        assert!(matches!(query, Command::Query { id: 5, what: QueryWhat::Unknown, .. }), "{query:?}");
+
+        let words = [
+            (serde_json::to_string(&MomentKind::Absolute), "\"absolute\""),
+            (serde_json::to_string(&MomentKind::Relative), "\"relative\""),
+            (serde_json::to_string(&TimeModeKind::Flow), "\"flow\""),
+            (serde_json::to_string(&TimeModeKind::Frozen), "\"frozen\""),
+            (serde_json::to_string(&TimeModeKind::Multiplier), "\"multiplier\""),
+            (serde_json::to_string(&QueryWhat::State), "\"state\""),
+        ];
+        for (written, expected) in words {
+            assert_eq!(written.expect("a unit variant serialises"), expected);
+        }
     }
 
     #[test]
@@ -648,7 +721,7 @@ mod tests {
             v: 1,
             id: 8,
             to: MomentSpec {
-                kind: "absolute".into(),
+                kind: MomentKind::Absolute,
                 local: Some("2050-01-01T00:00:00".into()),
                 tz_bias_min: Some(0),
                 delta: None,

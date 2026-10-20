@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use chrono_proto::{TargetConsole, TargetSpec};
+use chrono_proto::{TargetConsole, TargetSpec, TimeModeKind};
 
 use crate::cli::{flag_value, refuse_repeat};
 use crate::zone::parse_zone_to_bias;
@@ -26,8 +26,8 @@ pub(crate) struct RunArgs {
     pub(super) cwd: Option<String>,
     pub(super) at: Option<String>,
     pub(super) zone_bias_min: Option<i32>,
-    /// Wire mode token: "flow", "frozen", or "multiplier".
-    pub(super) mode: String,
+    /// The time flow on the wire: flow, frozen or multiplier.
+    pub(super) mode: TimeModeKind,
     pub(super) multiplier: Option<i64>,
     pub(super) scale_duration: bool,
     /// Also scale QueryPerformanceCounter (ADR-2 reversal, opt-in `--scale-qpc`).
@@ -89,12 +89,12 @@ fn digits_only<T: std::str::FromStr>(field: &str, refusal: String) -> Result<T, 
     field.parse().map_err(|_| refusal)
 }
 
-/// Parse `--mode` into a wire mode token and optional multiplier.
+/// Parse `--mode` into the wire's time flow and optional multiplier.
 /// `flow` = real speed, `frozen` = held, `xN` = accelerated N times (N >= 1).
-pub(crate) fn parse_mode(raw: &str) -> Result<(String, Option<i64>), String> {
+pub(crate) fn parse_mode(raw: &str) -> Result<(TimeModeKind, Option<i64>), String> {
     match raw {
-        "flow" => Ok(("flow".into(), None)),
-        "frozen" => Ok(("frozen".into(), None)),
+        "flow" => Ok((TimeModeKind::Flow, None)),
+        "frozen" => Ok((TimeModeKind::Frozen, None)),
         _ => {
             let n = raw
                 .strip_prefix('x')
@@ -114,7 +114,7 @@ pub(crate) fn parse_mode(raw: &str) -> Result<(String, Option<i64>), String> {
                     chrono_core::MULTIPLIER_MAX
                 ));
             }
-            Ok(("multiplier".into(), Some(m)))
+            Ok((TimeModeKind::Multiplier, Some(m)))
         }
     }
 }
@@ -289,7 +289,7 @@ pub(crate) fn parse_run_args(argv: &[String]) -> Result<RunArgs, String> {
     let mut cwd: Option<String> = None;
     let mut at: Option<String> = None;
     let mut zone_bias_min: Option<i32> = None;
-    let mut mode = String::from("flow");
+    let mut mode = TimeModeKind::Flow;
     let mut multiplier: Option<i64> = None;
     let mut scale_duration = false;
     let mut engine = EngineFlags { embedded: true, elevated_embedded: false, keep_background_timers: false };
@@ -449,14 +449,14 @@ mod tests {
 
     #[test]
     fn mode_flow_and_frozen_carry_no_multiplier() {
-        assert_eq!(parse_mode("flow").unwrap(), ("flow".to_string(), None));
-        assert_eq!(parse_mode("frozen").unwrap(), ("frozen".to_string(), None));
+        assert_eq!(parse_mode("flow").unwrap(), (TimeModeKind::Flow, None));
+        assert_eq!(parse_mode("frozen").unwrap(), (TimeModeKind::Frozen, None));
     }
 
     #[test]
     fn mode_accepts_xn_either_case() {
-        assert_eq!(parse_mode("x60").unwrap(), ("multiplier".to_string(), Some(60)));
-        assert_eq!(parse_mode("X1440").unwrap(), ("multiplier".to_string(), Some(1440)));
+        assert_eq!(parse_mode("x60").unwrap(), (TimeModeKind::Multiplier, Some(60)));
+        assert_eq!(parse_mode("X1440").unwrap(), (TimeModeKind::Multiplier, Some(1440)));
     }
 
     #[test]
@@ -729,7 +729,7 @@ mod tests {
             At(String),
             Preset(String),
             Zone(i32),
-            Mode(&'static str, Option<i64>),
+            Mode(TimeModeKind, Option<i64>),
             Args(Vec<String>),
             Cwd(String),
             Ticks(u64),
@@ -801,7 +801,7 @@ mod tests {
                 sets: Some(Sets::Args(args)),
             });
             let at = |v: &str| Some(Sets::At(v.to_string()));
-            let mode = |m: &'static str, n: Option<i64>| Some(Sets::Mode(m, n));
+            let mode = |m: TimeModeKind, n: Option<i64>| Some(Sets::Mode(m, n));
             let flags = prop_oneof![
                 valued("--at", values([("2026-01-31T00:00:00", at("2026-01-31T00:00:00")), ("+3d", at("+3d")), ("--3d", None)])),
                 valued("--preset", values([("month-end", Some(Sets::Preset("month-end".into()))), ("--x", None)])),
@@ -810,9 +810,9 @@ mod tests {
                     ("+15:00", None), ("+05:+30", None), ("abc", None),
                 ])),
                 valued("--mode", vec![
-                    ("flow".into(), mode("flow", None)), ("frozen".into(), mode("frozen", None)),
-                    ("x60".into(), mode("multiplier", Some(60))), ("X2".into(), mode("multiplier", Some(2))),
-                    (format!("x{max}"), mode("multiplier", Some(max))), (format!("x{}", max + 1), None),
+                    ("flow".into(), mode(TimeModeKind::Flow, None)), ("frozen".into(), mode(TimeModeKind::Frozen, None)),
+                    ("x60".into(), mode(TimeModeKind::Multiplier, Some(60))), ("X2".into(), mode(TimeModeKind::Multiplier, Some(2))),
+                    (format!("x{max}"), mode(TimeModeKind::Multiplier, Some(max))), (format!("x{}", max + 1), None),
                     ("x0".into(), None), ("x-5".into(), None), ("x+60".into(), None), ("fast".into(), None), ("x".into(), None),
                 ]),
                 args,
@@ -882,7 +882,7 @@ mod tests {
             cwd: Option<String>,
             at: Option<String>,
             zone: Option<i32>,
-            mode: String,
+            mode: TimeModeKind,
             multiplier: Option<i64>,
             ticks: u64,
             timeout: Option<u64>,
@@ -904,7 +904,7 @@ mod tests {
                 cwd: ra.cwd.clone(),
                 at: ra.at.clone(),
                 zone: ra.zone_bias_min,
-                mode: ra.mode.clone(),
+                mode: ra.mode,
                 multiplier: ra.multiplier,
                 ticks: ra.ticks,
                 timeout: ra.timeout_secs,
@@ -925,7 +925,7 @@ mod tests {
         /// contradict each other. `None` when the line has to be refused.
         fn owed(parts: &[Part]) -> Option<Seen> {
             let mut owed = Seen {
-                target: String::new(), args: Vec::new(), cwd: None, at: None, zone: None, mode: "flow".into(), multiplier: None,
+                target: String::new(), args: Vec::new(), cwd: None, at: None, zone: None, mode: TimeModeKind::Flow, multiplier: None,
                 ticks: 0, timeout: None, set_after: None, jump_after: None, report: None, preset: None, params: Vec::new(),
                 switches: [false, true, false, false, false, false, false, false, false],
             };
@@ -944,7 +944,7 @@ mod tests {
                     Sets::At(at) => (owed.at, time_flag) = (Some(at), true),
                     Sets::Preset(id) => owed.preset = Some(id),
                     Sets::Zone(bias) => owed.zone = Some(bias),
-                    Sets::Mode(mode, n) => (owed.mode, owed.multiplier, time_flag) = (mode.into(), n, true),
+                    Sets::Mode(mode, n) => (owed.mode, owed.multiplier, time_flag) = (mode, n, true),
                     Sets::Args(args) => owed.args = args,
                     Sets::Cwd(dir) => owed.cwd = Some(dir),
                     Sets::Ticks(n) => owed.ticks = n,

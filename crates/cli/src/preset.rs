@@ -23,6 +23,7 @@ use serde::Deserialize;
 use chrono_core::calc::{Base, MomentExpr, Sign, Step, Unit};
 use chrono_core::calendar::Calendar;
 use chrono_core::filetime_utc_to_wall;
+use chrono_proto::TimeModeKind;
 
 use crate::calendar::{catalogue_search_places, check_declared_id, find_catalogue_file, is_valid_catalogue_id};
 use crate::grammar::{parse_nearest, parse_set_time, parse_snap, parse_unit, unknown_unit};
@@ -107,8 +108,8 @@ pub(crate) enum ParamValue {
 /// `scale_duration_clock` (docs/04 4.2) - `multiplier == 1` is real-time `flow`, `> 1` is `xN`.
 #[derive(Debug, Clone)]
 pub(crate) struct PresetTimeMode {
-    /// Wire mode token: "flow" or "multiplier". (Presets do not express "frozen".)
-    pub(crate) mode: String,
+    /// The time flow on the wire: flow or multiplier. Presets do not express frozen.
+    pub(crate) mode: TimeModeKind,
     pub(crate) multiplier: Option<i64>,
     pub(crate) scale_duration: bool,
 }
@@ -116,7 +117,7 @@ pub(crate) struct PresetTimeMode {
 impl Default for PresetTimeMode {
     /// A preset with no `time_mode` (e.g. a calculator-only one) runs at real speed.
     fn default() -> Self {
-        Self { mode: "flow".into(), multiplier: None, scale_duration: false }
+        Self { mode: TimeModeKind::Flow, multiplier: None, scale_duration: false }
     }
 }
 
@@ -431,9 +432,71 @@ pub(crate) struct ShiftDto {
     pub(crate) parameter: Option<String>,
 }
 
-/// Whether a preset's `applies_to` makes it a calculator question (docs/04 4.2, docs/05 3.1).
-pub(crate) fn preset_targets_calculator(applies_to: &str) -> bool {
-    matches!(applies_to, "calculator" | "both")
+/// The two places a preset is used (docs/04 4.2), each honouring the preset's `applies_to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Surface {
+    /// `chrono calc` and the window's calculator.
+    Calculator,
+    /// `chrono run` and the window's session.
+    Substitution,
+}
+
+impl Surface {
+    /// Whether a preset that `applies_to` this is a question for the surface (docs/05 3.1): a
+    /// substitution-only preset such as year-rollover is no calculator question, and a calculator-only
+    /// one is no moment to run.
+    pub(crate) fn takes(self, applies_to: &str) -> bool {
+        match self {
+            Surface::Calculator => matches!(applies_to, "calculator" | "both"),
+            Surface::Substitution => matches!(applies_to, "substitution" | "both"),
+        }
+    }
+}
+
+/// Why a preset could not be taken onto a surface: the file, or a preset that is for the other surface.
+#[derive(Debug)]
+pub(crate) enum PresetRefusal {
+    Unreadable(PresetError),
+    NotForSurface { id: String, applies_to: String },
+}
+
+/// Where a preset failed, which decides what a bad file means: the file itself (or its moment), or the
+/// values given for its parameters on the command line or in the window's fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PresetStage {
+    File,
+    Parameters,
+}
+
+/// Load a preset for one surface (R5-A2): read and validated, and refused when its `applies_to` names
+/// the other surface. The calculator and `run` each did these two steps on their own.
+pub(crate) fn load_for(id: &str, surface: Surface) -> Result<Preset, PresetRefusal> {
+    load_preset(id).map_err(PresetRefusal::Unreadable)?.for_surface(surface)
+}
+
+impl Preset {
+    /// The preset, when its `applies_to` makes it a question for `surface`.
+    fn for_surface(self, surface: Surface) -> Result<Preset, PresetRefusal> {
+        if surface.takes(&self.applies_to) {
+            Ok(self)
+        } else {
+            Err(PresetRefusal::NotForSurface { id: self.id, applies_to: self.applies_to })
+        }
+    }
+
+    /// Fill the preset (R5-A2): every parameter resolved (`given`, then the file's default, then the
+    /// target's file date where `target_date` carries one), then substituted into the moment. A
+    /// non-parametric preset resolves to an empty map and its moment unchanged. A failure says at which
+    /// stage, because a bad value is fixed where it was given and a bad moment in the file.
+    pub(crate) fn fill(
+        &self,
+        given: &HashMap<String, String>,
+        target_date: Option<chrono_core::calc::CivilDateTime>,
+    ) -> Result<(HashMap<String, ParamValue>, MomentExpr), (PresetError, PresetStage)> {
+        let values = resolve_parameters(&self.parameters, given, target_date).map_err(|e| (e, PresetStage::Parameters))?;
+        let moment = resolve_moment(self.moment.clone(), &values).map_err(|e| (e, PresetStage::File))?;
+        Ok((values, moment))
+    }
 }
 
 /// Map a preset base to the core `Base`. A parametric base is refused (not built), never silently
@@ -730,6 +793,16 @@ pub(crate) fn parse_parameter(dto: ParameterDto) -> Result<Parameter, PresetErro
         Some(v) => Some(param_value_from_json(&dto.id, kind, &v)?),
         None => None,
     };
+    // A hint that fills a date, on a parameter that is no date, is a fault in the file, so it is refused with
+    // the file (review round of #131). Found only when the hint was used, it went out as a fault in the values
+    // given - the calculator said `calc.preset_parameter` to a user who gave none. A hint this build does not
+    // know stays a question for the moment it is used, when a value given or a default can still stand in.
+    if dto.default_hint.as_deref() == Some("target_file_creation") && kind != ParamKind::Date {
+        return Err(PresetError::BadFile(format!(
+            "parameter '{}': hint target_file_creation fills a date, but the parameter is not a date",
+            dto.id
+        )));
+    }
     let label_texts = dto.label.map(PresetTextDto::into_texts).unwrap_or_default();
     Ok(Parameter { id: dto.id, kind, default, default_hint: dto.default_hint, label_texts })
 }
@@ -950,22 +1023,17 @@ pub(crate) fn time_mode_from(dto: Option<TimeModeDto>) -> Result<PresetTimeMode,
     let Some(dto) = dto else { return Ok(PresetTimeMode::default()) };
     let multiplier = dto.multiplier.unwrap_or(1);
     let (mode, multiplier) = match multiplier {
-        1 => ("flow".to_string(), None),
+        1 => (TimeModeKind::Flow, None),
         m if m > chrono_core::MULTIPLIER_MAX => {
             return Err(PresetError::BadFile(format!(
                 "time_mode multiplier must be <= {}, got {m}",
                 chrono_core::MULTIPLIER_MAX
             )));
         }
-        m if m > 1 => ("multiplier".to_string(), Some(m)),
+        m if m > 1 => (TimeModeKind::Multiplier, Some(m)),
         _ => return Err(PresetError::BadFile(format!("time_mode multiplier must be >= 1, got {multiplier}"))),
     };
     Ok(PresetTimeMode { mode, multiplier, scale_duration: dto.scale_duration_clock })
-}
-
-/// Whether a preset's `applies_to` makes it a substitution question (docs/04 4.2).
-pub(crate) fn preset_targets_substitution(applies_to: &str) -> bool {
-    matches!(applies_to, "substitution" | "both")
 }
 
 /// Read the target executable's creation date, expressed in the session zone, for a
@@ -1691,9 +1759,9 @@ mod tests {
     /// The calculator honours `applies_to`: substitution-only presets are not calculator questions.
     #[test]
     fn preset_applies_to_gates_the_calculator() {
-        assert!(preset_targets_calculator("calculator"));
-        assert!(preset_targets_calculator("both"));
-        assert!(!preset_targets_calculator("substitution"));
+        assert!(Surface::Calculator.takes("calculator"));
+        assert!(Surface::Calculator.takes("both"));
+        assert!(!Surface::Calculator.takes("substitution"));
     }
 
     /// Bad JSON is a usage-level bad-file error, not a panic.
@@ -1707,15 +1775,15 @@ mod tests {
     #[test]
     fn preset_time_mode_maps_to_wire_shape() {
         let none = time_mode_from(None).unwrap();
-        assert_eq!(none.mode, "flow");
+        assert_eq!(none.mode, TimeModeKind::Flow);
         assert_eq!(none.multiplier, None);
         assert!(!none.scale_duration);
 
         let flow = time_mode_from(Some(TimeModeDto { multiplier: Some(1), scale_duration_clock: false })).unwrap();
-        assert_eq!((flow.mode.as_str(), flow.multiplier), ("flow", None));
+        assert_eq!((flow.mode, flow.multiplier), (TimeModeKind::Flow, None));
 
         let xn = time_mode_from(Some(TimeModeDto { multiplier: Some(60), scale_duration_clock: true })).unwrap();
-        assert_eq!((xn.mode.as_str(), xn.multiplier, xn.scale_duration), ("multiplier", Some(60), true));
+        assert_eq!((xn.mode, xn.multiplier, xn.scale_duration), (TimeModeKind::Multiplier, Some(60), true));
 
         assert!(matches!(
             time_mode_from(Some(TimeModeDto { multiplier: Some(0), scale_duration_clock: false })),
@@ -1755,7 +1823,7 @@ mod tests {
             "time_mode": { "multiplier": 1440, "scale_duration_clock": true }
         }"#;
         let p = parse_preset(json).unwrap();
-        assert_eq!(p.time_mode.mode, "multiplier");
+        assert_eq!(p.time_mode.mode, TimeModeKind::Multiplier);
         assert_eq!(p.time_mode.multiplier, Some(1440));
         assert!(p.time_mode.scale_duration);
     }
@@ -1763,9 +1831,62 @@ mod tests {
     /// The substitution surface honours applies_to: calculator-only presets are not run questions.
     #[test]
     fn preset_applies_to_gates_substitution() {
-        assert!(preset_targets_substitution("substitution"));
-        assert!(preset_targets_substitution("both"));
-        assert!(!preset_targets_substitution("calculator"));
+        assert!(Surface::Substitution.takes("substitution"));
+        assert!(Surface::Substitution.takes("both"));
+        assert!(!Surface::Substitution.takes("calculator"));
+    }
+
+    /// R5-A2: both surfaces take a preset the same way - one for the other surface is refused with its
+    /// id and what it applies to, and a fill that fails says whether the values or the file were wrong.
+    #[test]
+    fn a_preset_is_taken_onto_a_surface_and_filled_the_same_way_for_both() {
+        let preset = |applies_to: &str, steps: &str| {
+            parse_preset(&format!(
+                r#"{{"schema": "chronomock.preset/1", "id": "p", "name": {{ "en": "n" }}, "explains": {{ "en": "e" }},
+                    "applies_to": "{applies_to}",
+                    "parameters": [{{ "id": "start", "type": "date", "label": {{ "en": "Start" }}, "default": "2026-01-01" }}],
+                    "moment": {{ "base": {{ "parameter": "start" }}, "steps": [{steps}] }}}}"#
+            ))
+            .expect("a preset the reader takes")
+        };
+        let refused = preset("substitution", "").for_surface(Surface::Calculator).unwrap_err();
+        assert!(
+            matches!(&refused, PresetRefusal::NotForSurface { id, applies_to } if id == "p" && applies_to == "substitution"),
+            "{refused:?}"
+        );
+        let calculator = preset("calculator", "").for_surface(Surface::Calculator).expect("a calculator preset");
+
+        let (values, _) = calculator.fill(&param_map(&[]), None).expect("the default fills it");
+        assert_eq!(values.len(), 1);
+        let (bad_value, stage) = calculator.fill(&param_map(&[("start", "not-a-date")]), None).unwrap_err();
+        assert_eq!(stage, PresetStage::Parameters, "{}", bad_value.message());
+        let (unknown, stage) = calculator.fill(&param_map(&[("nope", "1")]), None).unwrap_err();
+        assert_eq!(stage, PresetStage::Parameters, "{}", unknown.message());
+
+        // A duration where the base wants a date: the values are fine, the file is not.
+        let mismatch = parse_preset(
+            r#"{"schema": "chronomock.preset/1", "id": "m", "name": { "en": "n" }, "explains": { "en": "e" },
+                "applies_to": "both",
+                "parameters": [ { "id": "d", "type": "duration", "default": { "amount": 5, "unit": "days" } } ],
+                "moment": { "base": { "parameter": "d" }, "steps": [] }}"#,
+        )
+        .expect("a preset the reader takes");
+        let (in_file, stage) = mismatch.fill(&param_map(&[]), None).unwrap_err();
+        assert_eq!(stage, PresetStage::File, "{}", in_file.message());
+
+        // A date hint on a duration is the file's fault too, and refused with the file - before any value is
+        // asked for, so it never reads as a bad value the user gave.
+        let hinted = parse_preset(
+            r#"{"schema": "chronomock.preset/1", "id": "h", "name": { "en": "n" }, "explains": { "en": "e" },
+                "applies_to": "both",
+                "parameters": [ { "id": "d", "type": "duration", "default_hint": "target_file_creation" } ],
+                "moment": { "base": "today", "steps": [] }}"#,
+        );
+        assert!(
+            matches!(&hinted, Err(PresetError::BadFile(m)) if m.contains("target_file_creation")),
+            "{:?}",
+            hinted.as_ref().err().map(PresetError::message)
+        );
     }
 
     fn civil(y: i64, mo: u32, d: u32, h: u32, mi: u32, s: u32) -> chrono_core::calc::CivilDateTime {
@@ -1982,10 +2103,10 @@ mod tests {
             prop_assert_eq!(&read.explains_texts, &texts(preset, "Explains"));
             prop_assert_eq!(&read.name_en, &format!("Name of {}", preset.id));
             let (mode, multiplier) = match preset.time_mode {
-                None | Some((None | Some(1), _)) => ("flow", None),
-                Some((Some(m), _)) => ("multiplier", Some(m)),
+                None | Some((None | Some(1), _)) => (TimeModeKind::Flow, None),
+                Some((Some(m), _)) => (TimeModeKind::Multiplier, Some(m)),
             };
-            prop_assert_eq!(read.time_mode.mode.as_str(), mode);
+            prop_assert_eq!(read.time_mode.mode, mode);
             prop_assert_eq!(read.time_mode.multiplier, multiplier);
             prop_assert_eq!(read.time_mode.scale_duration, preset.time_mode.is_some_and(|(_, scale)| scale));
             prop_assert_eq!(read.parameters.len(), preset.parameters.len());

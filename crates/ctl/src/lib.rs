@@ -386,7 +386,36 @@ impl ChannelModule {
             Self::User32 | Self::Winmm | Self::Ws2_32 => false,
         }
     }
+
+    /// The DLL of a module that may arrive after `DllMain`, NUL-terminated for the loader, or `None` for
+    /// one in every process (R5-A11). The hook's install and its late scan both look the module up by
+    /// this name, so the three names stand in one place.
+    pub const fn late_dll(self) -> Option<&'static [u8]> {
+        match self {
+            Self::User32 => Some(b"user32.dll\0"),
+            Self::Winmm => Some(b"winmm.dll\0"),
+            Self::Ws2_32 => Some(b"ws2_32.dll\0"),
+            Self::Kernel32 | Self::Ntdll | Self::KernelBase | Self::KernelBaseBehindKernel32 | Self::KernelBaseAndKernel32 => {
+                None
+            }
+        }
+    }
 }
+
+/// Every channel whose module may arrive after `DllMain`: the set the hook's watcher looks for, read off
+/// [`CHANNELS`] (R5-A11). It was written out by hand, module by module, beside the table and beside the
+/// scan, so a channel added to one of those modules and not to the mask would never have been looked for.
+pub const LATE_CHANNELS: u64 = {
+    let mut mask = 0;
+    let mut i = 0;
+    while i < CHANNEL_COUNT {
+        if !CHANNELS[i].module.in_every_process() {
+            mask |= CHANNELS[i].bit;
+        }
+        i += 1;
+    }
+    mask
+};
 
 /// What kind of time a channel carries. The duration axis and the object-wait observation
 /// are opt-in (scale_duration), so the mechanism only expects `Duration` and `WaitObserved`
@@ -3184,6 +3213,22 @@ mod tests {
             assert_eq!(ch.category, ChannelCategory::Duration, "{}", ch.name);
             assert!(ch.module.in_every_process(), "{} is in a module a process may not load", ch.name);
         }
+    }
+
+    /// R5-A11: a module has a DLL name to be looked up by exactly when it may be missing at `DllMain`, and
+    /// the late set read off the table is the six channels it was written out as by hand - the message
+    /// waits and the window timer in user32, the multimedia timer and clock in winmm, the socket wait.
+    #[test]
+    fn the_late_channels_are_read_off_the_table_and_their_modules_have_a_name() {
+        use ChannelModule::*;
+        for module in [Kernel32, Ntdll, User32, Winmm, Ws2_32, KernelBase, KernelBaseBehindKernel32, KernelBaseAndKernel32] {
+            assert_eq!(module.late_dll().is_some(), !module.in_every_process(), "{module:?}");
+            if let Some(name) = module.late_dll() {
+                assert_eq!(name.iter().filter(|b| **b == 0).count(), 1, "{module:?}");
+                assert_eq!(name.last(), Some(&0), "{module:?} is not NUL-terminated");
+            }
+        }
+        assert_eq!(LATE_CHANNELS, CH_MWFMO | CH_MWFMOEX | CH_SETTIMER | CH_TIMESETEVENT | CH_TIMEGETTIME | CH_WSAWFME);
     }
 
     /// The hook resolves every channel by `export`, and the report names it by `name`. The two differ

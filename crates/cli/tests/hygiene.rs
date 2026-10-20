@@ -288,6 +288,177 @@ fn hook_detours_do_not_allocate_or_panic() {
     );
 }
 
+/// The functions of the hook that may allocate or format, each with why (R5-A11). The scan above stops
+/// at the detour bodies, so a helper a detour calls kept its allocation out of sight - `h_cpw` reaches
+/// `begin_remote_load` and its `vec!` through `inherit_into_child`. Everything else the hook defines
+/// outside its tests is held to the detour's rule. The list only shrinks: an entry that no longer
+/// allocates is red as well.
+const HOOK_MAY_ALLOCATE: &[(&str, &str)] = &[
+    ("DllMain", "the loader's call that runs the install, before a detour is live"),
+    ("install", "installs every detour at DllMain, before one of them is live"),
+    ("make_hook", "creates one detour during the install"),
+    ("make_kernelbase_copy_hook", "creates the detour on kernelbase's copy during the install"),
+    ("kernelbase_side", "follows a kernel32 entry into kernelbase during the install"),
+    ("enable_or_take_back", "switches the detours on during the install"),
+    ("pin_self", "pins the hook's own module during the install"),
+    ("late_scan", "the watcher thread's look for modules that arrived late, outside every detour"),
+    ("late_one", "creates one late detour on the watcher thread"),
+    ("enable_one_late", "switches one late detour on, on the watcher thread"),
+    (
+        "begin_remote_load",
+        "loads the hook into a child the target starts - once per process start, never on a clock read",
+    ),
+    ("inherit_into_debugged_child", "the same, for a child started under a debugger"),
+    ("debugged_child_proc", "the thread that waits on a child started under a debugger"),
+];
+
+/// The functions on the list above that a detour may reach through its helpers, each with why. Every
+/// other one is out of every detour's reach through any chain of calls, not only a direct one: a
+/// direct-call check missed `h_* -> detached -> ensure_watcher -> start_watcher -> log` while `log`
+/// built a `CString` (review round of #131). The list only shrinks, and an entry no detour reaches any
+/// more is red.
+const DETOUR_MAY_REACH: &[(&str, &str)] = &[
+    (
+        "begin_remote_load",
+        "a detour of process creation gives the child the hook - a process start, not a clock read",
+    ),
+    ("inherit_into_debugged_child", "the same, for a child started under a debugger"),
+    ("debugged_child_proc", "started by the same path, the thread that waits on such a child"),
+];
+
+/// Every function the hook defines in `text`, by its name and its first line, with the last line of its
+/// body. Keyed by both, so two functions of one name (`drop` in two impls) are two entries - keyed by the
+/// name alone, the second hid the first. A declaration without a body (a trait's method) is left out.
+fn hook_functions(text: &str) -> BTreeMap<(String, usize), usize> {
+    let mut out = BTreeMap::new();
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let mut rest = code_only(line).trim_start();
+        for prefix in ["pub(crate) ", "pub ", "const ", "unsafe ", "extern \"system\" "] {
+            rest = rest.strip_prefix(prefix).unwrap_or(rest);
+        }
+        let Some(after) = rest.strip_prefix("fn ") else {
+            continue;
+        };
+        let name: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let (mut depth, mut seen) = (0i32, false);
+        for (j, l) in lines.iter().enumerate().skip(i) {
+            let code = code_only(l);
+            depth += code.matches('{').count() as i32 - code.matches('}').count() as i32;
+            seen |= code.contains('{');
+            if !seen && code.trim_end().ends_with(';') {
+                break;
+            }
+            if seen && depth == 0 {
+                out.insert((name.clone(), i), j);
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Whether `code` calls `name` - the name followed by `(`, not as the tail of a longer name or a method.
+fn calls(code: &str, name: &str) -> bool {
+    let call = format!("{name}(");
+    code.match_indices(&call).any(|(at, _)| {
+        code[..at].chars().next_back().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+    })
+}
+
+/// Every function of the hook a detour (`h_*`) reaches through any chain of calls, by name. Calls are
+/// read by name, so two functions of one name share what they call - which can only add a path, never
+/// hide one. A function handed to the system as a thread's start is not a call, and its thread is not
+/// a detour's.
+fn reached_from_detours(functions: &BTreeMap<(String, usize), usize>, lines: &[&str]) -> BTreeSet<String> {
+    let names: BTreeSet<&str> = functions.keys().map(|(name, _)| name.as_str()).collect();
+    let mut callees: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for ((name, start), end) in functions {
+        let found = callees.entry(name.as_str()).or_default();
+        for line in &lines[*start..=*end] {
+            let code = code_only(line);
+            for callee in names.iter().filter(|callee| **callee != name.as_str()) {
+                if calls(code, callee) {
+                    found.insert(callee);
+                }
+            }
+        }
+    }
+    let mut reached = BTreeSet::new();
+    let mut todo: Vec<&str> = names.iter().copied().filter(|name| name.starts_with("h_")).collect();
+    while let Some(caller) = todo.pop() {
+        for callee in callees.get(caller).into_iter().flatten() {
+            if reached.insert(callee.to_string()) {
+                todo.push(callee);
+            }
+        }
+    }
+    reached
+}
+
+#[test]
+fn the_hook_allocates_only_where_it_says_why() {
+    let path = repo_root().join("crates/hook/src/lib.rs");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let production = text.find("#[cfg(test)]\nmod tests").map_or(text.as_str(), |cut| &text[..cut]);
+    let functions = hook_functions(production);
+    let lines: Vec<&str> = production.lines().collect();
+    // The canary: a definition rule that found nothing would pass a hook that allocates everywhere.
+    assert!(functions.len() >= 100, "found only {} functions in the hook - the scan went blind", functions.len());
+
+    let allocating: BTreeSet<&str> = functions
+        .iter()
+        .filter(|((_, start), end)| {
+            lines[*start..=**end].iter().any(|l| DETOUR_FORBIDDEN.iter().any(|bad| code_only(l).contains(bad)))
+        })
+        .map(|((name, _), _)| name.as_str())
+        .collect();
+    let listed: BTreeSet<&str> = HOOK_MAY_ALLOCATE.iter().map(|(name, _)| *name).collect();
+    let unlisted: Vec<_> = allocating.difference(&listed).collect();
+    assert!(
+        unlisted.is_empty(),
+        "a function of the hook allocates or can panic without saying why - make it not, or list it in \
+         HOOK_MAY_ALLOCATE with the reason it never runs on a clock read: {unlisted:?}"
+    );
+    let stale: Vec<_> = listed.difference(&allocating).collect();
+    assert!(stale.is_empty(), "listed in HOOK_MAY_ALLOCATE and no longer allocating - take it off: {stale:?}");
+
+    // What a detour reaches, through any chain of helpers. The canary: the watcher's start is on nearly
+    // every detour's path (`detached`), and a call scan that does not find it has gone blind.
+    let reached = reached_from_detours(&functions, &lines);
+    assert!(reached.contains("start_watcher"), "no detour reaches start_watcher - the call scan went blind");
+    let may_reach: BTreeSet<&str> = DETOUR_MAY_REACH.iter().map(|(name, _)| *name).collect();
+    let on_a_detour: Vec<_> = listed.iter().filter(|name| reached.contains(**name) && !may_reach.contains(**name)).collect();
+    assert!(
+        on_a_detour.is_empty(),
+        "a detour reaches a function that allocates - make it not allocate, or keep it off the detour's \
+         path: {on_a_detour:?}"
+    );
+    let stale_reach: Vec<_> = may_reach.iter().filter(|name| !reached.contains(**name) || !listed.contains(**name)).collect();
+    assert!(stale_reach.is_empty(), "DETOUR_MAY_REACH names what no detour reaches or what no longer allocates: {stale_reach:?}");
+}
+
+/// Two functions of one name are two entries, so the first one's body is read as well as the second's.
+#[test]
+fn two_functions_of_one_name_are_both_read() {
+    let hook = "impl Drop for A {\n    fn drop(&mut self) {\n        let v = vec![1];\n    }\n}\nimpl Drop for B {\n    fn drop(&mut self) {\n        close();\n    }\n}\n";
+    let functions = hook_functions(hook);
+    let drops: Vec<_> = functions.keys().filter(|(name, _)| name == "drop").collect();
+    assert_eq!(drops.len(), 2, "{functions:?}");
+}
+
+/// The reach follows a chain, not only a direct call, and a method or a longer name is no call.
+#[test]
+fn the_reach_of_a_detour_follows_every_chain_of_calls() {
+    let hook = "fn h_read() {\n    detached();\n    x.alone();\n    alones();\n}\nfn detached() {\n    start();\n}\n\
+                fn start() {\n    note(\"x\");\n}\nfn note(m: &str) {\n    keep(m);\n}\nfn keep(m: &str) {\n    m.len();\n}\n\
+                fn alone() {\n    keep(\"y\");\n}\n";
+    let functions = hook_functions(hook);
+    let lines: Vec<&str> = hook.lines().collect();
+    let reached = reached_from_detours(&functions, &lines);
+    assert_eq!(reached, ["detached", "keep", "note", "start"].iter().map(|s| s.to_string()).collect());
+}
+
 // ---------------------------------------------------------------------------------------------
 // H5. The logical core never swallows an error
 // ---------------------------------------------------------------------------------------------
@@ -2145,11 +2316,12 @@ fn hook_fn_body(text: &str, signature: &str) -> Option<String> {
 /// both ran with winmm mapped while `timeGetTime` and `timeSetEvent` were never hooked, and the
 /// report did not carry the channel at all - not covered, not uncovered, absent. `make_hook` resolves
 /// these three modules once, at `DllMain`, and for a runtime that loads later that is too early.
-/// `late_scan` is the second chance, and this checks that every channel which needs one gets one.
+/// `late_scan` is the second chance, and this checks that every channel which needs one gets one: since
+/// R5-A11 the scan installs from one table, `late_site`, so that is where each channel has to be named.
 ///
 /// The failure it is built to catch is a channel ADDED to `CHANNELS` in an optional module and not
-/// added to `late_scan` - which today would be silent twice over, because such a channel is dropped
-/// from the report rather than listed as a gap (untouchable rule 4).
+/// added to the late table - which would be silent twice over, because such a channel is dropped from
+/// the report rather than listed as a gap (untouchable rule 4).
 #[test]
 fn every_optional_module_channel_can_be_installed_late() {
     let root = repo_root();
@@ -2170,8 +2342,8 @@ fn every_optional_module_channel_can_be_installed_late() {
         channels.len()
     );
 
-    let body = hook_fn_body(&hook_src, "unsafe fn late_scan()")
-        .expect("late_scan not found in the hook - late module installation is gone, or renamed");
+    let body = hook_fn_body(&hook_src, "fn late_site(")
+        .expect("late_site not found in the hook - late module installation is gone, or renamed");
 
     let missing: Vec<String> = channels
         .iter()
@@ -2181,8 +2353,8 @@ fn every_optional_module_channel_can_be_installed_late() {
 
     assert!(
         missing.is_empty(),
-        "these channels live in a module the target may load AFTER DllMain, but late_scan never \
-         installs them - they would be missing from the report entirely, not reported as a gap: \
+        "these channels live in a module the target may load AFTER DllMain, but the late table never \
+         names them - they would be missing from the report entirely, not reported as a gap: \
          {missing:?}"
     );
     println!("late-load guard: {} optional-module channels, all reachable", channels.len());

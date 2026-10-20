@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use chrono_proto::Event;
 
-use crate::report::{ProcessCoverage, SessionReport, UnitId};
+use crate::report::{CutShort, ProcessCoverage, SessionReport, UnitId};
 
 /// The session's evidence as it arrives, one field per thing the report states. Nothing here is
 /// derived twice, so the report cannot claim more than the core actually said (untouchable rule 4).
@@ -193,7 +193,7 @@ impl Collector {
         self,
         target: String,
         cdp: bool,
-        stopped_early: Option<&'static str>,
+        stopped_early: Option<CutShort>,
     ) -> SessionReport {
         // Flatten the per-unit snapshots into report rows, parent first (first-seen order).
         let mut uncovered: Vec<(UnitId, String)> = Vec::new(); // (unit, channel) - the honest gaps

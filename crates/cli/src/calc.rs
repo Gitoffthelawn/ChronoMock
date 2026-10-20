@@ -26,9 +26,7 @@ use chrono_core::filetime_utc_to_wall;
 use crate::cli::{flag_value, print_calc_usage};
 use crate::grammar::{parse_base, parse_nearest, parse_set_time, parse_shift, parse_snap};
 use crate::output::{diag, out, outln};
-use crate::preset::{
-    load_market_calendar, load_preset, preset_targets_calculator, resolve_moment, resolve_parameters,
-};
+use crate::preset::{load_for, load_market_calendar, PresetRefusal, PresetStage, Surface};
 use crate::zone::{format_bias, now_filetime_utc, parse_zone_to_bias, session_zone_default};
 /// Parsed `chrono calc` arguments: a base, an ordered step list, and the session
 /// zone used to resolve a today/now base.
@@ -132,52 +130,41 @@ pub(crate) fn calc_run(argv: &[String]) -> i32 {
     // moment is built from the flags. The preset also carries a human header (name + "explains").
     let preset_id = ca.preset.clone();
     let (expr, preset_header, preset_meta) = match preset_id {
-        Some(pid) => match load_preset(&pid) {
-            Ok(p) => {
-                // The calculator surface honours `applies_to`: a substitution-only preset
-                // (e.g. year-rollover) is not a calculator question (docs/05 3.1). Refuse it
-                // instead of computing a moment nobody asked the calculator for.
-                if !preset_targets_calculator(&p.applies_to) {
-                    diag!(
-                        "chrono calc: preset '{}' targets {}, not the calculator (calc.preset_not_for_calculator)",
-                        p.id, p.applies_to
-                    );
+        Some(pid) => {
+            let p = match load_for(&pid, Surface::Calculator) {
+                Ok(p) => p,
+                Err(PresetRefusal::Unreadable(e)) => {
+                    diag!("{}", preset_refusal(&e, PresetStage::File));
+                    return e.exit_code();
+                }
+                // A substitution-only preset (e.g. year-rollover) is not a calculator question (docs/05
+                // 3.1). Refused instead of computing a moment nobody asked the calculator for.
+                Err(PresetRefusal::NotForSurface { id, applies_to }) => {
+                    diag!("chrono calc: preset '{id}' targets {applies_to}, not the calculator (calc.preset_not_for_calculator)");
                     return 1;
                 }
-                let implied = match adopt_market_calendar(&p, &mut calendar) {
-                    Ok(line) => line,
-                    Err(e) => {
-                        diag!("chrono calc: {e} (calc.market_calendar_unavailable)");
-                        return 1;
-                    }
-                };
-                // Resolve the preset's parameters (--param / default) then substitute them into its
-                // moment. A non-parametric preset resolves to an empty map and an unchanged moment.
-                // The calculator has no target, so no target_file_creation hint (None).
-                let values = match resolve_parameters(&p.parameters, &ca.params, None) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        diag!("{}", preset_refusal(&e, PresetStage::Parameters));
-                        return e.exit_code();
-                    }
-                };
-                let moment = match resolve_moment(p.moment, &values) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        diag!("{}", preset_refusal(&e, PresetStage::File));
-                        return e.exit_code();
-                    }
-                };
-                let pj = PresetJson { id: p.id, name: p.name_en, explains: p.explains_en };
-                let header =
-                    format!("  preset:   {} - {}\n  explains: {}\n{implied}", pj.id, pj.name, pj.explains);
-                (moment, Some(header), Some(pj))
-            }
-            Err(e) => {
-                diag!("{}", preset_refusal(&e, PresetStage::File));
-                return e.exit_code();
-            }
-        },
+            };
+            // The market's calendar before the parameters, so a calendar that cannot load is the error
+            // said first, as it was.
+            let implied = match adopt_market_calendar(&p, &mut calendar) {
+                Ok(line) => line,
+                Err(e) => {
+                    diag!("chrono calc: {e} (calc.market_calendar_unavailable)");
+                    return 1;
+                }
+            };
+            // The calculator has no target, so no target_file_creation hint (None).
+            let moment = match p.fill(&ca.params, None) {
+                Ok((_, moment)) => moment,
+                Err((e, stage)) => {
+                    diag!("{}", preset_refusal(&e, stage));
+                    return e.exit_code();
+                }
+            };
+            let pj = PresetJson { id: p.id, name: p.name_en, explains: p.explains_en };
+            let header = format!("  preset:   {} - {}\n  explains: {}\n{implied}", pj.id, pj.name, pj.explains);
+            (moment, Some(header), Some(pj))
+        }
         None => (MomentExpr { base: ca.base, steps: ca.steps }, None, None),
     };
     match chrono_core::calc::eval(
@@ -497,14 +484,6 @@ fn load_named_calendar(id: &str) -> Result<chrono_core::calendar::Calendar, Stri
         }
     })?;
     crate::calendar::load_calendar_at(&path, id).map_err(|e| format!("chrono calc: {e} (calc.calendar_invalid)"))
-}
-
-/// Where a preset failed, which decides what a bad file means: the file itself (or its moment), or the
-/// values given for its parameters on the command line or in the window's fields.
-#[derive(Clone, Copy)]
-enum PresetStage {
-    File,
-    Parameters,
 }
 
 /// The line refusing a preset, ending in its key (R5-D5, item 2). A file that is not there and a build
