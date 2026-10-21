@@ -11,22 +11,19 @@ namespace ChronoMock.App;
 internal static class ClipboardText
 {
     /// <summary>The text on the clipboard: true when it is there. Another process can hold the clipboard
-    /// lock, so a refusal is tried once more before it is reported - never swallowed (rule 6).</summary>
+    /// lock, and WPF already waits it out - ten tries 100 ms apart (ClipboardCore, shared with Windows
+    /// Forms) - before it throws, so one call is enough. A second one doubled the time the window stood still,
+    /// found in review. A refusal is reported, never swallowed (rule 6).</summary>
     public static bool TrySet(string text)
     {
-        for (int attempt = 0; attempt < 2; attempt++)
+        try
         {
-            try
-            {
-                Clipboard.SetText(text);
-                return true;
-            }
-            catch (ExternalException)
-            {
-                // The lock was held by another process - one more try, then false.
-            }
+            Clipboard.SetText(text);
+            return true;
         }
-
-        return false;
+        catch (ExternalException)
+        {
+            return false;
+        }
     }
 }

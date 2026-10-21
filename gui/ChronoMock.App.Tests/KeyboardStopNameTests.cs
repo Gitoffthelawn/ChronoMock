@@ -187,6 +187,9 @@ public sealed class KeyboardStopNameTests
         }
 
         await AnsweredAsync(builder);
+        Assert.True(
+            builder.HasResult && builder.Formats.Count > 0,
+            "the builder screen shows no format rows, so no format's Copy would be read");
         yield return ("calculator with every step", new CalculatorView { DataContext = builder }, LayoutProbe.WindowWidth, LayoutProbe.WindowHeight, false);
 
         // Every shipped scenario, for the parameter inputs each one brings.
@@ -215,7 +218,8 @@ public sealed class KeyboardStopNameTests
 
     /// <summary>Wait until the result for the builder as it stands is on the screen, so the format rows and
     /// their copy buttons are there to be read. A scenario that answers with an error leaves no rows, which
-    /// is a state of its own and still read.</summary>
+    /// is a state of its own and still read - but an answer that never lands fails here rather than leaving
+    /// the screen read without its rows (found in review: the wait used to end in silence).</summary>
     private static async Task AnsweredAsync(CalculatorViewModel vm)
     {
         var deadline = DateTime.UtcNow + AnswerDeadline;
@@ -223,5 +227,7 @@ public sealed class KeyboardStopNameTests
         {
             await Task.Delay(TimeSpan.FromMilliseconds(25), TestContext.Current.CancellationToken);
         }
+
+        Assert.False(vm.IsResultStale, "the calculator never answered, so its copy buttons would not be read");
     }
 }

@@ -20618,5 +20618,22 @@
     "match": "method",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-7a review the stop guard reads the calculator without its format rows",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "    private void ShowFormats(IReadOnlyList<FormatValue> fresh)\n    {\n        if (fresh.Count == 0)",
+        "to": "    private void ShowFormats(IReadOnlyList<FormatValue> fresh)\n    {\n        if (fresh.Count >= 0)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
   }
 ]

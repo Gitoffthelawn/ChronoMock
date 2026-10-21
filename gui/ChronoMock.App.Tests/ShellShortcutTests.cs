@@ -35,6 +35,32 @@ public sealed class ShellShortcutTests
         }
     }
 
+    /// <summary>The path the window takes: the intake reads the shortcut on a pool thread, outside the
+    /// window's apartment, and fills the target, its arguments and its folder (found in review: the reads
+    /// above all ran on the test's single-threaded apartment).</summary>
+    [Fact]
+    public async Task A_real_shortcut_offered_to_the_intake_fills_the_form()
+    {
+        var program = Path.Combine(Path.GetTempPath(), $"chrono-target-{Guid.NewGuid():N}.exe");
+        File.WriteAllText(program, string.Empty);
+        var lnk = MakeShortcut(program, "--fast", Path.GetTempPath());
+        try
+        {
+            var vm = new SessionViewModel();
+
+            Assert.Equal(TargetTaken.Taken, await new TargetIntake(vm).TakeAsync(lnk));
+
+            Assert.Equal(program, vm.TargetPath, ignoreCase: true);
+            Assert.Equal("--fast", vm.TargetArgs);
+            Assert.True(vm.HasTargetNote);
+        }
+        finally
+        {
+            File.Delete(lnk);
+            File.Delete(program);
+        }
+    }
+
     [Fact]
     public void A_file_that_is_no_shortcut_is_not_read()
     {

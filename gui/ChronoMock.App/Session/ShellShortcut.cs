@@ -20,6 +20,10 @@ internal sealed record ShortcutTarget(string Program, string Arguments, string W
 /// file in the installer's cache where a path should be - sometimes an ".exe" - so it is refused as naming
 /// no program rather than started. The interfaces are declared in the Windows SDK's order
 /// (ShObjIdl_core.h), and only as far as the last method used.
+///
+/// Read from a pool thread, which is in the multithreaded apartment: CLSID_ShellLink is registered with the
+/// threading model Both (read from the registry, InProcServer32), so it lives in the caller's apartment and
+/// needs no message pump. The intake test reads a real shortcut down that very path.
 /// </remarks>
 internal static class ShellShortcut
 {
