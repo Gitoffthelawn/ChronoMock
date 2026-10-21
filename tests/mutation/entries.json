@@ -19975,8 +19975,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "    public bool ShowsHistorySection => HasHistory || HasHistorySetAside;",
-        "to": "    public bool ShowsHistorySection => HasHistory;"
+        "from": "    public bool ShowsHistorySection => HasHistory || HasHistorySetAside || HasHistoryError;",
+        "to": "    public bool ShowsHistorySection => HasHistory || HasHistoryError;"
       }
     ],
     "runner": "cs",
@@ -21119,6 +21119,91 @@
         "file": "gui/ChronoMock.App/Views/SessionPhaseView.xaml",
         "from": "\n                   controls:Announce.Assertive=\"{Binding InFlightErrorKey}\"",
         "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.Every_screen_announces_the_lines_it_says_it_does",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a refused write with no rows left hides the section",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "public bool ShowsHistorySection => HasHistory || HasHistorySetAside || HasHistoryError;",
+        "to": "public bool ShowsHistorySection => HasHistory || HasHistorySetAside;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_clear_the_store_refused_keeps_the_section_and_its_reason_on_the_screen",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a refused write does not tell the section it may show",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                RaisePropertyChanged(nameof(HasHistoryError));\n                RaisePropertyChanged(nameof(ShowsHistorySection));\n",
+        "to": "                RaisePropertyChanged(nameof(HasHistoryError));\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_clear_the_store_refused_keeps_the_section_and_its_reason_on_the_screen",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a failed history write leaves the section folded",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "\n                  app:SectionBehavior.OpenWhen=\"{Binding HasHistoryError}\"",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_history_write_that_failed_opens_the_section_and_cuts_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a section opens when its flag turns false",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/SectionBehavior.cs",
+        "from": "if (element is Expander section && e.NewValue is true)",
+        "to": "if (element is Expander section && e.NewValue is false)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_history_write_that_failed_opens_the_section_and_cuts_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a failed history write is read politely",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "controls:Announce.Assertive=\"{Binding HistoryError}\"",
+        "to": "controls:Announce.Polite=\"{Binding HistoryError}\""
       }
     ],
     "runner": "cs",

@@ -283,6 +283,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   with the focus left on the button that opened it. The arrows move the day, Enter or Space takes it,
   Escape closes the calendar and puts back what the field held, and the focus returns to the button. The
   first arrow used to close the calendar and write a date the reader had not chosen, counted from today.
+- **A history that could not be saved is on the screen.** When the history file could not be written - a
+  session's record, a removal or a clear - the history section now opens and shows the reason. The section
+  is folded, and its summary says only how many sessions it holds, so the reason stood behind the fold, and
+  a clear or the removal of the last session that failed took the whole section, reason and all, off the
+  screen.
 - **The focus stays on the screen when the control holding it goes away.** Removing a calculator step
   with its own button puts the focus on the step now in its place, else the one before it, else Add step.
   Format rows an error takes off, and a Copy as command or Use this date an error switches off, hand it

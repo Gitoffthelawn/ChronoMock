@@ -39,11 +39,14 @@ public sealed class AnnounceTests
     public Task A_run_of_changes_is_one_announcement_of_the_last()
         => OnText(async (text, heard) =>
         {
+            // Each change in a dispatcher turn of its own, run down to idle, and no wall-clock gap between them:
+            // a gap long enough on a loaded machine would pass the quiet moment and fail the test falsely
+            // (found in review on #136). A timer with no quiet moment still ticks in the run-down.
             foreach (var step in new[] { "1", "15", "150" })
             {
                 text.Text = $"{step} days";
                 Announce.SetPolite(text, step);
-                await Task.Delay(Announce.Quiet / 5, TestContext.Current.CancellationToken);
+                OffScreenWindow.Settle();
             }
 
             Assert.Equal("150 days", await NextAsync(heard));
@@ -169,7 +172,7 @@ public sealed class AnnounceTests
 
         Assert.Equal(["Polite TargetNoteKey"], found["setup"]);
         Assert.Equal(["Assertive InFlightErrorKey", "Polite StatusKey", "Polite VerdictLabelKey"], found["session"]);
-        Assert.Equal(["Polite HistoryError", "Polite ShowsResultPhase"], found["result"]);
+        Assert.Equal(["Assertive HistoryError", "Polite ShowsResultPhase"], found["result"]);
         Assert.Equal(["Assertive Error", "Polite ResultDate", "Polite ResultTime"], found["calculator"]);
     }
 

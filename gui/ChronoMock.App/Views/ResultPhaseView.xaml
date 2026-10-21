@@ -323,6 +323,7 @@
         -->
         <Expander x:Name="HistorySection" Style="{StaticResource PartSection}"
                   Margin="{StaticResource StackGapXl}"
+                  app:SectionBehavior.OpenWhen="{Binding HasHistoryError}"
                   Visibility="{Binding ShowsHistorySection, Converter={StaticResource BoolToVis}}">
           <Expander.Header>
             <TextBlock Style="{StaticResource PartHeading}" Text="{DynamicResource result.section_history}" />
@@ -333,9 +334,11 @@
 
           <StackPanel>
             <!-- A history that could not be written, and a load that could not fill a field: both said out
-                 loud, above the list they are about (rule 6). -->
+                 loud, above the list they are about (rule 6). A write that failed opens the folded section
+                 (above) and cuts in for a screen reader - it is a failure, and behind the fold it was
+                 seen by nobody (found in review on #136). -->
             <TextBlock x:Name="HistoryError" Style="{StaticResource PartErrorNote}"
-                       controls:Announce.Polite="{Binding HistoryError}"
+                       controls:Announce.Assertive="{Binding HistoryError}"
                        Visibility="{Binding HasHistoryError, Converter={StaticResource BoolToVis}}">
               <Run Text="{DynamicResource history.save_failed}" /><Run Text="{Binding HistoryError, StringFormat=' {0}', Mode=OneWay}" />
             </TextBlock>
