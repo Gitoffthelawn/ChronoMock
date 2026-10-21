@@ -21213,5 +21213,90 @@
     "match": "method",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "r5-8 WY6 a deferred view is shown until its binding says otherwise",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DeferredView.cs",
+        "from": "    static DeferredView() => VisibilityProperty.OverrideMetadata(\n        typeof(DeferredView), new FrameworkPropertyMetadata(Visibility.Collapsed));\n\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DeferredViewTests.A_window_that_starts_has_built_neither_later_phase",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-8 WY6 the session phase is built with the window again",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/MainWindow.xaml",
+        "from": "        <controls:DeferredView Visibility=\"{Binding ShowsSessionPhase, Converter={StaticResource BoolToVis}}\">\n          <DataTemplate>\n            <views:SessionPhaseView />\n          </DataTemplate>\n        </controls:DeferredView>\n",
+        "to": "        <views:SessionPhaseView Visibility=\"{Binding ShowsSessionPhase, Converter={StaticResource BoolToVis}}\" />\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DeferredViewTests.A_window_that_starts_has_built_neither_later_phase",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-8 WY6 a deferred view is thrown away when it hides",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DeferredView.cs",
+        "from": "        typeof(DeferredView), new FrameworkPropertyMetadata(Visibility.Collapsed));\n",
+        "to": "        typeof(DeferredView), new FrameworkPropertyMetadata(Visibility.Collapsed, (d, e) =>\n        {\n            if (e.NewValue is not Visibility.Visible)\n            {\n                ((DeferredView)d).Child = null;\n            }\n        }));\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DeferredViewTests.A_phase_is_built_when_it_first_shows_and_the_same_one_comes_back",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-8 WY6 the built view is not put in place",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DeferredView.cs",
+        "from": "            Child = template.LoadContent() as UIElement;\n",
+        "to": "            _ = template.LoadContent();\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DeferredViewTests.The_built_view_takes_the_data_of_the_place_it_stands_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-8 WY6 a template is loaded unsealed",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DeferredView.cs",
+        "from": "            if (!template.IsSealed)\n            {\n                template.Seal();\n            }\n\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DeferredViewTests.The_built_view_takes_the_data_of_the_place_it_stands_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
   }
 ]
