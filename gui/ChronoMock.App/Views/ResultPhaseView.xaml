@@ -119,8 +119,11 @@
             <!-- 🔴 THE ONE PEAK OF THIS SCREEN. A glyph and a word, in the meaning colour, a step above every
                  heading - the result phase has no clocks, so nothing else here is this size, and the layout
                  guard holds it to that. Named, so the guard can find it. -->
+            <!-- Announced to a screen reader on entering the phase (R5-U1), keyed to the flag that marks the
+                 entry and not to the verdict: two sessions in a row that both work read the same. -->
             <TextBlock x:Name="ResultHeadline" Style="{StaticResource PartVerdictHeadline}"
-                       Foreground="{Binding ResultKind, Converter={StaticResource VerdictBrush}}">
+                       Foreground="{Binding ResultKind, Converter={StaticResource VerdictBrush}}"
+                       controls:Announce.Polite="{Binding ShowsResultPhase}">
               <Run Text="{Binding ResultKind, Converter={StaticResource VerdictGlyph}, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding ResultHeadlineKey, Converter={StaticResource KeyToText}, Mode=OneWay}" />
             </TextBlock>
 
@@ -332,6 +335,7 @@
             <!-- A history that could not be written, and a load that could not fill a field: both said out
                  loud, above the list they are about (rule 6). -->
             <TextBlock x:Name="HistoryError" Style="{StaticResource PartErrorNote}"
+                       controls:Announce.Polite="{Binding HistoryError}"
                        Visibility="{Binding HasHistoryError, Converter={StaticResource BoolToVis}}">
               <Run Text="{DynamicResource history.save_failed}" /><Run Text="{Binding HistoryError, StringFormat=' {0}', Mode=OneWay}" />
             </TextBlock>

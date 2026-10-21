@@ -244,8 +244,11 @@
     <Border Grid.Row="1" Style="{StaticResource PartFooter}">
       <StackPanel>
         <WrapPanel>
+          <!-- Status, verdict and a failed command are announced to a screen reader as they change (R5-U1):
+               the reader is on the controls above, not on the footer. -->
           <TextBlock Style="{StaticResource PartHeading}"
-                     Text="{Binding StatusKey, Converter={StaticResource KeyToText}}" />
+                     Text="{Binding StatusKey, Converter={StaticResource KeyToText}}"
+                     controls:Announce.Polite="{Binding StatusKey}" />
           <Border Style="{StaticResource PartBadge}" Margin="{StaticResource SpaceSm}"
                   VerticalAlignment="Center"
                   Visibility="{Binding VerdictKnown, Converter={StaticResource BoolToVis}}">
@@ -255,6 +258,7 @@
                          Foreground="{Binding VerdictKind, Converter={StaticResource VerdictBrush}}" />
               <TextBlock Style="{StaticResource PartLabel}" Margin="{StaticResource SpaceXs}"
                          Text="{Binding VerdictLabelKey, Converter={StaticResource KeyToText}}"
+                         controls:Announce.Polite="{Binding VerdictLabelKey}"
                          Foreground="{Binding VerdictKind, Converter={StaticResource VerdictBrush}}" />
             </StackPanel>
           </Border>
@@ -271,6 +275,7 @@
         <TextBlock x:Name="InFlightError" Style="{StaticResource PartErrorNote}" TextWrapping="Wrap"
                    Margin="{StaticResource StackGapSm}"
                    Text="{Binding InFlightErrorKey, Converter={StaticResource KeyToText}}"
+                   controls:Announce.Assertive="{Binding InFlightErrorKey}"
                    Visibility="{Binding ShowsInFlightError, Converter={StaticResource BoolToVis}}" />
 
         <!-- 🔴 STOP IS RED, NOT THE ACCENT. The accent means "the next step", and while a session runs there

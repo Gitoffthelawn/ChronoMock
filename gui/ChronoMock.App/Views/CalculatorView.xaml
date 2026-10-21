@@ -197,7 +197,10 @@
                       ItemTemplate="{StaticResource ZoneRow}" />
 
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.steps_header}" />
-            <controls:TextNamedItems ItemsSource="{Binding Steps}">
+            <!-- A step removed with its own button takes the focus with it, so the focus goes to the step now in
+                 its place, else the one before, else Add step (R5-U4) - not to the window. -->
+            <controls:TextNamedItems ItemsSource="{Binding Steps}"
+                                     controls:FocusKeeper.Fallback="{Binding ElementName=AddStepButton}">
               <controls:TextNamedItems.ItemTemplate>
                 <DataTemplate>
                   <Border Margin="{StaticResource StackGapSm}" Padding="{StaticResource SpaceSm}"
@@ -444,18 +447,24 @@
                  result shown (PartAnswerBlock, R4-W4) - from an edit until its result lands. Two blocks
                  rather than one, because the mask box sits between them and an input never fades. -->
             <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}">
+              <!-- The answer and its error are announced to a screen reader as they change (R5-U1), the
+                   reader being on the inputs in the other column. A number being typed is one announcement,
+                   of where it ended, not one per key. -->
               <TextBlock Margin="{StaticResource SpaceXs}" TextWrapping="Wrap"
                          FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightHeading}"
-                         Foreground="{DynamicResource BrushTextPrimary}">
+                         Foreground="{DynamicResource BrushTextPrimary}"
+                         controls:Announce.Polite="{Binding ResultDate}">
                 <Run Text="{Binding ResultWeekday, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultDate, Mode=OneWay}" />
               </TextBlock>
               <TextBlock Margin="{StaticResource SpaceXs}"
                          FontFamily="{StaticResource FontFamilyMono}"
-                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}">
+                         FontSize="{StaticResource FontSizeCaption}" Foreground="{DynamicResource BrushTextSecondary}"
+                         controls:Announce.Polite="{Binding ResultTime}">
                 <Run Text="{Binding ResultTime, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding ResultZone, Mode=OneWay}" />
               </TextBlock>
 
               <TextBlock Style="{StaticResource PartFieldMessage}" Text="{Binding Error}" Margin="{StaticResource SpaceXs}"
+                         controls:Announce.Assertive="{Binding Error}"
                          Visibility="{Binding HasError, Converter={StaticResource BoolToVis}}" />
               <!-- The engine's own sentence, UNDER the translated message: it names a step number or a year
                    range that the key alone does not carry. Quieter than the line above, because it is the
@@ -500,8 +509,11 @@
               <!-- Copy carries the ROW, not its text: the press waits for a result being computed and then
                    copies what the row holds in it (R4-W4), and a row whose format the moment falls outside
                    shows a marker, not a value, so its Copy is off (R4-Z3). -->
+              <!-- An error takes the rows off, Copy and its focus with them (R5-U4): the focus goes to the row
+                   now in the same place if there is one, else to the custom format. -->
               <controls:TextNamedItems x:Name="FormatList" ItemsSource="{Binding Formats}" Margin="{StaticResource SpaceXs}"
-                                       ItemTemplate="{StaticResource FormatRowView}" />
+                                       ItemTemplate="{StaticResource FormatRowView}"
+                                       controls:FocusKeeper.Fallback="{Binding ElementName=CustomFormatBox}" />
             </StackPanel>
 
             <!-- Custom output format (7.3): a .NET/Java-token mask so the tester can hit the exact string the
@@ -521,7 +533,10 @@
                      app:PartState.Placeholder="{DynamicResource calc.custom_format_hint}"
                      ToolTip="{DynamicResource tip.custom_format}"
                      AutomationProperties.Name="{DynamicResource calc.custom_format}" />
-            <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}">
+            <!-- An error switches off the copies below while one may hold the focus (R5-N7), and the focus then
+                 fell to the column itself - a stop with no name. The mask box above stays to take it. -->
+            <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}"
+                        controls:FocusKeeper.Fallback="{Binding ElementName=CustomFormatBox}">
               <!-- The list's own margin too, so this row's name, Copy and value stand on the format rows' edges. -->
               <ContentControl Style="{StaticResource PartLayoutHost}" Content="{Binding CustomFormatRow}"
                               ContentTemplate="{StaticResource FormatRowView}" Margin="{StaticResource SpaceXs}"
@@ -556,7 +571,8 @@
                     HorizontalAlignment="Stretch" Click="OnUseInSubstitutionClick"
                     ToolTip="{DynamicResource tip.use_in_substitution}"
                     ToolTipService.ShowOnDisabled="True"
-                    IsEnabled="{Binding CanUseInSubstitution}" />
+                    IsEnabled="{Binding CanUseInSubstitution}"
+                    controls:FocusKeeper.Fallback="{Binding ElementName=CustomFormatBox}" />
           </StackPanel>
         </ScrollViewer>
       </Border>

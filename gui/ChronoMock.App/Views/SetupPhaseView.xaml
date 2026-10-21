@@ -197,6 +197,7 @@
                not beside it - the sentence is longer than the room the drop hint leaves. -->
           <TextBlock x:Name="TargetNote" Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
                      Text="{Binding TargetNoteKey, Converter={StaticResource KeyToText}}"
+                     controls:Announce.Polite="{Binding TargetNoteKey}"
                      Visibility="{Binding HasTargetNote, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
       </Border>

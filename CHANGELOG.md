@@ -8,6 +8,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **A screen reader hears what changes where it is not looking.** The session's status and its verdict,
+  a command that failed during a session, the result's verdict as the result screen opens, a history that
+  could not be saved, the calculator's answer and its error, the line under the application filled in from
+  a shortcut, and what a copy button did ("Copied", "Clipboard busy") are announced as they change. A
+  failure cuts in, the rest waits for the reader to finish. The calculator's answer is announced once a
+  number being typed rests for half a second, not for every key, and coming back to a screen announces
+  nothing that has not changed. The session clocks, which change every second, are not announced.
 - **A shortcut (.lnk) can be the application.** Picked with Choose… or dropped on the window, a shortcut
   fills the form with the program it starts, the arguments it hands it and the folder it starts it in,
   and a line under the application says so, because the arguments and the folder stand under Speed and
@@ -271,6 +278,16 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **The calendar beside a date works from the keyboard.** Opening it puts the focus on the day of the
+  date in the field, in that date's month - it used to open on the current month whatever the field held,
+  with the focus left on the button that opened it. The arrows move the day, Enter or Space takes it,
+  Escape closes the calendar and puts back what the field held, and the focus returns to the button. The
+  first arrow used to close the calendar and write a date the reader had not chosen, counted from today.
+- **The focus stays on the screen when the control holding it goes away.** Removing a calculator step
+  with its own button puts the focus on the step now in its place, else the one before it, else Add step.
+  Format rows an error takes off, and a Copy as command or Use this date an error switches off, hand it
+  to the custom format. Each of them used to drop the focus on the window or the column, where the next
+  Tab started again from the top.
 - **A screen reader names every control the keyboard reaches.** The calculator's start point, time zone,
   step type, jump and nearest-day pickers, both search fields, the header of every folding section, and
   the time zone, speed, arguments and working folder fields were read as an unnamed "combo box" or

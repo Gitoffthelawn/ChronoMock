@@ -82,7 +82,16 @@ public sealed class CopyButton : Button
         set => SetValue(StateProperty, value);
     }
 
-    private static void OnShownChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) => ((CopyButton)d).Show();
+    // What the press did is said aloud as well as on the button (R5-U1): a reader on another line would not
+    // hear the button's name change. Going back to the label is no news.
+    private static void OnShownChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        ((CopyButton)d).Show();
+        if (e.Property == StateProperty && e.NewValue is not CopyState.Idle)
+        {
+            Announce.News(d, AutomationLiveSetting.Polite);
+        }
+    }
 
     // A binding rather than an event handler, so a long-lived outcome never holds a button alive.
     private static void OnOutcomeChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
