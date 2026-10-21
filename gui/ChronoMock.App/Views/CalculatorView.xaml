@@ -9,9 +9,8 @@
   <UserControl.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
-        <!-- Local merge so a {StaticResource ScenarioRow} resolves at this control's BAML load: a keyed
-             StaticResource never reaches Application.Resources, only implicit styles and DynamicResource do
-             (see App.xaml). The phase views merge Parts.xaml the same way and must. -->
+        <!-- Local merge, as in the phases: the application-wide copy cannot build a part that names an
+             App.xaml converter (see SetupPhaseView for what was measured). -->
         <ResourceDictionary Source="../Themes/Parts.xaml" />
       </ResourceDictionary.MergedDictionaries>
 

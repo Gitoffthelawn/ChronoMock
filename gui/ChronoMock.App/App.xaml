@@ -21,9 +21,9 @@
         <!-- The parts library, merged application-wide as of the product transition (P3b), so the calculator
              and the dialogs take their controls from it through implicit styles. It comes after Values and
              Colours because its StaticResource sizes resolve as the file is read. The phase views, the audit
-             and the catalogue ALSO merge it locally and MUST keep doing so - a {StaticResource PartX} inside a
-             UserControl is resolved as that control's BAML loads, a lookup that never reaches
-             Application.Resources (only implicit styles and DynamicResource reach it, at tree time). -->
+             and the catalogue ALSO merge it locally and MUST keep doing so - this copy is read before the
+             converters below are defined, so a part that names one cannot be built from it (SetupPhaseView has
+             what was measured). -->
         <ResourceDictionary Source="Themes/Parts.xaml" />
       </ResourceDictionary.MergedDictionaries>
 

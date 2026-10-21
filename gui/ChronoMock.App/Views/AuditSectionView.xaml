@@ -26,10 +26,10 @@
 
   <UserControl.Resources>
     <ResourceDictionary>
-      <!-- The local Parts merge STAYS despite App.xaml merging Parts application-wide: a {StaticResource
-           PartX} is resolved as this control's BAML loads, and that lookup never reaches Application.Resources
-           (see SetupPhaseView for the measured revert). This control is nested inside the phases, so it never
-           saw their local merge either - it has always needed its own. -->
+      <!-- The local Parts merge STAYS despite App.xaml merging Parts application-wide: the application-wide
+           copy cannot build a PartX that names an App.xaml converter (see SetupPhaseView for what was
+           measured). Nested inside the phases, it never saw their local merge either - it has always
+           needed its own. -->
       <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Themes/Parts.xaml" />
       </ResourceDictionary.MergedDictionaries>

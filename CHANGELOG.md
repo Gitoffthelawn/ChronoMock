@@ -275,6 +275,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   with `T00:00:00` added, and a month out of range is now named by its number.
 - **`chrono calc` lists the calendars it can find** in its usage, from the folder `--calendar` reads,
   where it listed three names written by hand.
+- **The window opens sooner.** Its own code ships compiled ahead, so a start no longer waits for it to
+  be compiled, and the session and result screens are built the first time a session reaches them
+  rather than before the window first shows. Measured on the published window, to its first frame:
+  0.96 s to 0.80 s with the files already read once, and 1.53 s to 1.31 s on the first start after
+  unzipping. The package grows by about 1 MB.
 
 ### Fixed
 

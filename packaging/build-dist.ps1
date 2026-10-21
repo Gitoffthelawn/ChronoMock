@@ -100,6 +100,19 @@ function Test-PortableLayout([string] $dll) {
     return $false
 }
 
+# Whether a published assembly carries code compiled ahead (ReadyToRun, R5/8): its CLR header points at a
+# native header, which only crossgen writes. Read from the PE headers, so nothing is loaded.
+function Test-ReadyToRun([string] $dll) {
+    Add-Type -AssemblyName System.Reflection.Metadata
+    $stream = [System.IO.File]::OpenRead($dll)
+    try {
+        $reader = [System.Reflection.PortableExecutable.PEReader]::new($stream)
+        try { return $reader.PEHeaders.CorHeader.ManagedNativeHeaderDirectory.Size -gt 0 }
+        finally { $reader.Dispose() }
+    }
+    finally { $stream.Dispose() }
+}
+
 # Where the cargo build lands each core and its matching-bitness hook DLL - one directory per target
 # triple, the same two locations the GUI's dev fallback and the tests use.
 # The x64 core comes from the EXPLICIT triple directory, like every other consumer in this project since
@@ -197,6 +210,26 @@ if (-not (Test-PortableLayout (Join-Path $publish 'ChronoMock.dll'))) {
     throw ("the GUI publish under $publish does not carry the portable layout marker " +
         '(-p:ChronoMockLayout=portable), so the packaged window would look for a repo root and not start - ' +
         'publish again without -SkipPublish')
+}
+
+# The window's own code ships compiled ahead and the Windows projection does not (R5/8, R5-D88 - see
+# gui/ChronoMock.App/ChronoMock.App.csproj for what was measured). Checked on the published files rather
+# than read from the project: a setting that stopped applying would ship a window that starts slower, or a
+# package 29.8 MB larger, and say nothing.
+foreach ($expected in @(
+        @{ File = 'ChronoMock.dll'; Ahead = $true },
+        @{ File = 'ChronoMock.Protocol.dll'; Ahead = $true },
+        @{ File = 'Wpf.Ui.dll'; Ahead = $true },
+        @{ File = 'Microsoft.Windows.SDK.NET.dll'; Ahead = $false },
+        @{ File = 'WinRT.Runtime.dll'; Ahead = $false })) {
+    $dll = Join-Path $publish $expected.File
+    Assert-Exists $dll 'publish again without -SkipPublish'
+    if ((Test-ReadyToRun $dll) -ne $expected.Ahead) {
+        $state = if ($expected.Ahead) { 'carries no code compiled ahead' } else { 'carries code compiled ahead' }
+        throw ("the GUI publish under $publish has $($expected.File), which $state - PublishReadyToRun and " +
+            'PublishReadyToRunExclude in ChronoMock.App.csproj no longer apply as measured; publish again ' +
+            'without -SkipPublish, or measure the start again before changing them')
+    }
 }
 
 # --- 3. Assemble dist/ChronoMock fresh. --------------------------------------------------------
