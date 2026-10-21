@@ -8,9 +8,10 @@
 
     🔴 THIS DICTIONARY IS MERGED INTO App.xaml application-wide (App.xaml). The styles here are implicit
     (keyed by type), so that one merge gives every screen the same parts look at once - the adopted design,
-    not a hazard to avoid. What the merge does NOT carry is the keyed parts: a {StaticResource PartCard},
-    ScenarioRow or PartClock is resolved as a view's BAML loads and does not reach Application.Resources, so
-    a view that names one of those must ALSO merge this file locally.
+    not a hazard to avoid. What the merge cannot be relied on for is the keyed parts: a {StaticResource
+    PartCard}, ScenarioRow or PartClock is looked up in Application.Resources too, but this copy is read
+    before App.xaml defines the converters some parts name, and cannot build those (measured in R5/8 - the
+    merge in SetupPhaseView says how), so a view that names a keyed part must ALSO merge this file locally.
 
     WHY DRAW THEM AT ALL. A toolkit control renders itself its own way and no amount of theming changes
     the drawing - same colour, same height, same font, different shape. That is a decision with a real

@@ -115,6 +115,10 @@ public sealed class FilledScreenSweepTests
                     {
                         var root = (FrameworkElement)new MainWindow().Content;
                         root.DataContext = make();
+                        // Laid out once before a section is opened: the session and result phases are built the
+                        // first time layout reaches them (DeferredView, R5/8), as in the window, where a section
+                        // can only be opened on a phase that shows.
+                        LayoutProbe.Settle(root);
                         Open(root, open);
                         foreach (var size in NarrowestFirst)
                         {

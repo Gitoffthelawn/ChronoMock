@@ -19,9 +19,11 @@
     what is set inside it. Nothing is hidden, it is moved out of the way, which is only honest as long as
     the header answers the question the section would.
 
-    🔴 IT MERGES THE PARTS LIBRARY LOCALLY, and keeps doing so even though App.xaml now merges Parts
-    application-wide: a {StaticResource PartX} is resolved as this control's BAML loads, and that lookup never
-    reaches Application.Resources. The application-wide merge is what gives the calculator its Parts look.
+    🔴 IT MERGES THE PARTS LIBRARY LOCALLY, and keeps doing so even though App.xaml merges Parts
+    application-wide: a {StaticResource PartX} does reach Application.Resources, but the application-wide
+    copy is read before App.xaml defines the converters its parts name, and cannot build one that names
+    them (measured - the merge below says how). The application-wide merge is what gives the calculator its
+    Parts look.
 
     🔴 NO VALUES OF ITS OWN. Every colour, gap, size and string comes from the library, the value
     dictionaries or a translation key. Anything that cannot be built that way is a finding about the
@@ -30,13 +32,13 @@
 
   <UserControl.Resources>
     <ResourceDictionary>
-      <!-- 🔴 THE LOCAL PARTS MERGE STAYS, even though App.xaml now merges Parts application-wide. A
-           {StaticResource PartX} below is resolved as THIS control's BAML loads, and that lookup reaches the
-           control's own resources and its ancestors' - never Application.Resources, which is only searched at
-           runtime by DynamicResource and by implicit styles. Removing this merge and leaning on the app-wide
-           one was tried and reverted: StaticResourceExtension threw for every phase the moment the state sheet
-           rendered them together. The app-wide merge exists for the calculator, whose controls take their
-           Parts look from implicit styles (a runtime, tree-time lookup), not from a StaticResource. -->
+      <!-- 🔴 THE LOCAL PARTS MERGE STAYS, even though App.xaml merges Parts application-wide. Without it a
+           {StaticResource PartX} below is found in the application-wide copy - the lookup does reach
+           Application.Resources - and that copy cannot build it: it was read before App.xaml defines the
+           converters its templates name, so it throws "Cannot find resource named 'KeyToText'" (measured
+           in R5/8 - the window did not start; it was tried and reverted once before for the same throw).
+           Kept rather than moving those converters ahead of Parts: the five local merges cost 4 ms of a
+           940 ms start, measured, inside the run-to-run spread. -->
       <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Themes/Parts.xaml" />
       </ResourceDictionary.MergedDictionaries>

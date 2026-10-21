@@ -3,6 +3,7 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:views="clr-namespace:ChronoMock.App.Views"
+                 xmlns:controls="clr-namespace:ChronoMock.App.Controls"
                  Title="{DynamicResource app.title}"
                  Width="{StaticResource WindowDefaultWidth}"
                  Height="{StaticResource WindowDefaultHeight}"
@@ -123,13 +124,22 @@
            Each phase inherits this window's SessionViewModel as its DataContext and binds Commands.X; the
            window hands those commands a shell (WindowShellInteraction) in code-behind for the picker,
            clipboard and confirm actions. Each phase also merges the parts library locally, and keeps doing
-           so even though App.xaml now merges Parts application-wide: a {StaticResource PartX} resolves as the
-           phase's BAML loads and never reaches Application.Resources. The application-wide merge is what
-           gives the whole app the Parts look. -->
+           so even though App.xaml merges Parts application-wide - SetupPhaseView says why.
+
+           The session and result phases are built the first time they show (DeferredView, R5/8): a start
+           shows the setup, and building the other two before the first frame cost 81 ms of 910. -->
       <Grid x:Name="SubstitutionContainer">
         <views:SetupPhaseView Visibility="{Binding ShowsSetupPhase, Converter={StaticResource BoolToVis}}" />
-        <views:SessionPhaseView Visibility="{Binding ShowsSessionPhase, Converter={StaticResource BoolToVis}}" />
-        <views:ResultPhaseView Visibility="{Binding ShowsResultPhase, Converter={StaticResource BoolToVis}}" />
+        <controls:DeferredView Visibility="{Binding ShowsSessionPhase, Converter={StaticResource BoolToVis}}">
+          <DataTemplate>
+            <views:SessionPhaseView />
+          </DataTemplate>
+        </controls:DeferredView>
+        <controls:DeferredView Visibility="{Binding ShowsResultPhase, Converter={StaticResource BoolToVis}}">
+          <DataTemplate>
+            <views:ResultPhaseView />
+          </DataTemplate>
+        </controls:DeferredView>
       </Grid>
 
       <!-- Date calculator (chrono-mock 7.3), hidden until the module switch selects it. -->

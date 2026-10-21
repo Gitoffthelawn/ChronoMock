@@ -67,4 +67,28 @@
     <Content Include="Localization\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The published window carries its own code compiled ahead (ReadyToRun, R5/8), so a start does not wait
+       for the JIT to compile it: the runtime's own assemblies already ship that way, ours and wpfui did not.
+       Measured on the published window, median of runs against runs, A/B alternating: the first frame came
+       48 ms sooner with the files cached (995 to 947 ms) and 69 ms sooner from a fresh copy (1695 to
+       1626 ms), with 918 fewer methods compiled before it. Publish only - a build and the tests are
+       untouched - and the lock file does not change: a restore with this set leaves it as it was, measured
+       (the SDK fetches its ahead-of-time compiler as a download, which a lock file does not record).
+
+       The two Windows projection assemblies stay as they are: the window never loads them at start (they
+       are not among the assemblies loaded by the first idle), and compiled ahead they would add 29.8 MB to
+       the package for nothing. With them left out the package grows by 1.1 MB.
+
+       🔴 Only for the shipped layout, like the layout marker above. ReadyToRun adds the restoring machine's
+       own runtime identifier to the project's, to fetch a compiler that runs there: win-x64 on Windows,
+       already in the list, but linux-x64 on the Linux runner that restores every project for GitHub's
+       dependency graph, where the lock file then refused the restore (NU1004, measured on PR #137 and
+       reproduced locally with NETCoreSdkRuntimeIdentifier=linux-x64). -->
+  <PropertyGroup Condition="'$(ChronoMockLayout)' != ''">
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+  <ItemGroup>
+    <PublishReadyToRunExclude Include="Microsoft.Windows.SDK.NET.dll;WinRT.Runtime.dll" />
+  </ItemGroup>
+
 </Project>
