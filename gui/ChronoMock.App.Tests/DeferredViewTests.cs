@@ -88,6 +88,35 @@ public class DeferredViewTests
         Assert.Equal(200, width);
     }
 
+    /// <summary>
+    /// A template whose root is not an element is refused when it is first built, not left blank - a blank
+    /// host would build the template again at every layout pass and show nothing (review of #137). Written
+    /// in XAML, as the window writes its templates: a template built in code refuses such a root on its own.
+    /// Reversal probe: assign the cast without the throw, and this reddens.
+    /// </summary>
+    [Fact]
+    public void A_template_without_an_element_at_its_root_is_refused()
+    {
+        var refused = WpfTestHost.InvokeSettled(() =>
+        {
+            var template = (DataTemplate)System.Windows.Markup.XamlReader.Parse(
+                "<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Run Text=\"words\" /></DataTemplate>");
+            var host = new DeferredView { View = template, Visibility = Visibility.Visible };
+            try
+            {
+                LayoutProbe.Settle(host, 200, 100);
+                return null;
+            }
+            catch (InvalidOperationException fault)
+            {
+                return fault.Message;
+            }
+        });
+
+        Assert.NotNull(refused);
+        Assert.Contains("DeferredView", refused, StringComparison.Ordinal);
+    }
+
     private static int Count<T>(DependencyObject root)
         where T : DependencyObject => OffScreenWindow.All<T>(root).Count();
 }

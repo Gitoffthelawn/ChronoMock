@@ -35,9 +35,10 @@
     🔴 WIRED to the session's commands (the product transition wired the phases). New session and the copy
     buttons bind Commands.X.
 
-    🔴 IT MERGES THE PARTS LIBRARY LOCALLY, and keeps doing so despite App.xaml now merging Parts
-    application-wide: a {StaticResource PartX} is resolved as this control's BAML loads, and that lookup never
-    reaches Application.Resources.
+    🔴 IT MERGES THE PARTS LIBRARY LOCALLY, and keeps doing so despite App.xaml merging Parts
+    application-wide: a {StaticResource PartX} does reach Application.Resources, but the application-wide
+    copy is read before App.xaml defines the converters its parts name, and cannot build one that names
+    them (measured - the merge in SetupPhaseView says how).
   -->
 
   <UserControl.Resources>

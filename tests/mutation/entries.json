@@ -21270,7 +21270,7 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Controls/DeferredView.cs",
-        "from": "            Child = template.LoadContent() as UIElement;\n",
+        "from": "            Child = template.LoadContent() as UIElement\n                ?? throw new InvalidOperationException(\n                    \"A DeferredView's template must have an element at its root, and this one has none.\");\n",
         "to": "            _ = template.LoadContent();\n"
       }
     ],
@@ -21295,6 +21295,23 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.DeferredViewTests.The_built_view_takes_the_data_of_the_place_it_stands_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-8 CR137 a template without an element at its root leaves the view blank",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DeferredView.cs",
+        "from": "            Child = template.LoadContent() as UIElement\n                ?? throw new InvalidOperationException(\n                    \"A DeferredView's template must have an element at its root, and this one has none.\");\n",
+        "to": "            Child = template.LoadContent() as UIElement;\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DeferredViewTests.A_template_without_an_element_at_its_root_is_refused",
     "match": "method",
     "build": "",
     "notHere": ""

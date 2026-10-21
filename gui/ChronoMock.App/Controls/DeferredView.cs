@@ -55,7 +55,11 @@ public sealed class DeferredView : Decorator
                 template.Seal();
             }
 
-            Child = template.LoadContent() as UIElement;
+            // Refused at once rather than left blank: a root that is not an element would leave the child
+            // empty, and every later layout pass would build the template again and drop it.
+            Child = template.LoadContent() as UIElement
+                ?? throw new InvalidOperationException(
+                    "A DeferredView's template must have an element at its root, and this one has none.");
         }
 
         return base.MeasureOverride(constraint);

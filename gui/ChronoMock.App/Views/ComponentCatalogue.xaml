@@ -9,10 +9,11 @@
   <!--
     THE COMPONENT CATALOGUE. Every part of the interface, in every state it can be in, on one screen.
 
-    🔴 It merges the parts library LOCALLY, and keeps doing so even though App.xaml now merges Parts
-    application-wide. A {StaticResource PartX} here is resolved as this control's BAML loads, a lookup that
-    never reaches Application.Resources - so the app-wide merge cannot feed it. The app-wide merge is what
-    gives the calculator its Parts look, through implicit styles applied at tree time.
+    🔴 It merges the parts library LOCALLY, and keeps doing so even though App.xaml merges Parts
+    application-wide. A {StaticResource PartX} here does reach Application.Resources, but the app-wide copy
+    is read before App.xaml defines the converters its parts name, and cannot build one that names them
+    (measured - the merge in SetupPhaseView says how). The app-wide merge is what gives the calculator its
+    Parts look, through implicit styles applied at tree time.
 
     🔴 THIS FILE MAY NOT CONTAIN A SINGLE VALUE OF ITS OWN. Not a colour, not a size, not a gap. If
     something here cannot be built out of the library, that is the finding - it means a part is missing,

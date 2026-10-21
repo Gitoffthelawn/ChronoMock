@@ -19,9 +19,11 @@
     what is set inside it. Nothing is hidden, it is moved out of the way, which is only honest as long as
     the header answers the question the section would.
 
-    🔴 IT MERGES THE PARTS LIBRARY LOCALLY, and keeps doing so even though App.xaml now merges Parts
-    application-wide: a {StaticResource PartX} is resolved as this control's BAML loads, and that lookup never
-    reaches Application.Resources. The application-wide merge is what gives the calculator its Parts look.
+    🔴 IT MERGES THE PARTS LIBRARY LOCALLY, and keeps doing so even though App.xaml merges Parts
+    application-wide: a {StaticResource PartX} does reach Application.Resources, but the application-wide
+    copy is read before App.xaml defines the converters its parts name, and cannot build one that names
+    them (measured - the merge below says how). The application-wide merge is what gives the calculator its
+    Parts look.
 
     🔴 NO VALUES OF ITS OWN. Every colour, gap, size and string comes from the library, the value
     dictionaries or a translation key. Anything that cannot be built that way is a finding about the
