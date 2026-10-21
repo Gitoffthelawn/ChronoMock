@@ -263,8 +263,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   long as Windows took to start a program - longer on a machine whose antivirus scans the engine first.
   The engine and, at Start, the core are now started off the window's thread. Arrowing down the
   session's scenario list started the engine for every row it passed. A row chosen while the one
-  before it is still being worked out now waits a fifth of a second, so a run of rows asks about the
-  row it stops on, and a click still asks at once.
+  before it is still being worked out now waits a fifth of a second, whether it was clicked or reached
+  with the arrow keys, so a run of rows asks about the row it stops on. A row chosen when nothing is
+  being worked out, such as the first click on the list, still asks at once.
 - **A large process family no longer holds the window as its reports come in.** Every change on the
   session panel told all nineteen of its commands to check themselves again, and every coverage report
   rebuilt the audit lists even when it said nothing new. A family of 256 processes reporting the same

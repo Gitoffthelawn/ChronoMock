@@ -31,7 +31,8 @@ internal sealed class MomentRequests
     /// (R5-WY1). Arrowing down the list chose every row it passed, and each choice started an engine process
     /// that the next one killed - with a key held, one for every repeat. At the system's default repeat rate a
     /// held key moves well inside this, so a run of rows asks for the row it stops on. A choice with nothing
-    /// before it in flight asks at once, so a click costs no wait.</summary>
+    /// before it in flight asks at once, so a click on a settled list costs no wait. Whether the choice was a
+    /// click or a key is never asked: a click made while an answer is still pending waits like a key.</summary>
     private static readonly TimeSpan ChoiceQuiet = TimeSpan.FromMilliseconds(200);
 
     private readonly MomentField _moment;
