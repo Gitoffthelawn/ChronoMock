@@ -3,10 +3,11 @@ using System.IO; // The WPF SDK trims System.IO from implicit usings (Path colli
 namespace ChronoMock.App.Tests;
 
 /// <summary>
-/// An application dropped on the window (R4-N48). Whether the file exists used to be asked on the UI thread on
-/// every mouse move of a drag, and on a share that has gone that question blocks for as long as the share
-/// takes to fail - measured 21 s on an unreachable address, 1.1 s on a name that does not resolve. The drag now
-/// looks at the name only, and the drop asks once, off the caller's thread.
+/// A file offered as the target: an application or a shortcut dropped on the window, or a shortcut picked
+/// in the dialog (R4-N48, R5-D80). Whether the file exists used to be asked on the UI thread on every mouse
+/// move of a drag, and on a share that has gone that question blocks for as long as the share takes to fail
+/// - measured 21 s on an unreachable address, 1.1 s on a name that does not resolve. The drag now looks at
+/// the name only, and the offer is looked at once, off the caller's thread.
 /// </summary>
 public class TargetDropTests
 {
@@ -21,8 +22,9 @@ public class TargetDropTests
         var nowhere = OnAMissingShare();
 
         Assert.Equal(nowhere, DroppedTarget.Candidate(new[] { nowhere }));
+        Assert.Equal(@"C:\apps\shortcut.lnk", DroppedTarget.Candidate(new[] { @"C:\apps\shortcut.lnk" }));
         Assert.Null(DroppedTarget.Candidate(new[] { @"C:\apps\a.exe", @"C:\apps\b.exe" }));
-        Assert.Null(DroppedTarget.Candidate(new[] { @"C:\apps\shortcut.lnk" }));
+        Assert.Null(DroppedTarget.Candidate(new[] { @"C:\apps\run.bat" }));
         Assert.Null(DroppedTarget.Candidate("not a file list"));
     }
 
@@ -30,12 +32,12 @@ public class TargetDropTests
     public async Task A_dropped_application_that_exists_becomes_the_target()
     {
         var vm = new SessionViewModel();
-        var exe = Path.Combine(Path.GetTempPath(), $"chrono-drop-{Guid.NewGuid():N}.exe");
-        File.WriteAllText(exe, string.Empty);
+        var exe = TempProgram();
         try
         {
-            Assert.True(await vm.DropTargetAsync(exe));
+            Assert.Equal(TargetTaken.Taken, await new TargetIntake(vm).TakeAsync(exe));
             Assert.Equal(exe, vm.TargetPath);
+            Assert.False(vm.HasTargetNote, "a program brings no arguments, so there is nothing to note");
         }
         finally
         {
@@ -48,7 +50,9 @@ public class TargetDropTests
     {
         var vm = new SessionViewModel();
 
-        Assert.False(await vm.DropTargetAsync(Path.Combine(Path.GetTempPath(), $"chrono-gone-{Guid.NewGuid():N}.exe")));
+        var taken = await new TargetIntake(vm).TakeAsync(Path.Combine(Path.GetTempPath(), $"chrono-gone-{Guid.NewGuid():N}.exe"));
+
+        Assert.Equal(TargetTaken.Missing, taken);
         Assert.Null(vm.TargetPath);
     }
 
@@ -57,14 +61,14 @@ public class TargetDropTests
     {
         var vm = new SessionViewModel();
 
-        var drop = vm.DropTargetAsync(OnAMissingShare());
+        var drop = new TargetIntake(vm).TakeAsync(OnAMissingShare());
 
         Assert.False(drop.IsCompleted, "the existence check must not run on the caller's thread");
-        Assert.False(await drop);
+        Assert.Equal(TargetTaken.Missing, await drop);
     }
 
     /// <summary>
-    /// Two drops whose checks overlap are answered in the order they were MADE: the older one, whose answer
+    /// Two drops whose looks overlap are answered in the order they were MADE: the older one, whose answer
     /// comes last, must not become the target once a newer drop has replaced it.
     /// <para>
     /// The answers are handed in, so their order is the test's. The first version raced two real checks and
@@ -76,16 +80,100 @@ public class TargetDropTests
     public async Task Only_the_newest_drop_decides_the_target()
     {
         var vm = new SessionViewModel();
-        var olderAnswer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var newerAnswer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var intake = new TargetIntake(vm);
+        var olderAnswer = new TaskCompletionSource<TargetIntake.Offer>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var newerAnswer = new TaskCompletionSource<TargetIntake.Offer>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var older = vm.DropTargetAsync(@"C:\apps\older.exe", olderAnswer.Task);
-        var newer = vm.DropTargetAsync(@"C:\apps\newer.exe", newerAnswer.Task);
-        newerAnswer.SetResult(false); // the newest names no file, which the window says out loud
-        Assert.False(await newer);
-        olderAnswer.SetResult(true); // the older one's file is there, and its answer comes last
-        Assert.True(await older); // moot, so nothing to say about it
+        var older = intake.TakeAsync(olderAnswer.Task);
+        var newer = intake.TakeAsync(newerAnswer.Task);
+        newerAnswer.SetResult(TargetIntake.Offer.Refused(TargetTaken.Missing)); // the newest names no file
+        Assert.Equal(TargetTaken.Missing, await newer);
+        olderAnswer.SetResult(TargetIntake.Offer.OfProgram(@"C:\apps\older.exe")); // there, and answered last
+        Assert.Equal(TargetTaken.Taken, await older); // moot, so nothing to say about it
 
         Assert.Null(vm.TargetPath);
+    }
+
+    [Fact]
+    public async Task A_shortcut_fills_the_target_its_arguments_and_its_folder_and_says_so()
+    {
+        var vm = new SessionViewModel();
+        var exe = TempProgram();
+        try
+        {
+            var intake = new TargetIntake(vm, _ => new ShortcutTarget(exe, "--level 3", @"C:\work"));
+
+            Assert.Equal(TargetTaken.Taken, await intake.TakeAsync(@"C:\Users\tester\Desktop\app.lnk"));
+
+            Assert.Equal(exe, vm.TargetPath);
+            Assert.Equal("--level 3", vm.TargetArgs);
+            Assert.Equal(@"C:\work", vm.WorkingFolder);
+            Assert.Equal("setup.from_shortcut", vm.TargetNoteKey);
+        }
+        finally
+        {
+            File.Delete(exe);
+        }
+    }
+
+    [Fact]
+    public async Task The_note_goes_when_another_target_is_chosen()
+    {
+        var vm = new SessionViewModel();
+        var exe = TempProgram();
+        try
+        {
+            await new TargetIntake(vm, _ => new ShortcutTarget(exe, string.Empty, string.Empty)).TakeAsync(@"C:\app.lnk");
+            Assert.True(vm.HasTargetNote);
+
+            vm.SetTarget(@"C:\apps\other.exe");
+
+            Assert.False(vm.HasTargetNote);
+        }
+        finally
+        {
+            File.Delete(exe);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"C:\tools\run.bat")]
+    [InlineData(@"C:\docs\notes.txt")]
+    [InlineData("")]
+    public async Task A_shortcut_to_anything_but_a_program_is_refused(string leadsTo)
+    {
+        var vm = new SessionViewModel();
+        var intake = new TargetIntake(vm, _ => new ShortcutTarget(leadsTo, string.Empty, string.Empty));
+
+        Assert.Equal(TargetTaken.NotAProgram, await intake.TakeAsync(@"C:\app.lnk"));
+        Assert.Null(vm.TargetPath);
+    }
+
+    [Fact]
+    public async Task A_shortcut_the_shell_cannot_read_is_refused()
+    {
+        var vm = new SessionViewModel();
+
+        Assert.Equal(TargetTaken.NotAProgram, await new TargetIntake(vm, _ => null).TakeAsync(@"C:\app.lnk"));
+        Assert.Null(vm.TargetPath);
+    }
+
+    [Fact]
+    public async Task A_shortcut_whose_program_is_gone_is_said_to_be_missing()
+    {
+        var vm = new SessionViewModel();
+        var gone = Path.Combine(Path.GetTempPath(), $"chrono-gone-{Guid.NewGuid():N}.exe");
+
+        var taken = await new TargetIntake(vm, _ => new ShortcutTarget(gone, string.Empty, string.Empty)).TakeAsync(@"C:\app.lnk");
+
+        Assert.Equal(TargetTaken.Missing, taken);
+        Assert.Equal("target.program_missing", TargetIntake.RefusalKey(taken));
+    }
+
+    private static string TempProgram()
+    {
+        var exe = Path.Combine(Path.GetTempPath(), $"chrono-drop-{Guid.NewGuid():N}.exe");
+        File.WriteAllText(exe, string.Empty);
+        return exe;
     }
 }

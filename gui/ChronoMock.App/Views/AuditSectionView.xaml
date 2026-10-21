@@ -138,7 +138,7 @@
         <TextBlock Style="{StaticResource PartHeading}" Text="{DynamicResource session.section_audit}" />
       </Expander.Header>
       <Expander.Tag>
-        <ContentControl Template="{StaticResource AuditSummary}" />
+        <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource AuditSummary}" />
       </Expander.Tag>
 
       <StackPanel>
@@ -170,8 +170,8 @@
                                 ItemTemplate="{StaticResource AuditRowTemplate}"
                                 Visibility="{Binding HasAuditRows, Converter={StaticResource BoolToVis}}">
           <controls:TextNamedList.Header>
-            <ContentControl x:Name="AuditTableHeader" Template="{StaticResource AuditTableHeader}"
-                            Focusable="False" IsTabStop="False" />
+            <ContentControl x:Name="AuditTableHeader" Style="{StaticResource PartLayoutHost}"
+                            Template="{StaticResource AuditTableHeader}" />
           </controls:TextNamedList.Header>
           <controls:TextNamedList.ItemsSource>
             <MultiBinding Converter="{StaticResource AuditRows}">
@@ -214,8 +214,8 @@
               </MultiBinding>
             </controls:TextNamedList.ItemsSource>
             <controls:TextNamedList.Header>
-              <ContentControl x:Name="ProcessTableHeader" Template="{StaticResource ProcessTableHeader}"
-                              Focusable="False" IsTabStop="False" />
+              <ContentControl x:Name="ProcessTableHeader" Style="{StaticResource PartLayoutHost}"
+                              Template="{StaticResource ProcessTableHeader}" />
             </controls:TextNamedList.Header>
           </controls:TextNamedList>
           <TextBlock x:Name="ProcessesMore" Style="{StaticResource PartNote}" TextWrapping="Wrap"
@@ -242,8 +242,8 @@
                                   ItemTemplate="{StaticResource EngineRowTemplate}"
                                   ItemsSource="{Binding Engines, Converter={StaticResource EngineRows}}">
             <controls:TextNamedList.Header>
-              <ContentControl x:Name="EngineTableHeader" Template="{StaticResource EngineTableHeader}"
-                              Focusable="False" IsTabStop="False" />
+              <ContentControl x:Name="EngineTableHeader" Style="{StaticResource PartLayoutHost}"
+                              Template="{StaticResource EngineTableHeader}" />
             </controls:TextNamedList.Header>
           </controls:TextNamedList>
           <TextBlock x:Name="EngineNote" Style="{StaticResource PartNote}" TextWrapping="Wrap"

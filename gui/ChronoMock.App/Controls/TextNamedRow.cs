@@ -51,7 +51,7 @@ public sealed class TextNamedRow : ContentPresenter
     /// ", Copy" (measured live, the first version did). A row that IS a button - a speed, a jump - has
     /// nothing else, so it reads as its button, by the button's own accessible name when it has one.
     /// </remarks>
-    private static string ShownText(DependencyObject root)
+    internal static string ShownText(DependencyObject root)
     {
         var parts = new List<string>();
         Collect(root, parts, withButtons: false);

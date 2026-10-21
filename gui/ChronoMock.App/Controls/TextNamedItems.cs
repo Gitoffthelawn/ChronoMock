@@ -9,5 +9,9 @@ namespace ChronoMock.App.Controls;
 /// </summary>
 public class TextNamedItems : ItemsControl
 {
+    // Never a stop on the keyboard path itself, for the reason given on TextNamedList. The buttons a row
+    // holds stay stops of their own.
+    static TextNamedItems() => FocusableProperty.OverrideMetadata(typeof(TextNamedItems), new FrameworkPropertyMetadata(false));
+
     protected override DependencyObject GetContainerForItemOverride() => new TextNamedRow();
 }

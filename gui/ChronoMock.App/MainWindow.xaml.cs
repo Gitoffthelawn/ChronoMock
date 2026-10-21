@@ -187,23 +187,24 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        // Read the drop NOW: its data lives only as long as this event, and the check below awaits.
+        // Read the drop NOW: its data lives only as long as this event, and the look below awaits.
         var path = DroppedExecutable(e);
         var files = e.Data.GetDataPresent(DataFormats.FileDrop);
-        if (path is not null && await _session.DropTargetAsync(path))
-        {
-            return;
-        }
 
-        // Say why nothing happened rather than swallowing the drop (rule 6). A dropped .lnk or .bat could
-        // only fail later, and failing at the drop is the honest place for it.
-        if (files)
+        // Say why nothing happened rather than swallowing the drop (rule 6): a program that is not there, a
+        // shortcut that leads to no program, or a file that is neither. A dropped .bat could only fail
+        // later, and failing at the drop is the honest place for it.
+        var refusal = path is not null
+            ? TargetIntake.RefusalKey(await _session.Commands.Targets.TakeAsync(path))
+            : files ? "target.drop_rejected" : string.Empty;
+        if (refusal.Length > 0)
         {
-            Views.MessageDialog.Tell(this, Text("target.drop_rejected_title"), Text("target.drop_rejected"));
+            Views.MessageDialog.Tell(this, Text("target.drop_rejected_title"), Text(refusal));
         }
     }
 
-    /// <summary>The single .exe in a drop, or null - judged by its name only (see <see cref="DroppedTarget"/>).</summary>
+    /// <summary>The single program or shortcut in a drop, or null - judged by its name only (see
+    /// <see cref="DroppedTarget"/>).</summary>
     private string? DroppedExecutable(DragEventArgs e)
         => _session.IsIdle && e.Data.GetDataPresent(DataFormats.FileDrop)
             ? DroppedTarget.Candidate(e.Data.GetData(DataFormats.FileDrop))

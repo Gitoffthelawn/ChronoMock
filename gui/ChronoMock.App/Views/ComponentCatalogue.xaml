@@ -97,12 +97,18 @@
           </WrapPanel>
 
           <TextBlock Style="{StaticResource PartCaption}" Margin="{StaticResource StackGapLg}"
-                     Text="Copy - hands over the value beside it or the result above it. Caption size, because the value is what is read, and a width floor so its Copied moment moves nothing. Off while there is nothing to copy, and with the longest label it carries." />
+                     Text="Copy - hands over the value beside it or the result above it, and says on itself what the copy did: Copied, or Clipboard busy when another program held it. As wide as the widest of the three from the start, so the moment moves nothing. Caption size in the calculator, because the value is what is read. Off while there is nothing to copy, and with the longest label it carries." />
           <WrapPanel Margin="{StaticResource StackGapSm}">
-            <Button Content="Copy" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
-            <Button Content="Copied" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
-            <Button Content="Copy" Style="{StaticResource PartCopyAction}" IsEnabled="False" Margin="{StaticResource SpaceXs}" />
-            <Button Content="Copy as command" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy" State="Copied" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy" State="Failed" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy" Style="{StaticResource PartCopyAction}" IsEnabled="False" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy as command" Style="{StaticResource PartCopyAction}" Margin="{StaticResource SpaceXs}" />
+          </WrapPanel>
+          <WrapPanel Margin="{StaticResource StackGapSm}">
+            <controls:CopyButton Label="Copy summary" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy summary" State="Copied" Margin="{StaticResource SpaceXs}" />
+            <controls:CopyButton Label="Copy diagnostics" State="Failed" Margin="{StaticResource SpaceXs}" />
           </WrapPanel>
 
           <TextBlock Style="{StaticResource PartCaption}" Margin="{StaticResource StackGapLg}"
@@ -537,11 +543,11 @@
            clocks and their outer edges here are the ones a user sees there. -->
       <HeaderedContentControl Style="{StaticResource PartSideBySide}" Margin="{StaticResource StackGapSm}">
         <HeaderedContentControl.Header>
-          <ContentControl Template="{StaticResource PartClock}"
+          <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource PartClock}"
                           Content="{Binding SampleFakeClock, RelativeSource={RelativeSource AncestorType=UserControl}}"
                           DataContext="{Binding SampleFakeClock, RelativeSource={RelativeSource AncestorType=UserControl}}" />
         </HeaderedContentControl.Header>
-        <ContentControl Template="{StaticResource PartClock}"
+        <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource PartClock}"
                         Content="{Binding SampleRealClock, RelativeSource={RelativeSource AncestorType=UserControl}}"
                         DataContext="{Binding SampleRealClock, RelativeSource={RelativeSource AncestorType=UserControl}}" />
       </HeaderedContentControl>
@@ -549,7 +555,7 @@
       <TextBlock Style="{StaticResource PartCaption}" Margin="{StaticResource StackGapLg}"
                  Text="The extreme: a zone label far longer than any real one." />
 
-      <ContentControl Template="{StaticResource PartClock}"
+      <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource PartClock}"
                       Content="{Binding SampleExtremeClock, RelativeSource={RelativeSource AncestorType=UserControl}}"
                       DataContext="{Binding SampleExtremeClock, RelativeSource={RelativeSource AncestorType=UserControl}}"
                       Margin="{StaticResource StackGapSm}" />
@@ -565,7 +571,7 @@
                                 ItemTemplate="{StaticResource AuditRowTemplate}"
                                 ItemsSource="{Binding SampleAuditRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
           <controls:TextNamedList.Header>
-            <ContentControl Template="{StaticResource AuditTableHeader}" Focusable="False" IsTabStop="False" />
+            <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource AuditTableHeader}" />
           </controls:TextNamedList.Header>
         </controls:TextNamedList>
       </Border>
@@ -581,7 +587,7 @@
                                 ItemTemplate="{StaticResource ProcessRowTemplate}"
                                 ItemsSource="{Binding SampleProcessRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
           <controls:TextNamedList.Header>
-            <ContentControl Template="{StaticResource ProcessTableHeader}" Focusable="False" IsTabStop="False" />
+            <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource ProcessTableHeader}" />
           </controls:TextNamedList.Header>
         </controls:TextNamedList>
       </Border>
@@ -597,7 +603,7 @@
                                 ItemTemplate="{StaticResource EngineRowTemplate}"
                                 ItemsSource="{Binding SampleEngineRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
           <controls:TextNamedList.Header>
-            <ContentControl Template="{StaticResource EngineTableHeader}" Focusable="False" IsTabStop="False" />
+            <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource EngineTableHeader}" />
           </controls:TextNamedList.Header>
         </controls:TextNamedList>
       </Border>

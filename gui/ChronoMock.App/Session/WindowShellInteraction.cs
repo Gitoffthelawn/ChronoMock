@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using Microsoft.Win32;
 using ChronoMock.App.Views;
@@ -20,11 +19,16 @@ internal sealed class WindowShellInteraction : IShellInteraction
 
     public string? PickExecutable()
     {
+        // DereferenceLinks off (R5-D80): the dialog's default resolves a picked shortcut to its program and
+        // drops the arguments and working folder on the floor without a word - the source of WPF's
+        // CommonItemDialog never sets FOS_NODEREFERENCELINKS, whatever its documentation says. The shortcut
+        // itself comes back, and TargetIntake reads all three.
         var dialog = new OpenFileDialog
         {
             Title = Text("target.dialog_title"),
             Filter = Text("target.dialog_filter"),
             CheckFileExists = true,
+            DereferenceLinks = false,
         };
 
         return dialog.ShowDialog(_window) == true ? dialog.FileName : null;
@@ -45,28 +49,12 @@ internal sealed class WindowShellInteraction : IShellInteraction
         return dialog.ShowDialog(_window) == true ? dialog.FolderName : null;
     }
 
-    public bool CopyToClipboard(string text)
-    {
-        // Another process can hold the clipboard lock - retry once, then report the failure rather than
-        // swallowing it (rule 6).
-        for (int attempt = 0; attempt < 2; attempt++)
-        {
-            try
-            {
-                Clipboard.SetText(text);
-                return true;
-            }
-            catch (ExternalException)
-            {
-                // The lock was held by another process - one more try, then false.
-            }
-        }
-
-        return false;
-    }
+    public bool CopyToClipboard(string text) => ClipboardText.TrySet(text);
 
     public bool Confirm(string headingKey, string messageKey, string affirmativeKey)
         => MessageDialog.Ask(_window, Text(headingKey), Text(messageKey), Text(affirmativeKey));
+
+    public void Tell(string headingKey, string messageKey) => MessageDialog.Tell(_window, Text(headingKey), Text(messageKey));
 
     public string Text(string key) => Application.Current?.TryFindResource(key) as string ?? key;
 }

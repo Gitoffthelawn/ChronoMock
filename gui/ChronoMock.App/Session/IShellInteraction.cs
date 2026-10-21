@@ -29,6 +29,10 @@ public interface IShellInteraction
     /// what it does. True when confirmed. The arguments are translation keys, resolved by the shell.</summary>
     bool Confirm(string headingKey, string messageKey, string affirmativeKey);
 
+    /// <summary>Say why something the user asked for did not happen, with nothing to decide (rule 6). The
+    /// arguments are translation keys, resolved by the shell.</summary>
+    void Tell(string headingKey, string messageKey);
+
     /// <summary>Resolve a translation key to text, for a summary built in the user's language.</summary>
     string Text(string key);
 }

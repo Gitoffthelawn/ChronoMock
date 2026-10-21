@@ -1315,19 +1315,6 @@ public class SessionViewModelTests
     }
 
     [Fact]
-    public void Copy_feedback_reports_success_and_failure()
-    {
-        var vm = new SessionViewModel();
-        Assert.Equal(string.Empty, vm.CopyFeedbackKey);
-
-        vm.NoteCopy(ok: true);
-        Assert.Equal("copy.done", vm.CopyFeedbackKey);
-
-        vm.NoteCopy(ok: false);
-        Assert.Equal("copy.failed", vm.CopyFeedbackKey);
-    }
-
-    [Fact]
     public void Build_record_captures_the_setup_and_the_verdict()
     {
         var vm = new SessionViewModel();

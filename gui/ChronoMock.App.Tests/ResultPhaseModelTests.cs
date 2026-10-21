@@ -308,16 +308,4 @@ public class ResultPhaseModelTests
         Assert.Contains("29 February 2028, 12:00:00 (UTC-05:00)", record.MomentText, StringComparison.Ordinal);
         Assert.Contains("12 September 2026, 15:40:02 (UTC)", record.EndedText, StringComparison.Ordinal);
     }
-
-    [Fact]
-    public void The_copy_outcome_is_absent_until_a_copy_is_attempted()
-    {
-        var vm = PhaseStates.ResultWorks();
-        Assert.False(vm.HasCopyFeedback);
-
-        vm.NoteCopy(ok: false);
-
-        Assert.True(vm.HasCopyFeedback);
-        Assert.Equal("copy.failed", vm.CopyFeedbackKey);
-    }
 }

@@ -99,6 +99,7 @@ public sealed class SessionViewModel : ObservableObject
     private string _historyError = string.Empty;
     private string _historySetAside = string.Empty;
     private string _historyNoteKey = string.Empty;
+    private string _targetNoteKey = string.Empty;
     private SessionRecord? _selectedRecord;
     // The setup the session was started with, taken at Start, so history and the reports record what was
     // REQUESTED even after the form is changed (rule 4 - the record is the start). See SessionSetup for why
@@ -217,7 +218,6 @@ public sealed class SessionViewModel : ObservableObject
     // file beside the exe. Empty on a clean works session, so the button and log stay out of the happy path.
     private string _diagnosticsText = string.Empty;
     private string _diagnosticsSavedPath = string.Empty;
-    private string _copyFeedbackKey = string.Empty;
 
     /// <summary>The panel's actions as bindable commands, so the phase views bind <c>Command</c> and carry
     /// no Click handler of their own (GUI rules 11 and 15). The window-dependent actions (pickers, clipboard,
@@ -358,20 +358,6 @@ public sealed class SessionViewModel : ObservableObject
     /// <see cref="HasInFlightError"/> and keeps its own behaviour.</remarks>
     public bool ShowsInFlightError => HasInFlightError && !SessionResult.IsTerminal(_result.StatusKind);
 
-    /// <summary>Translation key for the copy-summary feedback ("copy.done" / "copy.failed"), empty until a
-    /// copy is attempted. A clipboard failure is surfaced, never swallowed (rule 6).</summary>
-    public string CopyFeedbackKey
-    {
-        get => _copyFeedbackKey;
-        private set { if (Set(ref _copyFeedbackKey, value)) { RaisePropertyChanged(nameof(HasCopyFeedback)); } }
-    }
-
-    /// <summary>True while a copy outcome is on show - the line is absent, not blank, until a copy is attempted.</summary>
-    public bool HasCopyFeedback => _copyFeedbackKey.Length > 0;
-
-    /// <summary>Record the outcome of a clipboard copy so the panel can confirm it or report a failure.</summary>
-    public void NoteCopy(bool ok) => CopyFeedbackKey = ok ? "copy.done" : "copy.failed";
-
     /// <summary>Past sessions, newest first, for the History panel (docs/04 section 6). Loaded from the
     /// injected store on construction and prepended as each session ends.</summary>
     public ObservableCollection<SessionRecord> History { get; } = [];
@@ -426,6 +412,18 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>True when the last history load left a field it could not fill.</summary>
     public bool HasHistoryNote => _historyNoteKey.Length > 0;
 
+    /// <summary>Translation key for how the target was filled in, when that filled more than the target -
+    /// a shortcut brings its arguments and working folder, which stand in a folded section (R5-D80). Empty
+    /// otherwise, and emptied when the target changes or a session starts.</summary>
+    public string TargetNoteKey
+    {
+        get => _targetNoteKey;
+        private set { if (Set(ref _targetNoteKey, value)) { RaisePropertyChanged(nameof(HasTargetNote)); } }
+    }
+
+    /// <summary>True while <see cref="TargetNoteKey"/> has something to say.</summary>
+    public bool HasTargetNote => _targetNoteKey.Length > 0;
+
     /// <summary>The recorded session chosen in the history well, or null. Choosing one does nothing by itself
     /// (untouchable rule 7) - the actions under the well act on it, and setting it up again fills the form and
     /// never starts a session.</summary>
@@ -446,6 +444,7 @@ public sealed class SessionViewModel : ObservableObject
         {
             if (Set(ref _targetPath, value))
             {
+                TargetNoteKey = string.Empty; // a note on how the target was filled is about the one before
                 PromoteRecentTarget(value);
                 RaisePropertyChanged(nameof(TargetName));
                 RaisePropertyChanged(nameof(HasTarget));
@@ -794,49 +793,20 @@ public sealed class SessionViewModel : ObservableObject
         RaisePropertyChanged(nameof(HasStartRefusal));
     }
 
-    /// <summary>Choose the target executable to run (from the picker, the recent list, or the dev default).</summary>
+    /// <summary>Choose the target executable to run (from the picker, the recent list, or the dev default).
+    /// A file that has to be checked or read first - a drop, a shortcut - comes through
+    /// <see cref="TargetIntake"/>.</summary>
     public void SetTarget(string path) => TargetPath = path;
 
-    /// <summary>Counts drops, so only the newest one decides the target - see <see cref="DropTargetAsync"/>.</summary>
-    private int _drops;
-
-    /// <summary>
-    /// Take an application dropped on the window, once it is known to exist. True when it was taken, or when
-    /// a later drop has made this one moot - false only when the newest drop named a file that is not there,
-    /// which the window then says out loud.
-    /// <para>
-    /// 🔴 The check runs OFF the UI thread (R4-N48): asking whether a file exists on a share that has gone
-    /// blocks for as long as the share takes to fail - measured 21 s on an unreachable address - and the
-    /// window used to ask it on every mouse move of the drag. The drag itself now looks only at the name.
-    /// Two drops in that time are answered in the order they were MADE, not in the order their checks
-    /// return, the rule R4/17 gave every answer that arrives late.
-    /// </para>
-    /// </summary>
-    public Task<bool> DropTargetAsync(string path) => DropTargetAsync(path, Task.Run(() => File.Exists(path)));
-
-    /// <summary>The same, with the answer to "does it exist" handed in - so a test decides the ORDER in which
-    /// two answers arrive, which a real check on two local files cannot promise.</summary>
-    internal async Task<bool> DropTargetAsync(string path, Task<bool> existence)
+    /// <summary>Take the program a shortcut starts, with the arguments and working folder it starts it with
+    /// (R5-D80), and say so - the two fields stand in a folded section, and filling them where nobody can see
+    /// would hand a session arguments the tester never read. Nothing starts (rule 7).</summary>
+    public void SetTargetFromShortcut(string program, string arguments, string workingFolder)
     {
-        var mine = ++_drops;
-        var exists = await existence.ConfigureAwait(true);
-        if (mine != _drops)
-        {
-            return true;
-        }
-
-        if (!exists)
-        {
-            return false;
-        }
-
-        // A session started while the check ran keeps the target it started with - the target is start-only.
-        if (_idle)
-        {
-            SetTarget(path);
-        }
-
-        return true;
+        SetTarget(program);
+        TargetArgs = arguments;
+        WorkingFolder = workingFolder;
+        TargetNoteKey = "setup.from_shortcut";
     }
 
     /// <summary>
@@ -2329,11 +2299,11 @@ public sealed class SessionViewModel : ObservableObject
         RaisePropertyChanged(nameof(HasHostSlept));
         DiagnosticsText = string.Empty;
         DiagnosticsSavedPath = string.Empty;
-        CopyFeedbackKey = string.Empty;
         InFlightErrorKey = string.Empty;
         // A note about what the last LOAD could not fill belongs to the form the user is about to run, not
         // to the run itself - once they start, they have accepted the form as it stands.
         HistoryNoteKey = string.Empty;
+        TargetNoteKey = string.Empty;
         // Said about the session that moved the old history, not about the next one.
         HistorySetAside = string.Empty;
         // The jump target belongs to the session it was typed in (R5-P11). It is read in the zone of the
