@@ -14,6 +14,39 @@
              (see App.xaml). The phase views merge Parts.xaml the same way and must. -->
         <ResourceDictionary Source="../Themes/Parts.xaml" />
       </ResourceDictionary.MergedDictionaries>
+
+      <!-- One output format: its name and its Copy on a line, the value under them. Shared by the format
+           list and the custom format, whose name is its mask, so the two are one drawing (GUI rule 7). -->
+      <DataTemplate x:Key="FormatRowView">
+        <!-- 🔴 The name and its Copy on one line, the value UNDER them on the whole width. With the name
+             in a column of its own the value had 92 px at the default window size and the longest
+             formats broke in the middle - "2026-01-01T00" over ":00:00+00:00" reads as two values,
+             and one of them is what Copy hands over. A value to copy is one line (FormatRowTests).
+             The Copy stood beside the value until it said what its copy did (R5-D81): "Skopiowano"
+             is 91 px where "Kopiuj" is 72, and "Clipboard busy" 106, measured - beside the value the
+             button took that width from it, and the value broke in the moment it was copied. -->
+        <Grid Margin="{StaticResource SpaceXs}">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}"
+                     VerticalAlignment="Center" />
+          <!-- Named after its format for a screen reader, where eight buttons all read "Copy"
+               (R5-D82), and saying on itself what its copy did (R5-D81). -->
+          <controls:CopyButton Grid.Row="0" Grid.Column="1" Style="{StaticResource PartCopyAction}"
+                               Label="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
+                               AccessibleLabel="{Binding Label, Converter={StaticResource KeyFill}, ConverterParameter=calc.copy_named}"
+                               Outcome="{Binding Copy}"
+                               Tag="{Binding}" IsEnabled="{Binding HasValue}" />
+          <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
+                     VerticalAlignment="Center" />
+        </Grid>
+      </DataTemplate>
     </ResourceDictionary>
   </UserControl.Resources>
   <!--
@@ -135,7 +168,8 @@
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.start_point}" />
             <ComboBox x:Name="BaseKindBox" ItemsSource="{Binding BaseKinds}" SelectedItem="{Binding SelectedBase}"
                       Style="{StaticResource LabelKeyCombo}"
-                      ToolTip="{DynamicResource tip.base_kind}" />
+                      ToolTip="{DynamicResource tip.base_kind}"
+                      AutomationProperties.Name="{DynamicResource calc.start_point}" />
             <!-- Specific date: the shared moment input (ISO box plus a calendar popup, locale-safe, rule 2),
                  the same control the substitution panel uses. Its DataContext is the base MomentField, so
                  Visibility binds to the view model through the CalculatorView, not the field. -->
@@ -158,6 +192,7 @@
             <TextBlock Style="{StaticResource PartFieldLabel}" Text="{DynamicResource calc.base_zone}" />
             <ComboBox x:Name="BaseZoneBox" ItemsSource="{Binding BaseZones}" SelectedItem="{Binding SelectedBaseZone}"
                       ToolTip="{DynamicResource tip.base_zone}"
+                      AutomationProperties.Name="{DynamicResource calc.base_zone}"
                       ItemContainerStyle="{StaticResource ZoneComboItem}"
                       ItemTemplate="{StaticResource ZoneRow}" />
 
@@ -192,12 +227,15 @@
                       </Grid.RowDefinitions>
 
                       <!-- Kind picker: swaps which editor below it is visible. -->
+                      <!-- Named by the step's number, as is its remove button, so a reader tells five steps
+                           apart ("Step 2, Jump to", "Remove step 2"), R5-D82. -->
                       <ComboBox Grid.Row="0" Grid.Column="0" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}"
-                                Style="{StaticResource LabelKeyCombo}" Margin="{StaticResource CopyValueGap}" />
+                                Style="{StaticResource LabelKeyCombo}" Margin="{StaticResource CopyValueGap}"
+                                AutomationProperties.Name="{Binding Number, Converter={StaticResource KeyFill}, ConverterParameter=calc.step_name}" />
 
                       <Button Grid.Row="0" Grid.Column="1" Content="✕" Click="OnRemoveStepClick" Tag="{Binding}"
                               VerticalAlignment="Center"
-                              AutomationProperties.Name="{DynamicResource calc.remove_step}"
+                              AutomationProperties.Name="{Binding Number, Converter={StaticResource KeyFill}, ConverterParameter=calc.remove_step}"
                               FontSize="{StaticResource FontSizeCaption}" />
 
                       <!-- Shift editor: sign, amount, unit, named after the step's kind for a screen reader. -->
@@ -210,6 +248,7 @@
                       <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="{StaticResource StackGapSm}"
                                 ItemsSource="{Binding SnapTargets}" SelectedItem="{Binding SnapTarget}"
                                 Style="{StaticResource LabelKeyCombo}"
+                                AutomationProperties.Name="{DynamicResource calc.kind_snap}"
                                 Visibility="{Binding IsSnap, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Nearest editor: roll to the nearest business day in a direction (needs a calendar -
@@ -217,6 +256,7 @@
                       <ComboBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="{StaticResource StackGapSm}"
                                 ItemsSource="{Binding NearestTargets}" SelectedItem="{Binding NearestTarget}"
                                 Style="{StaticResource LabelKeyCombo}"
+                                AutomationProperties.Name="{DynamicResource calc.kind_nearest}"
                                 Visibility="{Binding IsNearest, Converter={StaticResource BoolToVis}}" />
 
                       <!-- Set-time editor: a wall-clock HH:MM:SS, the width the time field has everywhere
@@ -460,32 +500,8 @@
               <!-- Copy carries the ROW, not its text: the press waits for a result being computed and then
                    copies what the row holds in it (R4-W4), and a row whose format the moment falls outside
                    shows a marker, not a value, so its Copy is off (R4-Z3). -->
-              <controls:TextNamedItems x:Name="FormatList" ItemsSource="{Binding Formats}" Margin="{StaticResource SpaceXs}">
-                <controls:TextNamedItems.ItemTemplate>
-                  <DataTemplate>
-                    <!-- 🔴 The name OVER its value, the value beside its Copy. With the name in a column of its
-                         own the value had 92 px at the default window size and the longest formats broke in
-                         the middle - "2026-01-01T00" over ":00:00+00:00" reads as two values, and one of them
-                         is what Copy hands over. A value to copy is one line (FormatRowTests). -->
-                    <Grid Margin="{StaticResource SpaceXs}">
-                      <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                      </Grid.RowDefinitions>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                      </Grid.ColumnDefinitions>
-                      <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Style="{StaticResource PartCaption}" TextWrapping="NoWrap" Text="{Binding Label}" />
-                      <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding Value}"
-                                 VerticalAlignment="Center" Margin="{StaticResource CopyValueGap}" />
-                      <Button Grid.Row="1" Grid.Column="1" Style="{StaticResource PartCopyAction}"
-                              Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
-                              Tag="{Binding}" IsEnabled="{Binding HasValue}" />
-                    </Grid>
-                  </DataTemplate>
-                </controls:TextNamedItems.ItemTemplate>
-              </controls:TextNamedItems>
+              <controls:TextNamedItems x:Name="FormatList" ItemsSource="{Binding Formats}" Margin="{StaticResource SpaceXs}"
+                                       ItemTemplate="{StaticResource FormatRowView}" />
             </StackPanel>
 
             <!-- Custom output format (7.3): a .NET/Java-token mask so the tester can hit the exact string the
@@ -506,18 +522,10 @@
                      ToolTip="{DynamicResource tip.custom_format}"
                      AutomationProperties.Name="{DynamicResource calc.custom_format}" />
             <StackPanel Style="{StaticResource PartAnswerBlock}" app:PartState.IsStale="{Binding IsResultStale}">
-              <Grid Margin="{StaticResource SpaceXs}"
-                    Visibility="{Binding HasCustomFormat, Converter={StaticResource BoolToVis}}">
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{StaticResource PartValueMono}" Text="{Binding CustomFormatRow.Value}"
-                           Margin="{StaticResource CopyValueGap}" />
-                <Button Grid.Column="1" Style="{StaticResource PartCopyAction}"
-                        Content="{DynamicResource calc.copy}" Click="OnCopyFormatClick"
-                        Tag="{Binding CustomFormatRow}" IsEnabled="{Binding CustomFormatRow.HasValue}" />
-              </Grid>
+              <!-- The list's own margin too, so this row's name, Copy and value stand on the format rows' edges. -->
+              <ContentControl Style="{StaticResource PartLayoutHost}" Content="{Binding CustomFormatRow}"
+                              ContentTemplate="{StaticResource FormatRowView}" Margin="{StaticResource SpaceXs}"
+                              Visibility="{Binding HasCustomFormat, Converter={StaticResource BoolToVis}}" />
               <!-- Why the line above may not be what the reader expects: letter runs the engine does not
                    know are passed through as text, so the result LOOKS formatted while carrying raw mask
                    letters. Below the row, mirroring the base validation message, so it never shifts it. -->
@@ -533,11 +541,12 @@
               <!-- The question this result answers, as a terminal asks it (R5-D54): PowerShell, the engine by
                    its full path. Under everything it answers for, so it is read as the whole result's, not as
                    one format's. Waits for a result being computed, as Copy does. -->
-              <Button x:Name="CopyCommandButton" Style="{StaticResource PartCopyAction}"
-                      Content="{DynamicResource calc.copy_command}" Click="OnCopyCommandClick"
-                      HorizontalAlignment="Left" Margin="{StaticResource SpaceXs}"
-                      ToolTip="{DynamicResource tip.copy_command}" ToolTipService.ShowOnDisabled="True"
-                      IsEnabled="{Binding HasResult}" />
+              <controls:CopyButton x:Name="CopyCommandButton" Style="{StaticResource PartCopyAction}"
+                                   Label="{DynamicResource calc.copy_command}" Click="OnCopyCommandClick"
+                                   Outcome="{Binding CommandCopy}"
+                                   HorizontalAlignment="Left" Margin="{StaticResource SpaceXs}"
+                                   ToolTip="{DynamicResource tip.copy_command}" ToolTipService.ShowOnDisabled="True"
+                                   IsEnabled="{Binding HasResult}" />
             </StackPanel>
 
             <!-- The one action this module ends in, styled as the setup's Start is: it read as any other

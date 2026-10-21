@@ -8,6 +8,13 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Added
 
+- **A shortcut (.lnk) can be the application.** Picked with Choose… or dropped on the window, a shortcut
+  fills the form with the program it starts, the arguments it hands it and the folder it starts it in,
+  and a line under the application says so, because the arguments and the folder stand under Speed and
+  options. A shortcut that leads to no program file - one an installer made, or one to a document or a
+  script - is refused with the reason, and so is one whose program is gone. Nothing starts until Start.
+  The file picker used to swap a picked shortcut for its program in silence and drop its arguments and
+  folder.
 - **"Copy as command" under the calculator's result** copies the question it answers as a PowerShell
   command line: the engine by its full path, so it works from a portable copy that is not on PATH, and
   the same arguments, so a terminal gives the same answer. Windows PowerShell 5.1 passes three kinds of
@@ -90,6 +97,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **Every copy button says on itself what its copy did** - "Copied", or "Clipboard busy" when another
+  program held the clipboard - for a moment, then reads as itself again, and it never changes width while
+  it does. The result's summary and diagnostics shared one line beside the buttons that never cleared,
+  so a second copy changed nothing on the screen, and the calculator said nothing at all when the
+  clipboard was busy. In the calculator a format's Copy now stands beside the format's name, and the
+  value under them has the whole width of the column.
 - **A portable copy keeps its session history and diagnostics logs in `%LOCALAPPDATA%\ChronoMock`,**
   as an installed copy already did. Beside the program, on a shared folder or a stick passed round,
   they held everybody's sessions - the applications tested and the arguments they were started with -
@@ -258,6 +271,15 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A screen reader names every control the keyboard reaches.** The calculator's start point, time zone,
+  step type, jump and nearest-day pickers, both search fields, the header of every folding section, and
+  the time zone, speed, arguments and working folder fields were read as an unnamed "combo box" or
+  "edit". The calculator's copy buttons are named after their format ("Copy ISO date"), its steps by
+  number ("Step 2", "Remove step 2"), and the rows of the session history by everything they show, where
+  two sessions of one program used to read the same.
+- **Tab no longer stops on nothing.** Form rows, the session clocks, section summaries and lists of text
+  each took a Tab stop with nothing to do there, which a screen reader could only call the window - four
+  extra stops on the setup screen and five on the calculator.
 - **The window no longer waits while the engine or the core starts.** The calculator starts the engine
   for every answer, and the window's own thread used to do the starting, so every edit paused it for as
   long as Windows took to start a program - longer on a machine whose antivirus scans the engine first.

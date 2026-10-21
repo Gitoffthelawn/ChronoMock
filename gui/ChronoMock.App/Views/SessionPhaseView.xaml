@@ -124,9 +124,9 @@
              guard measures the two clocks against the card under them. -->
         <HeaderedContentControl Style="{StaticResource PartSideBySide}" Margin="{StaticResource StackGapSm}">
           <HeaderedContentControl.Header>
-            <ContentControl x:Name="FakeClock" Template="{StaticResource PartClock}" DataContext="{Binding Fake}" />
+            <ContentControl x:Name="FakeClock" Style="{StaticResource PartLayoutHost}" Template="{StaticResource PartClock}" DataContext="{Binding Fake}" />
           </HeaderedContentControl.Header>
-          <ContentControl x:Name="RealClock" Template="{StaticResource PartClock}" DataContext="{Binding Real}" />
+          <ContentControl x:Name="RealClock" Style="{StaticResource PartLayoutHost}" Template="{StaticResource PartClock}" DataContext="{Binding Real}" />
         </HeaderedContentControl>
 
         <!--

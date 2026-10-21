@@ -38,7 +38,7 @@ public sealed class SessionCommands
     private readonly RelayCommand _repeat;
     private readonly AsyncRelayCommand _forget;
     private readonly RelayCommand _newSession;
-    private readonly RelayCommand _chooseTarget;
+    private readonly AsyncRelayCommand _chooseTarget;
     private readonly RelayCommand _browseFolder;
     private readonly RelayCommand _copySummary;
     private readonly RelayCommand _copyDiagnostics;
@@ -53,6 +53,9 @@ public sealed class SessionCommands
 
     internal SessionCommands(SessionViewModel session)
     {
+        DiagnosticsCopy = SummaryCopy.Sibling();
+        Targets = new TargetIntake(session);
+
         // One reading of each gate, shared by the command that asks it and the watch that tells the command
         // when its answer changed - so the two can never disagree about what the gate is.
         Func<bool> canStart = () => session.CanStart;
@@ -118,15 +121,7 @@ public sealed class SessionCommands
         // Window-dependent actions. CanExecute follows the data gate alone - the shell is checked in Execute,
         // so a shell-less render draws them exactly as the shipped panel would and a shell-less Execute is a
         // no-op rather than a crash. They read _shell late, so AttachShell before the first click is enough.
-        _chooseTarget = new RelayCommand(
-            () =>
-            {
-                if (_shell?.PickExecutable() is { } path)
-                {
-                    session.SetTarget(path);
-                }
-            },
-            idle);
+        _chooseTarget = new AsyncRelayCommand(() => ChooseTargetAsync(session), idle);
         _browseFolder = new RelayCommand(
             () =>
             {
@@ -141,7 +136,7 @@ public sealed class SessionCommands
             {
                 if (_shell is not null)
                 {
-                    session.NoteCopy(_shell.CopyToClipboard(session.BuildSummary(_shell.Text)));
+                    SummaryCopy.Report(_shell.CopyToClipboard(session.BuildSummary(_shell.Text)));
                 }
             },
             canCopySummary);
@@ -150,7 +145,7 @@ public sealed class SessionCommands
             {
                 if (_shell is not null)
                 {
-                    session.NoteCopy(_shell.CopyToClipboard(session.DiagnosticsText));
+                    DiagnosticsCopy.Report(_shell.CopyToClipboard(session.DiagnosticsText));
                 }
             },
             hasDiagnostics);
@@ -247,6 +242,37 @@ public sealed class SessionCommands
 
     /// <summary>Copy the diagnostics block (the core's stderr and parse errors) to the clipboard.</summary>
     public ICommand CopyDiagnostics => _copyDiagnostics;
+
+    // A program the dialog has already found is taken as it was. A shortcut is read off the window's thread
+    // for the program, arguments and folder it starts (R5-D80), and one that leads to no program says so, as
+    // a dropped one does. Out of the constructor, whose every lambda counts against its complexity ceiling.
+    private async Task ChooseTargetAsync(SessionViewModel session)
+    {
+        if (_shell?.PickExecutable() is not { } path)
+        {
+            return;
+        }
+
+        if (!TargetIntake.IsShortcut(path))
+        {
+            session.SetTarget(path);
+            return;
+        }
+
+        if (TargetIntake.RefusalKey(await Targets.TakeAsync(path)) is { Length: > 0 } refusal)
+        {
+            _shell?.Tell("target.drop_rejected_title", refusal);
+        }
+    }
+
+    /// <summary>Where a dropped file or a picked shortcut becomes the target.</summary>
+    internal TargetIntake Targets { get; }
+
+    /// <summary>What the last summary copy did, said on its button for a moment (R5-D81).</summary>
+    public CopyOutcome SummaryCopy { get; } = new();
+
+    /// <summary>The same for the diagnostics - on the same screen, so one copy silences the other's.</summary>
+    public CopyOutcome DiagnosticsCopy { get; }
 
     /// <summary>Clear the whole history, after confirming - a re-run re-creates one.</summary>
     public ICommand ClearHistory => _clearHistory;

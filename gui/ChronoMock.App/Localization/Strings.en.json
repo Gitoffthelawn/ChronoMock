@@ -22,7 +22,7 @@
   "target.dialog_title": "Choose an application",
 
   // Only .exe: native injection needs a PE and CDP needs an Electron/Chromium .exe. Narrowing the filter keeps a user from picking a .lnk/.bat/.txt that could only fail (RELEASE-007).
-  "target.dialog_filter": "Executables (*.exe)|*.exe",
+  "target.dialog_filter": "Programs and shortcuts (*.exe, *.lnk)|*.exe;*.lnk",
 
   // Scenarios (chrono-mock 7.1 pt 2): named moments from the shared preset catalogue. The scenario NAMES and their "what this date tests" lines come from the catalogue files (data locales), not from here.
   "scenario.failed": "That scenario could not be turned into a date.",
@@ -144,6 +144,7 @@
   "setup.label_mode": "Speed",
   "setup.label_args": "Arguments",
   "setup.label_cwd": "Working folder",
+  "setup.from_shortcut": "Filled in from the shortcut, with its arguments and working folder - both are under Speed and options.",
 
   // 🔴 The three options, said in words rather than in ours. The shipped panel labels them "Scale
   // duration too", "Scale QPC too" and "Run even if it does not work" - the first two are our vocabulary
@@ -196,7 +197,9 @@
   // Shown only while no target is chosen: dropping a file on the window is not discoverable on its own, and once there is a target the hint would be noise on every later run (chrono-mock 7.1 pt 1).
   "target.drop_hint": "…or drag an application onto this window",
   "target.drop_rejected_title": "That file cannot be run here",
-  "target.drop_rejected": "Only .exe files can be run from this window - for a shortcut, pick the program it opens. A script (.bat or .cmd) can be run with the chrono command line.",
+  "target.drop_rejected": "Only programs (.exe) and shortcuts to them can be run from this window. A script (.bat or .cmd) can be run with the chrono command line.",
+  "target.shortcut_rejected": "This shortcut does not lead to a program file (.exe) - a shortcut an installer made does not name one. Pick the program itself instead.",
+  "target.program_missing": "That program is not there - it was moved or deleted, or the drive it is on cannot be reached.",
 
   // Arguments and working folder (chrono-mock 7.1 pt 1). Collapsed by default: most sessions need neither. The wire and the mechanism have carried both since the protocol was written; only the surfaces did not offer them.
   "launch.cwd_label": "Working folder:",
@@ -546,8 +549,8 @@
   // Copy session summary (chrono-mock 7.2, 8.8). A paste-into-ticket report; a non-works session leads with the unreliable-evidence banner. Keys ending in a template carry {0}-style placeholders.
   "action.copy_summary": "Copy summary",
   "action.copy_diagnostics": "Copy diagnostics",
-  "copy.done": "Copied to clipboard",
-  "copy.failed": "Could not copy - the clipboard is busy",
+  "copy.copied": "Copied",
+  "copy.busy": "Clipboard busy",
 
   // Where the diagnostics log was written (RELEASE-012); the path follows this prefix.
   "diagnostics.saved": "Diagnostics saved to",
@@ -722,7 +725,7 @@
   "calc.sig_calendar_outdated": "Weekend and holiday marks follow the {0} calendar, whose holidays were checked against the law on {1}, more than a year ago.",
   "calc.all_formats": "All formats - one click to copy",
   "calc.copy": "Copy",
-  "calc.copied": "Copied",
+  "calc.copy_named": "Copy {0}",
   // The button under the result that copies its question as a PowerShell command line (R5-D54).
   "calc.copy_command": "Copy as command",
   "calc.custom_format": "Custom format",
@@ -745,7 +748,8 @@
   "calc.base.now": "Now",
   "calc.base.specific": "Specific date",
   "calc.field_calendar": "Calendar",
-  "calc.remove_step": "Remove step",
+  "calc.step_name": "Step {0}",
+  "calc.remove_step": "Remove step {0}",
   "calc.unit.seconds": "seconds",
   "calc.unit.minutes": "minutes",
   "calc.unit.hours": "hours",

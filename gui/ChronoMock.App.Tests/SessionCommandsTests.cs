@@ -1,3 +1,4 @@
+using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
 using System.Windows.Input;
 using ChronoMock.App;
 
@@ -254,6 +255,7 @@ public class SessionCommandsTests
         public bool ConfirmResult;
         public string? Copied;
         public bool WasAsked;
+        public string? Told;
 
         public string? PickExecutable() => Executable;
         public string? PickFolder(string? initialDirectory) => Folder;
@@ -263,6 +265,7 @@ public class SessionCommandsTests
             WasAsked = true;
             return ConfirmResult;
         }
+        public void Tell(string headingKey, string messageKey) => Told = messageKey;
         public string Text(string key) => key;
     }
 
@@ -282,6 +285,23 @@ public class SessionCommandsTests
         vm.Commands.ChooseTarget.Execute(null);
 
         Assert.Equal("picked.exe", vm.TargetName);
+    }
+
+    [Fact]
+    public async Task A_picked_shortcut_that_leads_to_no_program_is_refused_out_loud()
+    {
+        var shell = new FakeShell { Executable = Path.Combine(Path.GetTempPath(), $"chrono-none-{Guid.NewGuid():N}.lnk") };
+        var vm = WithShell(shell);
+
+        vm.Commands.ChooseTarget.Execute(null);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (shell.Told is null && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(25), TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal("target.shortcut_rejected", shell.Told);
+        Assert.NotEqual(shell.Executable, vm.TargetPath);
     }
 
     [Fact]
@@ -317,7 +337,20 @@ public class SessionCommandsTests
         vm.Commands.CopySummary.Execute(null);
 
         Assert.False(string.IsNullOrEmpty(shell.Copied));
-        Assert.Equal("copy.done", vm.CopyFeedbackKey);
+        Assert.Equal(CopyState.Copied, vm.Commands.SummaryCopy.State);
+        Assert.Equal(CopyState.Idle, vm.Commands.DiagnosticsCopy.State);
+    }
+
+    [Fact]
+    public void A_busy_clipboard_is_said_on_the_button_that_copied()
+    {
+        var shell = new FakeShell { ClipboardOk = false };
+        var vm = WithShell(shell);
+
+        vm.Commands.CopyDiagnostics.Execute(null);
+
+        Assert.Equal(CopyState.Failed, vm.Commands.DiagnosticsCopy.State);
+        Assert.Equal(CopyState.Idle, vm.Commands.SummaryCopy.State);
     }
 
     [Fact]

@@ -593,7 +593,8 @@ fn gui_files_under(dir: &Path, extension: &str, at_least: usize) -> Vec<PathBuf>
     out
 }
 
-/// Every key a view names as `{DynamicResource key}` or `{StaticResource key}`.
+/// Every key a view names as `{DynamicResource key}` or `{StaticResource key}`, or hands a converter as
+/// `ConverterParameter=key` - the template `KeyFill` fills with a bound value ("Remove step {0}", R5-D82).
 fn keys_in_markup(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     for extension in ["{DynamicResource ", "{StaticResource "] {
@@ -605,6 +606,14 @@ fn keys_in_markup(text: &str) -> Vec<String> {
                     found.push(key.to_string());
                 }
             }
+        }
+    }
+    for (at, _) in text.match_indices("ConverterParameter=") {
+        let rest = &text[at + "ConverterParameter=".len()..];
+        let end = rest.find(['}', ',', '"']).unwrap_or(rest.len());
+        let key = rest[..end].trim();
+        if has_key_shape(key) {
+            found.push(key.to_string());
         }
     }
     found
@@ -875,6 +884,13 @@ fn the_unreached_list_is_checked_from_both_ends() {
 fn the_markup_scan_reads_both_resource_extensions() {
     let markup = r#"<TextBlock Text="{DynamicResource app.title}" Style="{StaticResource PartHeading}" ToolTip="{StaticResource tip.zone }" />"#;
     assert_eq!(keys_in_markup(markup), ["app.title", "tip.zone"]);
+}
+
+/// A template handed to a converter is reached too, and a parameter that is not a key is not one.
+#[test]
+fn the_markup_scan_reads_a_key_handed_to_a_converter() {
+    let markup = r#"<Button AutomationProperties.Name="{Binding Number, Converter={StaticResource KeyFill}, ConverterParameter=calc.remove_step}" Width="{Binding X, ConverterParameter=2}" />"#;
+    assert_eq!(keys_in_markup(markup), ["calc.remove_step"]);
 }
 
 /// A reference in a comment is no reference: the markup's own comments, a line of C# comment, the end of

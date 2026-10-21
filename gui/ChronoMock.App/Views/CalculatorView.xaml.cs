@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using ChronoMock.App.Calc;
@@ -48,77 +47,27 @@ public partial class CalculatorView : UserControl
     }
 
     // Copy one output format to the clipboard: the value its row holds in the result for the builder as it
-    // stands, which the view model waits for when it is still being computed (R4-W4). The row survives
-    // the refresh, so "Copied" lands on the button that was pressed. A clipboard held by another process
-    // is ignored for a convenience copy (the value stays on screen to copy by hand).
+    // stands, which the view model waits for when it is still being computed (R4-W4). The row survives the
+    // refresh, so its button says what the copy did - "Copied", or "Clipboard busy" when another program
+    // held it, which this screen used to swallow (R5-D81).
     private async void OnCopyFormatClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: FormatRow row } button || ViewModel is not { } vm
+        if (sender is not Button { Tag: FormatRow row } || ViewModel is not { } vm
             || await vm.CopyValueAsync(row) is not { Length: > 0 } value)
         {
             return;
         }
 
-        CopyAndFlash(button, value, "calc.copy");
+        row.Copy.Report(ClipboardText.TrySet(value));
     }
 
     // Copy the result's question as a command line for a terminal (R5-D54), once the result for the builder as
     // it stands is in.
     private async void OnCopyCommandClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button button && ViewModel is { } vm && await vm.CopyCommandAsync() is { Length: > 0 } command)
+        if (ViewModel is { } vm && await vm.CopyCommandAsync() is { Length: > 0 } command)
         {
-            CopyAndFlash(button, command, "calc.copy_command");
-        }
-    }
-
-    // A clipboard held by another process is ignored for a convenience copy: say nothing rather than claim a
-    // copy that did not happen.
-    private void CopyAndFlash(Button button, string text, string labelKey)
-    {
-        try
-        {
-            Clipboard.SetText(text);
-        }
-        catch (ExternalException)
-        {
-            return;
-        }
-
-        FlashCopied(button, labelKey);
-    }
-
-    // The copy affordance has to answer, or a reader cannot tell a click that worked from one that did
-    // nothing. The clicked button reads "Copied" for a moment and then returns to its own label. Only one button
-    // shows it at a time - a second copy reverts the first at once, so the screen never carries two claims
-    // of a value the clipboard can only hold one of.
-    private Button? _copiedButton;
-    private string _copiedLabelKey = "calc.copy";
-    private System.Windows.Threading.DispatcherTimer? _copiedTimer;
-
-    private void FlashCopied(Button button, string labelKey)
-    {
-        RevertCopied();
-
-        _copiedButton = button;
-        _copiedLabelKey = labelKey; // what the button said before, so it says it again
-        button.Content = Application.Current?.TryFindResource("calc.copied") as string ?? "Copied";
-
-        _copiedTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-        _copiedTimer.Tick += (_, _) => RevertCopied();
-        _copiedTimer.Start();
-    }
-
-    private void RevertCopied()
-    {
-        _copiedTimer?.Stop();
-        _copiedTimer = null;
-
-        if (_copiedButton is not null)
-        {
-            // Back to the DynamicResource, so a later language switch still reaches the label.
-            _copiedButton.SetResourceReference(ContentControl.ContentProperty, _copiedLabelKey);
-            _copiedButton = null;
+            vm.CommandCopy.Report(ClipboardText.TrySet(command));
         }
     }
 }

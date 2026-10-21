@@ -923,8 +923,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
-        "from": "Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\"",
-        "to": "Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\" Foreground=\"{DynamicResource BrushBgSurface}\"\n                                 VerticalAlignment=\"Center\""
+        "from": "Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                     VerticalAlignment=\"Center\"",
+        "to": "Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\" Foreground=\"{DynamicResource BrushBgSurface}\"\n                     VerticalAlignment=\"Center\""
       }
     ],
     "runner": "cs",
@@ -1093,8 +1093,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
-        "from": "                      <Grid.RowDefinitions>\n                        <RowDefinition Height=\"Auto\" />\n                        <RowDefinition Height=\"Auto\" />\n                      </Grid.RowDefinitions>\n                      <Grid.ColumnDefinitions>\n                        <ColumnDefinition Width=\"*\" />\n                        <ColumnDefinition Width=\"Auto\" />\n                      </Grid.ColumnDefinitions>\n                      <TextBlock Grid.Row=\"0\" Grid.ColumnSpan=\"2\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n                      <TextBlock Grid.Row=\"1\" Grid.Column=\"0\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\" Margin=\"{StaticResource CopyValueGap}\" />\n                      <Button Grid.Row=\"1\" Grid.Column=\"1\" Style=\"{StaticResource PartCopyAction}\"",
-        "to": "                      <Grid.ColumnDefinitions>\n                        <ColumnDefinition Width=\"104\" />\n                        <ColumnDefinition Width=\"*\" />\n                        <ColumnDefinition Width=\"Auto\" />\n                      </Grid.ColumnDefinitions>\n                      <TextBlock Grid.Column=\"0\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n                      <TextBlock Grid.Column=\"1\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                                 VerticalAlignment=\"Center\" Margin=\"{StaticResource CopyValueGap}\" />\n                      <Button Grid.Column=\"2\" Style=\"{StaticResource PartCopyAction}\""
+        "from": "          <Grid.RowDefinitions>\n            <RowDefinition Height=\"Auto\" />\n            <RowDefinition Height=\"Auto\" />\n          </Grid.RowDefinitions>\n          <Grid.ColumnDefinitions>\n            <ColumnDefinition Width=\"*\" />\n            <ColumnDefinition Width=\"Auto\" />\n          </Grid.ColumnDefinitions>\n          <TextBlock Grid.Row=\"0\" Grid.Column=\"0\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\"\n                     VerticalAlignment=\"Center\" />\n          <!-- Named after its format for a screen reader, where eight buttons all read \"Copy\"\n               (R5-D82), and saying on itself what its copy did (R5-D81). -->\n          <controls:CopyButton Grid.Row=\"0\" Grid.Column=\"1\" Style=\"{StaticResource PartCopyAction}\"\n                               Label=\"{DynamicResource calc.copy}\" Click=\"OnCopyFormatClick\"\n                               AccessibleLabel=\"{Binding Label, Converter={StaticResource KeyFill}, ConverterParameter=calc.copy_named}\"\n                               Outcome=\"{Binding Copy}\"\n                               Tag=\"{Binding}\" IsEnabled=\"{Binding HasValue}\" />\n          <TextBlock Grid.Row=\"1\" Grid.ColumnSpan=\"2\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                     VerticalAlignment=\"Center\" />",
+        "to": "          <Grid.ColumnDefinitions>\n            <ColumnDefinition Width=\"104\" />\n            <ColumnDefinition Width=\"*\" />\n            <ColumnDefinition Width=\"Auto\" />\n          </Grid.ColumnDefinitions>\n          <TextBlock Grid.Column=\"0\" Style=\"{StaticResource PartCaption}\" TextWrapping=\"NoWrap\" Text=\"{Binding Label}\" />\n          <!-- Named after its format for a screen reader, where eight buttons all read \"Copy\"\n               (R5-D82), and saying on itself what its copy did (R5-D81). -->\n          <controls:CopyButton Grid.Column=\"2\" Style=\"{StaticResource PartCopyAction}\"\n                               Label=\"{DynamicResource calc.copy}\" Click=\"OnCopyFormatClick\"\n                               AccessibleLabel=\"{Binding Label, Converter={StaticResource KeyFill}, ConverterParameter=calc.copy_named}\"\n                               Outcome=\"{Binding Copy}\"\n                               Tag=\"{Binding}\" IsEnabled=\"{Binding HasValue}\" />\n          <TextBlock Grid.Column=\"1\" Style=\"{StaticResource PartValueMono}\" Text=\"{Binding Value}\"\n                     VerticalAlignment=\"Center\" />"
       }
     ],
     "runner": "cs",
@@ -2078,9 +2078,9 @@
     "name": "r4-13 n48 check on the thread",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "DropTargetAsync(path, Task.Run(() => File.Exists(path)));",
-        "to": "DropTargetAsync(path, Task.FromResult(File.Exists(path)));"
+        "file": "gui/ChronoMock.App/Session/TargetIntake.cs",
+        "from": "TakeAsync(Task.Run(() => Look(path)));",
+        "to": "TakeAsync(Task.FromResult(Look(path)));"
       }
     ],
     "runner": "cs",
@@ -2096,8 +2096,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/DroppedTarget.cs",
-        "from": "paths[0].EndsWith(\".exe\", StringComparison.OrdinalIgnoreCase)\n",
-        "to": "paths[0].EndsWith(\".exe\", StringComparison.OrdinalIgnoreCase)\n            && System.IO.File.Exists(paths[0])\n"
+        "from": "           && (paths[0].EndsWith(\".exe\", StringComparison.OrdinalIgnoreCase) || TargetIntake.IsShortcut(paths[0]))\n",
+        "to": "           && (paths[0].EndsWith(\".exe\", StringComparison.OrdinalIgnoreCase) || TargetIntake.IsShortcut(paths[0]))\n           && System.IO.File.Exists(paths[0])\n"
       }
     ],
     "runner": "cs",
@@ -2112,9 +2112,9 @@
     "name": "r4-13 n48 without ordering",
     "edits": [
       {
-        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "        if (mine != _drops)\n        {\n            return true;\n        }\n\n        if (!exists)",
-        "to": "        if (!exists)"
+        "file": "gui/ChronoMock.App/Session/TargetIntake.cs",
+        "from": "        if (mine != _offers)\n        {\n            return TargetTaken.Taken;\n        }\n\n        if (offer.Answer != TargetTaken.Taken)",
+        "to": "        if (offer.Answer != TargetTaken.Taken)"
       }
     ],
     "runner": "cs",
@@ -5751,8 +5751,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
-        "from": "fresh[i].Value ?? Tr(\"calc.out_of_range\"), fresh[i].Value is not null));",
-        "to": "fresh[i].Value ?? Tr(\"calc.out_of_range\"), true));"
+        "from": "fresh[i].Value ?? Tr(\"calc.out_of_range\"), fresh[i].Value is not null, CommandCopy.Sibling()));",
+        "to": "fresh[i].Value ?? Tr(\"calc.out_of_range\"), true, CommandCopy.Sibling()));"
       }
     ],
     "runner": "cs",
@@ -20238,6 +20238,400 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.SessionAnnouncementTests.A_heartbeat_after_the_first_announces_only_where_the_fake_clock_got_to",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N2 a layout host takes the focus again",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Themes/Parts.xaml",
+        "from": "  <Style x:Key=\"PartLayoutHost\" TargetType=\"Control\">\n    <Setter Property=\"Focusable\" Value=\"False\" />\n    <Setter Property=\"IsTabStop\" Value=\"False\" />\n",
+        "to": "  <Style x:Key=\"PartLayoutHost\" TargetType=\"Control\">\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N3 a list of text takes the focus again",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/TextNamedItems.cs",
+        "from": "    static TextNamedItems() => FocusableProperty.OverrideMetadata(typeof(TextNamedItems), new FrameworkPropertyMetadata(false));\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N1 the search field has no name",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/SearchBox.xaml",
+        "from": "             AutomationProperties.Name=\"{Binding Placeholder, ElementName=Root}\"\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N1 a section toggle waits for its section's element",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/SectionToggle.cs",
+        "from": "            return AutomationProperties.GetLabeledBy(Owner) is UIElement label\n                && UIElementAutomationPeer.CreatePeerForElement(label) is { } labelPeer",
+        "to": "            return AutomationProperties.GetLabeledBy(Owner) is UIElement label\n                && UIElementAutomationPeer.FromElement(label) is { } labelPeer"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U2 the start point has no name",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
+        "from": "                      ToolTip=\"{DynamicResource tip.base_kind}\"\n                      AutomationProperties.Name=\"{DynamicResource calc.start_point}\" />",
+        "to": "                      ToolTip=\"{DynamicResource tip.base_kind}\" />"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N4 every format's copy is called Copy",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
+        "from": "                               AccessibleLabel=\"{Binding Label, Converter={StaticResource KeyFill}, ConverterParameter=calc.copy_named}\"\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N4 steps are not numbered",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "            Steps[i].Number = i + 1;\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.StepNumberTests.Steps_are_numbered_from_one_and_renumbered_when_one_goes",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N4 renumbering is taken for an edit",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "        if (e.PropertyName != nameof(StepViewModel.Number))\n        {\n            TriggerRecompute();\n        }\n",
+        "to": "        TriggerRecompute();\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.StepNumberTests.A_new_number_asks_the_engine_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N4 history rows read a record's printout",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "<controls:TextNamedListBox x:Name=\"HistoryList\"",
+        "to": "<ListBox x:Name=\"HistoryList\""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U5 a copy is said for ever",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/CopyOutcome.cs",
+        "from": "        if (!token.IsCancellationRequested)\n        {\n            Clear();\n        }\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CopyOutcomeTests.A_copy_is_said_until_its_moment_passes_and_then_nothing_is",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U5 two copies on one screen both say Copied",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/CopyOutcome.cs",
+        "from": "                other.Clear();\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CopyOutcomeTests.A_copy_from_another_button_on_the_screen_silences_this_one",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U5 a second copy ends on the first one's clock",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/CopyOutcome.cs",
+        "from": "        _screen.Speaks(this);\n        StopShowing();\n",
+        "to": "        _screen.Speaks(this);\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CopyOutcomeTests.A_second_copy_starts_the_moment_again_rather_than_ending_on_the_first_ones_clock",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U5 the button changes width with what it says",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/CopyButton.cs",
+        "from": "Visibility.Visible : Visibility.Hidden;",
+        "to": "Visibility.Visible : Visibility.Collapsed;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CopyButtonTests.The_button_is_as_wide_in_every_state_as_in_the_widest",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U5 the reader hears the label while the copy is said",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/CopyButton.cs",
+        "from": "var name = State == CopyState.Idle && !string.IsNullOrEmpty(AccessibleLabel)",
+        "to": "var name = !string.IsNullOrEmpty(AccessibleLabel)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.CopyButtonTests.A_reader_hears_the_accessible_label_and_then_what_the_copy_did",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U5 a busy clipboard is not said",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionCommands.cs",
+        "from": "DiagnosticsCopy.Report(_shell.CopyToClipboard(session.DiagnosticsText));",
+        "to": "DiagnosticsCopy.Report(true);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.SessionCommandsTests.A_busy_clipboard_is_said_on_the_button_that_copied",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U6 a shortcut fills the target alone",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        TargetArgs = arguments;\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.A_shortcut_fills_the_target_its_arguments_and_its_folder_and_says_so",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U6 a shortcut fills in silence",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "        TargetNoteKey = \"setup.from_shortcut\";\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.A_shortcut_fills_the_target_its_arguments_and_its_folder_and_says_so",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U6 the shortcut note outlives a new target",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                TargetNoteKey = string.Empty; // a note on how the target was filled is about the one before\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.The_note_goes_when_another_target_is_chosen",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U6 a shortcut to a script is taken",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/TargetIntake.cs",
+        "from": " || !link.Program.EndsWith(\".exe\", StringComparison.OrdinalIgnoreCase))",
+        "to": ")"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.A_shortcut_to_anything_but_a_program_is_refused",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a U6 the arguments are read from the folder's slot",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/ShellShortcut.cs",
+        "from": "var arguments = shell.GetArguments(text, text.Capacity)",
+        "to": "var arguments = shell.GetWorkingDirectory(text, text.Capacity)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.ShellShortcutTests.A_shortcut_gives_its_program_its_arguments_and_its_folder",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a a template handed to a converter keeps no text alive",
+    "edits": [
+      {
+        "file": "crates/cli/tests/wire_keys.rs",
+        "from": "    for (at, _) in text.match_indices(\"ConverterParameter=\") {",
+        "to": "    for (at, _) in text.match_indices(\"ConverterParameter=\").take(0) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "wire_keys"
+    ],
+    "test": "every_translation_is_reached_by_the_window_or_the_core",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a N4 history rows named by the application alone",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/TextNamedListBox.cs",
+        "from": "return string.IsNullOrEmpty(set) ? TextNamedRow.ShownText(Owner) : set;",
+        "to": "return string.IsNullOrEmpty(set) ? ((Owner as ListBoxItem)?.Content as SessionRecord)?.TargetName ?? string.Empty : set;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7a review the stop guard reads the calculator without its format rows",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Calc/CalculatorViewModel.cs",
+        "from": "    private void ShowFormats(IReadOnlyList<FormatValue> fresh)\n    {\n        if (fresh.Count == 0)",
+        "to": "    private void ShowFormats(IReadOnlyList<FormatValue> fresh)\n    {\n        if (fresh.Count >= 0)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
     "match": "method",
     "build": "",
     "notHere": ""

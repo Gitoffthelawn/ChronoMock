@@ -14,9 +14,12 @@
     <!-- The field fills the control. The glyph sits over its right end rather than beside it, so the box
          stays one shape and the affordance reads as part of it. A short filter never reaches under the
          glyph, and a long one scrolls under it exactly as a system search box does. -->
+    <!-- Named by its placeholder ("Search scenarios"): a screen reader does not read a placeholder, and the
+         field was a nameless edit on both screens that hold one (R5-U2). -->
     <TextBox x:Name="Field"
              Text="{Binding Text, ElementName=Root, UpdateSourceTrigger=PropertyChanged}"
              app:PartState.Placeholder="{Binding Placeholder, ElementName=Root}"
+             AutomationProperties.Name="{Binding Placeholder, ElementName=Root}"
              PreviewKeyDown="OnFieldKeyDown" />
 
     <!-- Not a tab stop and not focusable: the caret belongs in the field and then in the list, and a stop

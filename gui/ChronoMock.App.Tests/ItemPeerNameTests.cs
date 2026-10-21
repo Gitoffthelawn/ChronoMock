@@ -83,7 +83,7 @@ public class ItemPeerNameTests
     /// "word.word" and called the history row "target.exe" a key - a file name, which is exactly what that
     /// row should say.
     /// </remarks>
-    private static string? Unreadable(string name)
+    internal static string? Unreadable(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
         {

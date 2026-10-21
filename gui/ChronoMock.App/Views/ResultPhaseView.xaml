@@ -59,12 +59,6 @@
         </Border>
       </ControlTemplate>
 
-      <!-- The row's accessible name is the application, not the record's ToString() - the guard that
-           caught every list in the shipped panel doing that reads this file too. -->
-      <Style x:Key="HistoryRowContainer" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-        <Setter Property="AutomationProperties.Name" Value="{Binding TargetName}" />
-      </Style>
-
       <!--
         One recorded session: the verdict glyph in its colour and the application on the first line, the
         moment it lived at and when it ended on the second, both stated the way every moment on this
@@ -217,24 +211,22 @@
             <!--
               THE ACTIONS ON THE ANSWER. Copy the paste-ready summary, and for a session that did not cleanly
               succeed, copy the core's diagnostics for a support ticket. Ordinary buttons, beside the answer
-              they act on. The copy outcome lands on the same row, so the reader's eye does not have to go
-              looking for it.
+              they act on. Each says on itself what its copy did, as every copy button does (R5-D81) - the two
+              used to share one line beside them that never cleared, so a second copy changed nothing.
             -->
             <WrapPanel x:Name="CopyRow" Margin="{StaticResource StackGapLg}">
-              <Button x:Name="CopySummary" Content="{DynamicResource action.copy_summary}"
-                      ToolTip="{DynamicResource tip.copy_summary}"
-                      Command="{Binding Commands.CopySummary}"
-                      Margin="{StaticResource ControlRowGap}"
-                      Visibility="{Binding CanCopySummary, Converter={StaticResource BoolToVis}}" />
-              <Button x:Name="CopyDiagnostics" Content="{DynamicResource action.copy_diagnostics}"
-                      ToolTip="{DynamicResource tip.copy_diagnostics}"
-                      Command="{Binding Commands.CopyDiagnostics}"
-                      Margin="{StaticResource ControlRowGap}"
-                      Visibility="{Binding HasDiagnostics, Converter={StaticResource BoolToVis}}" />
-              <TextBlock x:Name="CopyFeedback" Style="{StaticResource PartCaption}" TextWrapping="NoWrap"
-                         VerticalAlignment="Center"
-                         Text="{Binding CopyFeedbackKey, Converter={StaticResource KeyToText}}"
-                         Visibility="{Binding HasCopyFeedback, Converter={StaticResource BoolToVis}}" />
+              <controls:CopyButton x:Name="CopySummary" Label="{DynamicResource action.copy_summary}"
+                                   ToolTip="{DynamicResource tip.copy_summary}"
+                                   Command="{Binding Commands.CopySummary}"
+                                   Outcome="{Binding Commands.SummaryCopy}"
+                                   Margin="{StaticResource ControlRowGap}"
+                                   Visibility="{Binding CanCopySummary, Converter={StaticResource BoolToVis}}" />
+              <controls:CopyButton x:Name="CopyDiagnostics" Label="{DynamicResource action.copy_diagnostics}"
+                                   ToolTip="{DynamicResource tip.copy_diagnostics}"
+                                   Command="{Binding Commands.CopyDiagnostics}"
+                                   Outcome="{Binding Commands.DiagnosticsCopy}"
+                                   Margin="{StaticResource ControlRowGap}"
+                                   Visibility="{Binding HasDiagnostics, Converter={StaticResource BoolToVis}}" />
             </WrapPanel>
             <!-- Where the diagnostics log was written, so the reader knows which file to attach. Only when a
                  file was actually saved - on a read-only medium the button above is the path. -->
@@ -333,7 +325,7 @@
             <TextBlock Style="{StaticResource PartHeading}" Text="{DynamicResource result.section_history}" />
           </Expander.Header>
           <Expander.Tag>
-            <ContentControl Template="{StaticResource HistorySummary}" />
+            <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource HistorySummary}" />
           </Expander.Tag>
 
           <StackPanel>
@@ -357,11 +349,10 @@
             <!-- The rows and what acts on them, only while there are rows: a section kept for the note alone
                  holds no empty well and no buttons with nothing to act on. -->
             <StackPanel x:Name="HistoryRows" Visibility="{Binding HasHistory, Converter={StaticResource BoolToVis}}">
-              <ListBox x:Name="HistoryList"
-                       ItemsSource="{Binding History}"
-                       SelectedItem="{Binding SelectedRecord}"
-                       ItemTemplate="{StaticResource HistoryRow}"
-                       ItemContainerStyle="{StaticResource HistoryRowContainer}" />
+              <controls:TextNamedListBox x:Name="HistoryList"
+                                         ItemsSource="{Binding History}"
+                                         SelectedItem="{Binding SelectedRecord}"
+                                         ItemTemplate="{StaticResource HistoryRow}" />
 
               <TextBlock x:Name="HistoryHint" Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
                          Text="{DynamicResource result.history_note}" />

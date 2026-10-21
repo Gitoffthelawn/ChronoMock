@@ -122,23 +122,33 @@ public sealed record CalendarOption(string? Id, string LabelKey)
 /// </summary>
 public sealed class FormatRow : ObservableObject
 {
+    private string _label;
     private string _value;
     private bool _hasValue;
 
-    public FormatRow(string label, string value, bool hasValue)
+    /// <param name="copy">What the row's Copy says it did. A sibling of the screen's other copy outcomes, so a
+    /// copy from one row silences another's. A row made alone gets one of its own.</param>
+    public FormatRow(string label, string value, bool hasValue, CopyOutcome? copy = null)
     {
-        Label = label;
+        _label = label;
         _value = value;
         _hasValue = hasValue;
+        Copy = copy ?? new CopyOutcome();
     }
 
-    public string Label { get; }
+    public string Label { get => _label; private set => Set(ref _label, value); }
+
+    /// <summary>What the row's last copy did, shown on its Copy button (R5-D81).</summary>
+    public CopyOutcome Copy { get; }
 
     public string Value { get => _value; private set => Set(ref _value, value); }
 
     /// <summary>Whether <see cref="Value"/> is a value of this format, as opposed to the marker saying there
     /// is none. Gates the row's Copy.</summary>
     public bool HasValue { get => _hasValue; private set => Set(ref _hasValue, value); }
+
+    /// <summary>Name the row anew - the custom format's row, whose name is the mask that made its value.</summary>
+    internal void Rename(string label) => Label = label;
 
     /// <summary>Show a new value in this row, or the marker when there is none.</summary>
     internal void Show(string value, bool hasValue)
@@ -184,6 +194,7 @@ public sealed class StepViewModel : ObservableObject
     private NearestTargetOption _nearestTarget;
     private string _setTimeText = "23:59:59";
     private string _zoneText = "+00:00";
+    private int _number;
 
     public StepViewModel(
         IReadOnlyList<StepKindOption> kinds,
@@ -205,6 +216,15 @@ public sealed class StepViewModel : ObservableObject
     public IReadOnlyList<UnitOption> Units { get; }
     public IReadOnlyList<SnapTargetOption> SnapTargets { get; }
     public IReadOnlyList<NearestTargetOption> NearestTargets { get; }
+
+    /// <summary>The step's place in the builder, from 1, for the names a screen reader reads ("Step 2",
+    /// "Remove step 2") so that five steps are not five identical stops (R5-D82). Set by the builder when
+    /// the list changes and never part of the question the engine is asked.</summary>
+    public int Number
+    {
+        get => _number;
+        internal set => Set(ref _number, value);
+    }
 
     public StepKindOption SelectedKind
     {
@@ -631,7 +651,13 @@ public sealed class CalculatorViewModel : ObservableObject
         // The strip reads the zone at the moment it asks, so a new zone needs no wiring beyond a Trigger.
         Analysis = new ReverseAnalysisViewModel(client, () => _baseZone, EditDebounce);
 
-        Steps.CollectionChanged += (_, _) => TriggerRecompute();
+        CustomFormatRow = new(string.Empty, string.Empty, hasValue: false, CommandCopy.Sibling());
+
+        Steps.CollectionChanged += (_, _) =>
+        {
+            NumberSteps();
+            TriggerRecompute();
+        };
     }
 
     public IReadOnlyList<BaseKindOption> BaseKinds { get; }
@@ -917,9 +943,13 @@ public sealed class CalculatorViewModel : ObservableObject
 
     /// <summary>The result rendered through <see cref="CustomFormatMask"/> (the engine's <c>custom_format</c>),
     /// as a format row of its own so its Copy is the same press as every other row's. Built from the civil
-    /// date, so it renders even when epoch/FILETIME are out of range. Its label is never shown - the mask
-    /// box above it is the label.</summary>
-    public FormatRow CustomFormatRow { get; } = new(string.Empty, string.Empty, hasValue: false);
+    /// date, so it renders even when epoch/FILETIME are out of range. Its name is the mask that made its
+    /// value, drawn as every format row's name is (R5-D81).</summary>
+    public FormatRow CustomFormatRow { get; }
+
+    /// <summary>What the last "Copy as command" did, shown on its button (R5-D81). The calculator's copy
+    /// outcomes are siblings, so one copy silences another's - the clipboard holds one text.</summary>
+    public CopyOutcome CommandCopy { get; } = new();
 
     /// <summary>Whether a custom-format result is present (a non-empty mask produced a value), gating its row.</summary>
     public bool HasCustomFormat { get => _hasCustomFormat; private set => Set(ref _hasCustomFormat, value); }
@@ -1065,7 +1095,22 @@ public sealed class CalculatorViewModel : ObservableObject
         Steps.Remove(step); // CollectionChanged triggers the recompute
     }
 
-    private void OnStepChanged(object? sender, PropertyChangedEventArgs e) => TriggerRecompute();
+    // A step's number is a name for the reader, not part of the question, so renumbering asks nothing.
+    private void OnStepChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(StepViewModel.Number))
+        {
+            TriggerRecompute();
+        }
+    }
+
+    private void NumberSteps()
+    {
+        for (var i = 0; i < Steps.Count; i++)
+        {
+            Steps[i].Number = i + 1;
+        }
+    }
 
     /// <summary>The window is closing: cancel the result and the analysis being computed, so their engine
     /// processes are stopped rather than left to finish after the window has gone (R4/13, from the review
@@ -1639,6 +1684,7 @@ public sealed class CalculatorViewModel : ObservableObject
         HasSignificance = Significance.Count > 0;
         SignificanceCalendar = lines.SignificanceCalendar;
         ShowFormats(lines.Formats);
+        CustomFormatRow.Rename(_customFormatMask);
         CustomFormatRow.Show(lines.CustomFormat, lines.CustomFormat.Length > 0);
         HasCustomFormat = lines.CustomFormat.Length > 0;
         CustomFormatWarning = lines.CustomFormatWarning;
@@ -1670,7 +1716,7 @@ public sealed class CalculatorViewModel : ObservableObject
             ClearFormats();
             for (var i = 0; i < fresh.Count; i++)
             {
-                Formats.Add(new FormatRow(labels[i], fresh[i].Value ?? Tr("calc.out_of_range"), fresh[i].Value is not null));
+                Formats.Add(new FormatRow(labels[i], fresh[i].Value ?? Tr("calc.out_of_range"), fresh[i].Value is not null, CommandCopy.Sibling()));
             }
 
             return;

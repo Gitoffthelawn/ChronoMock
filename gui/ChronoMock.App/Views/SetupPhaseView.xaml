@@ -192,6 +192,12 @@
                        Text="{DynamicResource target.drop_hint}"
                        Visibility="{Binding ShowsDropHint, Converter={StaticResource BoolToVis}}" />
           </StackPanel>
+          <!-- How the target was filled, when that brought more than the target (R5-D80): a shortcut's
+               arguments and working folder land in a folded section, and this says where. Under the row,
+               not beside it - the sentence is longer than the room the drop hint leaves. -->
+          <TextBlock x:Name="TargetNote" Style="{StaticResource PartNote}" Margin="{StaticResource StackGapSm}"
+                     Text="{Binding TargetNoteKey, Converter={StaticResource KeyToText}}"
+                     Visibility="{Binding HasTargetNote, Converter={StaticResource BoolToVis}}" />
         </StackPanel>
       </Border>
 
@@ -269,6 +275,7 @@
                       ItemContainerStyle="{StaticResource ZoneComboItem}"
                       ItemTemplate="{StaticResource ZoneRow}"
                       IsEnabled="{Binding IsIdle}" ToolTip="{DynamicResource tip.zone}"
+                      AutomationProperties.Name="{DynamicResource setup.label_zone}"
                       HorizontalAlignment="Left" MaxWidth="{StaticResource TargetBoxMaxWidth}" />
           </HeaderedContentControl>
 
@@ -406,7 +413,7 @@
           <TextBlock Style="{StaticResource PartHeading}" Text="{DynamicResource setup.section_speed}" />
         </Expander.Header>
         <Expander.Tag>
-          <ContentControl Template="{StaticResource SpeedSummary}" />
+          <ContentControl Style="{StaticResource PartLayoutHost}" Template="{StaticResource SpeedSummary}" />
         </Expander.Tag>
 
         <StackPanel Grid.IsSharedSizeScope="True">
@@ -417,6 +424,7 @@
             <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}"
                       Style="{StaticResource LabelKeyCombo}"
                       IsEnabled="{Binding CanEditTime}" ToolTip="{DynamicResource tip.mode}"
+                      AutomationProperties.Name="{DynamicResource setup.label_mode}"
                       HorizontalAlignment="Left" MinWidth="{StaticResource LaunchFieldWidth}" />
           </HeaderedContentControl>
 
@@ -502,6 +510,7 @@
               </HeaderedContentControl.Header>
               <TextBox Text="{Binding TargetArgs, UpdateSourceTrigger=PropertyChanged}"
                        ToolTip="{DynamicResource tip.target_args}"
+                       AutomationProperties.Name="{DynamicResource setup.label_args}"
                        HorizontalAlignment="Left" Width="{StaticResource LaunchFieldWidth}" />
             </HeaderedContentControl>
 
@@ -512,6 +521,7 @@
               <StackPanel Orientation="Horizontal">
                 <TextBox Text="{Binding WorkingFolder, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="{DynamicResource tip.working_folder}"
+                         AutomationProperties.Name="{DynamicResource setup.label_cwd}"
                          Width="{StaticResource LaunchFieldWidth}" />
                 <Button Content="{DynamicResource action.browse_folder}"
                         ToolTip="{DynamicResource tip.browse_folder}"

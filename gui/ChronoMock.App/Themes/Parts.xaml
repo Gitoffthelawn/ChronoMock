@@ -404,6 +404,10 @@
     <Setter Property="FontSize" Value="{StaticResource FontSizeCaption}" />
   </Style>
 
+  <!-- Every copy action is a CopyButton (R5-D81), which draws as a button: an implicit style keys on the exact
+       type, so without this line it would fall back to the toolkit's. -->
+  <Style TargetType="controls:CopyButton" BasedOn="{StaticResource {x:Type Button}}" />
+
   <!--
     ============================ Text field ============================
 
@@ -861,6 +865,11 @@
   -->
   <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}" />
 
+  <!-- The same for the list whose rows are named by what they show (R5-U2): two derived types, so two lines,
+       or the list and its rows would fall back to the toolkit's drawing. -->
+  <Style TargetType="controls:TextNamedListBox" BasedOn="{StaticResource {x:Type ListBox}}" />
+  <Style TargetType="controls:TextNamedListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}" />
+
   <!--
     One row of a "ready-made date" list: its name, and under it what that date tests. SHARED by two lists
     that were drawn two different ways - the scenario list in the setup phase and the preset list in the
@@ -998,7 +1007,21 @@
     The message line under the control keeps its height whether it is occupied or not, so a message
     appearing does not shove the form - but only on rows that were GIVEN one. See the trigger below.
   -->
-  <Style x:Key="PartFormRow" TargetType="HeaderedContentControl">
+  <!--
+    A control used only to lay out or stamp a template - a form row, a side-by-side pair, a clock, a summary
+    or a table header - is never a stop on the keyboard path (R5-U2). WPF makes every Control focusable and a
+    tab stop, and none of these has an automation element of its own, so Tab landed on them and a screen
+    reader could only call the place "the window": four such stops on the setup phase, measured live. The
+    catalogue switched three of them off one by one, and the screens never did - one style instead, which a
+    plain ContentControl host names and the row styles are based on. KeyboardStopNameTests finds a new host
+    that forgets it.
+  -->
+  <Style x:Key="PartLayoutHost" TargetType="Control">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
+  </Style>
+
+  <Style x:Key="PartFormRow" TargetType="HeaderedContentControl" BasedOn="{StaticResource PartLayoutHost}">
     <Setter Property="HorizontalContentAlignment" Value="Left" />
     <Setter Property="Template">
       <Setter.Value>
@@ -1111,9 +1134,13 @@
                    answers Space and Enter to fold and unfold, and shows keyboard focus on the chevron below,
                    which is why it uses PartSectionToggle (focusable) rather than the drop-down toggle. -->
               <Grid Grid.Row="0">
-                <ToggleButton x:Name="HeaderToggle"
-                              Style="{StaticResource PartSectionToggle}"
-                              IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
+                <!-- Labelled by the section, which a reader already calls by its header: the toggle has no
+                     content of its own, and Tab landed on a nameless button at the top of every section.
+                     SectionToggle says why the label alone was not enough. -->
+                <controls:SectionToggle x:Name="HeaderToggle"
+                                        Style="{StaticResource PartSectionToggle}"
+                                        AutomationProperties.LabeledBy="{Binding RelativeSource={RelativeSource TemplatedParent}}"
+                                        IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
                 <Grid IsHitTestVisible="False">
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -1206,10 +1233,7 @@
     had two left edges. A column gives the gap once and leaves the outer edges where the container puts
     them.
   -->
-  <Style x:Key="PartSideBySide" TargetType="HeaderedContentControl">
-    <!-- A layout, so never a stop on the keyboard path. -->
-    <Setter Property="Focusable" Value="False" />
-    <Setter Property="IsTabStop" Value="False" />
+  <Style x:Key="PartSideBySide" TargetType="HeaderedContentControl" BasedOn="{StaticResource PartLayoutHost}">
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="HeaderedContentControl">
@@ -1464,12 +1488,11 @@
     second table (rule 7: the second repetition is a missing name). What a table carries is its own:
     the header goes in Header, the row in ItemTemplate.
 
-    Not focusable and not a tab stop, like the header it hosts: a table is read, not operated. The cap is
-    the audit table's, because both tables stand in the audit section and answer the same question.
+    Not focusable, like the header it hosts: a table is read, not operated - TextNamedList itself says so,
+    for every list, since R5-U2. The cap is the audit table's, because both tables stand in the audit
+    section and answer the same question.
   -->
   <Style x:Key="PartTable" TargetType="controls:TextNamedList">
-    <Setter Property="Focusable" Value="False" />
-    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Grid.IsSharedSizeScope" Value="True" />
     <Setter Property="Template">
       <Setter.Value>
