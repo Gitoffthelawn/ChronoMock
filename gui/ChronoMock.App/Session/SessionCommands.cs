@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Windows.Input;
 
 namespace ChronoMock.App;
@@ -20,10 +19,12 @@ namespace ChronoMock.App;
 /// bar, which is shell chrome the phases never show.
 /// </para>
 /// <para>
-/// Every command re-queries its CanExecute whenever the view model raises PropertyChanged. That is cheap and
-/// rare here: the two clocks are separate ClockView objects, so their ~1 s ticks do not travel through the
-/// view model's PropertyChanged - only genuine state changes (status, target, the moment-driven CanStart,
-/// the chosen history row, the history count) do. A ClockView tick never refreshes a command.
+/// Every command's gate is read again whenever the view model raises PropertyChanged, and the command is
+/// told only when its gate gave a different answer (R5-WY4). This said "cheap and rare" and re-raised all
+/// nineteen on every change, which was neither: a heartbeat raises fifteen properties, and the 256 coverage
+/// reports of a large family raised 59 356 CanExecuteChanged, every one a re-query by the button bound to it.
+/// Reading a gate is a few field reads, so reading all of them on every change keeps the one thing the old
+/// way was right about - no second list of which property feeds which gate, to go stale without a sound.
 /// </para>
 /// </summary>
 public sealed class SessionCommands
@@ -47,41 +48,53 @@ public sealed class SessionCommands
     private readonly AsyncRelayCommand _start;
     private readonly AsyncRelayCommand _relativeApply;
     private readonly AsyncRelayCommand _refreshRecentTargets;
+    private readonly List<Gate> _gates = [];
     private IShellInteraction? _shell;
 
     internal SessionCommands(SessionViewModel session)
     {
-        _start = new AsyncRelayCommand(session.StartAsync, () => session.CanStart);
-        _stop = new RelayCommand(session.RequestStop, () => session.IsRunning);
-        _speed = new RelayCommand<long>(session.SendMultiplier, _ => session.IsRunning);
-        _jump = new RelayCommand<string>(session.SendJump, _ => session.IsRunning);
-        _setCustomSpeed = new RelayCommand<string>(session.SetCustomSpeed, _ => session.IsRunning);
-        _relativeApply = new AsyncRelayCommand(session.Relative.ApplyAsync, () => session.CanEditTime);
+        // One reading of each gate, shared by the command that asks it and the watch that tells the command
+        // when its answer changed - so the two can never disagree about what the gate is.
+        Func<bool> canStart = () => session.CanStart;
+        Func<bool> running = () => session.IsRunning;
+        Func<bool> canEditTime = () => session.CanEditTime;
+        Func<bool> idle = () => session.IsIdle;
+        Func<bool> hasRecord = () => session.HasSelectedRecord;
+        Func<bool> canJumpToEntered = () => session.IsRunning && session.JumpMoment.IsValid;
+        Func<bool> canBeginNewSession = () => session.CanBeginNewSession;
+        Func<bool> canCopySummary = () => session.CanCopySummary;
+        Func<bool> hasDiagnostics = () => session.HasDiagnostics;
+        Func<bool> hasHistory = () => session.HasHistory;
+
+        _start = new AsyncRelayCommand(session.StartAsync, canStart);
+        _stop = new RelayCommand(session.RequestStop, running);
+        _speed = new RelayCommand<long>(session.SendMultiplier, _ => running());
+        _jump = new RelayCommand<string>(session.SendJump, _ => running());
+        _setCustomSpeed = new RelayCommand<string>(session.SetCustomSpeed, _ => running());
+        _relativeApply = new AsyncRelayCommand(session.Relative.ApplyAsync, canEditTime);
 
         // Re-check which recent targets still exist on disk as the list opens, so a wiped build output is
         // marked rather than silently offered (rule 6). Runs off the UI thread inside the view model - a dead
         // network path would otherwise freeze the window for as long as the share takes to fail. Idle only:
         // the list is start-only, and the box is disabled once a session is under way.
-        _refreshRecentTargets = new AsyncRelayCommand(session.RefreshRecentTargetsAsync, () => session.IsIdle);
+        _refreshRecentTargets = new AsyncRelayCommand(session.RefreshRecentTargetsAsync, idle);
 
         // Today and Now fill the At field in the SESSION zone (rule 2), never the OS clock - the selected
         // zone's bias is passed so the moment control stays zone-agnostic. Editable idle or while running.
         _today = new RelayCommand(
-            () => session.Moment.SetToday(session.SelectedZone.BiasMinutes), () => session.CanEditTime);
+            () => session.Moment.SetToday(session.SelectedZone.BiasMinutes), canEditTime);
         _now = new RelayCommand(
-            () => session.Moment.SetNow(session.SelectedZone.BiasMinutes), () => session.CanEditTime);
+            () => session.Moment.SetNow(session.SelectedZone.BiasMinutes), canEditTime);
 
         // Enter in the scenario filter picks the first hit - the keyboard's version of clicking the top row.
         // Editable-only like the moment fillers above, since choosing a scenario is what fills the At field.
-        _chooseFirstScenario = new RelayCommand(session.ChooseFirstScenario, () => session.CanEditTime);
+        _chooseFirstScenario = new RelayCommand(session.ChooseFirstScenario, canEditTime);
 
         // Jump the running clock to the moment typed in the session's own field. Live only, and only once
         // that field holds a valid moment - a jump to a malformed date is a no-op the button refuses rather
         // than a silent failure. JumpMoment raises its OWN PropertyChanged as it is typed, which does not
-        // travel through the view model's, so the button's CanExecute is refreshed from the field here.
-        _jumpToEntered = new RelayCommand(
-            session.JumpToEnteredMoment, () => session.IsRunning && session.JumpMoment.IsValid);
-        session.JumpMoment.PropertyChanged += (_, _) => _jumpToEntered.RaiseCanExecuteChanged();
+        // travel through the view model's, so the gates are read from the field's changes too (below).
+        _jumpToEntered = new RelayCommand(session.JumpToEnteredMoment, canJumpToEntered);
 
         // Repeat and Forget act on the row chosen in the history well (the list sets SelectedRecord), so both
         // are enabled only with a chosen row. Repeat fills the setup form and starts nothing (rule 7).
@@ -93,14 +106,14 @@ public sealed class SessionCommands
                     session.LoadFromHistory(record);
                 }
             },
-            () => session.HasSelectedRecord);
+            hasRecord);
         _forget = new AsyncRelayCommand(
             () => session.SelectedRecord is { } record ? session.RemoveFromHistoryAsync(record) : Task.CompletedTask,
-            () => session.HasSelectedRecord);
+            hasRecord);
 
         // New session returns a finished result to a fresh setup form (the result phase's one step forward),
         // so it only makes sense once the session has ended.
-        _newSession = new RelayCommand(session.BeginNewSession, () => session.CanBeginNewSession);
+        _newSession = new RelayCommand(session.BeginNewSession, canBeginNewSession);
 
         // Window-dependent actions. CanExecute follows the data gate alone - the shell is checked in Execute,
         // so a shell-less render draws them exactly as the shipped panel would and a shell-less Execute is a
@@ -113,7 +126,7 @@ public sealed class SessionCommands
                     session.SetTarget(path);
                 }
             },
-            () => session.IsIdle);
+            idle);
         _browseFolder = new RelayCommand(
             () =>
             {
@@ -122,7 +135,7 @@ public sealed class SessionCommands
                     session.WorkingFolder = folder;
                 }
             },
-            () => session.IsIdle);
+            idle);
         _copySummary = new RelayCommand(
             () =>
             {
@@ -131,7 +144,7 @@ public sealed class SessionCommands
                     session.NoteCopy(_shell.CopyToClipboard(session.BuildSummary(_shell.Text)));
                 }
             },
-            () => session.CanCopySummary);
+            canCopySummary);
         _copyDiagnostics = new RelayCommand(
             () =>
             {
@@ -140,7 +153,7 @@ public sealed class SessionCommands
                     session.NoteCopy(_shell.CopyToClipboard(session.DiagnosticsText));
                 }
             },
-            () => session.HasDiagnostics);
+            hasDiagnostics);
         _clearHistory = new AsyncRelayCommand(
             () =>
             {
@@ -151,9 +164,30 @@ public sealed class SessionCommands
                     ? session.ClearHistoryAsync()
                     : Task.CompletedTask;
             },
-            () => session.HasHistory);
+            hasHistory);
 
-        session.PropertyChanged += OnSessionChanged;
+        Watch(canStart, _start.RaiseCanExecuteChanged);
+        Watch(running, _stop.RaiseCanExecuteChanged);
+        Watch(running, _speed.RaiseCanExecuteChanged);
+        Watch(running, _jump.RaiseCanExecuteChanged);
+        Watch(running, _setCustomSpeed.RaiseCanExecuteChanged);
+        Watch(canEditTime, _relativeApply.RaiseCanExecuteChanged);
+        Watch(idle, _refreshRecentTargets.RaiseCanExecuteChanged);
+        Watch(canEditTime, _today.RaiseCanExecuteChanged);
+        Watch(canEditTime, _now.RaiseCanExecuteChanged);
+        Watch(canEditTime, _chooseFirstScenario.RaiseCanExecuteChanged);
+        Watch(canJumpToEntered, _jumpToEntered.RaiseCanExecuteChanged);
+        Watch(hasRecord, _repeat.RaiseCanExecuteChanged);
+        Watch(hasRecord, _forget.RaiseCanExecuteChanged);
+        Watch(canBeginNewSession, _newSession.RaiseCanExecuteChanged);
+        Watch(idle, _chooseTarget.RaiseCanExecuteChanged);
+        Watch(idle, _browseFolder.RaiseCanExecuteChanged);
+        Watch(canCopySummary, _copySummary.RaiseCanExecuteChanged);
+        Watch(hasDiagnostics, _copyDiagnostics.RaiseCanExecuteChanged);
+        Watch(hasHistory, _clearHistory.RaiseCanExecuteChanged);
+
+        session.PropertyChanged += (_, _) => CheckGates();
+        session.JumpMoment.PropertyChanged += (_, _) => CheckGates();
     }
 
     /// <summary>Give the commands a window to open pickers and dialogs against. Called once by the window that
@@ -217,29 +251,33 @@ public sealed class SessionCommands
     /// <summary>Clear the whole history, after confirming - a re-run re-creates one.</summary>
     public ICommand ClearHistory => _clearHistory;
 
-    private void OnSessionChanged(object? sender, PropertyChangedEventArgs e)
+    private void Watch(Func<bool> gate, Action tell) => _gates.Add(new Gate(gate, tell));
+
+    /// <summary>Read every gate again and tell each command whose gate now answers differently. A change of
+    /// state may flip any of them, and which one is not told by the property's name - that would be a second
+    /// copy of each gate's inputs.</summary>
+    private void CheckGates()
     {
-        // A genuine state change may flip any of these gates, and telling exactly which from the property
-        // name would be a second copy of each CanExecute's dependency list - one that goes stale silently.
-        // Re-querying all of them is correct and, because ClockView ticks do not reach here, cheap.
-        _start.RaiseCanExecuteChanged();
-        _stop.RaiseCanExecuteChanged();
-        _speed.RaiseCanExecuteChanged();
-        _jump.RaiseCanExecuteChanged();
-        _setCustomSpeed.RaiseCanExecuteChanged();
-        _relativeApply.RaiseCanExecuteChanged();
-        _refreshRecentTargets.RaiseCanExecuteChanged();
-        _today.RaiseCanExecuteChanged();
-        _now.RaiseCanExecuteChanged();
-        _chooseFirstScenario.RaiseCanExecuteChanged();
-        _jumpToEntered.RaiseCanExecuteChanged();
-        _repeat.RaiseCanExecuteChanged();
-        _forget.RaiseCanExecuteChanged();
-        _newSession.RaiseCanExecuteChanged();
-        _chooseTarget.RaiseCanExecuteChanged();
-        _browseFolder.RaiseCanExecuteChanged();
-        _copySummary.RaiseCanExecuteChanged();
-        _copyDiagnostics.RaiseCanExecuteChanged();
-        _clearHistory.RaiseCanExecuteChanged();
+        foreach (var gate in _gates)
+        {
+            gate.Check();
+        }
+    }
+
+    /// <summary>One command's gate and the answer it last gave, read when the command was built.</summary>
+    private sealed class Gate(Func<bool> read, Action tell)
+    {
+        private bool _last = read();
+
+        /// <summary>Tell the command when the gate answers differently from the last time it was read.</summary>
+        public void Check()
+        {
+            var now = read();
+            if (now != _last)
+            {
+                _last = now;
+                tell();
+            }
+        }
     }
 }

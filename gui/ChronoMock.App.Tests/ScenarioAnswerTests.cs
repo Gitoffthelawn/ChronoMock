@@ -254,6 +254,75 @@ public class ScenarioAnswerTests
         Assert.Equal(ZoneLabel.OffsetFromBiasMinutes(zone.BiasMinutes), inNewZone.ValueOf("--zone"));
     }
 
+    /// <summary>
+    /// R5-WY1: arrowing down the list chose every row it passed, and every choice started an engine process
+    /// that the next one killed. A choice made over an unanswered one now waits before it asks, so a run of
+    /// rows asks for the first and for the one it stops on. The wait here is a second, so a slow machine
+    /// cannot let a row in the middle through.
+    /// </summary>
+    [Fact]
+    public async Task Arrowing_down_the_list_asks_for_the_first_row_and_the_one_it_stops_on()
+    {
+        var engine = new FakeCalcEngine();
+        var field = new MomentField();
+        var requests = new MomentRequests(field, engine, () => 0, choiceQuiet: TimeSpan.FromSeconds(1));
+        var rows = NewSession(new FakeCalcEngine()).ScenarioPicker.Visible.Take(5).ToList();
+
+        var choices = rows.Select(requests.ChooseScenarioAsync).ToList();
+        var forTheFirst = await engine.QuestionAsync(0);
+        var second = await engine.QuestionAsync(1);
+
+        // Read before anything is answered: a choice that asked at once has asked about the second row here,
+        // and the last row's question then waits for an answer this test never gives.
+        Assert.Equal(ScenarioMoment.BuildArgs(rows[0], 0), forTheFirst.Args);
+        Assert.Equal(ScenarioMoment.BuildArgs(rows[^1], 0), second.Args);
+        second.Answer(CalcResults.Moment("2031-02-02T00:00:00"));
+        await Task.WhenAll(choices).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, engine.Count);
+        Assert.Equal("2031-02-02T00:00:00", field.Canonical);
+    }
+
+    [Fact]
+    public async Task A_choice_with_nothing_in_flight_asks_at_once()
+    {
+        // A click is not a run of rows: with nothing unanswered before it, the question goes before the call
+        // even comes back - the wait here is a minute, which a choice that waited would sit out.
+        var engine = new FakeCalcEngine();
+        var requests = new MomentRequests(new MomentField(), engine, () => 0, choiceQuiet: TimeSpan.FromMinutes(1));
+        var row = NewSession(new FakeCalcEngine()).ScenarioPicker.Visible[0];
+
+        var choice = requests.ChooseScenarioAsync(row);
+
+        Assert.Equal(1, engine.Count);
+        engine.Last.Answer(CalcResults.Moment("2030-01-01T00:00:00"));
+        Assert.Null(await choice);
+    }
+
+    [Fact]
+    public async Task Arrowing_through_the_sessions_list_asks_fewer_times_than_the_rows_it_passes()
+    {
+        // The same through the panel, with the wait the window uses: the run is asked about less often than it
+        // has rows, and the date is the one for the row it stopped on.
+        var engine = new FakeCalcEngine();
+        var vm = NewSession(engine);
+        var rows = vm.ScenarioPicker.Visible.Take(6).ToList();
+        var forTheLastRow = ScenarioMoment.BuildArgs(rows[^1], vm.SelectedZone.BiasMinutes);
+
+        foreach (var row in rows)
+        {
+            vm.SelectedScenario = row;
+        }
+
+        await CalculatorAnswerTests.Until(
+            () => engine.Count > 0 && engine.Last.Args.SequenceEqual(forTheLastRow), "the question for the last row");
+        engine.Last.Answer(CalcResults.Moment("2031-02-02T00:00:00"));
+        await CalculatorAnswerTests.Until(() => vm.Moment.Canonical == "2031-02-02T00:00:00", "the last row's date");
+
+        Assert.True(engine.Count < rows.Count, $"{engine.Count} questions for {rows.Count} rows");
+        Assert.Same(rows[^1], vm.SelectedScenario);
+    }
+
     private static SessionViewModel NewSession(ICalcEngine engine)
         => TestCatalogues.WithShippedScenarios(scenarios => new(new InMemorySessionHistoryStore(), calcClient: engine, scenarios: scenarios));
 

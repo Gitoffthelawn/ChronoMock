@@ -1540,14 +1540,14 @@ public sealed class SessionViewModel : ObservableObject
     public IReadOnlyList<CoveredChannel> Covered
     {
         get => _result.Covered;
-        private set { if (Set(ref _result.Covered, value)) { RaisePropertyChanged(nameof(HasCovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
+        private set { if (SetItems(ref _result.Covered, value)) { RaisePropertyChanged(nameof(HasCovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Channels hooked but deliberately left real (e.g. QPC-based waits, ADR-2), formatted "channel  xN".</summary>
     public IReadOnlyList<CoveredChannel> Observed
     {
         get => _result.Observed;
-        private set { if (Set(ref _result.Observed, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
+        private set { if (SetItems(ref _result.Observed, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Uncovered channel identifiers (raw API names, not translation keys) - the partial verdict's
@@ -1555,7 +1555,7 @@ public sealed class SessionViewModel : ObservableObject
     public IReadOnlyList<string> Uncovered
     {
         get => _result.Uncovered;
-        private set { if (Set(ref _result.Uncovered, value)) { RaisePropertyChanged(nameof(HasUncovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
+        private set { if (SetItems(ref _result.Uncovered, value)) { RaisePropertyChanged(nameof(HasUncovered)); RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Channels the session meant to watch and could not hook, unioned over the family. Its own
@@ -1564,7 +1564,7 @@ public sealed class SessionViewModel : ObservableObject
     public IReadOnlyList<string> Unobserved
     {
         get => _result.Unobserved;
-        private set { if (Set(ref _result.Unobserved, value)) { RaisePropertyChanged(nameof(HasUnobserved)); RaisePropertyChanged(nameof(HasAuditRows)); } }
+        private set { if (SetItems(ref _result.Unobserved, value)) { RaisePropertyChanged(nameof(HasUnobserved)); RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Channels that came under the fake clock only once their module loaded, unioned over the
@@ -1573,7 +1573,7 @@ public sealed class SessionViewModel : ObservableObject
     public IReadOnlyList<string> InstalledLate
     {
         get => _result.InstalledLate;
-        private set { if (Set(ref _result.InstalledLate, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
+        private set { if (SetItems(ref _result.InstalledLate, value)) { RaisePropertyChanged(nameof(HasAuditRows)); } }
     }
 
     /// <summary>Warning translation keys the core raised (rendered in the current language), unioned over
@@ -1583,7 +1583,7 @@ public sealed class SessionViewModel : ObservableObject
         get => _result.Warnings;
         private set
         {
-            if (Set(ref _result.Warnings, value))
+            if (SetItems(ref _result.Warnings, value))
             {
                 RaisePropertyChanged(nameof(HasWarnings));
                 RaiseEvidenceCaveatsChanged();
@@ -1787,7 +1787,6 @@ public sealed class SessionViewModel : ObservableObject
                 SyncModeToMultiplier(s.Multiplier);
                 _result.ElapsedRealMs = s.ElapsedRealMs;
                 _result.ElapsedFakeMs = s.ElapsedFakeMs;
-                _result.HasTiming = true;
                 PublishElapsed();
                 SetStatus("status.running", SessionStatusKind.Running);
                 break;
@@ -1809,7 +1808,6 @@ public sealed class SessionViewModel : ObservableObject
                     _result.FakeEndWall = e.FakeEndWall;
                     _result.ElapsedRealMs = e.ElapsedRealMs;
                     _result.ElapsedFakeMs = e.ElapsedFakeMs;
-                    _result.HasTiming = true;
                     PublishElapsed();
                 }
 
@@ -2572,7 +2570,7 @@ public sealed class SessionViewModel : ObservableObject
     private static bool IsInFlightError(ErrorEvent err) => err.Id is >= FirstInFlightCommandId;
 
     /// <summary>
-    /// Put the two durations on their own clocks.
+    /// Put the two durations on their own clocks, and say the session has timing the first time it does.
     /// </summary>
     /// <remarks>
     /// One place rather than three: the timing arrives from a heartbeat and again from the core's
@@ -2583,10 +2581,18 @@ public sealed class SessionViewModel : ObservableObject
     {
         Fake.Elapsed = ClockView.FormatDuration(_result.ElapsedFakeMs);
         Real.Elapsed = ClockView.FormatDuration(_result.ElapsedRealMs);
-        // The timing facts of the result phase move with the elapsed values, and the headline with the first
-        // heartbeat: an error before it is "did not start", after it the verdict stands.
-        RaisePropertyChanged(nameof(HasTiming));
+        // Where the fake clock got to moves with every heartbeat.
         RaisePropertyChanged(nameof(FakeEndPreview));
+        if (_result.HasTiming)
+        {
+            return;
+        }
+
+        // The rest follows the first timing only, so it is said once rather than on every heartbeat (R5-WY4):
+        // the facts block of the result appears with it, and an error before it is "did not start" while
+        // after it the verdict stands.
+        _result.HasTiming = true;
+        RaisePropertyChanged(nameof(HasTiming));
         RaisePropertyChanged(nameof(AuditNeverArrived));
         RaisePropertyChanged(nameof(AuditNeverStarted));
         RaiseResultChanged();

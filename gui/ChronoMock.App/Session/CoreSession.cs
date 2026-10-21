@@ -64,7 +64,12 @@ internal sealed class CoreSession : IAsyncDisposable
         SessionPlan plan, TimeSpan readyTimeout, Func<string, ICoreConnection>? connect = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        var session = new CoreSession((connect ?? CoreClient.Connect)(plan.CorePath));
+        var open = connect ?? CoreClient.Connect;
+
+        // On a pool thread, never on the window's (R5-WY1): opening the connection creates the core's process,
+        // which holds the thread that does it for as long as the loader and an antivirus scanning the core
+        // take. A failure to start comes back through the await as the same exception, unwrapped.
+        var session = new CoreSession(await Task.Run(() => open(plan.CorePath)));
 
         var handshake = await ReadReadyAsync(session._client, readyTimeout);
         session.Ready = handshake.Ready;
