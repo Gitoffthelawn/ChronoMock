@@ -77,8 +77,14 @@
 
        The two Windows projection assemblies stay as they are: the window never loads them at start (they
        are not among the assemblies loaded by the first idle), and compiled ahead they would add 29.8 MB to
-       the package for nothing. With them left out the package grows by 1.1 MB. -->
-  <PropertyGroup>
+       the package for nothing. With them left out the package grows by 1.1 MB.
+
+       🔴 Only for the shipped layout, like the layout marker above. ReadyToRun adds the restoring machine's
+       own runtime identifier to the project's, to fetch a compiler that runs there: win-x64 on Windows,
+       already in the list, but linux-x64 on the Linux runner that restores every project for GitHub's
+       dependency graph, where the lock file then refused the restore (NU1004, measured on PR #137 and
+       reproduced locally with NETCoreSdkRuntimeIdentifier=linux-x64). -->
+  <PropertyGroup Condition="'$(ChronoMockLayout)' != ''">
     <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
   <ItemGroup>
