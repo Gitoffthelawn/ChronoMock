@@ -5853,8 +5853,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
-        "from": "<StackPanel Style=\"{StaticResource PartAnswerBlock}\" app:PartState.IsStale=\"{Binding IsResultStale}\">\n              <TextBlock Margin",
-        "to": "<StackPanel Style=\"{StaticResource PartAnswerBlock}\">\n              <TextBlock Margin"
+        "from": "<StackPanel Style=\"{StaticResource PartAnswerBlock}\" app:PartState.IsStale=\"{Binding IsResultStale}\">\n              <!-- The answer and its error are announced",
+        "to": "<StackPanel Style=\"{StaticResource PartAnswerBlock}\">\n              <!-- The answer and its error are announced"
       }
     ],
     "runner": "cs",
@@ -19975,8 +19975,8 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
-        "from": "    public bool ShowsHistorySection => HasHistory || HasHistorySetAside;",
-        "to": "    public bool ShowsHistorySection => HasHistory;"
+        "from": "    public bool ShowsHistorySection => HasHistory || HasHistorySetAside || HasHistoryError;",
+        "to": "    public bool ShowsHistorySection => HasHistory || HasHistoryError;"
       }
     ],
     "runner": "cs",
@@ -20632,6 +20632,584 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.KeyboardStopNameTests.Every_place_tab_can_land_is_named_and_no_two_on_a_screen_share_a_name",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b N5 the calendar closes on every change of the day again",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "        InitializeComponent();\n",
+        "to": "        InitializeComponent();\n        PickCalendar.SelectedDatesChanged += (_, _) => Close();\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.An_arrow_moves_the_day_from_the_date_in_the_field_and_keeps_the_calendar_open",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 opening leaves the focus on the button",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "        PickCalendar.SetCurrentValue(Calendar.DisplayModeProperty, CalendarMode.Month);\n        PickCalendar.Focus();\n",
+        "to": "        PickCalendar.SetCurrentValue(Calendar.DisplayModeProperty, CalendarMode.Month);\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.Opening_puts_the_focus_on_the_day_of_the_date_in_the_field_and_shows_its_month",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b N6 the calendar opens on the month it showed before",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "        PickCalendar.SetCurrentValue(Calendar.DisplayDateProperty, PickCalendar.SelectedDate ?? DateTime.Today);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.Opening_puts_the_focus_on_the_day_of_the_date_in_the_field_and_shows_its_month",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b N6 the arrows move from the day the calendar first opened on",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "        PickCalendar.SetCurrentValue(Calendar.DisplayModeProperty, CalendarMode.Year);\n",
+        "to": "        PickCalendar.SetCurrentValue(Calendar.DisplayModeProperty, CalendarMode.Month);\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.An_arrow_moves_the_day_from_the_date_in_the_field_and_keeps_the_calendar_open",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 escape keeps what the arrows wrote",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "            DateField.SetCurrentValue(TextBox.TextProperty, _textBeforeOpen);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.Escape_closes_and_puts_back_the_date_the_field_held",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 a key takes no day when nothing was selected",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "            PickCalendar.SetCurrentValue(Calendar.SelectedDateProperty, day);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.A_key_in_a_field_with_no_date_takes_the_day_the_focus_stands_on",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 the focus stays in a closed calendar",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "            CalendarToggle.Focus();\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.Escape_closes_and_puts_back_the_date_the_field_held",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 a release on any button closes the calendar",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "            if (at is CalendarDayButton)\n",
+        "to": "            if (at is Button)\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.A_release_on_the_month_arrows_leaves_the_calendar_open",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 a day released under the mouse leaves the calendar open",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "            if (at is CalendarDayButton)\n",
+        "to": "            if (at is CalendarButton)\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.A_day_released_under_the_mouse_closes_the_calendar",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U3 enter in the year view takes a month for a day",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/DateInput.xaml.cs",
+        "from": "e.OriginalSource is CalendarDayButton { DataContext: DateTime day }",
+        "to": "e.OriginalSource is Button { DataContext: DateTime day }"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DateInputKeyboardTests.Enter_in_the_year_view_opens_the_month_and_keeps_the_calendar_open",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 a removed step hands the focus to the step before it",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/FocusKeeper.cs",
+        "from": "var start = at >= 0 ? at : Math.Min(_position, list.Items.Count - 1);",
+        "to": "var start = at >= 0 ? at : Math.Min(_position - 1, list.Items.Count - 1);"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.A_step_removed_with_its_own_button_hands_the_focus_to_the_step_now_in_its_place",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 no earlier row is tried",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/FocusKeeper.cs",
+        "from": "for (var i = start; i >= 0; i--)",
+        "to": "for (var i = start; i >= start; i--)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.A_row_switched_off_in_place_hands_the_focus_to_an_earlier_row",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 nothing takes the focus when no row can",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/FocusKeeper.cs",
+        "from": "            GetFallback(_region)?.Focus();\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.The_only_step_removed_hands_the_focus_to_add_step",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 a focus the reader put on the column is pulled back into the list",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/FocusKeeper.cs",
+        "from": " || CanHold(holder) || ",
+        "to": " || "
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.A_focus_the_reader_put_on_the_column_itself_stays_there",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 a removed row keeps the place it had when the focus came",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/FocusKeeper.cs",
+        "from": "                _position = e.OldStartingIndex;\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.A_row_removed_after_rows_above_it_went_hands_the_focus_to_the_row_now_in_its_place",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 a row switched off is placed where the focus found it",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/FocusKeeper.cs",
+        "from": "var at = _row is null ? -1 : list.Items.IndexOf(_row);",
+        "to": "var at = -1;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.A_row_switched_off_after_rows_above_it_went_hands_the_focus_to_the_row_above_it_now",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U4 the steps drop the focus to the window again",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
+        "from": "\n                                     controls:FocusKeeper.Fallback=\"{Binding ElementName=AddStepButton}\"",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.The_only_step_removed_hands_the_focus_to_add_step",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b N7 copy as command drops the focus to the column again",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
+        "from": "<StackPanel Style=\"{StaticResource PartAnswerBlock}\" app:PartState.IsStale=\"{Binding IsResultStale}\"\n                        controls:FocusKeeper.Fallback=\"{Binding ElementName=CustomFormatBox}\">",
+        "to": "<StackPanel Style=\"{StaticResource PartAnswerBlock}\" app:PartState.IsStale=\"{Binding IsResultStale}\">"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.FocusKeeperTests.A_button_an_error_switches_off_hands_the_focus_to_the_custom_format",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 every change is read at once",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/Announce.cs",
+        "from": "{ Interval = Quiet }",
+        "to": "{ Interval = TimeSpan.Zero }"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.A_run_of_changes_is_one_announcement_of_the_last",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 showing again is read as news",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/Announce.cs",
+        "from": "            else if (_waiting)\n",
+        "to": "            else\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.Showing_again_with_nothing_new_says_nothing",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 news while hidden is forgotten",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/Announce.cs",
+        "from": "            _waiting = true;\n",
+        "to": "            _waiting = _element.IsVisible;\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.A_change_while_hidden_is_read_when_it_shows",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 the element is no live region",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/Announce.cs",
+        "from": "        AutomationProperties.SetLiveSetting(shown, tone);\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.A_changed_value_is_read_once_as_the_text_on_the_screen_after_the_quiet_moment",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 what went wrong is read politely",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/Announce.cs",
+        "from": "(element, _) => News(element, AutomationLiveSetting.Assertive)",
+        "to": "(element, _) => News(element, AutomationLiveSetting.Polite)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.A_value_whose_element_shows_no_text_is_not_read",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 a line with no text is read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/Announce.cs",
+        "from": "if (peer is null || string.IsNullOrWhiteSpace(said))",
+        "to": "if (peer is null || said is null)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.A_value_whose_element_shows_no_text_is_not_read",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 a copy button reads going back to its label",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Controls/CopyButton.cs",
+        "from": "e.NewValue is not CopyState.Idle",
+        "to": "e.NewValue is CopyState"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.A_copy_button_says_what_the_press_did_and_not_that_it_went_back",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 the calculator error is not announced",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
+        "from": "\n                         controls:Announce.Assertive=\"{Binding Error}\"",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.Every_screen_announces_the_lines_it_says_it_does",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 the verdict is announced only when it reads differently",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "controls:Announce.Polite=\"{Binding ShowsResultPhase}\"",
+        "to": "controls:Announce.Polite=\"{Binding ResultHeadlineKey}\""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.Every_screen_announces_the_lines_it_says_it_does",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 the calculator answer is not announced",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/CalculatorView.xaml",
+        "from": "\n                         controls:Announce.Polite=\"{Binding ResultDate}\"",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.The_calculator_reads_its_answer_when_a_step_moves_it",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b U1 a failed command in a session is not announced",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/SessionPhaseView.xaml",
+        "from": "\n                   controls:Announce.Assertive=\"{Binding InFlightErrorKey}\"",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.Every_screen_announces_the_lines_it_says_it_does",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a refused write with no rows left hides the section",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "public bool ShowsHistorySection => HasHistory || HasHistorySetAside || HasHistoryError;",
+        "to": "public bool ShowsHistorySection => HasHistory || HasHistorySetAside;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_clear_the_store_refused_keeps_the_section_and_its_reason_on_the_screen",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a refused write does not tell the section it may show",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/SessionViewModel.cs",
+        "from": "                RaisePropertyChanged(nameof(HasHistoryError));\n                RaisePropertyChanged(nameof(ShowsHistorySection));\n",
+        "to": "                RaisePropertyChanged(nameof(HasHistoryError));\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_clear_the_store_refused_keeps_the_section_and_its_reason_on_the_screen",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a failed history write leaves the section folded",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "\n                  app:SectionBehavior.OpenWhen=\"{Binding HasHistoryError}\"",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_history_write_that_failed_opens_the_section_and_cuts_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a section opens when its flag turns false",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/SectionBehavior.cs",
+        "from": "if (element is Expander section && e.NewValue is true)",
+        "to": "if (element is Expander section && e.NewValue is false)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.HistoryErrorTests.A_history_write_that_failed_opens_the_section_and_cuts_in",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "r5-7b CR136 a failed history write is read politely",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Views/ResultPhaseView.xaml",
+        "from": "controls:Announce.Assertive=\"{Binding HistoryError}\"",
+        "to": "controls:Announce.Polite=\"{Binding HistoryError}\""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.AnnounceTests.Every_screen_announces_the_lines_it_says_it_does",
     "match": "method",
     "build": "",
     "notHere": ""

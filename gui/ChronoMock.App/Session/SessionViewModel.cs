@@ -365,17 +365,25 @@ public sealed class SessionViewModel : ObservableObject
     /// <summary>True when there is at least one recorded session - the History panel binds its visibility here.</summary>
     public bool HasHistory => History.Count > 0;
 
-    /// <summary>Whether the history section is on the screen: while there is a recorded session, and while it
+    /// <summary>Whether the history section is on the screen: while there is a recorded session, while it
     /// has to say where an unreadable history went - a clear that moved one leaves no rows, and the section
-    /// that would say so used to go with them (R5-D73).</summary>
-    public bool ShowsHistorySection => HasHistory || HasHistorySetAside;
+    /// that would say so used to go with them (R5-D73) - and while a write failed, for the same reason: a
+    /// clear or the removal of the last row that the store refused took the section and its reason away.</summary>
+    public bool ShowsHistorySection => HasHistory || HasHistorySetAside || HasHistoryError;
 
     /// <summary>Raw detail when a session could not be written to history (e.g. a read-only drive), empty
     /// otherwise. Surfaced, never swallowed (rule 6).</summary>
     public string HistoryError
     {
         get => _historyError;
-        private set { if (Set(ref _historyError, value)) { RaisePropertyChanged(nameof(HasHistoryError)); } }
+        private set
+        {
+            if (Set(ref _historyError, value))
+            {
+                RaisePropertyChanged(nameof(HasHistoryError));
+                RaisePropertyChanged(nameof(ShowsHistorySection));
+            }
+        }
     }
 
     /// <summary>True when a history write failed - the panel shows the reason (rule 6).</summary>

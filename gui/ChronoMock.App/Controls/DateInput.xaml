@@ -17,7 +17,7 @@
   <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
     <!-- Wide enough for YYYY-MM-DD with room to spare. The box takes the parts library's TextBox style
          (implicit) and its placeholder, so it reads as the same field the rest of the interface uses. -->
-    <TextBox Text="{Binding DateText, UpdateSourceTrigger=PropertyChanged}"
+    <TextBox x:Name="DateField" Text="{Binding DateText, UpdateSourceTrigger=PropertyChanged}"
              app:PartState.Placeholder="{DynamicResource moment.date_placeholder}"
              ToolTip="{DynamicResource tip.date_field}"
              AutomationProperties.Name="{Binding AccessibleName, ElementName=Root}"
@@ -28,11 +28,17 @@
                   Margin="{StaticResource SpaceXs}" VerticalAlignment="Center"
                   ToolTip="{DynamicResource action.pick_date}"
                   AutomationProperties.Name="{DynamicResource action.pick_date}" />
+    <!-- The calendar works from the keyboard the way the toolkit's date picker does (R5-U3, R5-D84): opening
+         puts the focus on the date's day, arrows move the day, Enter or Space on a day closes with it, Escape
+         closes and puts back what the field held, and a day picked with the mouse closes on the release.
+         It used to close on every change of the selection, and an arrow is one - the first arrow closed it. -->
     <Popup IsOpen="{Binding IsChecked, ElementName=CalendarToggle}" StaysOpen="False"
-           PlacementTarget="{Binding ElementName=CalendarToggle}" Placement="Bottom" AllowsTransparency="True">
+           PlacementTarget="{Binding ElementName=CalendarToggle}" Placement="Bottom" AllowsTransparency="True"
+           Opened="OnCalendarOpened" Closed="OnCalendarClosed">
       <Border Background="{DynamicResource BrushBgSurfaceAlt}"
               CornerRadius="{StaticResource RadiusSm}" Padding="{StaticResource SpaceXs}">
-        <Calendar SelectedDate="{Binding SelectedDate, Mode=TwoWay}" SelectedDatesChanged="OnDatePicked" />
+        <Calendar x:Name="PickCalendar" SelectedDate="{Binding SelectedDate, Mode=TwoWay}"
+                  PreviewKeyDown="OnCalendarKeyDown" />
       </Border>
     </Popup>
   </StackPanel>
