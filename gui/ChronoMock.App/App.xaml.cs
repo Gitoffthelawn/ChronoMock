@@ -42,7 +42,16 @@ public partial class App : Application
                 return;
             }
 
-            new MainWindow().Show();
+            var window = new MainWindow();
+
+            // A program the window was opened with - "Open with", or a file dropped on the program's icon -
+            // fills the target as a drop does. Nothing starts. Once the window has been DRAWN, so a refusal
+            // stands on it: offered at Loaded, the refusal came up before the first frame and stood on the
+            // screen alone, with the window not even in the automation tree (measured 2026-10-26). Awaited in
+            // a handler, as the drop is, so a fault reaches the dispatcher's net at once rather than a
+            // discarded task's finalizer.
+            window.ContentRendered += async (_, _) => await window.OfferStartupTargetAsync(e.Args);
+            window.Show();
 
             if (stringsProblem is not null)
             {

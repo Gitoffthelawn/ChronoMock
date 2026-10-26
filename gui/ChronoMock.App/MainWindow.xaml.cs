@@ -187,16 +187,32 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        // Read the drop NOW: its data lives only as long as this event, and the look below awaits.
-        var path = DroppedExecutable(e);
-        var files = e.Data.GetDataPresent(DataFormats.FileDrop);
+        // Read the drop NOW: its data lives only as long as this event, and the look in the offer awaits.
+        await OfferAsync(DroppedExecutable(e), e.Data.GetDataPresent(DataFormats.FileDrop));
+    }
 
-        // Say why nothing happened rather than swallowing the drop (rule 6): a program that is not there, a
-        // shortcut that leads to no program, or a file that is neither. A dropped .bat could only fail
-        // later, and failing at the drop is the honest place for it.
+    /// <summary>
+    /// Offer the program or shortcut named on the window's command line (<c>ChronoMock.exe &lt;file&gt;</c>), as a
+    /// drop offers one: it fills the target and starts nothing (rule 7), and a file that cannot be the target
+    /// is refused in the words a drop gets. Called once the window is shown, so a refusal has a window to sit
+    /// on - an owner set before that is refused by WPF.
+    /// </summary>
+    internal Task OfferStartupTargetAsync(IReadOnlyList<string> args)
+        => args.Count == 0
+            ? Task.CompletedTask
+            : OfferAsync(DroppedTarget.FromCommandLine(args, Environment.CurrentDirectory), anyFiles: true);
+
+    /// <summary>
+    /// Offer a target from outside the window's own controls - a drop or the command line - and say why
+    /// nothing happened rather than swallowing it (rule 6): a program that is not there, a shortcut that
+    /// leads to no program, or a file that is neither. A .bat could only fail later, and failing here is the
+    /// honest place for it. One method for both ways in, so they cannot answer differently.
+    /// </summary>
+    private async Task OfferAsync(string? path, bool anyFiles)
+    {
         var refusal = path is not null
             ? TargetIntake.RefusalKey(await _session.Commands.Targets.TakeAsync(path))
-            : files ? "target.drop_rejected" : string.Empty;
+            : anyFiles ? "target.drop_rejected" : string.Empty;
         if (refusal.Length > 0)
         {
             Views.MessageDialog.Tell(this, Text("target.drop_rejected_title"), Text(refusal));

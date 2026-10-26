@@ -22,6 +22,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   script - is refused with the reason, and so is one whose program is gone. Nothing starts until Start.
   The file picker used to swap a picked shortcut for its program in silence and drop its arguments and
   folder.
+- **The window takes the application from its command line.** `ChronoMock.exe <program or shortcut>` fills
+  the form as a drop on the window does, so "Open with" in Explorer and a program dropped on the window's
+  icon land in it. A relative name is read from the folder the window was started in. A file that cannot
+  be the application, or more than one, is refused with the reason a drop gets. Nothing starts until
+  Start.
 - **"Copy as command" under the calculator's result** copies the question it answers as a PowerShell
   command line: the engine by its full path, so it works from a portable copy that is not on PATH, and
   the same arguments, so a terminal gives the same answer. Windows PowerShell 5.1 passes three kinds of

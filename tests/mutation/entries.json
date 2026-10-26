@@ -21355,5 +21355,56 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "gui-args a relative name on the command line taken as it is",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/DroppedTarget.cs",
+        "from": "return Candidate(new[] { Path.GetFullPath(args[0], startFolder) });",
+        "to": "return Candidate(new[] { args[0] });"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.The_command_line_offers_a_target_by_the_rule_a_drop_is_judged_by",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "gui-args a name no full path can be made of crashes the start",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/DroppedTarget.cs",
+        "from": "        catch (ArgumentException)\n        {\n            return null;\n        }\n",
+        "to": "        catch (ArgumentException) when (args.Count == 0)\n        {\n            return null;\n        }\n"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.The_command_line_offers_a_target_by_the_rule_a_drop_is_judged_by",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "gui-args the window hands the command line nowhere",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/MainWindow.xaml.cs",
+        "from": "            : OfferAsync(DroppedTarget.FromCommandLine(args, Environment.CurrentDirectory), anyFiles: true);",
+        "to": "            : Task.CompletedTask;"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.A_program_named_on_the_command_line_becomes_the_target_and_nothing_starts",
+    "match": "method",
+    "build": "",
+    "notHere": ""
   }
 ]

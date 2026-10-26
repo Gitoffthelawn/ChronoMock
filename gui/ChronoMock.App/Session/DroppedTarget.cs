@@ -1,3 +1,5 @@
+using System.IO; // The WPF SDK trims System.IO from implicit usings (Path collides with Shapes.Path).
+
 namespace ChronoMock.App;
 
 /// <summary>
@@ -19,4 +21,27 @@ internal static class DroppedTarget
            && (paths[0].EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || TargetIntake.IsShortcut(paths[0]))
             ? paths[0]
             : null;
+
+    /// <summary>
+    /// The program or shortcut the window was started with - <c>ChronoMock.exe &lt;file&gt;</c>, which is what
+    /// "Open with" and a file dropped on the program's icon hand it - by the rule a drop is judged by: exactly
+    /// one file, named <c>.exe</c> or <c>.lnk</c>. A relative name is read from the folder the window was
+    /// started in, as a command line means it, and a name no full path can be made of is not a target.
+    /// </summary>
+    internal static string? FromCommandLine(IReadOnlyList<string> args, string startFolder)
+    {
+        if (args.Count != 1)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Candidate(new[] { Path.GetFullPath(args[0], startFolder) });
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 }

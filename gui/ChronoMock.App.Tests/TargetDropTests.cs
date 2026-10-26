@@ -170,6 +170,47 @@ public class TargetDropTests
         Assert.Equal("target.program_missing", TargetIntake.RefusalKey(taken));
     }
 
+    /// <summary>The command line (<c>ChronoMock.exe &lt;file&gt;</c>, "Open with") is judged by the rule a drop is:
+    /// one file, a program or a shortcut. A relative name is read from the folder the window was started in,
+    /// and a name no full path can be made of is no target rather than a crash at start.</summary>
+    [Fact]
+    public void The_command_line_offers_a_target_by_the_rule_a_drop_is_judged_by()
+    {
+        Assert.Equal(@"C:\work\app.exe", DroppedTarget.FromCommandLine(new[] { "app.exe" }, @"C:\work"));
+        Assert.Equal(@"C:\apps\app.exe", DroppedTarget.FromCommandLine(new[] { @"..\apps\app.exe" }, @"C:\work"));
+        Assert.Equal(@"D:\links\app.lnk", DroppedTarget.FromCommandLine(new[] { @"D:\links\app.lnk" }, @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(Array.Empty<string>(), @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "a.exe", "b.exe" }, @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "run.bat" }, @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "app.exe" }, "not-a-full-path"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "a\0b.exe" }, @"C:\work"));
+    }
+
+    /// <summary>The window's own way from its command line to the target: a program named there is taken, over
+    /// the target the window opened with, and naming it starts nothing (rule 7).</summary>
+    [Fact]
+    public async Task A_program_named_on_the_command_line_becomes_the_target_and_nothing_starts()
+    {
+        var exe = TempProgram();
+        try
+        {
+            var (target, idle) = await WpfTestHost.RunAsync(async () =>
+            {
+                var window = new MainWindow();
+                await window.OfferStartupTargetAsync(new[] { exe });
+                var session = (SessionViewModel)window.DataContext;
+                return (session.TargetPath, session.IsIdle);
+            });
+
+            Assert.Equal(exe, target);
+            Assert.True(idle, "naming a program fills the form, it never starts a session");
+        }
+        finally
+        {
+            File.Delete(exe);
+        }
+    }
+
     private static string TempProgram()
     {
         var exe = Path.Combine(Path.GetTempPath(), $"chrono-drop-{Guid.NewGuid():N}.exe");
