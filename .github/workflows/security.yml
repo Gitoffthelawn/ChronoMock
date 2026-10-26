@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       # Pinned, in .github/semgrep/requirements.txt, so that Dependabot can propose the next version
       # (its pip entry). A scanner that updates itself changes the verdict without anybody changing
@@ -88,7 +88,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       # The licence half, which the action documents that it will not do: it reports a licence it
       # could not determine and passes anyway. For a GPL-3.0 project that ships a binary, "we could
@@ -127,7 +127,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       # The gate is checked before it judges, so a gate that stopped blocking, or started blocking on
       # nothing, fails here as itself rather than as a verdict about the tree.
