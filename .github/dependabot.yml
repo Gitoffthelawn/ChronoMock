@@ -43,6 +43,13 @@ updates:
   # `directories` rather than `directory`, because the packages are declared per project
   # and only three of the five csproj files carry a PackageReference at all. Pointing at
   # /gui alone would find the solution file and none of the manifests under it.
+  #
+  # Only the last of the three gets pull requests. The window and its tests target a framework
+  # that names a Windows version, which Dependabot's NuGet updater takes for one that no
+  # package is compatible with (dependabot/dependabot-core#12274). So a package the GUI
+  # projects share is held at one version in all of them by crates/cli/tests/components.rs,
+  # and a pull request that moves it for the protocol tests stays red until it moves the
+  # window's tests too. WPF-UI, which only the window takes, is checked by hand.
   - package-ecosystem: "nuget"
     directories:
       - "/gui/ChronoMock.App"
