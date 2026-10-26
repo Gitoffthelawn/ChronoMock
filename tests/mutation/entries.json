@@ -21315,5 +21315,45 @@
     "match": "method",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "deps the window tests a release off the protocol tests",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App.Tests/ChronoMock.App.Tests.csproj",
+        "from": "Include=\"xunit.v3\" Version=\"",
+        "to": "Include=\"xunit.v3\" Version=\"9"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "components"
+    ],
+    "test": "every_package_the_gui_projects_share_has_one_version",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "deps a package reference with no version the guard can read",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App.Tests/ChronoMock.App.Tests.csproj",
+        "from": "Include=\"xunit.v3\" Version=\"",
+        "to": "Include=\"xunit.v3\" Old=\""
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "components"
+    ],
+    "test": "every_package_the_gui_projects_share_has_one_version",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
   }
 ]

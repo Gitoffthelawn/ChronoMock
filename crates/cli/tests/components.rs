@@ -21,7 +21,7 @@
 //! that does not claim the ground at all.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Crates in the lockfile that are NOT in the shipped binaries, each with the reason.
 ///
@@ -685,4 +685,127 @@ fn the_gui_lock_files_carry_the_identifier_the_packaging_script_publishes_for() 
             targets.keys().collect::<Vec<_>>()
         );
     }
+}
+
+/// Every package a project file references, as (package, version), read from its
+/// `<PackageReference Include="..." Version="..." />` items.
+///
+/// Read by hand, for the reason `Cargo.lock` is above. A reference with an `Include` and no `Version`
+/// attribute fails rather than drops out: under central package management, or with the version as a
+/// child element, the check below would compare nothing and pass. A reference inside a comment is not
+/// a reference.
+fn package_references(project: &Path) -> Vec<(String, String)> {
+    let raw = std::fs::read_to_string(project)
+        .unwrap_or_else(|e| panic!("{} must be readable: {e}", project.display()));
+    let mut text = String::new();
+    let mut rest = raw.as_str();
+    while let Some(open) = rest.find("<!--") {
+        text.push_str(&rest[..open]);
+        let after = &rest[open..];
+        rest = after.find("-->").map_or("", |close| &after[close + 3..]);
+    }
+    text.push_str(rest);
+
+    let mut out = Vec::new();
+    for item in text.split("<PackageReference").skip(1) {
+        let tag = item.split('>').next().unwrap_or(item);
+        let Some(package) = attribute(tag, "Include") else {
+            continue;
+        };
+        let version = attribute(tag, "Version").unwrap_or_else(|| {
+            panic!(
+                "{} references {package} with no Version attribute, which this guard cannot read. If \
+                 the GUI moved to central package management, that gives one version per package \
+                 and every_package_the_gui_projects_share_has_one_version can go",
+                project.display()
+            )
+        });
+        out.push((package, version));
+    }
+    out
+}
+
+/// The value of `key="..."` in the text of one XML tag.
+fn attribute(tag: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=\"");
+    tag.split_whitespace()
+        .find_map(|token| token.strip_prefix(prefix.as_str()))
+        .and_then(|value| value.split('"').next())
+        .map(str::to_string)
+}
+
+/// A package two GUI projects reference is at one version in all of them.
+///
+/// Dependabot keeps only part of the GUI current. Its NuGet updater takes a target framework that
+/// names a Windows version, as `net10.0-windows10.0.17763.0` does, for one that no package is
+/// compatible with (dependabot/dependabot-core#12274). So it proposes every update for the projects
+/// on plain `net10.0` and none for the window and its tests, and its log says "not compatible" for
+/// each of their packages, the versions in use included. Found 2026-10-26, with the window's tests a
+/// release behind the protocol's on xunit, its runner and the test SDK, and nothing to notice it.
+///
+/// With this, a Dependabot pull request that moves a shared package in one project stays red until the
+/// same pull request moves the rest. The projects are found rather than listed, so one added later is
+/// held to it too.
+#[test]
+fn every_package_the_gui_projects_share_has_one_version() {
+    // package -> version -> the projects that reference it at that version
+    let mut seen: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    let mut projects = 0;
+    let gui = repo_root().join("gui");
+    let folders =
+        std::fs::read_dir(&gui).unwrap_or_else(|e| panic!("{} must be readable: {e}", gui.display()));
+    for folder in folders.map(|entry| entry.expect("a folder under gui must be readable").path()) {
+        if !folder.is_dir() {
+            continue;
+        }
+        let files = std::fs::read_dir(&folder)
+            .unwrap_or_else(|e| panic!("{} must be readable: {e}", folder.display()));
+        for project in files
+            .map(|entry| entry.expect("a file of a GUI project must be readable").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "csproj"))
+        {
+            projects += 1;
+            let name = project
+                .file_stem()
+                .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
+            for (package, version) in package_references(&project) {
+                seen.entry(package)
+                    .or_default()
+                    .entry(version)
+                    .or_default()
+                    .push(name.clone());
+            }
+        }
+    }
+
+    let shared: Vec<(&String, &BTreeMap<String, Vec<String>>)> = seen
+        .iter()
+        .filter(|(_, by_version)| by_version.values().map(Vec::len).sum::<usize>() > 1)
+        .collect();
+    assert!(
+        !shared.is_empty(),
+        "no package is referenced by two of the {projects} GUI projects, so this guard compares \
+         nothing - check that it still finds and reads the project files"
+    );
+
+    let split: Vec<String> = shared
+        .iter()
+        .filter(|(_, by_version)| by_version.len() > 1)
+        .map(|(package, by_version)| {
+            let at: Vec<String> = by_version
+                .iter()
+                .map(|(version, names)| format!("{version} in {}", names.join(" and ")))
+                .collect();
+            format!("{package} is at {}", at.join(", but "))
+        })
+        .collect();
+    assert!(
+        split.is_empty(),
+        "a package the GUI projects share is at more than one version: {split:?}. Dependabot \
+         proposes NuGet updates only for the projects on plain net10.0, because it takes a target \
+         framework that names a Windows version for one no package is compatible with \
+         (dependabot/dependabot-core#12274). Bring the other projects to the same version in the \
+         same pull request, then run `dotnet restore <project> --force-evaluate` for each one you \
+         moved and commit its packages.lock.json"
+    );
 }
