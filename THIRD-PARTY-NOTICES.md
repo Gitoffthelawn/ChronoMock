@@ -57,8 +57,8 @@ formality: both are MIT, and MIT asks that its notice travel with every copy.
 
 | Pack | Version | Licence | Copyright |
 |---|---|---|---|
-| `Microsoft.NETCore.App.Runtime.win-x64` | 10.0.13 | MIT | Copyright (c) .NET Foundation and Contributors |
-| `Microsoft.WindowsDesktop.App.Runtime.win-x64` | 10.0.13 | MIT | Copyright (c) .NET Foundation and Contributors |
+| `Microsoft.NETCore.App.Runtime.win-x64` | 10.0.14 | MIT | Copyright (c) .NET Foundation and Contributors |
+| `Microsoft.WindowsDesktop.App.Runtime.win-x64` | 10.0.14 | MIT | Copyright (c) .NET Foundation and Contributors |
 
 The licences are read from each pack's own `.nuspec` rather than assumed. The MIT text is the
 one reproduced below for the Rust crates. Two names appear for the same holder and both are
@@ -100,7 +100,7 @@ copyright line, so their attribution below is taken from the crate's declared au
 | `memchr` | 2.8.3 | Copyright (c) 2015 Andrew Gallant |
 | `serde` | 1.0.229 | Erick Tryzelaar, David Tolnay |
 | `serde_core` | 1.0.229 | Erick Tryzelaar, David Tolnay |
-| `serde_json` | 1.0.151 | Erick Tryzelaar, David Tolnay |
+| `serde_json` | 1.0.154 | Erick Tryzelaar, David Tolnay |
 | `zmij` | 1.0.23 | David Tolnay |
 | `log` | 0.4.34 | Copyright (c) 2014 The Rust Project Developers |
 | `minhook` | 0.9.0 | Copyright (c) 2025 Jakobzs (Rust wrapper - MinHook C notice below) |

@@ -501,9 +501,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   the package's own folders and never the current folder's. The window was not affected.
 - **A catalogue file is read with a bound.** Its size and its contents come through one open file, and
   the read stops past the 4 MiB limit even when the file grows while it is read.
-- **The window package carries .NET 10.0.13.** It is the .NET security release of 2026-10-13, and
-  the window, which brings its own runtime, bundles it in place of 10.0.12. The command line does not
-  run on .NET and is unchanged.
+- **The window package carries .NET 10.0.14.** It is the .NET security release of 2026-10-25, after
+  the one of 2026-10-13 (10.0.13), and the window, which brings its own runtime, bundles it in place of
+  10.0.12. The command line does not run on .NET and is unchanged.
 
 ## [0.4.0] - 2026-10-07
 
