@@ -119,75 +119,84 @@ public class SessionAnnouncementTests
     /// ended, recorded, a history row chosen. Every command whose answer changed was told so by the time the
     /// panel's next change was announced - a gate left off the watch keeps its button as it was, which no test
     /// of CanExecute alone would see.
+    /// <para>
+    /// On the UI thread, as the panel runs: the session loop comes back to the thread that started it, and the
+    /// promise holds one change after another on that thread. Run on the pool, the panel's changes came from two
+    /// or three threads in each of 12 runs, so what this test does and what the loop applies could change the
+    /// status at once, and a command was found changed between the gate check and this one, untold, in 3 runs
+    /// of 215 (measured). On the UI thread they come from one, in each of 12 runs.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task Every_command_whose_answer_changed_during_a_session_was_told_so()
-    {
-        var target = SessionPlan.DefaultTargetPath()
-            ?? throw new InvalidOperationException("the sample target is not built - build the solution first");
-        var core = new FakeCoreConnection(
-            [FakeCoreConnection.ReadyFor(target)],
-            command => command is StartCommand
-                ? [Heartbeat(1), new VerdictEvent { V = ProtocolJson.ProtocolVersion, Verdict = "works", ReasonKey = "verdict.reason.works" }]
-                : []);
-        var vm = new SessionViewModel(new InMemorySessionHistoryStore(), connect: core.Connector);
-        var commands = CommandsOf(vm);
-        var gate = new Lock();
-        var told = new HashSet<string>();
-        var changed = new HashSet<string>();
-        var missed = new List<string>();
-        var last = commands.ToDictionary(c => c.Key, c => CanRun(c.Key, c.Value));
-        foreach (var (name, command) in commands)
+    public Task Every_command_whose_answer_changed_during_a_session_was_told_so()
+        => WpfTestHost.RunAsync(async () =>
         {
-            command.CanExecuteChanged += (_, _) =>
+            var target = SessionPlan.DefaultTargetPath()
+                ?? throw new InvalidOperationException("the sample target is not built - build the solution first");
+            var core = new FakeCoreConnection(
+                [FakeCoreConnection.ReadyFor(target)],
+                command => command is StartCommand
+                    ? [Heartbeat(1), new VerdictEvent { V = ProtocolJson.ProtocolVersion, Verdict = "works", ReasonKey = "verdict.reason.works" }]
+                    : []);
+            var vm = new SessionViewModel(new InMemorySessionHistoryStore(), connect: core.Connector);
+            var commands = CommandsOf(vm);
+            var gate = new Lock();
+            var told = new HashSet<string>();
+            var changed = new HashSet<string>();
+            var missed = new List<string>();
+            var last = commands.ToDictionary(c => c.Key, c => CanRun(c.Key, c.Value));
+            foreach (var (name, command) in commands)
+            {
+                command.CanExecuteChanged += (_, _) =>
+                {
+                    lock (gate)
+                    {
+                        told.Add(name);
+                    }
+                };
+            }
+
+            // After the commands' own handler, which the view model's constructor attached first.
+            void Look(string after)
             {
                 lock (gate)
                 {
-                    told.Add(name);
-                }
-            };
-        }
-
-        // After the commands' own handler, which the view model's constructor attached first.
-        void Look(string after)
-        {
-            lock (gate)
-            {
-                foreach (var (name, command) in commands)
-                {
-                    var now = CanRun(name, command);
-                    if (now != last[name])
+                    foreach (var (name, command) in commands)
                     {
-                        changed.Add(name);
-                        if (!told.Contains(name))
+                        var now = CanRun(name, command);
+                        if (now != last[name])
                         {
-                            missed.Add($"{name} went {last[name]} -> {now} at {after} untold");
+                            changed.Add(name);
+                            if (!told.Contains(name))
+                            {
+                                missed.Add($"{name} went {last[name]} -> {now} at {after} untold");
+                            }
+
+                            last[name] = now;
                         }
-
-                        last[name] = now;
                     }
+
+                    told.Clear();
                 }
-
-                told.Clear();
             }
-        }
 
-        vm.PropertyChanged += (_, e) => Look(e.PropertyName ?? "?");
-        vm.JumpMoment.PropertyChanged += (_, e) => Look("JumpMoment." + e.PropertyName);
+            vm.PropertyChanged += (_, e) => Look(e.PropertyName ?? "?");
+            vm.JumpMoment.PropertyChanged += (_, e) => Look("JumpMoment." + e.PropertyName);
 
-        vm.SetTarget(target);
-        var run = vm.StartAsync();
-        await CalculatorAnswerTests.Until(() => vm.IsRunning, "the session running");
-        vm.JumpMoment.DateText = "2038-01-20";
-        vm.RequestStop();
-        core.End();
-        await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
-        vm.SelectedRecord = vm.History[0];
+            vm.SetTarget(target);
+            var run = vm.StartAsync();
+            await CalculatorAnswerTests.Until(() => vm.IsRunning, "the session running");
+            vm.JumpMoment.DateText = "2038-01-20";
+            vm.RequestStop();
+            core.End();
+            await run.WaitAsync(Limit, TestContext.Current.CancellationToken);
+            vm.SelectedRecord = vm.History[0];
 
-        Assert.Empty(missed);
-        // Not vacuous: most of the panel's commands changed their answer on the way.
-        Assert.True(changed.Count >= 15, $"only {changed.Count} changed: {string.Join(", ", changed)}");
-    }
+            Assert.Empty(missed);
+            // Not vacuous: most of the panel's commands changed their answer on the way.
+            Assert.True(changed.Count >= 15, $"only {changed.Count} changed: {string.Join(", ", changed)}");
+            return 0;
+        });
 
     /// <summary>The names the view model announced while <paramref name="change"/> ran, in order.</summary>
     private static List<string> Announced(SessionViewModel vm, Action change)
