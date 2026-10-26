@@ -51,29 +51,20 @@ SOFTWARE.
 ## The .NET runtime the window package carries
 
 `ChronoMock-app-win-x64.zip` is a self-contained publish, so it ships the .NET runtime itself -
-around two hundred assemblies that are not ours. They arrive as three runtime packs, and
+around two hundred assemblies that are not ours. They arrive as two runtime packs, and
 until 2026-09-08 this file did not mention them at all. That was a real gap rather than a
-formality: two of the three are MIT, and MIT asks that its notice travel with every copy.
+formality: both are MIT, and MIT asks that its notice travel with every copy.
 
 | Pack | Version | Licence | Copyright |
 |---|---|---|---|
-| `Microsoft.NETCore.App.Runtime.win-x64` | 10.0.13 | MIT | Copyright (c) .NET Foundation and Contributors |
-| `Microsoft.WindowsDesktop.App.Runtime.win-x64` | 10.0.13 | MIT | Copyright (c) .NET Foundation and Contributors |
-| `Microsoft.Windows.SDK.NET.Ref` | 10.0.17763.57 | Windows SDK licence terms, see below | © Microsoft Corporation. All rights reserved. |
+| `Microsoft.NETCore.App.Runtime.win-x64` | 10.0.14 | MIT | Copyright (c) .NET Foundation and Contributors |
+| `Microsoft.WindowsDesktop.App.Runtime.win-x64` | 10.0.14 | MIT | Copyright (c) .NET Foundation and Contributors |
 
 The licences are read from each pack's own `.nuspec` rather than assumed. The MIT text is the
 one reproduced below for the Rust crates. Two names appear for the same holder and both are
 copied rather than reconciled: the nuspec says `© Microsoft Corporation. All rights reserved.`
 while the MIT notice inside the pack says `Copyright (c) .NET Foundation and Contributors`.
 The MIT notice is the one the licence asks to travel with the copy, so it is the one tabled.
-
-🔴 **The third pack is not MIT and has no SPDX identifier.** Its nuspec carries no
-`<license type="expression">` at all, only a `licenseUrl` pointing at the Windows SDK licence
-terms (<https://aka.ms/WinSDKLicenseURL>). It ships as `Microsoft.Windows.SDK.NET.dll` and
-`WinRT.Runtime.dll`, the Windows projections the desktop runtime pack pulls in. The machine
-register records it as `LicenseRef-Microsoft-Windows-SDK`, which is what SPDX has for a
-licence with no identifier. An earlier draft of that register wrote MIT from memory and was
-wrong, which is why the register is now read from the package.
 
 The version numbers above are decided by the .NET SDK on whichever machine publishes, and
 `global.json` does not pin the SDK. `packaging/build-dist.ps1` therefore compares them with
@@ -109,7 +100,7 @@ copyright line, so their attribution below is taken from the crate's declared au
 | `memchr` | 2.8.3 | Copyright (c) 2015 Andrew Gallant |
 | `serde` | 1.0.229 | Erick Tryzelaar, David Tolnay |
 | `serde_core` | 1.0.229 | Erick Tryzelaar, David Tolnay |
-| `serde_json` | 1.0.151 | Erick Tryzelaar, David Tolnay |
+| `serde_json` | 1.0.154 | Erick Tryzelaar, David Tolnay |
 | `zmij` | 1.0.23 | David Tolnay |
 | `log` | 0.4.34 | Copyright (c) 2014 The Rust Project Developers |
 | `minhook` | 0.9.0 | Copyright (c) 2025 Jakobzs (Rust wrapper - MinHook C notice below) |

@@ -331,13 +331,16 @@ public sealed class FilledScreenSweepTests
         }
     }
 
-    /// <summary>Wait for the answer to the current input, polling rather than sleeping a fixed time.</summary>
+    /// <summary>Wait for the answer to the current input, polling rather than sleeping a fixed time, and look once
+    /// more after the deadline: the UI thread held past it by other work comes back here with the answer already
+    /// in, and without that look it was counted as no answer (measured with a hold of the deadline and a second,
+    /// started the moment the answer landed).</summary>
     private static async Task<bool> AnsweredAsync(CalculatorViewModel vm)
     {
         var deadline = DateTime.UtcNow + AnswerDeadline;
         while (DateTime.UtcNow < deadline)
         {
-            if (!vm.IsResultStale && vm.HasResult && vm.Formats.Count > 0)
+            if (Answered())
             {
                 return true;
             }
@@ -345,6 +348,8 @@ public sealed class FilledScreenSweepTests
             await Task.Delay(TimeSpan.FromMilliseconds(25), TestContext.Current.CancellationToken);
         }
 
-        return false;
+        return Answered();
+
+        bool Answered() => !vm.IsResultStale && vm.HasResult && vm.Formats.Count > 0;
     }
 }

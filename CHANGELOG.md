@@ -280,6 +280,11 @@ Notable changes to Chrono Mock, newest first. The format follows
   rather than before the window first shows. Measured on the published window, to its first frame:
   0.96 s to 0.80 s with the files already read once, and 1.53 s to 1.31 s on the first start after
   unzipping. The package grows by about 1 MB.
+- **The window package is 23 MB smaller.** It no longer carries the Windows Runtime projection
+  (`Microsoft.Windows.SDK.NET.dll` and `WinRT.Runtime.dll`), which nothing in it used: 170 MB to 147 MB
+  unpacked, and about 6 MB less to download. It is still built for Windows 10 1809 and Windows Server
+  2019 and later. The projection was the one component in the package without an SPDX licence, and it
+  leaves the SBOM and the third-party notices with it.
 
 ### Fixed
 
@@ -496,9 +501,9 @@ Notable changes to Chrono Mock, newest first. The format follows
   the package's own folders and never the current folder's. The window was not affected.
 - **A catalogue file is read with a bound.** Its size and its contents come through one open file, and
   the read stops past the 4 MiB limit even when the file grows while it is read.
-- **The window package carries .NET 10.0.13.** It is the .NET security release of 2026-10-13, and
-  the window, which brings its own runtime, bundles it in place of 10.0.12. The command line does not
-  run on .NET and is unchanged.
+- **The window package carries .NET 10.0.14.** It is the .NET security release of 2026-10-25, after
+  the one of 2026-10-13 (10.0.13), and the window, which brings its own runtime, bundles it in place of
+  10.0.12. The command line does not run on .NET and is unchanged.
 
 ## [0.4.0] - 2026-10-07
 
