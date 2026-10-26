@@ -17,7 +17,11 @@ namespace ChronoMock.App.Tests;
 /// </summary>
 public sealed class AnnounceTests
 {
-    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(5);
+    /// <summary>How long a wait for an announcement may take before it fails. Only a failure waits this long,
+    /// the wait ends at the announcement. It was 5 s, and a runner spent 17.7 s on the calculator test below,
+    /// about 12.7 s of it before the wait, where a desktop takes 3.3 s for the whole test run alone and cold. A
+    /// bound shorter than a stall the runner has shown fails an announcement that is only late.</summary>
+    private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(20);
 
     [Fact]
     public Task A_changed_value_is_read_once_as_the_text_on_the_screen_after_the_quiet_moment()
@@ -231,23 +235,38 @@ public sealed class AnnounceTests
 
     private static Heard Listen(object? from) => new(from);
 
+    /// <summary>The next announcement <paramref name="wanted"/> takes, read until <see cref="Deadline"/> and once
+    /// more after it. The last read is the point: the UI thread held past the deadline by other work comes back
+    /// here with the announcement already heard, and without that read it was failed as "nothing was announced"
+    /// (measured with a hold of the deadline and a second, started the moment the announcement was made).</summary>
     private static async Task<string> NextAsync(Heard heard, Func<string, bool>? wanted = null)
     {
-        var deadline = DateTime.UtcNow + Deadline;
-        while (DateTime.UtcNow < deadline)
+        var waited = Stopwatch.StartNew();
+        var passedOver = new List<string>();
+        while (true)
         {
+            var last = waited.Elapsed >= Deadline;
             while (heard.TryTake(out var said))
             {
                 if (wanted is null || wanted(said))
                 {
                     return said;
                 }
+
+                passedOver.Add(said);
+            }
+
+            if (last)
+            {
+                break;
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(20), TestContext.Current.CancellationToken);
         }
 
-        Assert.Fail("nothing was announced");
+        Assert.Fail(passedOver.Count == 0
+            ? $"nothing was announced in {waited.ElapsedMilliseconds} ms"
+            : $"nothing it waited for was announced in {waited.ElapsedMilliseconds} ms, only: {string.Join(" | ", passedOver)}");
         return string.Empty;
     }
 
