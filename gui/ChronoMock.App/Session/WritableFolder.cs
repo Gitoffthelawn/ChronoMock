@@ -10,7 +10,8 @@ namespace ChronoMock.App;
 /// logs beside the executable whenever that folder took a write, and a copy on a shared folder or a stick
 /// handed round then kept everybody's sessions - the applications they tested, with the arguments they
 /// started them with - in one file anyone with the folder could read. The per-user folder is readable by
-/// that user only. An installed copy already kept them there, because the installer owns its folder.
+/// that user only. An installed copy already kept them there, because the installer owns its folder. Only
+/// <see cref="Variable"/>, set by whoever starts the window, puts them anywhere else.
 /// </para>
 /// <para>
 /// The question "can this folder take a write" went with the choice: it wrote a probe file to ask, and two
@@ -19,11 +20,45 @@ namespace ChronoMock.App;
 /// </summary>
 internal static class WritableFolder
 {
-    /// <summary>The folder the running window keeps one kind of its own files in (<c>history</c>, <c>logs</c>).
-    /// Windows is asked to create the per-user folder when the account has none yet.</summary>
-    internal static string ForApp(string name) => In(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
-        name);
+    /// <summary>
+    /// The environment variable that moves the window's own folder. A full path there holds <c>history</c> and
+    /// <c>logs</c> in place of <c>%LOCALAPPDATA%\ChronoMock</c>, for a run that must not touch the history of the
+    /// account it runs under - a release check, the window's own tests. Windows answers the per-user folder from
+    /// the account's settings, not from <c>LOCALAPPDATA</c>, so that variable cannot move it.
+    /// </summary>
+    internal const string Variable = "CHRONOMOCK_DATA_DIR";
+
+    /// <summary>The folder the running window keeps one kind of its own files in (<c>history</c>, <c>logs</c>),
+    /// read from <see cref="Variable"/> at every call.</summary>
+    internal static string ForApp(string name) => ForApp(name, Environment.GetEnvironmentVariable(Variable));
+
+    /// <summary>
+    /// The folder for one kind of the window's own files when <see cref="Variable"/> holds
+    /// <paramref name="fromVariable"/> - separate so a test can ask it without changing the environment the
+    /// whole test run shares. Unset, it is the per-user folder, which Windows is asked to create when the
+    /// account has none yet.
+    /// <para>
+    /// 🔴 A value that is not a full path is refused, never read against the current folder: a relative one
+    /// would put every history and log in whatever folder the window was started from. The startup box says
+    /// which value it was.
+    /// </para>
+    /// </summary>
+    internal static string ForApp(string name, string? fromVariable)
+    {
+        if (string.IsNullOrEmpty(fromVariable))
+        {
+            var perUserRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
+            return In(perUserRoot, name);
+        }
+
+        if (!Path.IsPathFullyQualified(fromVariable))
+        {
+            throw new InvalidOperationException(
+                $"{Variable} is set to \"{fromVariable}\", which is not a full path, so Chrono Mock does not know where to keep its history and logs.");
+        }
+
+        return Path.Combine(Path.GetFullPath(fromVariable), name);
+    }
 
     /// <summary>
     /// The folder for one kind of the window's own files under a per-user root - separate so a test can ask it

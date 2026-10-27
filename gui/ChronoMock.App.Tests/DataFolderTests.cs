@@ -32,9 +32,55 @@ public sealed class DataFolderTests : IDisposable
     public void Every_copy_keeps_its_files_in_the_per_user_folder(string name)
     {
         Assert.Equal(Path.Combine(@"Y:\user", "ChronoMock", name), WritableFolder.In(@"Y:\user", name));
-        Assert.Equal(
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", name),
-            WritableFolder.ForApp(name));
+        var perUser = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock", name);
+        Assert.Equal(perUser, WritableFolder.ForApp(name, fromVariable: null));
+        Assert.Equal(perUser, WritableFolder.ForApp(name, fromVariable: string.Empty));
+    }
+
+    /// <summary>
+    /// A full path in CHRONOMOCK_DATA_DIR holds the files in place of the per-user ChronoMock folder, named as
+    /// the window will use it. Reversal probe: take the value as written and the folder keeps its "..".
+    /// </summary>
+    [Theory]
+    [InlineData(@"Y:\data", "history", @"Y:\data\history")]
+    [InlineData(@"Y:\data\", "logs", @"Y:\data\logs")]
+    [InlineData(@"Y:\runs\..\data", "history", @"Y:\data\history")]
+    [InlineData(@"\\server\share\data", "logs", @"\\server\share\data\logs")]
+    public void The_variable_moves_the_files_to_the_folder_it_names(string value, string name, string expected)
+        => Assert.Equal(expected, WritableFolder.ForApp(name, value));
+
+    /// <summary>
+    /// A value that is not a full path would be read against the folder the window was started from, which is
+    /// where the empty per-user root used to put the files. Refused, with the variable and the value named.
+    /// Reversal probe: accept any value and these become folders under the current one.
+    /// </summary>
+    [Theory]
+    [InlineData("data")]
+    [InlineData(@"runs\data")]
+    [InlineData(@"Y:data")]
+    [InlineData(@"\data")]
+    [InlineData("   ")]
+    [InlineData("\"Y:\\data\"")]
+    public void A_variable_that_is_not_a_full_path_is_refused(string value)
+    {
+        var refusal = Assert.Throws<InvalidOperationException>(() => WritableFolder.ForApp("history", value));
+        Assert.Contains(WritableFolder.Variable, refusal.Message, StringComparison.Ordinal);
+        Assert.Contains($"\"{value}\"", refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The test run names its own folder before the first test (<see cref="TestDataFolder"/>), so no window a test
+    /// builds reads or writes the files of the account that runs the tests. Reversal probes: stop reading the
+    /// variable, or stop naming it for the run, and the window's folder is the account's own again.
+    /// </summary>
+    [Fact]
+    public void The_test_run_keeps_the_windows_files_out_of_the_accounts_folder()
+    {
+        var account = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ChronoMock");
+
+        Assert.Equal(Path.Combine(TestDataFolder.Root, "logs"), WritableFolder.ForApp("logs"));
+        Assert.Equal(Path.Combine(TestDataFolder.Root, "history"), WritableFolder.ForApp("history"));
+        Assert.False(WritableFolder.ForApp("history").StartsWith(account, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

@@ -364,7 +364,9 @@ opt-in described further down for an application that runs as administrator, whi
 for the length of the session, removes it before the verdict and names it in the report), and
 nothing outside its own folder except three things it will name for you: the session history and the
 diagnostics logs, kept in `%LOCALAPPDATA%\ChronoMock\` by every copy, so they hold the applications you
-tested and the arguments you gave them where only your account reads them, and, for an Electron or
+tested and the arguments you gave them where only your account reads them (the environment variable
+`CHRONOMOCK_DATA_DIR`, set to a full path, moves both to that folder - for a test run that must leave
+your own history alone - and who reads them there is up to that folder), and, for an Electron or
 Chromium target, a throwaway browser profile under `%TEMP%` that is deleted when the session ends - and
 reported in the session summary if it could not be. That guarantee covers the tool. It does not, and cannot, cover the
 application under test.
