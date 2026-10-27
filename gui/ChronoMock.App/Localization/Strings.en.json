@@ -198,6 +198,8 @@
   "target.drop_hint": "…or drag an application onto this window",
   "target.drop_rejected_title": "That file cannot be run here",
   "target.drop_rejected": "Only programs (.exe) and shortcuts to them can be run from this window. A script (.bat or .cmd) can be run with the chrono command line.",
+  "target.one_at_a_time_title": "One application at a time",
+  "target.one_at_a_time": "More than one file was given, and a session runs one application. Choose one program (.exe) or one shortcut to it.",
   "target.shortcut_rejected": "This shortcut does not lead to a program file (.exe) - a shortcut an installer made does not name one. Pick the program itself instead.",
   "target.program_missing": "That program is not there - it was moved or deleted, or the drive it is on cannot be reached.",
 

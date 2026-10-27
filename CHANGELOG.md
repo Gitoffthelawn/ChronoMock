@@ -25,8 +25,7 @@ Notable changes to Chrono Mock, newest first. The format follows
 - **The window takes the application from its command line.** `ChronoMock.exe <program or shortcut>` fills
   the form as a drop on the window does, so "Open with" in Explorer and a program dropped on the window's
   icon land in it. A relative name is read from the folder the window was started in. A file that cannot
-  be the application, or more than one, is refused with the reason a drop gets. Nothing starts until
-  Start.
+  be the application is refused with the reason a drop gets. Nothing starts until Start.
 - **"Copy as command" under the calculator's result** copies the question it answers as a PowerShell
   command line: the engine by its full path, so it works from a portable copy that is not on PATH, and
   the same arguments, so a terminal gives the same answer. Windows PowerShell 5.1 passes three kinds of
@@ -293,6 +292,9 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **More than one file is refused for the count.** Two programs dropped on the window at once, or given on
+  its command line, are answered "One application at a time". They used to get the text for a file that
+  is not a program.
 - **The calendar beside a date works from the keyboard.** Opening it puts the focus on the day of the
   date in the field, in that date's month - it used to open on the current month whatever the field held,
   with the focus left on the button that opened it. The arrows move the day, Enter or Space takes it,

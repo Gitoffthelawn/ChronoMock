@@ -21395,7 +21395,7 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/MainWindow.xaml.cs",
-        "from": "            : OfferAsync(DroppedTarget.FromCommandLine(args, Environment.CurrentDirectory), anyFiles: true);",
+        "from": "            : OfferAsync(DroppedTarget.FromCommandLine(args, Environment.CurrentDirectory), DroppedTarget.RefusalFor(args.Count));",
         "to": "            : Task.CompletedTask;"
       }
     ],
@@ -21403,6 +21403,40 @@
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.TargetDropTests.A_program_named_on_the_command_line_becomes_the_target_and_nothing_starts",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "gui-args the first-render offer stays on the event",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/MainWindow.xaml.cs",
+        "from": "            ContentRendered -= offer;\n",
+        "to": ""
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.The_command_line_is_offered_when_the_window_is_first_drawn_and_only_then",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "gui-args two files refused as one file that is not a program",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/DroppedTarget.cs",
+        "from": "        _ => \"target.one_at_a_time\",",
+        "to": "        _ => \"target.drop_rejected\","
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.TargetDropTests.Two_files_are_refused_for_the_count_and_one_for_what_it_is",
     "match": "method",
     "build": "",
     "notHere": ""

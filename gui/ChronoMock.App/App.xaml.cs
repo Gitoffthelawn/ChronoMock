@@ -45,12 +45,12 @@ public partial class App : Application
             var window = new MainWindow();
 
             // A program the window was opened with - "Open with", or a file dropped on the program's icon -
-            // fills the target as a drop does. Nothing starts. Once the window has been DRAWN, so a refusal
-            // stands on it: offered at Loaded, the refusal came up before the first frame and stood on the
-            // screen alone, with the window not even in the automation tree (measured 2026-10-26). Awaited in
-            // a handler, as the drop is, so a fault reaches the dispatcher's net at once rather than a
-            // discarded task's finalizer.
-            window.ContentRendered += async (_, _) => await window.OfferStartupTargetAsync(e.Args);
+            // fills the target as a drop does, once the window is drawn. Nothing starts.
+            if (TakesCommandLine)
+            {
+                window.OfferOnFirstRender(e.Args);
+            }
+
             window.Show();
 
             if (stringsProblem is not null)
@@ -98,6 +98,14 @@ public partial class App : Application
 
     /// <summary>The switch that opens the component catalogue instead of the application.</summary>
     internal const string CatalogueSwitch = "--catalogue";
+
+    /// <summary>
+    /// Whether the window takes an application from the process's command line. The test host builds this
+    /// App for its resources, and WPF runs OnStartup for it with the TEST RUNNER's arguments - which the
+    /// window read as files to run and answered with a modal refusal in the middle of the test run
+    /// (measured 2026-10-27). The host turns it off before it builds the App.
+    /// </summary>
+    internal static bool TakesCommandLine { get; set; } = true;
 
     /// <summary>
     /// Open the catalogue in a plain window.

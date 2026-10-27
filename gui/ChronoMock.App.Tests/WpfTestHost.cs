@@ -25,6 +25,9 @@ internal static class WpfTestHost
         {
             if (Application.Current is null)
             {
+                // WPF runs App.OnStartup for this App too, with the runner's arguments, which are no
+                // application to offer (App.TakesCommandLine).
+                global::ChronoMock.App.App.TakesCommandLine = false;
                 var app = new global::ChronoMock.App.App();
                 app.InitializeComponent(); // load App.xaml resources (wpfui dark + Values + Colours)
                 app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
