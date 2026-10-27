@@ -288,8 +288,8 @@ Notable changes to Chrono Mock, newest first. The format follows
   projection (`Microsoft.Windows.SDK.NET.dll` and `WinRT.Runtime.dll`, 23 MB), which nothing in it
   used: 168 MB to 147 MB unpacked, and about 5 MB less to download, against the 0.4.0 package. It is
   still built for Windows 10 1809 and Windows Server 2019 and later. The projection was the one
-  component in the package without an SPDX licence, and it leaves the SBOM and the third-party notices
-  with it.
+  component in the package without an SPDX licence, and the SBOM and the third-party notices no
+  longer list it.
 
 ### Fixed
 
