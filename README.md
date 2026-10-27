@@ -328,8 +328,19 @@ cover something is worse than one that says what it cannot do.
 - **The zone reports itself as "Chrono Session"**, a name no Windows registry knows, and says it
   has no daylight saving time. Anything that maps that name back to a zone falls back to the offset
   instead, which is the right answer: .NET's `TimeZoneInfo.Local` keeps the name, Java names the zone
-  after its offset (`GMT+05:30`), and so do Node.js and Deno for a whole hour (`Etc/GMT-5`). A target
-  that insists on a registry name will not find one
+  after its offset (`GMT+05:30`), and so do Node.js and Deno for a whole hour (`Etc/GMT-5`). The Rust
+  `jiff` crate is the exception: it finds a zone by its name alone and would fall back to UTC, so a
+  session gives a program built on it the zone in the `TZ` variable instead (`CMS-5:30` for +05:30).
+  A target that insists on a registry name will not find one
+- **A `TZ` variable in your environment wins over the session zone** for the programs that read it:
+  the C runtime, and so Python, MSYS2 and Node.js. Measured under a session at +05:30 with `TZ` set
+  to UTC+2: Python showed +02:00 and Node.js +00:00, and the report did not say so, while .NET, which
+  does not read the variable, showed the session's zone. Leave `TZ` unset for a session in another zone
+- **A windowed program that ends within its first 300 ms is reported as a suspected hand-off** (exit
+  code 12), because that is what the second instance of a single-instance application does: it passes
+  its work to the copy already running, which the session never reached. A console program that ends
+  that quickly has simply done its work, and its session ends with a verdict like any other. A windowed
+  program that ends that fast on purpose, without showing a window, is suspected all the same
 - **A child started under another user token is not followed.** Children started through
   `CreateProcessW` or `CreateProcessA`, whichever system library the call goes through, `WinExec`,
   the C runtime's `system`, spawn and `_popen` functions or `ShellExecuteEx` join the session. One
@@ -446,19 +457,24 @@ does not get the switches.
 
 ## Support matrix
 
-_Most rows come from the automated test suite, last run on 2026-10-14 (x64 and x86). The Python and
-Electron rows were verified by hand instead - the suite does not exercise those two yet, and the Basis
-column says which is which._
+_A row "measured on" a platform comes from the automated tests run before every release, on targets
+of our own: the probe harness, last run in full on 2026-10-26 (x64 and x86), the runtime maps and the
+embedded-engine stand. A row measured "by hand" comes from a person running the case. The Basis column
+says which is which, and some rows have both._
 
 | Environment | Status | Basis | Notes |
 |---|---|---|---|
 | Native Win32 / Win64 (C, C++, Delphi) | supported | measured on x64, x86 | The cleanest case |
 | .NET (Framework and modern) | experimental | measured on x64, x86 | Time calls go through Win32 exports and are covered, including the session time zone. Stopwatch stays on the real high-resolution counter unless you opt in with Scale QPC (`--scale-qpc`), which accelerates it too |
-| Java (JVM) | experimental | measured on x64, x86 | Wall clock, elapsed time and the session time zone are covered. The zone arrives as a fixed offset named after it, like `GMT+05:30`. nanoTime stays on the real high-resolution counter unless you opt in with Scale QPC (`--scale-qpc`) |
-| Python (CPython, incl. PyInstaller) | experimental | measured by hand on x64, not by the suite | Wall clock (time.time, datetime) and the session time zone (time.localtime) are covered. perf_counter, and monotonic on Python 3.13+, are on the high-resolution counter - real by default, accelerated when you opt in with Scale QPC (`--scale-qpc`) |
+| Java (JVM) | experimental | measured on x64, x86 | The wall clock, at the session's speed too, and the session time zone are covered. The zone arrives as a fixed offset named after it, like `GMT+05:30`. nanoTime stays on the real high-resolution counter unless you opt in with Scale QPC (`--scale-qpc`) |
+| Python (CPython, incl. PyInstaller) | experimental | measured on x64 by the runtime maps (wall clock, time zone), by hand on x64 (the high-resolution clocks) | Wall clock (time.time, datetime) and the session time zone (time.localtime) are covered. perf_counter, and monotonic on Python 3.13+, are on the high-resolution counter - real by default, accelerated when you opt in with Scale QPC (`--scale-qpc`) |
+| JavaScript runtimes (Node.js, Deno) | experimental | measured on x64 by the runtime maps | `Date` and the session time zone are covered. A zone of whole hours is named like `Etc/GMT-5`, and one with a half-hour offset has no name in `Intl`, though its offset is right |
+| Ruby | experimental | measured on x64 by the runtime maps | The wall clock and the session time zone are covered |
+| Rust | experimental | measured on x64 by the runtime maps (the standard library), by hand on x64 and x86 (the `chrono` crate) and on x64 (the `jiff` crate) | The wall clock (`SystemTime`) is covered, and so is the session time zone read through the `chrono` crate. The `jiff` crate finds a zone by its name, which the session zone does not have, so a session gives a program built on it the zone in the `TZ` variable. A jiff program started by another program of the session is not recognised and shows UTC. `Instant` stays on the real high-resolution counter unless you opt in with Scale QPC (`--scale-qpc`) |
+| Go | not supported | measured on x64, x86 by the runtime maps | Go reads the wall clock straight from a page Windows shares with every process, which no hook reaches, so the application keeps the real date. The report recognises a Go program and says so. The session time zone does reach it |
 | Applications reading time from the network | out of scope by definition | measured on x64, x86 | The audit detects it - every connection attempt made through Windows' own socket layer is observed and warned about, whichever function made it (Winsock, WinHTTP, WinINet, and the .NET, Node.js, Go, Java and Python runtimes). A datagram sent without a connection is not a connection and is not counted. A third-party Winsock provider, rare on current Windows, is not watched |
-| Embedded web engine inside a native app (WebView2, Qt WebEngine) | experimental | measured by hand on a WebView2 host and a Qt WebEngine host (x64), not by the suite | The native hook covers the application and the pages inside it are reached over the engine's debugging port, opened for the session through two environment variables the application inherits. The pages read the session clock at the session rate and follow a speed change and a jump. The engine's helper processes and the renderer's native reads stay on the real clock, so the verdict is PARTIAL and says why. The pages read the session's time zone - a fixed offset, set through the engine's own zone override and checked in every page and worker. An elevated application is out of reach unless you opt in with `--elevated-embedded`, which writes one registry value for the session and removes it (see above) |
-| Batch script (`.bat`, `.cmd`) as the target | experimental (command line) | measured on x64 by the test suite, on x86 by hand | Started through the command interpreter from the system folder, which is the process the session covers, together with everything the script starts. Arguments arrive as given, including spaces, `&`, an empty argument and `%` (`%OS%` stays those four characters). A quote inside an argument arrives doubled, and so does the trailing backslash of an argument that needs quotes, which keeps a script that passes `%*` on to a program correct. A command line longer than the interpreter's 8191 characters is refused before anything starts. The window takes an `.exe` only |
+| Embedded web engine inside a native app (WebView2, Qt WebEngine) | experimental | measured on x64 (WebView2 and Qt WebEngine) and x86 (WebView2) by the embedded-engine stand, on hosts of our own | The native hook covers the application and the pages inside it are reached over the engine's debugging port, opened for the session through two environment variables the application inherits. The pages read the session clock at the session rate and follow a speed change and a jump. The engine's helper processes and the renderer's native reads stay on the real clock, so the verdict is PARTIAL and says why. The pages read the session's time zone - a fixed offset, set through the engine's own zone override and checked in every page and worker. An elevated application is out of reach unless you opt in with `--elevated-embedded`, which writes one registry value for the session and removes it (see above) |
+| Batch script (`.bat`, `.cmd`) as the target | experimental (command line) | measured on x64 by the test suite, on x86 by hand | Started through the command interpreter from the system folder, which is the process the session covers, together with everything the script starts. Arguments arrive as given, including spaces, `&`, an empty argument and `%` (`%OS%` stays those four characters). A quote inside an argument arrives doubled, and so does the trailing backslash of an argument that needs quotes, which keeps a script that passes `%*` on to a program correct. A command line longer than the interpreter's 8191 characters is refused before anything starts. The window takes a program (`.exe`) or a shortcut to one, not a script |
 | Electron / Chromium | experimental (Chromium mode) | measured by hand on an Electron app (x64), not by the suite | A separate mechanism, not injection: the app is launched with a debug port and a clean isolated profile, and its own JS time APIs are put on the session clock over the DevTools protocol - reaching the sandboxed renderer and its Web Workers, where the timer often lives. The pages read the session's time zone - a fixed offset, set through the engine's own zone override and checked in every page and worker. A launcher that hands the app over to another process and exits does not end the session. The main process of an Electron app runs JavaScript in Node outside its windows and reads the real clock, which the report says. Chromium slows the timers of a minimized window to about once a second, which the report says unless the session starts with `--keep-background-timers` |
 | UWP / MSIX (Store apps) | not supported | declared (not exercised) | Packaging and launch model |
 | ARM64 | out of scope through v1.0 | declared (not exercised) | To be revisited |

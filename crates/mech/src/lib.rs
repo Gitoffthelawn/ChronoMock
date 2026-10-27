@@ -58,7 +58,7 @@ use chrono_ctl::{
     cov_at, ctl_size, header_is_ours, read_anchor, read_calls,
     find_pid_slot, read_core_pid, read_created, read_dur, read_ended, read_failed_channels, read_installed,
     read_late_installed, read_pid,
-    read_pid_count, rebase,
+    read_pid_count, read_subsystem, rebase, SUBSYSTEM_CONSOLE,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
     read_timers_at_floor, read_absolute_dues, calls_capped, clock_fence,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header, FullAnchor,
@@ -586,6 +586,22 @@ impl Session {
     fn others_alive(&mut self) -> bool {
         self.refresh_family();
         !self.family.living().is_empty()
+    }
+
+    /// Whether every process that signed in to this session is a console program, by the subsystem each
+    /// hook recorded in its slot (ADR-4, owner decision 2026-10-27). A family that ended inside the guard
+    /// window is a suspected hand-off only when it held a windowed program, because a hand-off is what the
+    /// second instance of a windowed application does. A family of console tools that ended there simply
+    /// did its work quickly. See `only_console` for every doubt that keeps the suspicion.
+    pub fn family_only_console(&self) -> bool {
+        let claims = unsafe { read_pid_count(self.ctl()) };
+        let slots: Vec<Option<u32>> = (0..(claims as usize).min(MAX_COV_PIDS))
+            .map(|slot| {
+                let published = unsafe { read_pid(self.ctl(), slot) } != 0;
+                published.then(|| unsafe { read_subsystem(cov_at(self.ctl(), slot)) })
+            })
+            .collect();
+        only_console(claims, &slots)
     }
 
     /// The processes besides the launched one that were running when the family was last refreshed.
@@ -1538,6 +1554,19 @@ unsafe fn bitness_mismatch(hproc: HANDLE) -> Option<(&'static str, &'static str)
 /// everything past its capacity is a process that ran with nowhere to report coverage into (R2-S9).
 fn uncovered_from_attempts(attempts: u32) -> u32 {
     attempts.saturating_sub(MAX_COV_PIDS as u32)
+}
+
+/// Whether a family is console programs only, from the number of slot claims made and what each claimed
+/// slot says: `None` for a slot whose pid was never published, otherwise the subsystem its hook recorded.
+/// Every doubt answers no, which keeps the hand-off suspicion: no claim at all (the launched process never
+/// signed in), a claim past the registry's capacity (a process with nowhere to say what it was), a slot
+/// never published (a hook that failed, or one still inside `DllMain`), and a slot with no subsystem
+/// recorded. Pure, so each of those is tested without a session.
+fn only_console(claims: u32, slots: &[Option<u32>]) -> bool {
+    claims != 0
+        && uncovered_from_attempts(claims) == 0
+        && slots.len() == claims as usize
+        && slots.iter().all(|s| *s == Some(SUBSYSTEM_CONSOLE))
 }
 
 /// When the process behind `handle` was created, as one FILETIME number, or `None` when the handle
@@ -2712,6 +2741,24 @@ mod tests {
         assert_eq!(uncovered_from_attempts(MAX_COV_PIDS as u32 + 1), 1);
         assert_eq!(uncovered_from_attempts(MAX_COV_PIDS as u32 + 44), 44);
         assert_eq!(uncovered_from_attempts(u32::MAX), u32::MAX - MAX_COV_PIDS as u32);
+    }
+
+    /// ADR-4, 2026-10-27. Only a family every member of which said it is a console program loses the
+    /// hand-off suspicion. One windowed member, or one whose kind is not known, keeps it.
+    #[test]
+    fn only_a_family_of_known_console_programs_is_not_a_suspected_hand_off() {
+        const CONSOLE: Option<u32> = Some(chrono_ctl::SUBSYSTEM_CONSOLE);
+        const WINDOWED: Option<u32> = Some(chrono_ctl::SUBSYSTEM_WINDOWS);
+        assert!(only_console(1, &[CONSOLE]));
+        assert!(only_console(3, &[CONSOLE, CONSOLE, CONSOLE]));
+        assert!(!only_console(1, &[WINDOWED]), "the second instance of a windowed application");
+        assert!(!only_console(2, &[CONSOLE, WINDOWED]), "a console starter of a windowed application");
+        assert!(!only_console(2, &[CONSOLE, None]), "a member whose hook never published");
+        assert!(!only_console(1, &[Some(0)]), "a member that could not read its own headers");
+        assert!(!only_console(0, &[]), "a launched process that never signed in");
+        let full = vec![CONSOLE; MAX_COV_PIDS];
+        assert!(only_console(MAX_COV_PIDS as u32, &full), "the last slot is still a slot");
+        assert!(!only_console(MAX_COV_PIDS as u32 + 1, &full), "a process with nowhere to say what it was");
     }
 
     /// R2-S3. The QPC channel rides its OWN opt-in. Off, it is not a gap - leaving QPC real is the

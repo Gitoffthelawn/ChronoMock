@@ -176,6 +176,23 @@ const NATIVEAOT_WINDOW: usize = 1 << 20;
 /// target comes near it. A header further in than this is a miss, the safe direction.
 const NATIVEAOT_BUDGET: u64 = 256 << 20;
 
+/// The crate name in front of the version in a source path a Rust build keeps for its panic messages,
+/// `...\jiff-0.2.37\src\...` (or `/` between them, from a build that trims its paths). The version and
+/// the separator into `src` are checked behind it, so `jiff-tzdb`, another crate's name that starts the
+/// same way, and prose that merely mentions the crate do not count.
+const JIFF_PATH: &[u8] = b"jiff-";
+
+/// The longest version-and-separator tail looked at behind `JIFF_PATH`: three numbers of up to five
+/// digits, their two dots, the separator and `src`. A window ends this far before its last byte is read.
+const JIFF_TAIL: usize = 3 * 5 + 2 + 1 + 3;
+
+/// How much of `.rdata` one read takes, and how much of it the search reads in all. Measured where the
+/// path sits: 2.6 MiB into the 4.4 MiB `.rdata` of the one jiff build on this machine, a console tool
+/// set. The search runs for every native target, so the budget bounds what a large one costs: a path
+/// further in is a miss, which leaves the program on UTC, as it was before the search existed.
+const JIFF_WINDOW: usize = 1 << 20;
+const JIFF_BUDGET: u64 = 32 << 20;
+
 /// `IMAGE_SCN_MEM_EXECUTE`: a section of code, which the header search skips. The runtime keeps its
 /// module header in read-only data, and code is full of four-byte runs that spell anything at all -
 /// measured, both NativeAOT probes carry "RTR\0" once in `.text` as well, followed by nonsense.
@@ -194,6 +211,61 @@ const SECTION_EXECUTES: u32 = 0x2000_0000;
 /// short read - all answer "not Go".
 pub(crate) fn is_go_binary(target_path: &Path) -> bool {
     File::open(target_path).ok().and_then(go_buildinfo_in_data).unwrap_or(false)
+}
+
+/// Whether this executable links the Rust `jiff` crate, by the source path its build keeps in `.rdata`.
+///
+/// 🔴 Why it is worth knowing: jiff finds the local zone by NAME. It reads only the key name
+/// `GetDynamicTimeZoneInformation` returns and maps it to an IANA zone through the CLDR table it carries
+/// (`tz/system/windows/mod.rs`, read from the 0.2.37 source), never the offset beside it. The session's
+/// zone has a name no table holds, so a jiff program under any session showed its time in UTC. The one
+/// thing it reads before that name is the `TZ` variable, which is how the session zone reaches it.
+///
+/// Leans to "no" on every doubt, like the Go fingerprint: an unreadable file, no `.rdata`, a short read,
+/// a path past the budget.
+pub(crate) fn links_jiff(target_path: &Path) -> bool {
+    File::open(target_path).ok().and_then(jiff_path_in_rdata).unwrap_or(false)
+}
+
+/// The walk `links_jiff` wraps: `.rdata` in windows that overlap by one whole tail, within the budget.
+fn jiff_path_in_rdata<R: Read + Seek>(image: R) -> Option<bool> {
+    let mut pe = PeFile::from_reader(image)?;
+    let section = pe.section(b".rdata\0\0")?;
+    let searched = u64::from(section.raw_size).min(JIFF_BUDGET);
+    let mut start = 0u64;
+    while start < searched {
+        let window = (searched - start).min(JIFF_WINDOW as u64);
+        let span = (u64::from(section.raw_size) - start).min(window + (JIFF_PATH.len() + JIFF_TAIL) as u64);
+        let bytes = pe.read_at(u64::from(section.raw_offset) + start, span as usize)?;
+        if (0..window as usize).any(|at| jiff_path_at(&bytes, at)) {
+            return Some(true);
+        }
+        start += window;
+    }
+    Some(false)
+}
+
+/// Whether `bytes` holds jiff's source path at `at`: `jiff-`, a version of three dot-separated numbers,
+/// a path separator, then `src`.
+fn jiff_path_at(bytes: &[u8], at: usize) -> bool {
+    let Some(rest) = bytes.get(at..).filter(|rest| rest.starts_with(JIFF_PATH)) else {
+        return false;
+    };
+    let mut cursor = JIFF_PATH.len();
+    for part in 0..3 {
+        let digits = rest.get(cursor..).map_or(0, |tail| tail.iter().take(6).take_while(|b| b.is_ascii_digit()).count());
+        if digits == 0 || digits > 5 {
+            return false;
+        }
+        cursor += digits;
+        if part < 2 {
+            if rest.get(cursor) != Some(&b'.') {
+                return false;
+            }
+            cursor += 1;
+        }
+    }
+    matches!(rest.get(cursor), Some(b'\\' | b'/')) && rest.get(cursor + 1..cursor + 4) == Some(b"src".as_slice())
 }
 
 /// Whether this is a .NET executable that the files beside it may not give away, by any of the four
@@ -793,6 +865,61 @@ mod tests {
 
         for p in [go, plain, neighbour, tail] {
             let _ = std::fs::remove_file(p);
+        }
+    }
+
+    /// `.rdata` the way a Rust build lays it out around a crate's panic location: other strings, then
+    /// the source path, then more strings.
+    fn rdata_with(path: &[u8]) -> Vec<u8> {
+        let mut data = b"called `Option::unwrap()` on a `None` value\0".to_vec();
+        data.extend_from_slice(path);
+        data.extend_from_slice(b"\0index out of bounds\0");
+        data
+    }
+
+    /// The reversal probe for the jiff fingerprint, both ways: the path a jiff build keeps answers yes,
+    /// under either separator, and everything that only resembles it answers no.
+    #[test]
+    fn the_jiff_fingerprint_answers_on_its_source_path_and_nothing_like_it() {
+        let yes = |name: &str, path: &[u8]| {
+            let file = write_probe(name, &synthetic_pe(0x20B, b".rdata\0\0", &rdata_with(path), None));
+            let found = links_jiff(&file);
+            let _ = std::fs::remove_file(file);
+            found
+        };
+        assert!(yes("jiff-windows", br"C:\Users\b\.cargo\registry\src\index\jiff-0.2.37\src\fmt\offset.rs"));
+        assert!(yes("jiff-trimmed", b"jiff-0.2.37/src/util/parse.rs"), "a build that trims its paths");
+        assert!(yes("jiff-major", b"jiff-12.0.0\\src\\lib.rs"), "a later major version");
+
+        assert!(!yes("jiff-tzdb", br"C:\x\jiff-tzdb-0.1.8\src\lib.rs"), "the zone database crate alone");
+        assert!(!yes("jiff-prose", b"built with jiff-0.2.37 and nothing else"), "a mention, not a path");
+        assert!(!yes("jiff-two", b"jiff-0.2\\src\\lib.rs"), "two numbers are not a crate version");
+        assert!(!yes("jiff-long", b"jiff-0.2.123456\\src\\lib.rs"), "a number no version has");
+        assert!(!yes("jiff-plain", b"ordinary strings, no crate paths at all"));
+
+        // The path cut off by the end of the section: the bytes behind it are not in it.
+        let cut = write_probe("jiff-cut", &synthetic_pe(0x20B, b".rdata\0\0", b"jiff-0.2.37\\sr", None));
+        assert!(!links_jiff(&cut), "a path the section ends inside");
+        let _ = std::fs::remove_file(cut);
+
+        // The path in a section the search does not read.
+        let elsewhere = write_probe("jiff-data", &synthetic_pe(0x20B, b".data\0\0\0", &rdata_with(b"jiff-0.2.37\\src\\a.rs"), None));
+        assert!(!links_jiff(&elsewhere), "read .rdata, where a build keeps its string literals");
+        let _ = std::fs::remove_file(elsewhere);
+    }
+
+    /// The search reads `.rdata` in windows, so a path that starts in one window's last bytes and runs
+    /// into the next has to be found, and so does one deep in a section larger than a window.
+    #[test]
+    fn the_jiff_path_is_found_across_the_edge_of_a_read_window() {
+        let path = b"jiff-0.2.37\\src\\tz\\system\\windows\\mod.rs";
+        for at in [JIFF_WINDOW - 3, JIFF_WINDOW - JIFF_PATH.len(), JIFF_WINDOW + 7, 3 * JIFF_WINDOW + 1] {
+            let mut data = vec![b'x'; at];
+            data.extend_from_slice(path);
+            data.extend_from_slice(&[0u8; 16]);
+            let file = write_probe("jiff-edge", &synthetic_pe(0x20B, b".rdata\0\0", &data, None));
+            assert!(links_jiff(&file), "the path at {at} bytes into .rdata");
+            let _ = std::fs::remove_file(file);
         }
     }
 

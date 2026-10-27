@@ -73,6 +73,7 @@ unsafe extern "system" {
     fn GetLocalTime(st: *mut u8);
     fn GetTimeZoneInformation(tzi: *mut u8) -> u32;
     fn GetDynamicTimeZoneInformation(dtzi: *mut u8) -> u32;
+    fn GetTimeZoneInformationForYear(year: u16, dtzi: *const c_void, tzi: *mut u8) -> i32;
     fn FileTimeToLocalFileTime(utc: *const u8, local: *mut u8) -> i32;
     fn LocalFileTimeToFileTime(local: *const u8, utc: *mut u8) -> i32;
     fn SystemTimeToTzSpecificLocalTime(zone: *const c_void, utc: *const u8, local: *mut u8) -> i32;
@@ -305,6 +306,8 @@ fn read_through_odd_addresses(out: &Path) {
         line("gtzi", a.read::<i32>().to_string());
         GetDynamicTimeZoneInformation(a.odd());
         line("gdtzi", a.read::<i32>().to_string());
+        let ok = GetTimeZoneInformationForYear(2076, std::ptr::null(), a.odd());
+        line("gtzify", format!("{} {ok}", a.read::<i32>()));
 
         // The conversions: UTC midnight of the session's day in, the local value out, and back.
         a.write::<u64>(0x01DC_0000_0000_0000);
@@ -511,10 +514,10 @@ fn lines(file: &Path) -> HashMap<String, Vec<String>> {
 }
 
 /// Every name the `odd` half writes, in order. The one after the last line present is where it died.
-const ODD_NAMES: [&str; 26] = [
-    "gstaft", "gstpaft", "gst", "glt", "ntqst", "gtzi", "gdtzi", "ftlft", "lftft", "stsl", "stslex", "tltst",
-    "tltstex", "quit", "qit", "qitp", "quitp", "qpc", "ntdelay", "swt", "swtex", "tptimer", "tptimerex", "child",
-    "cpw", "done",
+const ODD_NAMES: [&str; 27] = [
+    "gstaft", "gstpaft", "gst", "glt", "ntqst", "gtzi", "gdtzi", "gtzify", "ftlft", "lftft", "stsl", "stslex",
+    "tltst", "tltstex", "quit", "qit", "qitp", "quitp", "qpc", "ntdelay", "swt", "swtex", "tptimer", "tptimerex",
+    "child", "cpw", "done",
 ];
 
 /// The first name the probe did not write, if any.
@@ -577,9 +580,10 @@ fn every_clock_read_through_an_odd_address_answers_on_the_session_clock() {
     for name in ["gst", "glt"] {
         assert!(number::<u16>(&seen, name, 0).is_some_and(|y| y >= 2070), "{name} did not read the session's year. {}", context());
     }
-    for name in ["gtzi", "gdtzi"] {
+    for name in ["gtzi", "gdtzi", "gtzify"] {
         assert_eq!(number::<i32>(&seen, name, 0), Some(SESSION_BIAS), "{name} did not report the session's zone. {}", context());
     }
+    assert_eq!(number::<i32>(&seen, "gtzify", 1), Some(1), "the zone of a year was refused. {}", context());
     // Five hours east: local is UTC plus 300 minutes, and the way back is the same distance.
     assert_eq!(number::<i64>(&seen, "ftlft", 1), Some(300), "the UTC to local conversion is not the session's. {}", context());
     assert_eq!(number::<i64>(&seen, "lftft", 1), Some(300), "the local to UTC conversion is not the session's. {}", context());
