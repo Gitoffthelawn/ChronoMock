@@ -187,19 +187,63 @@ public partial class MainWindow : FluentWindow
             return;
         }
 
-        // Read the drop NOW: its data lives only as long as this event, and the look below awaits.
-        var path = DroppedExecutable(e);
-        var files = e.Data.GetDataPresent(DataFormats.FileDrop);
+        // Read the drop NOW: its data lives only as long as this event, and the look in the offer awaits.
+        var dropped = e.Data.GetDataPresent(DataFormats.FileDrop) ? e.Data.GetData(DataFormats.FileDrop) : null;
+        await OfferAsync(DroppedExecutable(e), DroppedTarget.RefusalFor(DroppedTarget.FileCount(dropped)));
+    }
 
-        // Say why nothing happened rather than swallowing the drop (rule 6): a program that is not there, a
-        // shortcut that leads to no program, or a file that is neither. A dropped .bat could only fail
-        // later, and failing at the drop is the honest place for it.
+    /// <summary>
+    /// Offer the program or shortcut named on the window's command line once the window has been DRAWN, so a
+    /// refusal stands on it: offered at Loaded, the refusal came up before the first frame and stood on the
+    /// screen alone, with the window not even in the automation tree (measured 2026-10-26).
+    /// <para>
+    /// Offered once. The handler takes itself off before it offers, because a handler left on the event would
+    /// run again on any later ContentRendered and put the command line's target back over one the tester
+    /// picked in the meantime. Awaited in the handler, as the drop is, so a fault reaches the dispatcher's net
+    /// at once rather than a discarded task's finalizer.
+    /// </para>
+    /// </summary>
+    internal void OfferOnFirstRender(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0)
+        {
+            return;
+        }
+
+        EventHandler? offer = null;
+        offer = async (_, _) =>
+        {
+            ContentRendered -= offer;
+            await OfferStartupTargetAsync(args);
+        };
+        ContentRendered += offer;
+    }
+
+    /// <summary>
+    /// Offer the program or shortcut named on the window's command line (<c>ChronoMock.exe &lt;file&gt;</c>), as a
+    /// drop offers one: it fills the target and starts nothing (rule 7), and a file that cannot be the target
+    /// is refused in the words a drop gets.
+    /// </summary>
+    internal Task OfferStartupTargetAsync(IReadOnlyList<string> args)
+        => args.Count == 0
+            ? Task.CompletedTask
+            : OfferAsync(DroppedTarget.FromCommandLine(args, Environment.CurrentDirectory), DroppedTarget.RefusalFor(args.Count));
+
+    /// <summary>
+    /// Offer a target from outside the window's own controls - a drop or the command line - and say why
+    /// nothing happened rather than swallowing it (rule 6): a program that is not there, a shortcut that
+    /// leads to no program, a file that is neither, or more than one file. A .bat could only fail later, and
+    /// failing here is the honest place for it. One method for both ways in, so they cannot answer
+    /// differently. <paramref name="noTarget"/> is what to say when the offer named no target at all.
+    /// </summary>
+    private async Task OfferAsync(string? path, string noTarget)
+    {
         var refusal = path is not null
             ? TargetIntake.RefusalKey(await _session.Commands.Targets.TakeAsync(path))
-            : files ? "target.drop_rejected" : string.Empty;
+            : noTarget;
         if (refusal.Length > 0)
         {
-            Views.MessageDialog.Tell(this, Text("target.drop_rejected_title"), Text(refusal));
+            Views.MessageDialog.Tell(this, Text(DroppedTarget.TitleFor(refusal)), Text(refusal));
         }
     }
 

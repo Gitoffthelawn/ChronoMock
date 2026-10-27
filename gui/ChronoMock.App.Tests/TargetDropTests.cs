@@ -170,6 +170,119 @@ public class TargetDropTests
         Assert.Equal("target.program_missing", TargetIntake.RefusalKey(taken));
     }
 
+    /// <summary>The command line (<c>ChronoMock.exe &lt;file&gt;</c>, "Open with") is judged by the rule a drop is:
+    /// one file, a program or a shortcut. A relative name is read from the folder the window was started in,
+    /// and a name no full path can be made of is no target rather than a crash at start.</summary>
+    [Fact]
+    public void The_command_line_offers_a_target_by_the_rule_a_drop_is_judged_by()
+    {
+        Assert.Equal(@"C:\work\app.exe", DroppedTarget.FromCommandLine(new[] { "app.exe" }, @"C:\work"));
+        Assert.Equal(@"C:\apps\app.exe", DroppedTarget.FromCommandLine(new[] { @"..\apps\app.exe" }, @"C:\work"));
+        Assert.Equal(@"D:\links\app.lnk", DroppedTarget.FromCommandLine(new[] { @"D:\links\app.lnk" }, @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(Array.Empty<string>(), @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "a.exe", "b.exe" }, @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "run.bat" }, @"C:\work"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "app.exe" }, "not-a-full-path"));
+        Assert.Null(DroppedTarget.FromCommandLine(new[] { "a\0b.exe" }, @"C:\work"));
+    }
+
+    /// <summary>The window's own way from its command line to the target: a program named there is taken, over
+    /// the target the window opened with, and naming it starts nothing (rule 7).</summary>
+    [Fact]
+    public async Task A_program_named_on_the_command_line_becomes_the_target_and_nothing_starts()
+    {
+        var exe = TempProgram();
+        try
+        {
+            var (target, idle) = await WpfTestHost.RunAsync(async () =>
+            {
+                var window = new MainWindow();
+                await window.OfferStartupTargetAsync(new[] { exe });
+                var session = (SessionViewModel)window.DataContext;
+                return (session.TargetPath, session.IsIdle);
+            });
+
+            Assert.Equal(exe, target);
+            Assert.True(idle, "naming a program fills the form, it never starts a session");
+        }
+        finally
+        {
+            File.Delete(exe);
+        }
+    }
+
+    /// <summary>More than one file is refused for the count - the drop's own text says "only programs", which
+    /// is not what is wrong with two of them - and one file that is no target for what it is.</summary>
+    [Fact]
+    public void Two_files_are_refused_for_the_count_and_one_for_what_it_is()
+    {
+        Assert.Equal(string.Empty, DroppedTarget.RefusalFor(0));
+        Assert.Equal("target.drop_rejected", DroppedTarget.RefusalFor(1));
+        Assert.Equal("target.one_at_a_time", DroppedTarget.RefusalFor(2));
+        Assert.Equal(2, DroppedTarget.FileCount(new[] { @"C:\a.exe", @"C:\b.exe" }));
+        Assert.Equal(1, DroppedTarget.FileCount("text, not a file list"));
+        Assert.Equal(0, DroppedTarget.FileCount(null));
+        Assert.Equal("target.one_at_a_time_title", DroppedTarget.TitleFor("target.one_at_a_time"));
+        Assert.Equal("target.drop_rejected_title", DroppedTarget.TitleFor("target.program_missing"));
+    }
+
+    /// <summary>
+    /// The startup hookup: the command line is offered when the window is first drawn, and only then. A
+    /// second ContentRendered - after the tester picked another program - must not put the command line's
+    /// target back. Raised through the window's own OnContentRendered, so the window is never shown: a shown
+    /// window reads the scenario list through the engine, and a window built in a test starts nothing.
+    /// </summary>
+    [Fact]
+    public async Task The_command_line_is_offered_when_the_window_is_first_drawn_and_only_then()
+    {
+        var exe = TempProgram();
+        var picked = TempProgram();
+        try
+        {
+            var (before, first, second) = await WpfTestHost.RunAsync(async () =>
+            {
+                var window = new MainWindow();
+                var session = (SessionViewModel)window.DataContext;
+                window.OfferOnFirstRender(new[] { exe });
+                var notYet = session.TargetPath;
+
+                Rendered(window);
+                await TargetBecomes(session, exe);
+                var afterFirst = session.TargetPath;
+
+                session.SetTarget(picked);
+                Rendered(window);
+                await Task.Delay(TimeSpan.FromMilliseconds(300), TestContext.Current.CancellationToken);
+                return (notYet, afterFirst, session.TargetPath);
+            });
+
+            Assert.NotEqual(exe, before);
+            Assert.Equal(exe, first);
+            Assert.Equal(picked, second);
+        }
+        finally
+        {
+            File.Delete(exe);
+            File.Delete(picked);
+        }
+    }
+
+    /// <summary>Raise ContentRendered as WPF does after a frame, through the window's own protected raiser.</summary>
+    private static void Rendered(System.Windows.Window window)
+        => typeof(System.Windows.Window)
+            .GetMethod("OnContentRendered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(window, new object[] { EventArgs.Empty });
+
+    /// <summary>Wait, letting the dispatcher run, until the target is the given program or a deadline passes.</summary>
+    private static async Task TargetBecomes(SessionViewModel session, string program)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (session.TargetPath != program && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), TestContext.Current.CancellationToken);
+        }
+    }
+
     private static string TempProgram()
     {
         var exe = Path.Combine(Path.GetTempPath(), $"chrono-drop-{Guid.NewGuid():N}.exe");

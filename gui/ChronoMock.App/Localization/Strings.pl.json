@@ -195,6 +195,8 @@
   "target.drop_hint": "…albo przeciągnij aplikację na to okno",
   "target.drop_rejected_title": "Tego pliku nie da się tu uruchomić",
   "target.drop_rejected": "W tym oknie można uruchomić tylko programy (.exe) i skróty do nich. Skrypt (.bat albo .cmd) uruchomisz poleceniem chrono w wierszu poleceń.",
+  "target.one_at_a_time_title": "Jedna aplikacja naraz",
+  "target.one_at_a_time": "Podano więcej niż jeden plik, a sesja uruchamia jedną aplikację. Wybierz jeden program (.exe) albo jeden skrót do niego.",
   "target.shortcut_rejected": "Ten skrót nie prowadzi do pliku programu (.exe) - skrót utworzony przez instalator go nie podaje. Wybierz zamiast niego sam program.",
   "target.program_missing": "Tego programu tu nie ma - został przeniesiony albo usunięty, albo jego dysk jest niedostępny.",
 

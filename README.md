@@ -138,8 +138,8 @@ Antivirus software may flag the injected library. That is expected, and
 
 ## Two minutes with it
 
-**In the window:** pick the application - or drag its `.exe` onto the window, or reopen one you
-ran before - then click a scenario (`Year rollover`, `Last day of month`, `2038 boundary`, ...) or
+**In the window:** pick the application - or drag its `.exe` onto the window, open it with
+`ChronoMock.exe <path>`, or reopen one you ran before - then click a scenario (`Year rollover`, `Last day of month`, `2038 boundary`, ...) or
 type a date, choose a speed, press Start. Before you start, the panel reads the date back to you in
 plain language ("The application will see Friday, 25 December 2026, 09:00:00 (UTC+02:00)"), so a
 mistyped year or an off-by-one month is visible while it is still cheap. If the application needs
