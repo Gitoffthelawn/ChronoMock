@@ -94,7 +94,9 @@ the loopback host and the port it was given. Both behaviours are covered by test
 **It cleans up after itself, and cannot clean up after the target.** Chrono Mock
 leaves no persistent hooks and no registry entries. It writes the session history
 and a `diagnostics-*.log` under `%LOCALAPPDATA%\ChronoMock\`, which only your account
-can read, whichever copy you run, and for a Chromium target a throwaway browser
+can read, whichever copy you run (or under the folder `CHRONOMOCK_DATA_DIR` names,
+when whoever starts the window sets it to a full path - a value that is not one stops
+the window at start rather than write beside it), and for a Chromium target a throwaway browser
 profile under `%TEMP%` that is deleted when the session ends and reported in the
 summary when it could not be. An application run in the future writes future dates
 into its own data, and no tool can undo that - the README says so before you start.
@@ -107,7 +109,8 @@ into its own data, and no tool can undo that - the README says so before you sta
   reporting is a function of this product rather than a nicety, so an audit that
   can be made to lie is a real vulnerability even when the substitution worked.
 - A preset, calendar or session-history file that causes code execution, or that
-  makes the tool write outside its own folder and `%LOCALAPPDATA%\ChronoMock\`.
+  makes the tool write outside its own folder and `%LOCALAPPDATA%\ChronoMock\` (or the
+  folder `CHRONOMOCK_DATA_DIR` names).
 - A way to reach the Chromium mode debug port from outside the machine, or for
   another local process to take over a session's browser through it.
 - A crash or a hook failure that corrupts the target process rather than stopping

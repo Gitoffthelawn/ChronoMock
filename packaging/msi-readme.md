@@ -31,7 +31,8 @@ path, `core\x86\chrono.exe` in this folder.
 
 The window keeps its session history and diagnostics logs in `%LOCALAPPDATA%\ChronoMock`,
 never in this folder. Uninstalling (Settings, Apps) removes the program, the Start menu entry
-and the PATH entry, and leaves that folder alone.
+and the PATH entry, and leaves that folder alone. The environment variable `CHRONOMOCK_DATA_DIR`,
+set to a full path, moves both to that folder.
 
 ## Antivirus / Microsoft Defender
 

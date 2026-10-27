@@ -26,6 +26,13 @@ Notable changes to Chrono Mock, newest first. The format follows
   the form as a drop on the window does, so "Open with" in Explorer and a program dropped on the window's
   icon land in it. A relative name is read from the folder the window was started in. A file that cannot
   be the application is refused with the reason a drop gets. Nothing starts until Start.
+- **`CHRONOMOCK_DATA_DIR` moves the window's own folder.** Set to a full path, it holds the session
+  history and the diagnostics logs in place of `%LOCALAPPDATA%\ChronoMock`, for a test run that must
+  leave the history of the account it runs under alone. A value that is not a full path, or that holds
+  a character no folder name can have, stops the window at start and names the value, rather than
+  write into the folder the window was started from or fail later without naming the variable.
+  The window's own tests set it, so a fault they raise on purpose no longer leaves a diagnostics log
+  in the folder of the account that runs them.
 - **"Copy as command" under the calculator's result** copies the question it answers as a PowerShell
   command line: the engine by its full path, so it works from a portable copy that is not on PATH, and
   the same arguments, so a terminal gives the same answer. Windows PowerShell 5.1 passes three kinds of
