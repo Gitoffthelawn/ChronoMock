@@ -42,6 +42,11 @@ internal static class WritableFolder
     /// would put every history and log in whatever folder the window was started from. The startup box says
     /// which value it was.
     /// </para>
+    /// <para>
+    /// 🔴 So is a full path with a character no folder name can have (review round on #145). .NET has not checked
+    /// path characters since Core 2.1, so <c>Y:\data|bad</c> passes both calls here, the window comes up, its
+    /// logs fail in silence and the first history save fails without a word about the variable.
+    /// </para>
     /// </summary>
     internal static string ForApp(string name, string? fromVariable)
     {
@@ -53,12 +58,27 @@ internal static class WritableFolder
 
         if (!Path.IsPathFullyQualified(fromVariable))
         {
-            throw new InvalidOperationException(
-                $"{Variable} is set to \"{fromVariable}\", which is not a full path, so Chrono Mock does not know where to keep its history and logs.");
+            throw Refused(fromVariable, "is not a full path");
         }
 
-        return Path.Combine(Path.GetFullPath(fromVariable), name);
+        var full = Path.GetFullPath(fromVariable);
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        if (full[root.Length..].Split(Path.DirectorySeparatorChar).Any(folder => folder.IndexOfAny(NotInAFolderName) >= 0)
+            || root.IndexOfAny(NotInARoot) >= 0)
+        {
+            throw Refused(fromVariable, "holds a character no folder name can have");
+        }
+
+        return Path.Combine(full, name);
     }
+
+    private static readonly char[] NotInAFolderName = Path.GetInvalidFileNameChars();
+
+    /// <summary>What may not stand in a drive or share either - the separators and the drive's colon may.</summary>
+    private static readonly char[] NotInARoot = ['"', '<', '>', '|', '*', '?'];
+
+    private static InvalidOperationException Refused(string value, string why) => new(
+        $"{Variable} is set to \"{value}\", which {why}, so Chrono Mock does not know where to keep its history and logs.");
 
     /// <summary>
     /// The folder for one kind of the window's own files under a per-user root - separate so a test can ask it

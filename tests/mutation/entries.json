@@ -20043,14 +20043,48 @@
     "edits": [
       {
         "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
-        "from": "        return Path.Combine(Path.GetFullPath(fromVariable), name);",
-        "to": "        return Path.Combine(fromVariable, name);"
+        "from": "        var full = Path.GetFullPath(fromVariable);",
+        "to": "        var full = fromVariable;"
       }
     ],
     "runner": "cs",
     "package": "gui/ChronoMock.App.Tests",
     "target": [],
     "test": "ChronoMock.App.Tests.DataFolderTests.The_variable_moves_the_files_to_the_folder_it_names",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "data-dir a character no folder name can have accepted in a folder",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
+        "from": ".Any(folder => folder.IndexOfAny(NotInAFolderName) >= 0)",
+        "to": ".Any(folder => folder.Length < 0)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DataFolderTests.A_variable_with_a_character_no_folder_name_can_have_is_refused",
+    "match": "method",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "data-dir a character no folder name can have accepted in a share's host",
+    "edits": [
+      {
+        "file": "gui/ChronoMock.App/Session/WritableFolder.cs",
+        "from": "|| root.IndexOfAny(NotInARoot) >= 0)",
+        "to": "|| root.Length < 0)"
+      }
+    ],
+    "runner": "cs",
+    "package": "gui/ChronoMock.App.Tests",
+    "target": [],
+    "test": "ChronoMock.App.Tests.DataFolderTests.A_variable_with_a_character_no_folder_name_can_have_is_refused",
     "match": "method",
     "build": "",
     "notHere": ""

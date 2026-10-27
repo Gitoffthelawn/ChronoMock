@@ -69,6 +69,28 @@ public sealed class DataFolderTests : IDisposable
     }
 
     /// <summary>
+    /// Review round on #145. A full path with a character no folder name can have passes .NET's path calls (they
+    /// stopped checking characters in Core 2.1), so the window came up and its logs and history failed later
+    /// without naming the variable. Refused at start instead, in a folder and in a share's host alike. Reversal
+    /// probes: drop either check and its values pass.
+    /// </summary>
+    [Theory]
+    [InlineData(@"Y:\data|bad")]
+    [InlineData(@"Y:\da*ta")]
+    [InlineData(@"Y:\data\what?")]
+    [InlineData(@"Y:\data\a<b")]
+    [InlineData(@"Y:\data\stream:x")]
+    [InlineData("Y:\\da\"ta")]
+    [InlineData(@"\\ser|ver\share\data")]
+    public void A_variable_with_a_character_no_folder_name_can_have_is_refused(string value)
+    {
+        var refusal = Assert.Throws<InvalidOperationException>(() => WritableFolder.ForApp("logs", value));
+        Assert.Contains(WritableFolder.Variable, refusal.Message, StringComparison.Ordinal);
+        Assert.Contains($"\"{value}\"", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("character", refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The test run names its own folder before the first test (<see cref="TestDataFolder"/>), so no window a test
     /// builds reads or writes the files of the account that runs the tests. Reversal probes: stop reading the
     /// variable, or stop naming it for the run, and the window's folder is the account's own again.
