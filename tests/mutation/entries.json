@@ -21892,5 +21892,120 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "no-tls a the gate always says the storage is there",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    !vector.is_null() && unsafe { !(*vector.add(_tls_index as usize)).is_null() }\n",
+        "to": "    let _ = vector;\n    true\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls b the gate does not look for this module's slot",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    !vector.is_null() && unsafe { !(*vector.add(_tls_index as usize)).is_null() }\n",
+        "to": "    !vector.is_null()\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls c a thread without the storage enters a cascade",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "        Some(false) => Some(set_flag(flag, true)),\n",
+        "to": "        Some(false) | None => Some(set_flag(flag, true)),\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls d a flag is written without the storage",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    FlagRestore { flag, was: thread_has_tls().then(|| flag.replace(up)) }\n",
+        "to": "    FlagRestore { flag, was: Some(flag.replace(up)) }\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls e the core does not name calls made without storage",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    if read_calls_without_storage(cov) > 0 {\n",
+        "to": "    if read_calls_without_storage(cov) > 2 {\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_call_on_a_thread_without_storage_is_reported",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls f the report has no words for calls made without storage",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "        \"wait.thread_without_storage\" => {\n",
+        "to": "        \"wait.thread_without_storage_\" => {\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "wire_keys"
+    ],
+    "test": "every_wire_key_has_a_gloss_in_the_cli_report",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
   }
 ]

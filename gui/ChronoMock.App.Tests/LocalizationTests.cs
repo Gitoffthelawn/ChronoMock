@@ -44,7 +44,7 @@ public class LocalizationTests
         "chromium.no_time_calls", "chromium.no_contexts",
         // Coverage warning keys (CoverageEvent warning_keys).
         "source.network_at_start", "wait.object_waits_not_scaled", "wait.timeout_collapsed",
-        "timer.interval_floored", "wait.network_timeouts_scaled",
+        "timer.interval_floored", "wait.network_timeouts_scaled", "wait.thread_without_storage",
         "timer.multimedia_not_scaled", "clock.timegettime_scaled_audio_may_shift",
         "coverage.channel_installed_late",
         "inheritance.ntcreateuserprocess_child_maybe_uncovered",

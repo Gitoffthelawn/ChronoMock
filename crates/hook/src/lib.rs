@@ -75,7 +75,7 @@ use chrono_ctl::{
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_deadline, scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
-    wait_hit_floor, bump_timers_at_floor, timer_elapse_hit_floor, timer_period_hit_floor, ChannelModule, Cov,
+    wait_hit_floor, bump_timers_at_floor, bump_calls_without_storage, timer_elapse_hit_floor, timer_period_hit_floor, ChannelModule, Cov,
     Ctl, CHANNELS, IDX_GDTZI, IDX_GLT, IDX_GST, IDX_GSTAFT, IDX_GSTPAFT, IDX_GTC, IDX_GTC64,
     IDX_GTZI, IDX_NTDELAY, IDX_NTQSI, IDX_NTQST, IDX_QUIT, IDX_SLEEP, IDX_SLEEPEX, IDX_STSL,
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
@@ -103,7 +103,7 @@ use windows::Win32::System::Memory::{
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_UNKNOWN};
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
+    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread, GetCurrentThreadId,
     GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, IsWow64Process2, OpenProcess, ResumeThread,
     WaitForSingleObject, CREATE_SUSPENDED, DEBUG_ONLY_THIS_PROCESS, DEBUG_PROCESS,
     INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -1891,8 +1891,11 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
     };
     // A call of the hook's own into a system clock that reaches this export from inside the system (R5-F5):
     // the real counter, not counted - it is not the application's call, and scaled it corrupts the clock
-    // the hook was reading.
-    if OWN_CLOCK.get() {
+    // the hook was reading. A thread without thread-local storage cannot say whose call it is, and gets
+    // the same untouched answer: a counter left real there is safer than a hook clock scaled under itself.
+    // It is not counted as a call without storage either (`enter_detour`), because there the hook's own
+    // reads would count too, and the report would name a gap the hook made itself.
+    if read_flag(&OWN_CLOCK).unwrap_or(true) {
         return o(lp);
     }
     bump(IDX_QPC);
@@ -1958,31 +1961,103 @@ thread_local! {
     static SCALING_WAIT: Cell<bool> = const { Cell::new(false) };
 }
 
+// A thread can run without the storage every `thread_local!` of the hook lives in: one the loader is
+// ending, past the point where it freed that storage (`LdrShutdownThread`), or one started without it.
+// The compiled read of a thread-local goes through the TEB's `ThreadLocalStoragePointer`, which is null
+// then, so the read faulted inside the detour. Measured 2026-10-28 on two real programs: a helper process
+// of one died of the fault, and the other hung at its start for good, because the heap called a hooked
+// wait while it freed that very storage, the fault's handler asked the same heap for memory, and the heap
+// lock was the thread's own (`TEB+0x58` read 0 on the hung thread, the core gave up after 10 s). Every
+// flag read and write below asks `thread_has_tls` first. A thread without the storage cannot tell a
+// cascade from an application call, so its call goes to the system as it came: unscaled is wrong by one
+// rate, a cascade scaled at every level is wrong by its power, and a fault is worse than both.
+
+/// Whether this thread has the thread-local storage of this module: the TEB's vector and this module's
+/// slot in it. The same two reads the compiler makes for a `thread_local!`, made first so they never fault.
+#[inline]
+fn thread_has_tls() -> bool {
+    unsafe extern "C" {
+        static _tls_index: u32;
+    }
+    let vector: *const *const u8;
+    // SAFETY: one pointer-sized field of this thread's own TEB, which every thread has -
+    // `ThreadLocalStoragePointer`, at 0x58 from gs on x64 and 0x2C from fs on x86, the address the
+    // compiled thread-local reads start from.
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        core::arch::asm!("mov {}, qword ptr gs:[0x58]", out(reg) vector, options(nostack, readonly, preserves_flags));
+    }
+    #[cfg(target_arch = "x86")]
+    unsafe {
+        core::arch::asm!("mov {}, dword ptr fs:[0x2C]", out(reg) vector, options(nostack, readonly, preserves_flags));
+    }
+    // SAFETY: a vector that is there holds one slot per module with thread-locals, `_tls_index` this one's.
+    !vector.is_null() && unsafe { !(*vector.add(_tls_index as usize)).is_null() }
+}
+
+/// The flag on this thread, or None on a thread without thread-local storage to hold it (`thread_has_tls`).
+fn read_flag(flag: &'static LocalKey<Cell<bool>>) -> Option<bool> {
+    thread_has_tls().then(|| flag.get())
+}
+
 /// Puts a thread-local flag of the wait and timer detours back to what it was when it was set.
 ///
 /// Back to what it was, not down: a guard taken inside another's span leaves the outer one standing.
 struct FlagRestore {
     flag: &'static LocalKey<Cell<bool>>,
-    was: bool,
+    /// None when the thread had no thread-local storage to set the flag in, so there is nothing to put back.
+    was: Option<bool>,
 }
 
 impl Drop for FlagRestore {
     fn drop(&mut self) {
-        self.flag.set(self.was);
+        if let Some(was) = self.was
+            && thread_has_tls()
+        {
+            self.flag.set(was);
+        }
     }
 }
 
-/// Set `flag` to `up` until the returned guard drops.
+/// Set `flag` to `up` until the returned guard drops. On a thread without thread-local storage, nothing.
 fn set_flag(flag: &'static LocalKey<Cell<bool>>, up: bool) -> FlagRestore {
-    FlagRestore { flag, was: flag.replace(up) }
+    FlagRestore { flag, was: thread_has_tls().then(|| flag.replace(up)) }
 }
 
-/// The call that starts a cascade raises the flag and gets its guard, a call inside one gets None.
+/// The call that starts a cascade raises the flag and gets its guard, a call inside one gets None - and
+/// so does a call on a thread without thread-local storage, which cannot tell the two apart.
 fn enter_once(flag: &'static LocalKey<Cell<bool>>) -> Option<FlagRestore> {
-    if flag.get() {
-        return None;
+    match read_flag(flag) {
+        Some(false) => Some(set_flag(flag, true)),
+        _ => None,
     }
-    Some(set_flag(flag, true))
+}
+
+/// `enter_once` for a wait, object-wait or timer detour, which counts what it lets by: a None there means
+/// a cascade, counted at its top already, except on a thread without thread-local storage, where it means
+/// a call that ran unscaled and uncounted. That one is counted apart, so the report says a part of the
+/// application ran on the real clock (`wait.thread_without_storage`) instead of looking complete (rule 4).
+///
+/// Not on the thread that loaded the hook: that one is the injector's, ran none of the application's code,
+/// and is the very thread measured losing its storage as it ended (2026-10-28) - counting it would name a
+/// gap in the application that the hook's own start made.
+fn enter_detour(flag: &'static LocalKey<Cell<bool>>) -> Option<FlagRestore> {
+    let entered = enter_once(flag);
+    // SAFETY: GetCurrentThreadId reads this thread's TEB and takes no argument.
+    if entered.is_none() && !thread_has_tls() && unsafe { GetCurrentThreadId() } != LOADER_THREAD.load(Ordering::Relaxed) {
+        note_without_storage();
+    }
+    entered
+}
+
+/// The thread `DllMain` ran on - the one the injector started to load the hook (`enter_detour`).
+static LOADER_THREAD: AtomicU32 = AtomicU32::new(0);
+
+/// Count one hooked call passed through for want of thread-local storage (`enter_detour`).
+fn note_without_storage() {
+    if let Some(p) = live_cov() {
+        unsafe { bump_calls_without_storage(p) }
+    }
 }
 
 /// Run the original of a wait with `flag` down when the wait is alertable, so an APC that Windows runs
@@ -2041,7 +2116,7 @@ fn scaled_wait_ms(ms: u32, m: i64) -> u32 {
 /// re-entered.
 fn try_enter_wait(idx: usize) -> Option<(i64, FlagRestore)> {
     // None is an internal cascade: pass through, do not bump.
-    let guard = enter_once(&SCALING_WAIT)?;
+    let guard = enter_detour(&SCALING_WAIT)?;
     bump(idx);
     if detached() {
         // The core is gone, so this wait runs real - but it still cascades internally (Sleep funnels
@@ -2184,7 +2259,7 @@ thread_local! {
 /// returns a guard, held across the forwarded original so the cascade sees the flag set.
 fn enter_observed_wait(idx: usize) -> Option<FlagRestore> {
     // None is an internal cascade: counted at the top level already.
-    let guard = enter_once(&OBSERVING_WAIT)?;
+    let guard = enter_detour(&OBSERVING_WAIT)?;
     bump(idx);
     Some(guard)
 }
@@ -2378,7 +2453,7 @@ thread_local! {
 /// flag. Bumps coverage only for a top-level app call (rule 4).
 fn try_enter_timer(idx: usize) -> Option<FlagRestore> {
     // None is an internal cascade: pass through, do not bump.
-    let guard = enter_once(&SCALING_TIMER)?;
+    let guard = enter_detour(&SCALING_TIMER)?;
     bump(idx);
     // The guard is raised whether or not the core is still there. Symmetric to try_enter_wait
     // (R2-S4): with the core gone an internal cascade (SetWaitableTimer -> SetWaitableTimerEx, should
@@ -2662,16 +2737,27 @@ thread_local! {
 }
 
 /// Raised for the duration of a CreateProcess* original call, so the NtCreateUserProcess it funnels
-/// into is not counted as a direct spawn. Cleared on drop, even if the original unwinds.
+/// into is not counted as a direct spawn. Cleared on drop, even if the original unwinds. A thread without
+/// thread-local storage (`thread_has_tls`) reads it down: its child is still inherited, and its funnel
+/// call counts as a direct one, an observed channel counted once too often rather than a child let go.
 struct SpawningGuard;
 impl Drop for SpawningGuard {
     fn drop(&mut self) {
-        SPAWNING.set(false);
+        if thread_has_tls() {
+            SPAWNING.set(false);
+        }
     }
 }
 fn enter_spawning() -> SpawningGuard {
-    SPAWNING.set(true);
+    if thread_has_tls() {
+        SPAWNING.set(true);
+    }
     SpawningGuard
+}
+
+/// Whether this thread is inside a CreateProcess* original call (`SpawningGuard`).
+fn spawning() -> bool {
+    read_flag(&SPAWNING).unwrap_or(false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2696,7 +2782,7 @@ unsafe extern "system" fn h_ntcup(
         None => return STATUS_UNSUCCESSFUL,
     };
     // Count only a direct call, not the CreateProcess* funnel (already inherited). Never inject.
-    let direct = !SPAWNING.get();
+    let direct = !spawning();
     if direct {
         bump(IDX_NTCUP);
     }
@@ -3176,7 +3262,7 @@ unsafe extern "system" fn h_cpiw(
         Some(o) => o,
         None => return 0,
     };
-    if SPAWNING.get() || !token.0.is_null() || pi.is_null() || session_over() {
+    if spawning() || !token.0.is_null() || pi.is_null() || session_over() {
         return o(token, app, cmd, pa, ta, inherit, flags, env, cwd, si, pi, new_token);
     }
     let r = {
@@ -4058,6 +4144,9 @@ pub extern "system" fn DllMain(hinst: HMODULE, reason: u32, _reserved: *mut c_vo
     }
     // Remember our own module so we can inject the same DLL into children (ADR-3).
     let _ = SELF_HMOD.set(hinst.0 as usize);
+    // And the thread that loads it, which is the injector's, before any detour stands.
+    // SAFETY: GetCurrentThreadId reads this thread's TEB and takes no argument.
+    LOADER_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::Relaxed);
     let installed = unsafe { install() };
     match &installed {
         Ok(()) => {}
@@ -4418,5 +4507,57 @@ mod tests {
         });
         assert!(unwound.is_err());
         assert!(!CASCADE.get(), "an unwind with cleanups left the cascade flag up");
+    }
+
+    /// Replace this thread's thread-local vector in its TEB, returning the one it had - so a test can stand
+    /// on a thread the loader has taken the storage from. Nothing between two calls may touch a thread-local.
+    fn swap_tls_vector(new: *const *const u8) -> *const *const u8 {
+        let old: *const *const u8;
+        // SAFETY: this thread's own TEB field, read and written back by the same test.
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            core::arch::asm!("mov {old}, qword ptr gs:[0x58]", "mov qword ptr gs:[0x58], {new}", old = out(reg) old, new = in(reg) new, options(nostack, preserves_flags));
+        }
+        #[cfg(target_arch = "x86")]
+        unsafe {
+            core::arch::asm!("mov {old}, dword ptr fs:[0x2C]", "mov dword ptr fs:[0x2C], {new}", old = out(reg) old, new = in(reg) new, options(nostack, preserves_flags));
+        }
+        old
+    }
+
+    /// 2026-10-28: a thread the loader is ending, or one started without thread-local storage, has no
+    /// vector in its TEB, or no slot for this module in it. A detour there faulted on its first flag, and
+    /// under the heap lock the fault's handler hung the thread for good. Without the storage every flag
+    /// helper does nothing and every cascade entry passes the call by, and the thread reads its flags again
+    /// once the storage is back. Both shapes are taken from this thread for a moment, so a fault here is
+    /// the bug itself, not a failed assertion.
+    #[test]
+    fn a_thread_without_thread_local_storage_passes_every_flag_by() {
+        let gone = swap_tls_vector(core::ptr::null());
+        let no_vector = (thread_has_tls(), read_flag(&CASCADE), enter_once(&CASCADE).is_some());
+        drop(set_flag(&CASCADE, true));
+        swap_tls_vector(gone);
+        assert_eq!(no_vector, (false, None, false), "no vector: no storage, no flag, no entry");
+        assert!(thread_has_tls(), "the vector is back");
+        assert!(!CASCADE.get(), "a flag was written while the thread had nowhere to keep it");
+
+        // A vector without this module's slot - every slot empty, this one's included.
+        let index = unsafe {
+            unsafe extern "C" {
+                static _tls_index: u32;
+            }
+            _tls_index as usize
+        };
+        let empty = [core::ptr::null::<u8>(); 64];
+        assert!(index < empty.len(), "this test binary's TLS index {index} fits the stand-in vector");
+        let gone = swap_tls_vector(empty.as_ptr());
+        let no_slot = (thread_has_tls(), read_flag(&CASCADE), enter_once(&CASCADE).is_some());
+        drop(set_flag(&CASCADE, true));
+        swap_tls_vector(gone);
+        assert_eq!(no_slot, (false, None, false), "no slot: no storage, no flag, no entry");
+        assert!(!CASCADE.get());
+
+        let entered = enter_once(&CASCADE);
+        assert!(entered.is_some() && CASCADE.get(), "with the storage back the thread enters as before");
     }
 }

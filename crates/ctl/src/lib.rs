@@ -753,7 +753,9 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 /// 13: `CHANNEL_COUNT` grew from 44 to 45 for `GetTimeZoneInformationForYear`, which widens `calls`, and
 /// the slot's padding became `subsystem`. The first moves every slot after the first, and the second gives
 /// four bytes an old hook leaves at zero a meaning a new core reads.
-pub const CTL_LAYOUT_VERSION: u32 = 13;
+///
+/// 14: `Cov` gained `calls_without_storage` (2026-10-28) after every other field, which widens every slot.
+pub const CTL_LAYOUT_VERSION: u32 = 14;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -962,6 +964,14 @@ pub struct Cov {
     /// (`timer.absolute_due_converted`). Counted like `timers_at_floor`, and appended after every other
     /// field, so no offset inside a slot moves.
     pub absolute_dues: u64,
+    /// Hooked waits, object waits and timers this process made on a thread without thread-local storage
+    /// (2026-10-28): one Windows is ending, or one started without it. The hook keeps its cascade flags
+    /// there, so on such a thread it cannot tell an application's call from a cascade and passes every
+    /// one through unscaled - every level of a cascade is counted, so this is a count of hooked calls,
+    /// not of application calls. The core warns when it is not zero (`wait.thread_without_storage`).
+    /// Counted like `timers_at_floor`, and appended after every other field, so no offset inside a slot
+    /// moves.
+    pub calls_without_storage: u64,
 }
 
 impl Cov {
@@ -980,6 +990,7 @@ impl Cov {
         failed_channels: 0,
         timers_at_floor: 0,
         absolute_dues: 0,
+        calls_without_storage: 0,
     };
 }
 
@@ -2243,6 +2254,26 @@ pub unsafe fn read_absolute_dues(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).absolute_dues))
 }}
 
+/// Count one hooked call passed through on a thread without thread-local storage (hook side, this
+/// process's own `Cov`).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn bump_calls_without_storage(p: *mut Cov) { unsafe {
+    let slot = addr_of_mut!((*p).calls_without_storage);
+    let cur = read_volatile(slot);
+    write_volatile(slot, cur.wrapping_add(1));
+}}
+
+/// How many hooked calls this process passed through on a thread without thread-local storage
+/// (mechanism side, per-process `Cov`).
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_calls_without_storage(p: *const Cov) -> u64 { unsafe {
+    read_volatile(addr_of!((*p).calls_without_storage))
+}}
+
 /// The shortest real wait a scaled timeout is allowed to become.
 ///
 /// 🔴 One millisecond, and the difference between it and zero is the whole reason it exists. Integer
@@ -2548,6 +2579,7 @@ mod tests {
         assert_eq!(offset_of!(Cov, created) % 8, 0, "Cov.created is not 8-byte aligned");
         assert_eq!(offset_of!(Cov, failed_channels) % 8, 0, "Cov.failed_channels is not 8-byte aligned");
         assert_eq!(offset_of!(Cov, timers_at_floor) % 8, 0, "Cov.timers_at_floor is not 8-byte aligned");
+        assert_eq!(offset_of!(Cov, calls_without_storage) % 8, 0, "Cov.calls_without_storage is not 8-byte aligned");
         assert_eq!(size_of::<Cov>() % 8, 0, "a slot would misalign the next one");
         assert_eq!(
             offset_of!(Ctl, covs),

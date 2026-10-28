@@ -300,6 +300,17 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A program no longer hangs at the start of its session, or crashes, on a thread without thread-local
+  storage.** The hook keeps a few flags per thread, and a thread can run without the storage they live
+  in: one Windows is ending, after it freed that storage, or one started without it. A hooked wait or
+  clock reached on such a thread read a flag through a null pointer. In one program measured that
+  happened while Windows ended the thread that had loaded the hook, inside a heap call, and the thread
+  then waited on its own heap lock for good: `chrono run` gave up after 10 s with code 2, "the target's
+  loading is stuck". Whether it happened depended on the program and on the variables of the
+  environment it started with. In another, a helper process crashed. On such a thread the hook now
+  passes the call to Windows as it came, unscaled, because it cannot tell an application's call from
+  one Windows makes inside another, and the report says so when a wait or a timer ran that way
+  (`wait.thread_without_storage`).
 - **A console program that ends at once ends its session instead of vanishing.** A program that ended
   within 300 ms of its start was taken for the second instance of a single-instance application handing
   its work to a copy already running, and `chrono run` exited with code 12 and "DID NOT TAKE EFFECT" -
