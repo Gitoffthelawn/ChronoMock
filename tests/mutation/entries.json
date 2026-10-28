@@ -21892,5 +21892,81 @@
     "match": "exact",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "no-tls a the gate always says the storage is there",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    !vector.is_null() && unsafe { !(*vector.add(_tls_index as usize)).is_null() }\n",
+        "to": "    let _ = vector;\n    true\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls b the gate does not look for this module's slot",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    !vector.is_null() && unsafe { !(*vector.add(_tls_index as usize)).is_null() }\n",
+        "to": "    !vector.is_null()\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls c a thread without the storage enters a cascade",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "        Some(false) => Some(set_flag(flag, true)),\n",
+        "to": "        Some(false) | None => Some(set_flag(flag, true)),\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls d a flag is written without the storage",
+    "edits": [
+      {
+        "file": "crates/hook/src/lib.rs",
+        "from": "    FlagRestore { flag, was: thread_has_tls().then(|| flag.replace(up)) }\n",
+        "to": "    FlagRestore { flag, was: Some(flag.replace(up)) }\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-hook",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_thread_without_thread_local_storage_passes_every_flag_by",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
   }
 ]
