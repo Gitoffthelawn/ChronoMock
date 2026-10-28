@@ -11,7 +11,7 @@
   "weekend": ["saturday", "sunday"],
   "observed": "sat_to_fri_sun_to_mon",
   "valid_from": 1960,
-  "law_as_of": "2026-10-06",
+  "law_as_of": "2026-10-28",
   "source": "Range from 1960, the first full year of both observance rules: a holiday on Saturday is observed on the preceding Friday by employees whose basic workweek is Monday through Friday from Public Law 86-362 of 22 September 1959 (5 U.S.C. 6103(b)), and a holiday on Sunday on the following Monday from Executive Order 10358 of 9 June 1952 (Executive Order 11582 from 1971). Holidays: the legal public holidays of 5 U.S.C. 6103(a) and the laws it derives from (United States Code, 2024 edition, with its historical notes). Not in it: Inauguration Day, a holiday only around Washington, and days off given by executive order",
   "holidays": [
     {

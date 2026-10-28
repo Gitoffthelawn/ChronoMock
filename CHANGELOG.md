@@ -115,6 +115,12 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Changed
 
+- **The three holiday calendars were checked against the law again on 28 October 2026.** Nothing
+  changed since the check of 6 October: the Polish Non-working Days Act was last amended with effect
+  from 1 February 2025, no public law enacted since then touches the federal holidays of 5 U.S.C. 6103,
+  and the Federal Reserve's holiday schedule for 2026-2030 is still the one of 8 July 2026. The days
+  stay as they were, and only `law_as_of` moves to 2026-10-28 in `pl`, `us-federal` and `us-banking`.
+
 - **Every copy button says on itself what its copy did** - "Copied", or "Clipboard busy" when another
   program held the clipboard - for a moment, then reads as itself again, and it never changes width while
   it does. The result's summary and diagnostics shared one line beside the buttons that never cleared,
