@@ -244,9 +244,9 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     (
         "crates/cli/tests/quick_exit.rs",
         "spawn",
-        "runs the built binary twice, each time with a program from the system folder that ends at \
-         once: the command interpreter told to exit, and rundll32 with nothing to run. Neither \
-         reaches past this machine",
+        "runs the built binary three times, each time with a program from the system folder that \
+         ends at once: the command interpreter told to exit, the same interpreter starting its 32-bit \
+         copy told to exit, and rundll32 with nothing to run. None reaches past this machine",
     ),
     (
         "crates/cli/tests/duration_axis.rs",

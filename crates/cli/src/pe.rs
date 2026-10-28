@@ -178,13 +178,19 @@ const NATIVEAOT_BUDGET: u64 = 256 << 20;
 
 /// The crate name in front of the version in a source path a Rust build keeps for its panic messages,
 /// `...\jiff-0.2.37\src\...` (or `/` between them, from a build that trims its paths). The version and
-/// the separator into `src` are checked behind it, so `jiff-tzdb`, another crate's name that starts the
-/// same way, and prose that merely mentions the crate do not count.
+/// the directory `src` are checked behind it, so `jiff-tzdb`, another crate's name that starts the
+/// same way, and prose that merely mentions the crate do not count. The byte in front of it must not
+/// carry a crate name on, so neither does `notjiff-0.2.37\src`. A build that trims its paths starts the
+/// path right behind the previous string, often a letter of it, and keeps the path once for each source
+/// file it can panic in: measured 2026-10-28 on jiff 0.2.37 built with its registry prefix remapped
+/// away, 8 of its 16 paths stood behind a byte no crate name holds, and every path of three untrimmed
+/// programs (12 to 19 each) behind a separator.
 const JIFF_PATH: &[u8] = b"jiff-";
 
 /// The longest version-and-separator tail looked at behind `JIFF_PATH`: three numbers of up to five
-/// digits, their two dots, the separator and `src`. A window ends this far before its last byte is read.
-const JIFF_TAIL: usize = 3 * 5 + 2 + 1 + 3;
+/// digits, their two dots, a separator, `src` and the separator behind it. A window ends this far before
+/// its last byte is read.
+const JIFF_TAIL: usize = 3 * 5 + 2 + 1 + 3 + 1;
 
 /// How much of `.rdata` one read takes, and how much of it the search reads in all. Measured where the
 /// path sits: 2.6 MiB into the 4.4 MiB `.rdata` of the one jiff build on this machine, a console tool
@@ -228,6 +234,7 @@ pub(crate) fn links_jiff(target_path: &Path) -> bool {
 }
 
 /// The walk `links_jiff` wraps: `.rdata` in windows that overlap by one whole tail, within the budget.
+/// Each window after the first is read from one byte before it, the byte in front of a path at its start.
 fn jiff_path_in_rdata<R: Read + Seek>(image: R) -> Option<bool> {
     let mut pe = PeFile::from_reader(image)?;
     let section = pe.section(b".rdata\0\0")?;
@@ -235,9 +242,10 @@ fn jiff_path_in_rdata<R: Read + Seek>(image: R) -> Option<bool> {
     let mut start = 0u64;
     while start < searched {
         let window = (searched - start).min(JIFF_WINDOW as u64);
-        let span = (u64::from(section.raw_size) - start).min(window + (JIFF_PATH.len() + JIFF_TAIL) as u64);
-        let bytes = pe.read_at(u64::from(section.raw_offset) + start, span as usize)?;
-        if (0..window as usize).any(|at| jiff_path_at(&bytes, at)) {
+        let lead = u64::from(start > 0);
+        let span = (u64::from(section.raw_size) - start).min(window + (JIFF_PATH.len() + JIFF_TAIL) as u64) + lead;
+        let bytes = pe.read_at(u64::from(section.raw_offset) + start - lead, span as usize)?;
+        if (lead as usize..(lead + window) as usize).any(|at| jiff_path_at(&bytes, at)) {
             return Some(true);
         }
         start += window;
@@ -245,12 +253,16 @@ fn jiff_path_in_rdata<R: Read + Seek>(image: R) -> Option<bool> {
     Some(false)
 }
 
-/// Whether `bytes` holds jiff's source path at `at`: `jiff-`, a version of three dot-separated numbers,
-/// a path separator, then `src`.
+/// Whether `bytes` holds jiff's source path at `at`: `jiff-` behind a byte no crate name holds (or at
+/// the start of the section), a version of three dot-separated numbers, then the directory `src`.
 fn jiff_path_at(bytes: &[u8], at: usize) -> bool {
     let Some(rest) = bytes.get(at..).filter(|rest| rest.starts_with(JIFF_PATH)) else {
         return false;
     };
+    let name_byte = |b: &u8| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_');
+    if at.checked_sub(1).and_then(|before| bytes.get(before)).is_some_and(name_byte) {
+        return false;
+    }
     let mut cursor = JIFF_PATH.len();
     for part in 0..3 {
         let digits = rest.get(cursor..).map_or(0, |tail| tail.iter().take(6).take_while(|b| b.is_ascii_digit()).count());
@@ -265,7 +277,8 @@ fn jiff_path_at(bytes: &[u8], at: usize) -> bool {
             cursor += 1;
         }
     }
-    matches!(rest.get(cursor), Some(b'\\' | b'/')) && rest.get(cursor + 1..cursor + 4) == Some(b"src".as_slice())
+    let separator = |at: usize| matches!(rest.get(at), Some(b'\\' | b'/'));
+    separator(cursor) && rest.get(cursor + 1..cursor + 4) == Some(b"src".as_slice()) && separator(cursor + 4)
 }
 
 /// Whether this is a .NET executable that the files beside it may not give away, by any of the four
@@ -890,15 +903,27 @@ mod tests {
         assert!(yes("jiff-windows", br"C:\Users\b\.cargo\registry\src\index\jiff-0.2.37\src\fmt\offset.rs"));
         assert!(yes("jiff-trimmed", b"jiff-0.2.37/src/util/parse.rs"), "a build that trims its paths");
         assert!(yes("jiff-major", b"jiff-12.0.0\\src\\lib.rs"), "a later major version");
+        // Measured shapes of a trimmed build: the path right behind the string before it.
+        assert!(yes("jiff-after-slash", b"TZzoneinfo/jiff-0.2.37\\src\\tz\\system\\mod.rs"), "behind a separator");
+        assert!(yes("jiff-after-space", b"( jiff-0.2.37\\src\\util\\escape.rs"), "behind a byte no name holds");
 
         assert!(!yes("jiff-tzdb", br"C:\x\jiff-tzdb-0.1.8\src\lib.rs"), "the zone database crate alone");
+        assert!(!yes("jiff-suffix", br"C:\x\notjiff-0.2.37\src\lib.rs"), "a crate whose name only ends in jiff");
+        assert!(!yes("jiff-dash", br"C:\x\with-jiff-0.2.37\src\lib.rs"), "a dash carries the name on");
+        assert!(!yes("jiff-underscore", br"C:\x\with_jiff-0.2.37\src\lib.rs"), "so does an underscore");
+        assert!(!yes("jiff-srcdoc", br"C:\x\jiff-0.2.37\srcdoc\lib.rs"), "a directory that only starts with src");
         assert!(!yes("jiff-prose", b"built with jiff-0.2.37 and nothing else"), "a mention, not a path");
         assert!(!yes("jiff-two", b"jiff-0.2\\src\\lib.rs"), "two numbers are not a crate version");
         assert!(!yes("jiff-long", b"jiff-0.2.123456\\src\\lib.rs"), "a number no version has");
         assert!(!yes("jiff-plain", b"ordinary strings, no crate paths at all"));
 
+        // The path at the first byte of the section, with nothing in front of it.
+        let first = write_probe("jiff-first", &synthetic_pe(0x20B, b".rdata\0\0", b"jiff-0.2.37\\src\\lib.rs", None));
+        assert!(links_jiff(&first), "a path the section starts with");
+        let _ = std::fs::remove_file(first);
+
         // The path cut off by the end of the section: the bytes behind it are not in it.
-        let cut = write_probe("jiff-cut", &synthetic_pe(0x20B, b".rdata\0\0", b"jiff-0.2.37\\sr", None));
+        let cut = write_probe("jiff-cut", &synthetic_pe(0x20B, b".rdata\0\0", b"jiff-0.2.37\\src", None));
         assert!(!links_jiff(&cut), "a path the section ends inside");
         let _ = std::fs::remove_file(cut);
 
@@ -909,18 +934,25 @@ mod tests {
     }
 
     /// The search reads `.rdata` in windows, so a path that starts in one window's last bytes and runs
-    /// into the next has to be found, and so does one deep in a section larger than a window.
+    /// into the next has to be found, and so does one deep in a section larger than a window. A path at
+    /// the first byte of a window has the byte in front of it in the window before, and is judged by it.
     #[test]
     fn the_jiff_path_is_found_across_the_edge_of_a_read_window() {
         let path = b"jiff-0.2.37\\src\\tz\\system\\windows\\mod.rs";
-        for at in [JIFF_WINDOW - 3, JIFF_WINDOW - JIFF_PATH.len(), JIFF_WINDOW + 7, 3 * JIFF_WINDOW + 1] {
-            let mut data = vec![b'x'; at];
+        let found = |at: usize, before: u8| {
+            let mut data = vec![b'x'; at - 1];
+            data.push(before);
             data.extend_from_slice(path);
             data.extend_from_slice(&[0u8; 16]);
             let file = write_probe("jiff-edge", &synthetic_pe(0x20B, b".rdata\0\0", &data, None));
-            assert!(links_jiff(&file), "the path at {at} bytes into .rdata");
+            let found = links_jiff(&file);
             let _ = std::fs::remove_file(file);
+            found
+        };
+        for at in [JIFF_WINDOW - 3, JIFF_WINDOW - JIFF_PATH.len(), JIFF_WINDOW, JIFF_WINDOW + 7, 3 * JIFF_WINDOW + 1] {
+            assert!(found(at, b'\\'), "the path at {at} bytes into .rdata");
         }
+        assert!(!found(JIFF_WINDOW, b'x'), "another crate's name running into the first byte of a window");
     }
 
     /// A synthetic image whose file header says what a linker says about a program: an executable

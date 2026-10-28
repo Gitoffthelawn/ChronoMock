@@ -21661,6 +21661,26 @@
     "notHere": ""
   },
   {
+    "name": "quick-exit g children of the guard window dropped",
+    "edits": [
+      {
+        "file": "crates/cli/src/core.rs",
+        "from": "    ledger.take_ring_children(children);\n    reason",
+        "to": "    ledger.take_ring_children(Vec::new());\n    drop(children);\n    reason"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "quick_exit"
+    ],
+    "test": "a_console_family_that_ends_at_once_names_the_children_it_ran_uncovered",
+    "match": "exact",
+    "build": "debug",
+    "notHere": ""
+  },
+  {
     "name": "rust-zone a the zone of a year not hooked",
     "edits": [
       {
@@ -21745,7 +21765,7 @@
     "edits": [
       {
         "file": "crates/cli/src/pe.rs",
-        "from": "    matches!(rest.get(cursor), Some(b'\\\\' | b'/')) && rest.get(cursor + 1..cursor + 4) == Some(b\"src\".as_slice())",
+        "from": "    separator(cursor) && rest.get(cursor + 1..cursor + 4) == Some(b\"src\".as_slice()) && separator(cursor + 4)",
         "to": "    matches!(rest.get(cursor), Some(b'\\\\' | b'/' | b' '))"
       }
     ],
@@ -21764,8 +21784,8 @@
     "edits": [
       {
         "file": "crates/cli/src/pe.rs",
-        "from": "        let span = (u64::from(section.raw_size) - start).min(window + (JIFF_PATH.len() + JIFF_TAIL) as u64);",
-        "to": "        let span = window;"
+        "from": "        let span = (u64::from(section.raw_size) - start).min(window + (JIFF_PATH.len() + JIFF_TAIL) as u64) + lead;",
+        "to": "        let span = window + lead;"
       }
     ],
     "runner": "rust",
@@ -21793,6 +21813,82 @@
       "--bins"
     ],
     "test": "zone::tests::the_posix_zone_is_the_bias_read_as_hours_west",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "rust-zone h jiff path without the separator behind src",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": " && separator(cursor + 4)\n}",
+        "to": "\n}"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::the_jiff_fingerprint_answers_on_its_source_path_and_nothing_like_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "rust-zone i jiff path behind any byte",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": "    if at.checked_sub(1).and_then(|before| bytes.get(before)).is_some_and(name_byte) {",
+        "to": "    if false && at.checked_sub(1).and_then(|before| bytes.get(before)).is_some_and(name_byte) {"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::the_jiff_fingerprint_answers_on_its_source_path_and_nothing_like_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "rust-zone j jiff path behind a dash or an underscore",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": "    let name_byte = |b: &u8| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_');",
+        "to": "    let name_byte = |b: &u8| b.is_ascii_alphanumeric();"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::the_jiff_fingerprint_answers_on_its_source_path_and_nothing_like_it",
+    "match": "exact",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "rust-zone k jiff window read without the byte before it",
+    "edits": [
+      {
+        "file": "crates/cli/src/pe.rs",
+        "from": "        let lead = u64::from(start > 0);",
+        "to": "        let lead = 0u64;"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--bins"
+    ],
+    "test": "pe::tests::the_jiff_path_is_found_across_the_edge_of_a_read_window",
     "match": "exact",
     "build": "",
     "notHere": ""

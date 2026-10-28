@@ -154,6 +154,7 @@ pub(crate) fn core_mode() -> i32 {
             // The parent's own coverage (its pid). Children that join later report
             // separately from run_session, each with its own pid and counts.
             emit_coverage(prepared.session.pid, &prepared.coverage, &runtime_warnings);
+            let mut ledger = SessionLedger::new(verdict);
 
             // Single-instance vanish (ADR-4): the target exited within the guard
             // window right after injection. Report it honestly with exit 12 rather
@@ -163,7 +164,7 @@ pub(crate) fn core_mode() -> i32 {
             // quickly, and its session ends the way any other does (2026-10-27).
             if let Some(lived_ms) = prepared.vanished_lived_ms
                 && !prepared.session.family_alive()
-                && let Some(reason_key) = vanish_reason_key(&mut prepared.session)
+                && let Some(reason_key) = vanish_reason_key(&mut prepared.session, &mut ledger)
             {
                 emit(&Event::Vanished {
                     v: PROTOCOL_VERSION,
@@ -215,7 +216,7 @@ pub(crate) fn core_mode() -> i32 {
             }
             // Enter the running session: heartbeat, answer queries, end on command,
             // EOF, or target exit.
-            run_session(prepared.session, verdict, reader, &launch, spec.scale_duration, policy)
+            run_session(prepared.session, ledger, reader, &launch, spec.scale_duration, policy)
         }
         Err(e) => {
             let (code, key, origin, detail) = map_prepare_error(e);
@@ -456,9 +457,12 @@ fn host_origin(session: &chrono_mech::Session, scale_duration: bool) -> ShimOrig
 
 /// Drive a running session: emit a ~1 s `state` heartbeat, answer `query`, and stop
 /// on `end`, on stdin EOF, or when the target exits. Returns the verdict's exit code.
+///
+/// `ledger` starts from the launched process's verdict, holding the children the guard window already
+/// named: the hook's ring names each child once.
 pub(crate) fn run_session(
     mut session: chrono_mech::Session,
-    verdict: Verdict,
+    mut ledger: SessionLedger,
     reader: BufReader<std::io::Stdin>,
     launch: &Launch,
     scale_duration: bool,
@@ -470,7 +474,6 @@ pub(crate) fn run_session(
 
     // Report any child that already joined during the guard window, before the first
     // heartbeat, so a fast child does not wait a whole second to appear.
-    let mut ledger = SessionLedger::new(verdict);
     ledger.poll(&mut session);
     // The bridge to the pages inside the application (docs/09 section 12): looks for an engine's
     // debugging port in the family from here on, inert when the channel is off. Its pages go on the
@@ -761,9 +764,14 @@ fn session_zone_variable(target_path: &str, bias: Option<i32>) -> Option<(String
 /// Why a target vanished inside the guard window with nothing on the session clock left running, or
 /// `None` when it did not vanish but ended. Asked only after the family was found gone, so a process it
 /// started is either one the hook never entered or none at all.
-fn vanish_reason_key(session: &mut chrono_mech::Session) -> Option<&'static str> {
+///
+/// The children this asks the hook's ring about go into `ledger` either way. The ring names each child
+/// once, and a family that ended without vanishing goes on to its report, which has to name them.
+fn vanish_reason_key(session: &mut chrono_mech::Session, ledger: &mut SessionLedger) -> Option<&'static str> {
     let children = session.poll_uncovered_children();
-    vanish_reason(session.pid, &children, chrono_mech::process_is_alive, session.family_only_console())
+    let reason = vanish_reason(session.pid, &children, chrono_mech::process_is_alive, session.family_only_console());
+    ledger.take_ring_children(children);
+    reason
 }
 
 /// The reason for a vanish, from the children the hook could not enter and from what the family was: a

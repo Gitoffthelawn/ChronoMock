@@ -10,7 +10,8 @@
 //!
 //! Both targets come with every Windows installation, so this runs on a clean runner: the command
 //! interpreter as the console program, and `rundll32.exe` with nothing to run as the windowed one, which
-//! ends at once without showing anything (measured: 1 to 3 ms after the start, both bitnesses).
+//! ends at once without showing anything (measured: 1 to 3 ms after the start, both bitnesses). The
+//! 32-bit interpreter of a 64-bit system is the child the hook cannot enter.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -66,6 +67,29 @@ fn a_console_program_that_ends_at_once_ends_its_session_instead_of_vanishing() {
     assert!(!stdout.contains("\"vanished\""), "a console program that ended was called a vanish. {context}");
     assert!(stdout.contains("\"session_verdict\""), "the session ended without a family verdict. {context}");
     assert_eq!(code, Some(0), "the interpreter read the session's clock, so the session works. {context}");
+}
+
+/// The guard window asks the hook's ring which children ran uncovered, and the ring names each child
+/// once. A console family that ended inside the window goes on to its report, so the children the window
+/// named have to reach it: the 32-bit interpreter a 64-bit one starts is such a child, which the hook
+/// cannot enter, and both end at once. The report names as many children as it counts.
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn a_console_family_that_ends_at_once_names_the_children_it_ran_uncovered() {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    let other_bitness = format!(r"{root}\SysWOW64\cmd.exe /c exit 0");
+    let (code, stdout, stderr) = session(&system_program("cmd.exe"), Some(&format!("/c {other_bitness}")));
+    let context = format!("exit {code:?}\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(!stdout.contains("\"vanished\""), "a console family that ended was called a vanish. {context}");
+    let verdict = stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|event| event["type"] == "session_verdict")
+        .unwrap_or_else(|| panic!("the session gave no verdict. {context}"));
+    let total = verdict["uncovered_children_total"].as_u64().unwrap_or(0);
+    let named = verdict["uncovered_children"].as_array().map_or(0, Vec::len) as u64;
+    assert!(total >= 1, "the 32-bit child was not counted as uncovered. {context}");
+    assert_eq!(named, total, "the report counts children it does not name. {context}");
 }
 
 /// A windowed program that ends at once is what the second instance of a single-instance application
