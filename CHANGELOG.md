@@ -309,7 +309,8 @@ Notable changes to Chrono Mock, newest first. The format follows
   loading is stuck". Whether it happened depended on the program and on the variables of the
   environment it started with. In another, a helper process crashed. On such a thread the hook now
   passes the call to Windows as it came, unscaled, because it cannot tell an application's call from
-  one Windows makes inside another.
+  one Windows makes inside another, and the report says so when a wait or a timer ran that way
+  (`wait.thread_without_storage`).
 - **A console program that ends at once ends its session instead of vanishing.** A program that ended
   within 300 ms of its start was taken for the second instance of a single-instance application handing
   its work to a copy already running, and `chrono run` exited with code 12 and "DID NOT TAKE EFFECT" -

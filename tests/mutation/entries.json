@@ -21968,5 +21968,44 @@
     "match": "substring",
     "build": "",
     "notHere": ""
+  },
+  {
+    "name": "no-tls e the core does not name calls made without storage",
+    "edits": [
+      {
+        "file": "crates/mech/src/lib.rs",
+        "from": "    if read_calls_without_storage(cov) > 0 {\n",
+        "to": "    if read_calls_without_storage(cov) > 2 {\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-mech",
+    "target": [
+      "--lib"
+    ],
+    "test": "a_call_on_a_thread_without_storage_is_reported",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
+  },
+  {
+    "name": "no-tls f the report has no words for calls made without storage",
+    "edits": [
+      {
+        "file": "crates/cli/src/report.rs",
+        "from": "        \"wait.thread_without_storage\" => {\n",
+        "to": "        \"wait.thread_without_storage_\" => {\n"
+      }
+    ],
+    "runner": "rust",
+    "package": "chrono-cli",
+    "target": [
+      "--test",
+      "wire_keys"
+    ],
+    "test": "every_wire_key_has_a_gloss_in_the_cli_report",
+    "match": "substring",
+    "build": "",
+    "notHere": ""
   }
 ]

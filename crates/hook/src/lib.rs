@@ -75,7 +75,7 @@ use chrono_ctl::{
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_deadline, scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
-    wait_hit_floor, bump_timers_at_floor, timer_elapse_hit_floor, timer_period_hit_floor, ChannelModule, Cov,
+    wait_hit_floor, bump_timers_at_floor, bump_calls_without_storage, timer_elapse_hit_floor, timer_period_hit_floor, ChannelModule, Cov,
     Ctl, CHANNELS, IDX_GDTZI, IDX_GLT, IDX_GST, IDX_GSTAFT, IDX_GSTPAFT, IDX_GTC, IDX_GTC64,
     IDX_GTZI, IDX_NTDELAY, IDX_NTQSI, IDX_NTQST, IDX_QUIT, IDX_SLEEP, IDX_SLEEPEX, IDX_STSL,
     IDX_STSLEX, IDX_FTLFT, IDX_LFTFT, IDX_TLTST, IDX_TLTSTEX, IDX_WFSO, IDX_WFSOEX, IDX_WFMO,
@@ -103,7 +103,7 @@ use windows::Win32::System::Memory::{
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_UNKNOWN};
 use windows::Win32::System::Threading::{
-    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread,
+    CreateRemoteThread, CreateThread, GetCurrentProcess, GetCurrentProcessId, GetCurrentThread, GetCurrentThreadId,
     GetExitCodeProcess, GetExitCodeThread, GetProcessId, GetProcessTimes, IsWow64Process2, OpenProcess, ResumeThread,
     WaitForSingleObject, CREATE_SUSPENDED, DEBUG_ONLY_THIS_PROCESS, DEBUG_PROCESS,
     INFINITE, LPTHREAD_START_ROUTINE, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -1893,6 +1893,8 @@ unsafe extern "system" fn h_qpc(lp: *mut i64) -> i32 { unsafe {
     // the real counter, not counted - it is not the application's call, and scaled it corrupts the clock
     // the hook was reading. A thread without thread-local storage cannot say whose call it is, and gets
     // the same untouched answer: a counter left real there is safer than a hook clock scaled under itself.
+    // It is not counted as a call without storage either (`enter_detour`), because there the hook's own
+    // reads would count too, and the report would name a gap the hook made itself.
     if read_flag(&OWN_CLOCK).unwrap_or(true) {
         return o(lp);
     }
@@ -2031,6 +2033,33 @@ fn enter_once(flag: &'static LocalKey<Cell<bool>>) -> Option<FlagRestore> {
     }
 }
 
+/// `enter_once` for a wait, object-wait or timer detour, which counts what it lets by: a None there means
+/// a cascade, counted at its top already, except on a thread without thread-local storage, where it means
+/// a call that ran unscaled and uncounted. That one is counted apart, so the report says a part of the
+/// application ran on the real clock (`wait.thread_without_storage`) instead of looking complete (rule 4).
+///
+/// Not on the thread that loaded the hook: that one is the injector's, ran none of the application's code,
+/// and is the very thread measured losing its storage as it ended (2026-10-28) - counting it would name a
+/// gap in the application that the hook's own start made.
+fn enter_detour(flag: &'static LocalKey<Cell<bool>>) -> Option<FlagRestore> {
+    let entered = enter_once(flag);
+    // SAFETY: GetCurrentThreadId reads this thread's TEB and takes no argument.
+    if entered.is_none() && !thread_has_tls() && unsafe { GetCurrentThreadId() } != LOADER_THREAD.load(Ordering::Relaxed) {
+        note_without_storage();
+    }
+    entered
+}
+
+/// The thread `DllMain` ran on - the one the injector started to load the hook (`enter_detour`).
+static LOADER_THREAD: AtomicU32 = AtomicU32::new(0);
+
+/// Count one hooked call passed through for want of thread-local storage (`enter_detour`).
+fn note_without_storage() {
+    if let Some(p) = live_cov() {
+        unsafe { bump_calls_without_storage(p) }
+    }
+}
+
 /// Run the original of a wait with `flag` down when the wait is alertable, so an APC that Windows runs
 /// inside it enters the detours as the application call it is (R4-N7).
 ///
@@ -2087,7 +2116,7 @@ fn scaled_wait_ms(ms: u32, m: i64) -> u32 {
 /// re-entered.
 fn try_enter_wait(idx: usize) -> Option<(i64, FlagRestore)> {
     // None is an internal cascade: pass through, do not bump.
-    let guard = enter_once(&SCALING_WAIT)?;
+    let guard = enter_detour(&SCALING_WAIT)?;
     bump(idx);
     if detached() {
         // The core is gone, so this wait runs real - but it still cascades internally (Sleep funnels
@@ -2230,7 +2259,7 @@ thread_local! {
 /// returns a guard, held across the forwarded original so the cascade sees the flag set.
 fn enter_observed_wait(idx: usize) -> Option<FlagRestore> {
     // None is an internal cascade: counted at the top level already.
-    let guard = enter_once(&OBSERVING_WAIT)?;
+    let guard = enter_detour(&OBSERVING_WAIT)?;
     bump(idx);
     Some(guard)
 }
@@ -2424,7 +2453,7 @@ thread_local! {
 /// flag. Bumps coverage only for a top-level app call (rule 4).
 fn try_enter_timer(idx: usize) -> Option<FlagRestore> {
     // None is an internal cascade: pass through, do not bump.
-    let guard = enter_once(&SCALING_TIMER)?;
+    let guard = enter_detour(&SCALING_TIMER)?;
     bump(idx);
     // The guard is raised whether or not the core is still there. Symmetric to try_enter_wait
     // (R2-S4): with the core gone an internal cascade (SetWaitableTimer -> SetWaitableTimerEx, should
@@ -4115,6 +4144,9 @@ pub extern "system" fn DllMain(hinst: HMODULE, reason: u32, _reserved: *mut c_vo
     }
     // Remember our own module so we can inject the same DLL into children (ADR-3).
     let _ = SELF_HMOD.set(hinst.0 as usize);
+    // And the thread that loads it, which is the injector's, before any detour stands.
+    // SAFETY: GetCurrentThreadId reads this thread's TEB and takes no argument.
+    LOADER_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::Relaxed);
     let installed = unsafe { install() };
     match &installed {
         Ok(()) => {}

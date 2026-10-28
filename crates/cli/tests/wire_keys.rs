@@ -181,13 +181,15 @@ fn quoted_runs(line: &str) -> Vec<&str> {
 /// The functions in `report.rs` that turn a key into prose for the CLI report. A key the core emits
 /// must have an arm in one of them, or the report prints it raw. `describe_chromium_warning` holds the
 /// `chromium.*` keys `describe_warning` hands it (R4/16), and `describe_session_warning` the `session.*`
-/// ones (R5-D3), both split for the length ceiling.
-const GLOSSING_FUNCTIONS: [&str; 7] = [
+/// ones (R5-D3), and `describe_thread_warning` the key about calls let by on a thread without thread-local
+/// storage (2026-10-28), all split for the length ceiling.
+const GLOSSING_FUNCTIONS: [&str; 8] = [
     "describe_reason",
     "describe_error",
     "describe_warning",
     "describe_chromium_warning",
     "describe_session_warning",
+    "describe_thread_warning",
     "describe_residue",
     "vanish_cause",
 ];

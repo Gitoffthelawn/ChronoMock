@@ -60,7 +60,7 @@ use chrono_ctl::{
     read_late_installed, read_pid,
     read_pid_count, read_subsystem, rebase, SUBSYSTEM_CONSOLE,
     read_uncovered_child, read_uncovered_children_count, read_uninjected_children, read_waits_at_floor,
-    read_timers_at_floor, read_absolute_dues, calls_capped, clock_fence,
+    read_timers_at_floor, read_absolute_dues, read_calls_without_storage, calls_capped, clock_fence,
     mark_ended, write_anchor, write_anchor_full, write_core_created, write_header, FullAnchor,
     write_core_pid, write_scale_dur, write_scale_qpc, write_tz_bias, ChannelCategory,
     Cov, Ctl, CHANNELS, CH_GTC, CH_GTC64, CTL_LAYOUT_VERSION, CTL_MAGIC, DEADLINE_CHANNELS, IDX_TIMEGETTIME,
@@ -1329,6 +1329,11 @@ unsafe fn floor_warning_keys(cov: *const Cov) -> Vec<String> { unsafe {
     }
     if read_timers_at_floor(cov) > 0 {
         keys.push("timer.interval_floored".to_string());
+    }
+    // The same kind of leftover from another cause: waits and timers on a thread without thread-local
+    // storage, which the hook passes through unscaled because it cannot tell a cascade there (2026-10-28).
+    if read_calls_without_storage(cov) > 0 {
+        keys.push("wait.thread_without_storage".to_string());
     }
     keys
 }}
@@ -2937,6 +2942,23 @@ mod tests {
         let quiet = zeroed_cov();
         let gathered = unsafe { gather_coverage(&quiet as *const Cov, 0, true, false) };
         assert!(!says(&gathered, "timer.interval_floored"));
+    }
+
+    /// 2026-10-28: a wait or timer on a thread without thread-local storage runs unscaled, because the
+    /// hook cannot tell a cascade there. The report names it, under its own key, and only when it happened.
+    #[test]
+    fn a_call_on_a_thread_without_storage_is_reported() {
+        let says = |c: &Coverage, key: &str| c.warning_keys.iter().any(|k| k == key);
+
+        let mut cov = zeroed_cov();
+        cov.calls_without_storage = 2;
+        let gathered = unsafe { gather_coverage(&cov as *const Cov, 0, true, false) };
+        assert!(says(&gathered, "wait.thread_without_storage"), "two calls ran unscaled and nothing said so");
+        assert!(!says(&gathered, "wait.timeout_collapsed"), "no wait was held at the floor");
+
+        let quiet = zeroed_cov();
+        let gathered = unsafe { gather_coverage(&quiet as *const Cov, 0, true, false) };
+        assert!(!says(&gathered, "wait.thread_without_storage"), "no such call, yet the warning came");
     }
 
     /// A channel hooked late is covered, and the audit says the count is a floor.

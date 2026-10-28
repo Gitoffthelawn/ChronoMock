@@ -579,12 +579,24 @@ pub(crate) fn describe_warning(key: &str) -> String {
         "runtime.unity_delta_time_capped" => {
             "a Unity game: the engine caps how far it advances the simulation in a single frame (Time.maximumDeltaTime), so the gameplay hits a ceiling of its own and stops following the session speed well below it - the wall clock, dates and timestamps still move at the session rate, and no amount of clock coverage raises that ceiling"
         }
-        _ => "",
+        _ => describe_thread_warning(key),
     };
     if text.is_empty() {
         key.to_string()
     } else {
         format!("{text} ({key})")
+    }
+}
+
+/// The words for a key about calls the hook let by on a thread it could not keep its flags on. Split from
+/// `describe_warning` for the reason `describe_chromium_warning` is, its length being the workspace's
+/// ceiling, and reached through its last arm, so no line is added there.
+fn describe_thread_warning(key: &str) -> &'static str {
+    match key {
+        "wait.thread_without_storage" => {
+            "some waits or timers ran on a thread without thread-local storage - one Windows was ending, or one started without it - where this tool cannot tell an application's call from one Windows makes inside another, so it let them run at real speed and that part of the application did not accelerate"
+        }
+        _ => "",
     }
 }
 
