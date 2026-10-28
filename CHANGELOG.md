@@ -6,6 +6,8 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-28
+
 ### Added
 
 - **A screen reader hears what changes where it is not looking.** The session's status and its verdict,
@@ -114,6 +116,12 @@ Notable changes to Chrono Mock, newest first. The format follows
   before the session), does not follow a jump or a change of speed, and its calls are not counted.
 
 ### Changed
+
+- **The three holiday calendars were checked against the law again on 28 October 2026.** Nothing
+  changed since the check of 6 October: the Polish Non-working Days Act was last amended with effect
+  from 1 February 2025, no public law enacted since then touches the federal holidays of 5 U.S.C. 6103,
+  and the Federal Reserve's holiday schedule for 2026-2030 is still the one of 8 July 2026. The days
+  stay as they were, and only `law_as_of` moves to 2026-10-28 in `pl`, `us-federal` and `us-banking`.
 
 - **Every copy button says on itself what its copy did** - "Copied", or "Clipboard busy" when another
   program held the clipboard - for a moment, then reads as itself again, and it never changes width while
@@ -1936,6 +1944,7 @@ listing everything as "added", here is where to find out what it does:
 
 From the next release onwards this file records what changed.
 
+[0.5.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.5.0
 [0.4.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.4.0
 [0.3.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.3.0
 [0.2.0]: https://github.com/donislawdev/ChronoMock/releases/tag/v0.2.0

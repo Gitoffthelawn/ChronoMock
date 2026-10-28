@@ -11,7 +11,7 @@
   "weekend": ["saturday", "sunday"],
   "observed": "sun_to_mon",
   "valid_from": 2008,
-  "law_as_of": "2026-10-06",
+  "law_as_of": "2026-10-28",
   "source": "Range from 2008, the oldest Federal Reserve holiday schedule read (K.8, Holidays Observed by the Federal Reserve 2008-2012, the copy of 9 July 2008 kept by the Internet Archive). It states the rule K.8 still states for 2026-2030: for holidays falling on Saturday Federal Reserve Banks and Branches are open the preceding Friday, for holidays falling on Sunday all Federal Reserve offices are closed the following Monday. Not in it: days only the Board of Governors closes",
   "holidays": [
     {
