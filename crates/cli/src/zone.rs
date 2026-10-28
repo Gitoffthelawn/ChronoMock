@@ -105,6 +105,25 @@ pub(crate) fn format_bias(bias: i32) -> String {
     chrono_core::bias_label(bias)
 }
 
+/// The name a POSIX `TZ` value gives the session zone. Exactly three letters, because the C runtime
+/// takes the first three characters as the name and reads the offset right behind them. Measured on
+/// 2026-10-27: under `TZ=CMS-5:30` the C runtime, MSYS2 and jiff all read +05:30, while the `<+0530>`
+/// spelling a POSIX reader would prefer left the C runtime at an offset of -00:29 that matches no zone.
+pub(crate) const SESSION_ZONE_ABBREVIATION: &str = "CMS";
+
+/// The session zone as a POSIX `TZ` value: the name, then the offset WEST of UTC, which is the Win32 bias
+/// itself (UTC = local + bias), in hours and, when there are any, minutes. No daylight saving time,
+/// because the session zone has none (untouchable rule 2).
+pub(crate) fn posix_tz(bias: i32) -> String {
+    let sign = if bias < 0 { "-" } else { "" };
+    let (hours, minutes) = (bias.unsigned_abs() / 60, bias.unsigned_abs() % 60);
+    if minutes == 0 {
+        format!("{SESSION_ZONE_ABBREVIATION}{sign}{hours}")
+    } else {
+        format!("{SESSION_ZONE_ABBREVIATION}{sign}{hours}:{minutes:02}")
+    }
+}
+
 /// The session zone in minutes (UTC = local + bias) for a command that named one or did not: the
 /// caller's `--zone` when given, else the HOST's offset.
 ///
@@ -120,6 +139,19 @@ pub(crate) fn session_zone_default(named: Option<i32>) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The POSIX offset is the Win32 bias read as hours west: a zone east of UTC has a negative one.
+    /// Each value here was read back as the intended zone by the C runtime, MSYS2 and jiff (2026-10-27).
+    #[test]
+    fn the_posix_zone_is_the_bias_read_as_hours_west() {
+        assert_eq!(posix_tz(-330), "CMS-5:30", "+05:30");
+        assert_eq!(posix_tz(420), "CMS7", "-07:00");
+        assert_eq!(posix_tz(0), "CMS0", "+00:00");
+        assert_eq!(posix_tz(-840), "CMS-14", "+14:00, the furthest east");
+        assert_eq!(posix_tz(-345), "CMS-5:45", "+05:45");
+        assert_eq!(posix_tz(570), "CMS9:30", "-09:30");
+        assert_eq!(posix_tz(-5), "CMS-0:05", "a bias under an hour keeps its zero hours");
+    }
 
     /// The Unix epoch on the FILETIME count, now derived from the core's day count (R5-A11), is the
     /// value Windows documents, and the moment that names it is the zero of the Unix-epoch ms the pages

@@ -300,6 +300,31 @@ Notable changes to Chrono Mock, newest first. The format follows
 
 ### Fixed
 
+- **A console program that ends at once ends its session instead of vanishing.** A program that ended
+  within 300 ms of its start was taken for the second instance of a single-instance application handing
+  its work to a copy already running, and `chrono run` exited with code 12 and "DID NOT TAKE EFFECT" -
+  also for a console tool that had done its work in the session, a date printed or a commit made with
+  the session's date in it. The suspicion now needs a windowed program among the processes of the
+  session: a session whose processes were all console programs ends like any other, with its verdict
+  and the program's own exit code. A windowed program that ends at once is still reported with code 12.
+- **A Rust program built on the `chrono` crate shows the session's time zone.** It reads the zone
+  through `GetTimeZoneInformationForYear`, which the session did not cover, so its local time was the
+  session's moment in this machine's zone: a session at 03:14 +05:30 showed 22:44 +01:00. The function
+  now answers with the session zone, asked about the current zone or about the zone the session names
+  "Chrono Session", and the report lists it among the covered zone channels.
+- **A Rust program built on the `jiff` crate shows the session's time zone.** It finds a zone by its name,
+  and the session zone has a name no table holds, so it showed its time in UTC under every session. Such
+  a program is recognised in its file, and the session gives it the zone in the `TZ` variable in POSIX
+  form, `CMS-5:30` for +05:30. A `TZ` of your own is replaced for it, and the core says so on its error
+  output. No other program gets the variable, because Node.js reads it too and turns that form into an
+  unknown zone at +00:00. A jiff program started by another program of the session is not recognised
+  and still shows UTC.
+- **The support matrix says what is measured, and by what.** It adds the runtimes the release tests have
+  been measuring all along - Node.js and Deno, Ruby, Rust, and Go, whose wall clock no hook reaches - and
+  says which rows the embedded-engine stand and the runtime maps measure rather than a person. The window
+  takes a shortcut as well as a program, and the batch script row now says so. The honest limits name a
+  limit measured on the way: a `TZ` variable of your own wins over the session zone in Python, MSYS2 and
+  Node.js, and the report does not say so yet.
 - **More than one file is refused for the count.** Two programs dropped on the window at once, or given on
   its command line, are answered "One application at a time". They used to get the text for a file that
   is not a program.

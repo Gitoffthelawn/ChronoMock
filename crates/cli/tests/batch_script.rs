@@ -8,8 +8,8 @@
 //! empty argument vanished and shifted the rest, and `a&b` ran its second half as a separate
 //! command. The launch now starts the interpreter itself (`chrono_mech`, `batch.rs`, ADR-15).
 //!
-//! The evidence is the file the script writes, not the exit code: a script that ends at once can
-//! end inside the opening guard window, which is its own verdict (ADR-4). A script that starts a
+//! The evidence is the file the script writes, not the exit code: what reached the script is the
+//! question, and a session that worked says nothing about its arguments. A script that starts a
 //! program and ends is the other thing a batch target is for, and the session goes on for the
 //! program it started (ADR-16).
 

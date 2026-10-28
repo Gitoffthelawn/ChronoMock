@@ -240,6 +240,9 @@ pub const CH_QIT: u64 = 1 << 41;
 pub const CH_QITP: u64 = 1 << 42;
 /// Coverage bit: `QueryUnbiasedInterruptTimePrecise` is hooked (duration axis, opt-in, R5-F4).
 pub const CH_QUITP: u64 = 1 << 43;
+/// Coverage bit: `GetTimeZoneInformationForYear` is hooked (session zone, the way the Rust `chrono`
+/// crate asks for the current zone).
+pub const CH_GTZIFY: u64 = 1 << 44;
 
 /// Index of each channel into the `calls` array (== its position in `CHANNELS`).
 pub const IDX_GSTAFT: usize = 0;
@@ -286,11 +289,13 @@ pub const IDX_WSAWFME: usize = 40;
 pub const IDX_QIT: usize = 41;
 pub const IDX_QITP: usize = 42;
 pub const IDX_QUITP: usize = 43;
+pub const IDX_GTZIFY: usize = 44;
 
 /// Number of channels tracked (wall-clock, session zone, duration axis, object/message/condition/
 /// address/socket waits, settable timers, multimedia timer, thread-pool timers, direct process
-/// creation, network connect, the QPC axis, the winmm millisecond clock, the interrupt-time clocks).
-pub const CHANNEL_COUNT: usize = 44;
+/// creation, network connect, the QPC axis, the winmm millisecond clock, the interrupt-time clocks,
+/// the zone of a given year).
+pub const CHANNEL_COUNT: usize = 45;
 
 /// The channels that carry an ABSOLUTE deadline - the settable and thread-pool timers and
 /// `NtDelayExecution` - and so are installed in EVERY session, not only under `scale_duration` (R5-D2).
@@ -538,7 +543,8 @@ pub fn indirect_jump_slot(code: &[u8; 12], entry: usize, rip_relative: bool) -> 
 // --- Coverage audit against chrono-mock.md 9.1 ---------------------------------
 // COVERED (the CHANNELS table below): the Win32 wall clock (GetSystemTime,
 // GetSystemTimeAsFileTime, GetSystemTimePreciseAsFileTime, GetLocalTime), the session
-// zone (GetTimeZoneInformation, GetDynamicTimeZoneInformation) plus the explicit zone
+// zone (GetTimeZoneInformation, GetDynamicTimeZoneInformation, and GetTimeZoneInformationForYear
+// asked about the current zone, which is how the Rust `chrono` crate reads it) plus the explicit zone
 // conversions (SystemTimeToTzSpecificLocalTime/Ex, FileTimeToLocalFileTime,
 // LocalFileTimeToFileTime, TzSpecificLocalTimeToSystemTime/Ex), NtQuerySystemTime,
 // NtQuerySystemInformation(SystemTimeOfDayInformation) (wrap-and-patch: its CurrentTime field
@@ -634,8 +640,10 @@ pub fn indirect_jump_slot(code: &[u8; 12], entry: usize, rip_relative: bool) -> 
 // a session with `scale_qpc` and WITHOUT `scale_duration`, where these two are not hooked, reads a value
 // that follows the scaled counter. No such caller was found besides one system component (R5 scan, 4.5).
 //
-// KNOWN GAPS, not yet covered (the verifier should report these honestly): GetTimeZoneInformationForYear,
-// LocalFileTimeToLocalSystemTime and LocalSystemTimeToLocalFileTime are not hooked at all.
+// KNOWN GAPS, not yet covered (the verifier should report these honestly): LocalFileTimeToLocalSystemTime
+// and LocalSystemTimeToLocalFileTime are not hooked at all. GetTimeZoneInformationForYear left this list
+// in layout 13: the Rust `chrono` crate reads the current zone through it alone, so every program built on
+// it showed this machine's zone under any session (measured 2026-10-27).
 // Residual exotica (SetThreadpoolWait timeouts, RtlCreateUserProcess legacy path) are out of scope
 // and would be reported honestly if a target hit them.
 
@@ -686,6 +694,7 @@ pub const CHANNELS: [ChannelDef; CHANNEL_COUNT] = [
     ChannelDef { bit: CH_QIT, name: "QueryInterruptTime", module: ChannelModule::KernelBase, category: ChannelCategory::Duration },
     ChannelDef { bit: CH_QITP, name: "QueryInterruptTimePrecise", module: ChannelModule::KernelBase, category: ChannelCategory::Duration },
     ChannelDef { bit: CH_QUITP, name: "QueryUnbiasedInterruptTimePrecise", module: ChannelModule::KernelBase, category: ChannelCategory::Duration },
+    ChannelDef { bit: CH_GTZIFY, name: "GetTimeZoneInformationForYear", module: ChannelModule::KernelBaseBehindKernel32, category: ChannelCategory::Zone },
 ];
 
 /// Marks the control block as one WE built. The section name is fixed and lives in a namespace any
@@ -740,7 +749,11 @@ pub const CTL_MAGIC: u64 = 0x4348_524F_4E4F_4354; // "CHRONOCT"
 /// 12: `MAX_COV_PIDS` grew from 256 to 4096 (R5-P26). No offset inside the header or a slot moves, but
 /// `covs` starts later and the block is sixteen times the size, so an old hook would read a new block's
 /// slots at the wrong place and map too little of it.
-pub const CTL_LAYOUT_VERSION: u32 = 12;
+///
+/// 13: `CHANNEL_COUNT` grew from 44 to 45 for `GetTimeZoneInformationForYear`, which widens `calls`, and
+/// the slot's padding became `subsystem`. The first moves every slot after the first, and the second gives
+/// four bytes an old hook leaves at zero a meaning a new core reads.
+pub const CTL_LAYOUT_VERSION: u32 = 13;
 
 /// How many uncovered children one process's `Cov` can name. Past this the counter still grows, so
 /// the audit says "and N more" rather than losing the number. Sized for what a Chromium browser
@@ -903,9 +916,17 @@ pub struct Cov {
     /// How many uncovered children this process spawned in total - the ring above holds the first
     /// `UNCOVERED_CHILDREN_MAX` of them. Also the atomic index that claims a ring entry.
     pub uncovered_children_count: u32,
-    /// Keeps the slot 8-byte aligned so `calls` of the NEXT slot stays aligned. Explicit rather than
-    /// left to the compiler because `#[repr(C)]` would add it silently and the layout doc would lie.
-    pub uncovered_children_pad: u32,
+    /// The Windows subsystem the process that took this slot was built for, as its own image header says
+    /// it (`IMAGE_SUBSYSTEM_*`: [`SUBSYSTEM_WINDOWS`] for a windowed program, [`SUBSYSTEM_CONSOLE`] for a
+    /// console one), written by its hook before it publishes its pid. 0 = not recorded.
+    ///
+    /// Why the core has to know (ADR-4, owner decision 2026-10-27): a family that ended inside the guard
+    /// window used to read as a single-instance hand-off every time, so a console tool that simply did its
+    /// work in a few milliseconds was reported as a session that never took effect. A hand-off is what a
+    /// windowed application's second instance does, so the suspicion now needs one windowed process in
+    /// the family, or one whose kind is unknown. It sits where the slot's padding was, which keeps the
+    /// slot 8-byte aligned as before.
+    pub subsystem: u32,
     /// When the process that took this slot was created (the FILETIME `GetProcessTimes` reports), written
     /// by its hook before it publishes its pid. The mechanism watches the family by pid, and a pid read
     /// out of this block names a process only for as long as that process lives: comparing this with
@@ -954,7 +975,7 @@ impl Cov {
         calls: [0; CHANNEL_COUNT],
         uncovered_children: [0; UNCOVERED_CHILDREN_MAX],
         uncovered_children_count: 0,
-        uncovered_children_pad: 0,
+        subsystem: 0,
         created: 0,
         failed_channels: 0,
         timers_at_floor: 0,
@@ -1913,6 +1934,56 @@ pub unsafe fn read_created(p: *const Cov) -> u64 { unsafe {
     read_volatile(addr_of!((*p).created))
 }}
 
+/// `IMAGE_SUBSYSTEM_WINDOWS_GUI`: a program that starts without a console, the kind that opens windows.
+pub const SUBSYSTEM_WINDOWS: u32 = 2;
+
+/// `IMAGE_SUBSYSTEM_WINDOWS_CUI`: a console program.
+pub const SUBSYSTEM_CONSOLE: u32 = 3;
+
+/// How far into an image its headers are read for the subsystem. The first page of a mapped image always
+/// holds them, and a header placed further in answers "not recorded", which is the safe direction.
+pub const IMAGE_HEADER_SPAN: usize = 4096;
+
+/// The subsystem an image's own headers name (`OptionalHeader.Subsystem`), from the bytes at the start of
+/// the image, or 0 when they do not read as a program's headers: no `MZ`, a PE header outside `headers`,
+/// no `PE\0\0`, or an optional header that is neither PE32 nor PE32+. The field sits at the same offset in
+/// both. Never panics and never allocates, because the hook calls it inside `DllMain` on its own image.
+pub fn image_subsystem(headers: &[u8]) -> u32 {
+    let u16_at = |at: usize| headers.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    if headers.get(..2) != Some(b"MZ".as_slice()) {
+        return 0;
+    }
+    let Some(pe) = headers.get(0x3C..0x40).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize) else {
+        return 0;
+    };
+    // The signature, then the 20-byte file header, then the optional header.
+    let optional = pe.saturating_add(24);
+    if headers.get(pe..pe.saturating_add(4)) != Some(b"PE\0\0".as_slice())
+        || !matches!(u16_at(optional), Some(0x10B | 0x20B))
+    {
+        return 0;
+    }
+    u16_at(optional.saturating_add(68)).map_or(0, u32::from)
+}
+
+/// Record the subsystem of the process that owns this slot (hook side, its own `Cov`). Written before the
+/// pid is published, like `created`.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn set_subsystem(p: *mut Cov, subsystem: u32) { unsafe {
+    write_volatile(addr_of_mut!((*p).subsystem), subsystem);
+}}
+
+/// The subsystem the process that owns this slot recorded, or 0 when it did not (mechanism side). Read
+/// after `read_pid` returned the slot's pid, whose acquire makes it visible.
+///
+/// # Safety
+/// `p` must point to a live, correctly aligned `Cov`.
+pub unsafe fn read_subsystem(p: *const Cov) -> u32 { unsafe {
+    read_volatile(addr_of!((*p).subsystem))
+}}
+
 /// Whether a slot whose process recorded `recorded` as its creation time can be the process created at
 /// `created`. Zero recorded (the hook could not read it) or no time asked is unknown, and unknown does
 /// not rule a slot out - only two known, different times do.
@@ -2423,6 +2494,46 @@ mod tests {
             assert!(!raw.is_null(), "no memory for a test control block");
             Box::from_raw(raw)
         }
+    }
+
+    /// Headers built the way a linker lays them out: `MZ`, the PE offset at 0x3C, the signature, a 20-byte
+    /// file header, then an optional header whose magic and subsystem are the two fields read.
+    fn headers(pe: usize, magic: u16, subsystem: u16) -> Vec<u8> {
+        let mut h = vec![0u8; 512];
+        h[..2].copy_from_slice(b"MZ");
+        h[0x3C..0x40].copy_from_slice(&(pe as u32).to_le_bytes());
+        h[pe..pe + 4].copy_from_slice(b"PE\0\0");
+        h[pe + 24..pe + 26].copy_from_slice(&magic.to_le_bytes());
+        h[pe + 24 + 68..pe + 24 + 70].copy_from_slice(&subsystem.to_le_bytes());
+        h
+    }
+
+    /// Both optional-header kinds name their subsystem at the same place, and the two values the core
+    /// tells apart come back as written.
+    #[test]
+    fn an_image_names_its_subsystem_in_either_optional_header() {
+        assert_eq!(image_subsystem(&headers(0x80, 0x20B, 3)), SUBSYSTEM_CONSOLE);
+        assert_eq!(image_subsystem(&headers(0x80, 0x10B, 2)), SUBSYSTEM_WINDOWS);
+        assert_eq!(image_subsystem(&headers(0xF8, 0x20B, 2)), SUBSYSTEM_WINDOWS);
+    }
+
+    /// Anything that does not read as a program's headers is "not recorded", never a guess and never a
+    /// panic: the hook asks this inside `DllMain`, and the core reads 0 as a reason to keep its suspicion.
+    #[test]
+    fn headers_that_do_not_read_as_a_program_name_no_subsystem() {
+        let mut no_mz = headers(0x80, 0x20B, 3);
+        no_mz[0] = b'X';
+        assert_eq!(image_subsystem(&no_mz), 0);
+        let mut no_signature = headers(0x80, 0x20B, 3);
+        no_signature[0x80] = b'X';
+        assert_eq!(image_subsystem(&no_signature), 0);
+        assert_eq!(image_subsystem(&headers(0x80, 0x107, 3)), 0, "a ROM image's magic is not a program");
+        let mut far = headers(0x80, 0x20B, 3);
+        far[0x3C..0x40].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert_eq!(image_subsystem(&far), 0, "a PE offset past the bytes read");
+        let full = headers(0x80, 0x20B, 3);
+        assert_eq!(image_subsystem(&full[..0x80 + 24 + 69]), 0, "the subsystem field cut in half");
+        assert_eq!(image_subsystem(&[]), 0);
     }
 
     /// The layout is shared by two binaries through a mapped section, so where each field lands is part
@@ -3192,6 +3303,7 @@ mod tests {
             (IDX_QIT, CH_QIT),
             (IDX_QITP, CH_QITP),
             (IDX_QUITP, CH_QUITP),
+            (IDX_GTZIFY, CH_GTZIFY),
         ];
         assert_eq!(expected.len(), CHANNEL_COUNT, "every channel is listed here, so a new one cannot skip this check");
         assert_eq!(CHANNELS.len(), CHANNEL_COUNT);

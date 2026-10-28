@@ -70,7 +70,8 @@ use chrono_ctl::{
     header_is_ours, indirect_jump_slot, record_uncovered_child, release_axes, release_margin_qpc, ReleasedAxes,
     publish_pid, read_anchor, read_anchor_with, read_core_created, read_core_pid, read_dur, read_dur_with,
     read_ended, read_qpc, read_qpc_with, RELEASE_MARGIN_QUIT,
-    read_pid_count, read_scale_dur, read_scale_qpc, set_created, MAX_COV_PIDS,
+    read_pid_count, read_scale_dur, read_scale_qpc, set_created, set_subsystem, image_subsystem, MAX_COV_PIDS,
+    IMAGE_HEADER_SPAN, IDX_GTZIFY,
     bump_waits_at_floor, delay_hit_floor, read_installed, read_late_installed, read_tz_bias, reserve_cov_slot,
     scale_delay_deadline, scale_delay_interval, scale_timer_due, scale_timer_elapse, scale_timer_period,
     scale_timer_period_ms, scale_wait, set_channels_installed, set_failed_channels, set_late_installed,
@@ -91,7 +92,7 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::System::Diagnostics::Debug::{OutputDebugStringA, WriteProcessMemory};
 use windows::Win32::System::LibraryLoader::{
-    GetModuleFileNameW, GetModuleHandleA, GetModuleHandleExA, GetProcAddress,
+    GetModuleFileNameW, GetModuleHandleA, GetModuleHandleExA, GetModuleHandleW, GetProcAddress,
     GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_PIN,
 };
 use windows::Win32::System::Memory::{
@@ -119,6 +120,8 @@ type StFn = unsafe extern "system" fn(*mut SYSTEMTIME);
 type NtqstFn = unsafe extern "system" fn(*mut i64) -> i32;
 type TziFn = unsafe extern "system" fn(*mut TIME_ZONE_INFORMATION) -> u32;
 type DtziFn = unsafe extern "system" fn(*mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32;
+type TziForYearFn =
+    unsafe extern "system" fn(u16, *const DYNAMIC_TIME_ZONE_INFORMATION, *mut TIME_ZONE_INFORMATION) -> i32;
 type StslFn = unsafe extern "system" fn(*const TIME_ZONE_INFORMATION, *const SYSTEMTIME, *mut SYSTEMTIME) -> i32;
 type StslexFn = unsafe extern "system" fn(*const DYNAMIC_TIME_ZONE_INFORMATION, *const SYSTEMTIME, *mut SYSTEMTIME) -> i32;
 type FtConvFn = unsafe extern "system" fn(*const FILETIME, *mut FILETIME) -> i32;
@@ -283,6 +286,7 @@ static O_NTQST: OnceLock<NtqstFn> = OnceLock::new();
 static O_NTQSI: OnceLock<NtQsiFn> = OnceLock::new();
 static O_GTZI: OnceLock<TziFn> = OnceLock::new();
 static O_GDTZI: OnceLock<DtziFn> = OnceLock::new();
+static O_GTZIFY: OnceLock<TziForYearFn> = OnceLock::new();
 static O_STSL: OnceLock<StslFn> = OnceLock::new();
 static O_STSLEX: OnceLock<StslexFn> = OnceLock::new();
 static O_FTLFT: OnceLock<FtConvFn> = OnceLock::new();
@@ -972,6 +976,21 @@ unsafe fn process_created(handle: HANDLE) -> Option<u64> { unsafe {
     Some(ft_to_i64(created) as u64)
 }}
 
+/// The subsystem this process's executable was built for, from its own image headers, or 0 when they
+/// cannot be read. The loader maps the executable, headers first, before any library of the process runs,
+/// and the first page of a mapped image always holds them.
+///
+/// # Safety
+/// Called from `install`, inside `DllMain`, where the executable's module is mapped.
+unsafe fn own_subsystem() -> u32 { unsafe {
+    match GetModuleHandleW(PCWSTR::null()) {
+        Ok(module) if !module.is_invalid() => {
+            image_subsystem(core::slice::from_raw_parts(module.0 as *const u8, IMAGE_HEADER_SPAN))
+        }
+        _ => 0,
+    }
+}}
+
 /// Real (unbiased) monotonic anchor base - ADR-5. QUIT may be hooked for the duration
 /// axis, so prefer the trampoline (the real value) to keep our scaled output from
 /// feeding back into the anchor math. Before QUIT is hooked, call it directly.
@@ -1427,6 +1446,46 @@ unsafe extern "system" fn h_gdtzi(lp: *mut DYNAMIC_TIME_ZONE_INFORMATION) -> u32
         return 0; // TIME_ZONE_ID_UNKNOWN - the session zone has no DST
     }
     O_GDTZI.get().map(|o| o(lp)).unwrap_or(TIME_ZONE_ID_INVALID)
+}}
+
+/// Whether a dynamic zone the caller passed is the one `h_gdtzi` handed out, by its key name. Compared in
+/// place, without building a string, because a detour does not allocate.
+///
+/// # Safety
+/// `dtzi` must point to a readable `DYNAMIC_TIME_ZONE_INFORMATION`, aligned or not.
+unsafe fn names_session_zone(dtzi: *const DYNAMIC_TIME_ZONE_INFORMATION) -> bool { unsafe {
+    let key = core::ptr::read_unaligned(dtzi).TimeZoneKeyName;
+    let mut name = SESSION_ZONE_NAME.encode_utf16();
+    key.iter().all(|&unit| match name.next() {
+        Some(expected) => unit == expected,
+        None => unit == 0,
+    })
+}}
+
+// GetTimeZoneInformationForYear gives the rules a zone follows in one year: of the zone the caller names,
+// or of the current one when it names none. The Rust `chrono` crate reads the current zone this way and
+// no other, so its local time showed this machine's zone under every session (measured 2026-10-27: a
+// session at +05:30 printed +01:00). The current zone is the session's, the answer h_gtzi gives, in every
+// year, because the session zone has no daylight saving time. A zone named like the session's is the one
+// h_gdtzi handed out, which no registry knows and the original would fail on, so it gets the same answer.
+// Any other named zone is a question about a real zone, and goes through untouched.
+unsafe extern "system" fn h_gtzify(
+    year: u16,
+    dtzi: *const DYNAMIC_TIME_ZONE_INFORMATION,
+    tzi: *mut TIME_ZONE_INFORMATION,
+) -> i32 { unsafe {
+    bump(IDX_GTZIFY);
+    let o = match O_GTZIFY.get() {
+        Some(o) => o,
+        None => return 0,
+    };
+    if detached() || tzi.is_null() || !(dtzi.is_null() || names_session_zone(dtzi)) {
+        return o(year, dtzi, tzi);
+    }
+    let mut out = TIME_ZONE_INFORMATION { Bias: cur_tz_bias(), ..Default::default() };
+    set_wide(&mut out.StandardName, SESSION_ZONE_NAME);
+    core::ptr::write_unaligned(tzi, out);
+    1
 }}
 
 // SystemTimeToTzSpecificLocalTime converts a caller-supplied UTC to local. A NULL zone
@@ -3686,6 +3745,7 @@ unsafe fn make_wall_hooks(pending: &mut u64, k32: HMODULE, ntdll: HMODULE) { uns
     make_hook(pending, k32, ntdll, IDX_NTQSI, h_ntqsi as *const () as *mut c_void, &O_NTQSI);
     make_hook(pending, k32, ntdll, IDX_GTZI, h_gtzi as *const () as *mut c_void, &O_GTZI);
     make_hook(pending, k32, ntdll, IDX_GDTZI, h_gdtzi as *const () as *mut c_void, &O_GDTZI);
+    make_hook(pending, k32, ntdll, IDX_GTZIFY, h_gtzify as *const () as *mut c_void, &O_GTZIFY);
     make_hook(pending, k32, ntdll, IDX_STSL, h_stsl as *const () as *mut c_void, &O_STSL);
     make_hook(pending, k32, ntdll, IDX_STSLEX, h_stslex as *const () as *mut c_void, &O_STSLEX);
     make_hook(pending, k32, ntdll, IDX_FTLFT, h_ftlft as *const () as *mut c_void, &O_FTLFT);
@@ -3844,6 +3904,9 @@ unsafe fn install() -> Result<(), InstallError> { unsafe {
             // Which process this slot is, beyond a pid the system will hand out again once we are gone
             // (R4-N12). Before the pid is published, so the mechanism never reads one without the other.
             set_created(cptr, process_created(GetCurrentProcess()).unwrap_or(0));
+            // Whether this is a windowed or a console program, which lets the core tell a hand-off from a
+            // console tool that simply ended (ADR-4, 2026-10-27).
+            set_subsystem(cptr, own_subsystem());
             let _ = COV_PTR.set(cptr as usize);
             Some(cptr)
         }

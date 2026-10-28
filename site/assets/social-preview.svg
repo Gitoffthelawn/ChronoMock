@@ -78,7 +78,7 @@
     <text x="380" y="478">US + PL holidays</text>
 
     <rect x="80"  y="502" width="268" height="42" rx="21" fill="#181c22" stroke="#2d323d"/>
-    <text x="100" y="530">44 time channels audited</text>
+    <text x="100" y="530">45 time channels audited</text>
     <rect x="360" y="502" width="126" height="42" rx="21" fill="#181c22" stroke="#2d323d"/>
     <text x="380" y="530">GUI + CLI</text>
   </g>

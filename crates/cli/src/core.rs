@@ -113,6 +113,7 @@ pub(crate) fn core_mode() -> i32 {
     let elevated = chrono_mech::process_elevated(std::process::id()) == Some(true);
     let mut policy = PolicySession::start(&target, elevated);
     let mut launch = Launch::for_target(&target, elevated);
+    launch.env.extend(session_zone_variable(&target.path, spec.moment.tz_bias_min));
     launch.note_policy(&policy);
     let m_target = chrono_mech::Target {
         path: &target.path,
@@ -153,16 +154,18 @@ pub(crate) fn core_mode() -> i32 {
             // The parent's own coverage (its pid). Children that join later report
             // separately from run_session, each with its own pid and counts.
             emit_coverage(prepared.session.pid, &prepared.coverage, &runtime_warnings);
+            let mut ledger = SessionLedger::new(verdict);
 
             // Single-instance vanish (ADR-4): the target exited within the guard
             // window right after injection. Report it honestly with exit 12 rather
             // than trusting the install bits into a false verdict. A target that exited leaving a
             // process on the session clock running is a launcher, not a vanish: the session goes on
-            // for that process (ADR-16).
+            // for that process (ADR-16). A family of console programs that ended there did its work
+            // quickly, and its session ends the way any other does (2026-10-27).
             if let Some(lived_ms) = prepared.vanished_lived_ms
                 && !prepared.session.family_alive()
+                && let Some(reason_key) = vanish_reason_key(&mut prepared.session, &mut ledger)
             {
-                let reason_key = vanish_reason_key(&mut prepared.session);
                 emit(&Event::Vanished {
                     v: PROTOCOL_VERSION,
                     pid: prepared.session.pid,
@@ -213,7 +216,7 @@ pub(crate) fn core_mode() -> i32 {
             }
             // Enter the running session: heartbeat, answer queries, end on command,
             // EOF, or target exit.
-            run_session(prepared.session, verdict, reader, &launch, spec.scale_duration, policy)
+            run_session(prepared.session, ledger, reader, &launch, spec.scale_duration, policy)
         }
         Err(e) => {
             let (code, key, origin, detail) = map_prepare_error(e);
@@ -454,9 +457,12 @@ fn host_origin(session: &chrono_mech::Session, scale_duration: bool) -> ShimOrig
 
 /// Drive a running session: emit a ~1 s `state` heartbeat, answer `query`, and stop
 /// on `end`, on stdin EOF, or when the target exits. Returns the verdict's exit code.
+///
+/// `ledger` starts from the launched process's verdict, holding the children the guard window already
+/// named: the hook's ring names each child once.
 pub(crate) fn run_session(
     mut session: chrono_mech::Session,
-    verdict: Verdict,
+    mut ledger: SessionLedger,
     reader: BufReader<std::io::Stdin>,
     launch: &Launch,
     scale_duration: bool,
@@ -468,7 +474,6 @@ pub(crate) fn run_session(
 
     // Report any child that already joined during the guard window, before the first
     // heartbeat, so a fast child does not wait a whole second to appear.
-    let mut ledger = SessionLedger::new(verdict);
     ledger.poll(&mut session);
     // The bridge to the pages inside the application (docs/09 section 12): looks for an engine's
     // debugging port in the family from here on, inert when the channel is off. Its pages go on the
@@ -737,21 +742,55 @@ fn ended_before<S>(session: &mut S, alive: fn(&S) -> bool, then: impl FnOnce(&mu
     ended
 }
 
-/// Why a target vanished inside the guard window with nothing on the session clock left running.
-/// Asked only after the family was found gone, so a process it started is either one the hook never
-/// entered or none at all.
-fn vanish_reason_key(session: &mut chrono_mech::Session) -> &'static str {
-    let children = session.poll_uncovered_children();
-    vanish_reason(session.pid, &children, chrono_mech::process_is_alive)
+/// The variable that carries the session zone to a program built on the Rust `jiff` crate, or `None` for
+/// any other program. jiff finds the local zone by a name, and the session zone's name is in no table it
+/// carries, so without this it showed UTC under every session. `TZ` is the one thing it reads first
+/// (`pe::links_jiff`). Only for such a program: Node reads `TZ` too and turns a POSIX value into an
+/// unknown zone at +00:00 (measured 2026-10-27), so every other target keeps the environment it had.
+/// A `TZ` of the tester's own is replaced, because the session zone is the point of the session, and
+/// stderr says so.
+fn session_zone_variable(target_path: &str, bias: Option<i32>) -> Option<(String, String)> {
+    let bias = bias?;
+    if !crate::pe::links_jiff(std::path::Path::new(target_path)) {
+        return None;
+    }
+    let value = crate::zone::posix_tz(bias);
+    if let Some(own) = std::env::var_os("TZ").filter(|own| *own != *value) {
+        diag!("chrono core: TZ={} replaced by TZ={value} for this program, which reads its zone from TZ", own.to_string_lossy());
+    }
+    Some(("TZ".to_string(), value))
 }
 
-/// The reason for a vanish, from the children the hook could not enter: a hand-off when one the
-/// target started is still running, otherwise the single-instance suspicion ADR-4 was written for.
-fn vanish_reason(root: u32, children: &[UncoveredChild], alive: impl Fn(u32) -> bool) -> &'static str {
+/// Why a target vanished inside the guard window with nothing on the session clock left running, or
+/// `None` when it did not vanish but ended. Asked only after the family was found gone, so a process it
+/// started is either one the hook never entered or none at all.
+///
+/// The children this asks the hook's ring about go into `ledger` either way. The ring names each child
+/// once, and a family that ended without vanishing goes on to its report, which has to name them.
+fn vanish_reason_key(session: &mut chrono_mech::Session, ledger: &mut SessionLedger) -> Option<&'static str> {
+    let children = session.poll_uncovered_children();
+    let reason = vanish_reason(session.pid, &children, chrono_mech::process_is_alive, session.family_only_console());
+    ledger.take_ring_children(children);
+    reason
+}
+
+/// The reason for a vanish, from the children the hook could not enter and from what the family was: a
+/// hand-off when one the target started is still running, whatever the family was, because that child
+/// runs on the real clock. Otherwise the single-instance suspicion ADR-4 was written for, which needs a
+/// windowed program in the family (owner decision 2026-10-27, `Session::family_only_console`): a console
+/// tool that did its work in a few milliseconds used to be reported as a session that never took effect.
+fn vanish_reason(
+    root: u32,
+    children: &[UncoveredChild],
+    alive: impl Fn(u32) -> bool,
+    only_console: bool,
+) -> Option<&'static str> {
     if children.iter().any(|c| c.parent_pid == root && alive(c.pid)) {
-        KEY_HANDED_OFF_UNCOVERED
+        Some(KEY_HANDED_OFF_UNCOVERED)
+    } else if only_console {
+        None
     } else {
-        "target.single_instance_suspected"
+        Some("target.single_instance_suspected")
     }
 }
 
@@ -1951,10 +1990,23 @@ mod tests {
     #[test]
     fn a_vanish_that_left_an_uncovered_program_running_is_a_hand_off() {
         let child = |pid, parent_pid| UncoveredChild { pid, parent_pid, image: None, command_line: None };
-        assert_eq!(vanish_reason(10, &[child(11, 10)], |_| true), KEY_HANDED_OFF_UNCOVERED);
+        assert_eq!(vanish_reason(10, &[child(11, 10)], |_| true, false), Some(KEY_HANDED_OFF_UNCOVERED));
         // Ended already, started by another process of the family, or nothing started at all.
-        assert_eq!(vanish_reason(10, &[child(11, 10)], |_| false), "target.single_instance_suspected");
-        assert_eq!(vanish_reason(10, &[child(12, 11)], |_| true), "target.single_instance_suspected");
-        assert_eq!(vanish_reason(10, &[], |_| true), "target.single_instance_suspected");
+        let suspected = Some("target.single_instance_suspected");
+        assert_eq!(vanish_reason(10, &[child(11, 10)], |_| false, false), suspected);
+        assert_eq!(vanish_reason(10, &[child(12, 11)], |_| true, false), suspected);
+        assert_eq!(vanish_reason(10, &[], |_| true, false), suspected);
+    }
+
+    /// ADR-4, owner decision 2026-10-27. A family of console programs that ended inside the guard window
+    /// is not a vanish - measured on four console tools that wrote the session's date and were told the
+    /// session never took effect. A hand-off to an uncovered program still is, whatever the family was,
+    /// because that program runs on the real clock.
+    #[test]
+    fn a_family_of_console_programs_that_ended_quickly_did_not_vanish() {
+        let child = |pid, parent_pid| UncoveredChild { pid, parent_pid, image: None, command_line: None };
+        assert_eq!(vanish_reason(10, &[], |_| true, true), None);
+        assert_eq!(vanish_reason(10, &[child(11, 10)], |_| false, true), None, "its uncovered child ended too");
+        assert_eq!(vanish_reason(10, &[child(11, 10)], |_| true, true), Some(KEY_HANDED_OFF_UNCOVERED));
     }
 }

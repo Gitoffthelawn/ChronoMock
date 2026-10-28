@@ -238,7 +238,15 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "runs Windows PowerShell twice, once alone as the control and once under a session through \
          the built binary, with a probe script that compiles its one declaration using the C# \
          compiler the .NET Framework ships with and writes the zone it read to a scratch file. \
-         Neither reaches past this machine",
+         It also runs its own test binary under a session to read the TZ it was given. Nothing \
+         reaches past this machine",
+    ),
+    (
+        "crates/cli/tests/quick_exit.rs",
+        "spawn",
+        "runs the built binary three times, each time with a program from the system folder that \
+         ends at once: the command interpreter told to exit, the same interpreter starting its 32-bit \
+         copy told to exit, and rundll32 with nothing to run. None reaches past this machine",
     ),
     (
         "crates/cli/tests/duration_axis.rs",
